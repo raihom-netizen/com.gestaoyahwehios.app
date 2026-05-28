@@ -462,7 +462,7 @@ class DashboardPage extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF2F4FA),
-      bottomNavigationBar: const VersionFooter(),
+      bottomNavigationBar: const VersionFooter(showBuildNumber: true),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: openQuickCreate,
         icon: const Icon(Icons.add_rounded),

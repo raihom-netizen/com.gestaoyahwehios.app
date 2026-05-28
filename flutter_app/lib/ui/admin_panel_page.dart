@@ -1078,7 +1078,7 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
                         ],
                       ),
                     ),
-                    const VersionFooter(),
+                    const VersionFooter(showBuildNumber: true),
                   ],
                 ),
               ),

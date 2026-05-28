@@ -135,7 +135,7 @@ class _ChurchPanelAppUpdateBannerState extends State<ChurchPanelAppUpdateBanner>
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Versão instalada: $appVersionLabel · Loja: v${hint.targetVersion}',
+                                    'Versão instalada: $appVersionPanelLabel · Loja: v${hint.targetVersion}',
                                     style: TextStyle(
                                       fontSize: 11,
                                       color: Colors.grey.shade600,

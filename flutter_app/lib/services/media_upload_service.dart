@@ -111,7 +111,7 @@ class MediaUploadService {
     /// JPEG do chat: preset mais leve (menos CPU + menos bytes → upload mais rápido).
     bool chatJpegFast = false,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     final trace = _uploadTraceName(
       contentType: contentType,
       chatJpegFast: chatJpegFast,

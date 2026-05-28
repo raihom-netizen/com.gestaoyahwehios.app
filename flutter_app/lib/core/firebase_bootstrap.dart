@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:gestao_yahweh/firebase_options.dart';
 
@@ -21,6 +23,25 @@ bool _hasDefaultFirebaseApp() {
 }
 
 Future<void> ensureFirebaseInitialized() async {
+  Object? last;
+  for (var attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await _ensureFirebaseInitializedOnce();
+      return;
+    } catch (e) {
+      last = e;
+      _initFuture = null;
+      if (attempt >= 3) break;
+      await Future.delayed(Duration(milliseconds: 320 * attempt));
+    }
+  }
+  throw last ??
+      StateError(
+        'Firebase não inicializou. Reinicie o app ou atualize para a versão mais recente.',
+      );
+}
+
+Future<void> _ensureFirebaseInitializedOnce() async {
   if (_hasDefaultFirebaseApp()) return;
 
   if (_initFuture != null) {
@@ -43,6 +64,25 @@ Future<void> ensureFirebaseInitialized() async {
     throw StateError(
       'Firebase não inicializou. Reinicie o app ou atualize para a versão mais recente.',
     );
+  }
+}
+
+/// Upload mural/chat: confirma Storage/Auth após [ensureFirebaseInitialized].
+Future<void> ensureFirebaseReadyForMediaUpload() async {
+  await ensureFirebaseInitialized();
+  try {
+    FirebaseStorage.instance.ref('_bootstrap_ping').fullPath;
+    final _ = FirebaseAuth.instance.app;
+  } catch (e) {
+    final low = e.toString().toLowerCase();
+    if (low.contains('no firebase app') ||
+        low.contains('firebase.initializeapp')) {
+      _initFuture = null;
+      await _ensureFirebaseInitializedOnce();
+      FirebaseStorage.instance.ref('_bootstrap_ping').fullPath;
+    } else {
+      rethrow;
+    }
   }
 }
 

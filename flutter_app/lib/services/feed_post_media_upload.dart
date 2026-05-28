@@ -15,7 +15,7 @@ abstract final class FeedPostMediaUpload {
 
   /// Um refresh de token antes do lote — evita N× `getIdToken(true)` por foto.
   static Future<void> warmAuthToken() async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     try {
       await FirebaseAuth.instance.currentUser
           ?.getIdToken(true)

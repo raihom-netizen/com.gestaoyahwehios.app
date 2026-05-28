@@ -18,7 +18,7 @@ Future<String> uploadStoragePutDataWithRetry({
   void Function(double progress)? onProgress,
   void Function(UploadTask task)? onTaskStarted,
 }) async {
-  await ensureFirebaseInitialized();
+  await ensureFirebaseReadyForMediaUpload();
   Object? lastError;
   for (var attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -59,7 +59,7 @@ Future<String> uploadStoragePutFileWithRetry({
   void Function(double progress)? onProgress,
   void Function(UploadTask task)? onTaskStarted,
 }) async {
-  await ensureFirebaseInitialized();
+  await ensureFirebaseReadyForMediaUpload();
   final byteLen = await file.length();
   Object? lastError;
   for (var attempt = 1; attempt <= maxAttempts; attempt++) {

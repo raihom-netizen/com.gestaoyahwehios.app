@@ -111,7 +111,7 @@ class ChurchChatService {
         .collection('chat_threads')
         .where('participantUids', arrayContains: uid)
         .orderBy('lastMessageAt', descending: true)
-        .limit(220);
+        .limit(400);
   }
 
   /// Varredura ampla (regras devolvem DM legíveis pelo id `dm_{uid}_…` mesmo sem índice).
@@ -120,12 +120,31 @@ class ChurchChatService {
         .collection('igrejas')
         .doc(tenantId)
         .collection('chat_threads')
-        .limit(320);
+        .limit(480);
   }
 
   static bool userInDmThreadId(String threadId, String uid) {
     if (!threadId.startsWith('dm_') || uid.isEmpty) return false;
     return threadId.startsWith('dm_${uid}_') || threadId.endsWith('_$uid');
+  }
+
+  /// DM só entra na lista «Conversas» depois da primeira mensagem real (evita «Toque para conversar» de quem nunca falou).
+  static bool threadHasListableConversation(
+    Map<String, dynamic> data, {
+    String? threadId,
+  }) {
+    final id = (threadId ?? '').trim();
+    if (id.startsWith('dept_') ||
+        (data['type'] ?? '').toString() == 'department') {
+      return true;
+    }
+    final preview = (data['lastMessagePreview'] ?? '').toString().trim();
+    if (preview.isNotEmpty) return true;
+    final sender = (data['lastSenderUid'] ?? '').toString().trim();
+    if (sender.isNotEmpty) return true;
+    final mc = data['messageCount'];
+    if (mc is num && mc > 0) return true;
+    return false;
   }
 
   static Map<String, dynamic>? dmThreadIndexPatch(
@@ -147,10 +166,7 @@ class ChurchChatService {
         current.map((e) => e.toString()).contains(u2);
     if (!hasBoth) patch['participantUids'] = [u1, u2];
     if (data['type'] != 'dm') patch['type'] = 'dm';
-    if (data['lastMessageAt'] == null) {
-      patch['lastMessageAt'] =
-          data['updatedAt'] ?? data['createdAt'] ?? FieldValue.serverTimestamp();
-    }
+    // lastMessageAt só a partir de mensagem real — não usar createdAt (senão DM vazio ocupa o top-220).
     return patch.isEmpty ? null : patch;
   }
 
@@ -184,7 +200,14 @@ class ChurchChatService {
     var batchCount = 0;
     for (final doc in snap.docs) {
       if (!doc.id.startsWith('dm_')) continue;
-      final patch = dmThreadIndexPatch(doc.id, doc.data());
+      final data = doc.data();
+      var patch = dmThreadIndexPatch(doc.id, data);
+      if (!threadHasListableConversation(data, threadId: doc.id) &&
+          data['lastMessageAt'] != null) {
+        patch ??= <String, dynamic>{};
+        patch['lastMessageAt'] = FieldValue.delete();
+        patch['lastMessagePreview'] = FieldValue.delete();
+      }
       if (patch == null) continue;
       batch!.set(doc.reference, patch, SetOptions(merge: true));
       batchCount++;
@@ -238,17 +261,22 @@ class ChurchChatService {
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
     String uid,
   ) {
-    final t = (doc.data()['type'] ?? '').toString();
+    final data = doc.data();
+    final t = (data['type'] ?? '').toString();
     if (t == 'department' || doc.id.startsWith('dept_')) return false;
-    if (t == 'dm' || doc.id.startsWith('dm_')) {
-      final parts = doc.data()['participantUids'];
-      if (parts is List && parts.map((e) => e.toString()).contains(uid)) {
-        return true;
+    final inThread = () {
+      if (t == 'dm' || doc.id.startsWith('dm_')) {
+        final parts = data['participantUids'];
+        if (parts is List && parts.map((e) => e.toString()).contains(uid)) {
+          return true;
+        }
+        return userInDmThreadId(doc.id, uid);
       }
-      return userInDmThreadId(doc.id, uid);
-    }
-    final parts = doc.data()['participantUids'];
-    return parts is List && parts.map((e) => e.toString()).contains(uid);
+      final parts = data['participantUids'];
+      return parts is List && parts.map((e) => e.toString()).contains(uid);
+    }();
+    if (!inThread) return false;
+    return threadHasListableConversation(data, threadId: doc.id);
   }
 
   /// Stream de conversas: query indexada + varredura ampla (DM legados) fundidas.
@@ -886,8 +914,6 @@ class ChurchChatService {
         'titlesByUid': {uidA: titleA, uidB: titleB},
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-        'lastMessageAt': FieldValue.serverTimestamp(),
-        'lastMessagePreview': '',
       },
       SetOptions(merge: true),
     );
@@ -1370,6 +1396,40 @@ class ChurchChatService {
       }
     }
     return true;
+  }
+
+  /// Android/iOS: rede instável pode falhar o `update` após o Storage já ter recebido o ficheiro.
+  static Future<bool> completeMediaUploadMessageWithRetry({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+    required String downloadUrl,
+    required String storagePath,
+    String? fileName,
+    String? thumbUrl,
+    int maxAttempts = 5,
+  }) async {
+    Object? last;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await completeMediaUploadMessage(
+          tenantId: tenantId,
+          threadId: threadId,
+          messageId: messageId,
+          downloadUrl: downloadUrl,
+          storagePath: storagePath,
+          fileName: fileName,
+          thumbUrl: thumbUrl,
+        );
+      } catch (e) {
+        last = e;
+        if (attempt >= maxAttempts) break;
+        await Future.delayed(
+          Duration(milliseconds: 280 * attempt),
+        );
+      }
+    }
+    throw last ?? StateError('Não foi possível concluir o envio no servidor.');
   }
 
   /// Atualiza progresso no stub (regras: só `uploadProgress` enquanto `uploading`).

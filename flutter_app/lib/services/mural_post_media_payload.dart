@@ -136,6 +136,7 @@ abstract final class MuralPostMediaPayload {
     void Function(double progress)? onProgress,
     String? localPath,
   }) async {
+    await ensureFirebaseReadyForMediaUpload();
     if (IosPublishImagePipeline.useIosLightweightPublish) {
       try {
         return await IosPublishImagePipeline.uploadFeedPhotoSlot(

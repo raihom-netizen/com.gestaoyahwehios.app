@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
+import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
 
 /// Organograma ministerial: cargos de liderança (diferente de «líderes de departamento» no painel).
 class LiderancaPage extends StatefulWidget {
@@ -229,29 +230,27 @@ class _LiderancaPageState extends State<LiderancaPage> {
       );
     }
 
-    final canPop = Navigator.canPop(context);
     final isMobile = ThemeCleanPremium.isMobile(context);
 
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
-        leading: canPop
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back_rounded),
-                onPressed: () => Navigator.maybePop(context),
-                tooltip: 'Voltar',
-              )
-            : null,
-        automaticallyImplyLeading: canPop,
+        leadingWidth: 64,
+        leading: YahwehSuperPremiumBackButton.appBarLeading(context),
+        automaticallyImplyLeading: false,
         title: const Text(
           'Organograma ministerial',
-          style: TextStyle(fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.2,
+          ),
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: ThemeCleanPremium.onSurface,
+        backgroundColor: ThemeCleanPremium.primary,
+        foregroundColor: Colors.white,
         elevation: 0,
-        scrolledUnderElevation: 0,
+        scrolledUnderElevation: 0.5,
         surfaceTintColor: Colors.transparent,
+        iconTheme: const IconThemeData(color: Colors.white, size: 24),
       ),
       body: SafeArea(
         top: false,

@@ -155,7 +155,7 @@
 /// 11.2.295+1609: Mídia rápida — preview imediato avisos/eventos; chat foto auto-envio;
 /// vídeo 90s (chat + eventos); FAB novo aviso; vídeo hospedado no mural.
 const String appVersion = '11.2.295';
-const String appBuildNumber = '1626';
+const String appBuildNumber = '1629';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,
@@ -223,7 +223,10 @@ const String appBuildNumber = '1626';
 /// Igual ao pubspec sem prefixo (ex.: 11.2.293+1447).
 const String appVersionFull = '$appVersion+$appBuildNumber';
 
-/// Labels for footer and installed-version texts.
+/// Rodapé do painel igreja (iPhone/Android/web) — só marketing, sem +build.
+const String appVersionPanelLabel = 'v$appVersion';
+
+/// Labels com build (configurações do app, painel admin master, update checker interno).
 const String appVersionLabel = 'v$appVersion+$appBuildNumber';
 
 

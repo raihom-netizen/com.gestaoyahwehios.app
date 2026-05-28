@@ -3,7 +3,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
@@ -11,7 +12,6 @@ import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
-import 'package:gestao_yahweh/core/network_media_quality_policy.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
@@ -29,6 +29,17 @@ abstract final class MuralFastPublishService {
   static const String stateDraft = 'draft';
 
   static const Duration _batchTimeout = Duration(minutes: 12);
+
+  static int _feedUploadConcurrency(int photoCount) {
+    if (photoCount <= 1) return 1;
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return photoCount >= 3 ? 2 : photoCount;
+    }
+    if (IosPublishImagePipeline.useNativeFastFeedUpload) {
+      return mediaFeedUploadMaxConcurrent.clamp(1, photoCount);
+    }
+    return photoCount.clamp(1, 4);
+  }
 
   /// Após stub no Firestore: cache local + outbox + upload (não bloquear fecho do editor).
   static void scheduleBackgroundImageFinalize({
@@ -55,6 +66,7 @@ abstract final class MuralFastPublishService {
     Future<void> Function()? onPublished,
   }) {
     unawaited(Future<void>(() async {
+      await ensureFirebaseReadyForMediaUpload();
       try {
         await MuralPostPendingMediaCache.put(
           tenantId: tenantId,
@@ -111,26 +123,8 @@ abstract final class MuralFastPublishService {
     Future<void> Function()? onPublished,
   }) {
     unawaited(Future<void>(() async {
+      await ensureFirebaseReadyForMediaUpload();
       try {
-        final preview = <Uint8List>[];
-        for (final p in localPaths) {
-          final f = File(p);
-          if (!await f.exists()) continue;
-          if (IosPublishImagePipeline.useIosLightweightPublish) {
-            preview.add(
-              await IosPublishImagePipeline.compressForPublishFromPath(p),
-            );
-          } else {
-            preview.add(await f.readAsBytes());
-          }
-        }
-        if (preview.isNotEmpty) {
-          await MuralPostPendingMediaCache.put(
-            tenantId: tenantId,
-            postId: postId,
-            images: preview,
-          );
-        }
         await MuralPublishOutboxService.registerJob(
           tenantId: tenantId,
           postId: postId,
@@ -138,7 +132,38 @@ abstract final class MuralFastPublishService {
           existingUrls: existingUrls,
           startSlotIndex: startSlotIndex,
           hasVideo: hasVideo,
+          localPaths: localPaths,
         );
+        // Pré-visualização leve (1ª foto) — evita comprimir 4× antes do upload no Android.
+        String? firstPath;
+        for (final p in localPaths) {
+          final t = p.trim();
+          if (t.isNotEmpty) {
+            firstPath = t;
+            break;
+          }
+        }
+        if (firstPath != null) {
+          final f = File(firstPath);
+          if (await f.exists()) {
+            Uint8List previewBytes;
+            if (IosPublishImagePipeline.useIosLightweightPublish) {
+              previewBytes =
+                  await IosPublishImagePipeline.compressForPublishFromPath(
+                firstPath,
+              );
+            } else {
+              previewBytes = await f.readAsBytes();
+            }
+            if (previewBytes.isNotEmpty) {
+              await MuralPostPendingMediaCache.put(
+                tenantId: tenantId,
+                postId: postId,
+                images: [previewBytes],
+              );
+            }
+          }
+        }
       } catch (_) {}
       await uploadImagesAndFinalizePostFromPaths(
         docRef: docRef,
@@ -180,13 +205,11 @@ abstract final class MuralFastPublishService {
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     try {
       await FeedPostMediaUpload.warmAuthToken().timeout(const Duration(seconds: 25));
       Map<String, dynamic>? firstVariants;
-      final maxConc = IosPublishImagePipeline.useNativeFastFeedUpload
-          ? mediaFeedUploadMaxConcurrent
-          : await NetworkMediaQualityPolicy.maxConcurrentUploads();
+      final maxConc = _feedUploadConcurrency(newImages.length);
       final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
         count: newImages.length,
         maxConcurrent: maxConc,
@@ -261,7 +284,7 @@ abstract final class MuralFastPublishService {
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     if (kIsWeb) {
       throw StateError('uploadImagesAndFinalizePostFromPaths só no mobile.');
     }
@@ -282,11 +305,10 @@ abstract final class MuralFastPublishService {
       Map<String, dynamic>? firstVariants;
       final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
         count: paths.length,
-        maxConcurrent: IosPublishImagePipeline.useNativeFastFeedUpload
-            ? mediaFeedUploadMaxConcurrent
-            : null,
+        maxConcurrent: _feedUploadConcurrency(paths.length),
         progressLabel: 'A enviar imagens…',
         uploadOne: (i, report) async {
+          await ensureFirebaseReadyForMediaUpload();
           final r = await MuralPostMediaPayload.uploadPhotoSlotWithVariants(
             tenantId: tenantId,
             postType: postType,
@@ -372,7 +394,20 @@ abstract final class MuralFastPublishService {
     patch['pendingImageCount'] = FieldValue.delete();
     patch['publishError'] = FieldValue.delete();
     patch['updatedAt'] = FieldValue.serverTimestamp();
-    await docRef.set(patch, SetOptions(merge: true));
+    Object? lastFinalize;
+    for (var attempt = 1; attempt <= 5; attempt++) {
+      try {
+        await ensureFirebaseReadyForMediaUpload();
+        await docRef.set(patch, SetOptions(merge: true));
+        lastFinalize = null;
+        break;
+      } catch (e) {
+        lastFinalize = e;
+        if (attempt >= 5) rethrow;
+        await Future.delayed(Duration(milliseconds: 300 * attempt));
+      }
+    }
+    if (lastFinalize != null) throw lastFinalize;
     await MuralPostPendingMediaCache.remove(
       tenantId: tenantId,
       postId: postId,
@@ -404,12 +439,19 @@ abstract final class MuralFastPublishService {
     String url,
   ) async {
     if (url.trim().isEmpty) return;
-    try {
-      await docRef.update({
-        'imageUrls': FieldValue.arrayUnion([url]),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (_) {}
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await ensureFirebaseReadyForMediaUpload();
+        await docRef.update({
+          'imageUrls': FieldValue.arrayUnion([url]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return;
+      } catch (_) {
+        if (attempt >= 3) return;
+        await Future.delayed(Duration(milliseconds: 200 * attempt));
+      }
+    }
   }
 
   static Future<void> _markFailed({
@@ -419,15 +461,22 @@ abstract final class MuralFastPublishService {
     final userMsg = message.trim().isEmpty
         ? 'Não foi possível enviar as fotos. Toque em «Tentar de novo».'
         : message;
-    try {
-      await docRef.set(
-        {
-          'publishState': stateFailed,
-          'publishError':
-              userMsg.length > 400 ? userMsg.substring(0, 400) : userMsg,
-        },
-        SetOptions(merge: true),
-      );
-    } catch (_) {}
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await ensureFirebaseReadyForMediaUpload();
+        await docRef.set(
+          {
+            'publishState': stateFailed,
+            'publishError':
+                userMsg.length > 400 ? userMsg.substring(0, 400) : userMsg,
+          },
+          SetOptions(merge: true),
+        );
+        return;
+      } catch (_) {
+        if (attempt >= 3) return;
+        await Future.delayed(Duration(milliseconds: 200 * attempt));
+      }
+    }
   }
 }

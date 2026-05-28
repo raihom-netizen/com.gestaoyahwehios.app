@@ -38,6 +38,7 @@ abstract final class MuralPublishOutboxService {
     required List<String> existingUrls,
     required int startSlotIndex,
     required bool hasVideo,
+    List<String>? localPaths,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_prefsKey);
@@ -49,6 +50,11 @@ abstract final class MuralPublishOutboxService {
           (e['tenantId'] ?? '').toString() == tenantId &&
           (e['postId'] ?? '').toString() == postId,
     );
+    final paths = localPaths
+            ?.map((p) => p.trim())
+            .where((p) => p.isNotEmpty)
+            .toList() ??
+        const <String>[];
     list.add({
       'tenantId': tenantId,
       'postId': postId,
@@ -56,6 +62,7 @@ abstract final class MuralPublishOutboxService {
       'existingUrls': existingUrls,
       'startSlotIndex': startSlotIndex,
       'hasVideo': hasVideo,
+      if (paths.isNotEmpty) 'localPaths': paths,
     });
     await prefs.setString(_prefsKey, jsonEncode(list));
   }
@@ -120,6 +127,7 @@ abstract final class MuralPublishOutboxService {
   }
 
   static Future<void> _retryFromJson(Map<String, dynamic> json) async {
+    await ensureFirebaseInitialized();
     final tenantId = (json['tenantId'] ?? '').toString();
     final postId = (json['postId'] ?? '').toString();
     final postType = (json['postType'] ?? 'aviso').toString();
@@ -129,9 +137,14 @@ abstract final class MuralPublishOutboxService {
       tenantId: tenantId,
       postId: postId,
     );
+    final localPaths = (json['localPaths'] as List?)
+            ?.map((e) => e.toString().trim())
+            .where((p) => p.isNotEmpty)
+            .toList() ??
+        const <String>[];
     final docRef = _docRef(tenantId, postType, postId);
     final snap = await docRef.get();
-    if (images == null || images.isEmpty) {
+    if ((images == null || images.isEmpty) && localPaths.isEmpty) {
       final state = (snap.data()?['publishState'] ?? '').toString();
       if (state == MuralFastPublishService.stateUploading) {
         await docRef.set(
@@ -182,12 +195,44 @@ abstract final class MuralPublishOutboxService {
       SetOptions(merge: true),
     );
 
+    final buildMedia =
+        ({required allUrls, required aspectRatio, required hasVideo}) =>
+            MuralPostMediaPayload.buildMediaFields(
+      allUrls: allUrls,
+      aspectRatio: aspectRatio,
+      hasVideo: hasVideo,
+    );
+
+    if (localPaths.isNotEmpty) {
+      await MuralFastPublishService.uploadImagesAndFinalizePostFromPaths(
+        docRef: docRef,
+        tenantId: tenantId,
+        postId: postId,
+        postType: postType,
+        localPaths: localPaths,
+        existingUrls: existingUrls,
+        startSlotIndex: startSlot,
+        hasVideo: hasVideo,
+        uploadSlot: (bytes, slot, report) =>
+            MuralPostMediaPayload.uploadPhotoSlot(
+          tenantId: tenantId,
+          postType: postType,
+          postId: postId,
+          bytes: bytes,
+          slotIndex: slot,
+          onProgress: report,
+        ),
+        buildMediaFields: buildMedia,
+      );
+      return;
+    }
+
     await MuralFastPublishService.uploadImagesAndFinalizePost(
       docRef: docRef,
       tenantId: tenantId,
       postId: postId,
       postType: postType,
-      newImages: images,
+      newImages: images!,
       existingUrls: existingUrls,
       startSlotIndex: startSlot,
       hasVideo: hasVideo,
@@ -199,12 +244,7 @@ abstract final class MuralPublishOutboxService {
         slotIndex: slot,
         onProgress: report,
       ),
-      buildMediaFields: ({required allUrls, required aspectRatio, required hasVideo}) =>
-          MuralPostMediaPayload.buildMediaFields(
-        allUrls: allUrls,
-        aspectRatio: aspectRatio,
-        hasVideo: hasVideo,
-      ),
+      buildMediaFields: buildMedia,
     );
   }
 }

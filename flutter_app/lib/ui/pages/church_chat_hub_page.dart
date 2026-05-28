@@ -1515,6 +1515,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 for (final doc in dmDocs) {
                   final isDept = _docIsDepartmentThread(doc);
                   final data = doc.data();
+                  if (!isDept &&
+                      !ChurchChatService.threadHasListableConversation(
+                        data,
+                        threadId: doc.id,
+                      )) {
+                    continue;
+                  }
                   if (!isDept && prefs.isHiddenDmThread(doc.id)) continue;
                   final archived = prefs.isArchived(doc.id);
                   if (_conversasFilter == _HubConversasFilter.archived) {

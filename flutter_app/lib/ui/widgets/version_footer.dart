@@ -14,6 +14,8 @@ const String kVersiculoRef = 'Provérbios 16:3';
 class VersionFooter extends StatelessWidget {
   final bool showVersion;
   final String? versionLabel;
+  /// `false` no painel igreja (só `11.2.295`). `true` no painel admin / controlo interno.
+  final bool showBuildNumber;
   final bool showLegalLinks;
   final String cnpjLabel;
 
@@ -37,6 +39,7 @@ class VersionFooter extends StatelessWidget {
     super.key,
     this.showVersion = true,
     this.versionLabel,
+    this.showBuildNumber = false,
     this.showLegalLinks = true,
     this.cnpjLabel = 'CNPJ: não informado',
     this.safeAreaBottom = true,
@@ -55,7 +58,9 @@ class VersionFooter extends StatelessWidget {
     final verseSize = isNarrow ? 9.5 : 10.0;
     final metaSize = isNarrow ? 8.5 : 9.0;
     final versionStr = versionLabel ??
-        (appVersionLabel.isNotEmpty ? appVersionLabel : 'v$appVersion');
+        (showBuildNumber
+            ? (appVersionLabel.isNotEmpty ? appVersionLabel : 'v$appVersion')
+            : appVersionPanelLabel);
 
     final metaStyle = TextStyle(fontSize: metaSize, color: Colors.grey[600]);
     final linkStyle = TextStyle(

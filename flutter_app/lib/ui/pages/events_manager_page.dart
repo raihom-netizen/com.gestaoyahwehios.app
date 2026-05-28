@@ -66,6 +66,8 @@ import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
+import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
+import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -226,7 +228,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   Future<void> _novoEvento(
       {DocumentSnapshot<Map<String, dynamic>>? doc}) async {
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3744,6 +3746,11 @@ class _EventoPostState extends State<_EventoPost>
       }
     }
     final hasVideoRow = useHostedPlayer || externalLaunchUrl.isNotEmpty;
+    final publishState = (data['publishState'] ?? '').toString();
+    final mediaUploading =
+        publishState == MuralFastPublishService.stateUploading;
+    final publishFailed = publishState == MuralFastPublishService.stateFailed;
+    final publishError = (data['publishError'] ?? '').toString();
 
     DateTime? eventDt;
     try {
@@ -3835,6 +3842,156 @@ class _EventoPostState extends State<_EventoPost>
         Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if ((mediaUploading || publishFailed) && !hasImages)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                child: FutureBuilder<List<Uint8List>?>(
+                  future: MuralPostPendingMediaCache.get(
+                    tenantId: widget.tenantId,
+                    postId: widget.doc.id,
+                  ),
+                  builder: (context, pendingSnap) {
+                    final pending = pendingSnap.data;
+                    if (pending != null && pending.isNotEmpty) {
+                      return AspectRatio(
+                        aspectRatio: 4 / 3,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Image.memory(pending.first, fit: BoxFit.cover),
+                              if (mediaUploading)
+                                Align(
+                                  alignment: Alignment.bottomCenter,
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 8,
+                                      horizontal: 12,
+                                    ),
+                                    color: Colors.black.withValues(alpha: 0.45),
+                                    child: const Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'A publicar fotos…',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    if (publishFailed) {
+                      return AspectRatio(
+                        aspectRatio: 4 / 3,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(20),
+                          child: ColoredBox(
+                            color: ThemeCleanPremium.error
+                                .withValues(alpha: 0.06),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.cloud_off_rounded,
+                                    color: ThemeCleanPremium.error,
+                                    size: 32,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    publishError.isNotEmpty
+                                        ? publishError
+                                        : 'Falha ao publicar fotos.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color:
+                                          ThemeCleanPremium.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  if (widget.canWrite) ...[
+                                    const SizedBox(height: 10),
+                                    FilledButton.tonal(
+                                      onPressed: () {
+                                        unawaited(
+                                          MuralPublishOutboxService
+                                              .retryFromCard(
+                                            tenantId: widget.tenantId,
+                                            postId: widget.doc.id,
+                                            postType: 'evento',
+                                            existingUrls: allImages,
+                                            startSlotIndex: allImages.length,
+                                            hasVideo: hasVideoRow,
+                                          ),
+                                        );
+                                      },
+                                      child: const Text('Tentar de novo'),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+                    return AspectRatio(
+                      aspectRatio: 4 / 3,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(color: const Color(0xFFF8FAFC)),
+                            const Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SizedBox(
+                                  width: 28,
+                                  height: 28,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                  ),
+                                ),
+                                SizedBox(height: 10),
+                                Text(
+                                  'A publicar fotos…',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
             if (hasImages)
               GestureDetector(
                 onDoubleTap: widget.selectionMode ? null : _onDoubleTap,
@@ -5842,7 +5999,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
       final remaining =
           (_maxPhotosPerEvent - totalAtual).clamp(1, _maxPhotosPerEvent);
       await MediaHandlerService.instance.pickMultiCropEncodeFeedWebpFromGallery(
@@ -5884,7 +6041,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
         webCropContext: context,
@@ -6019,7 +6176,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       return;
     }
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
       final snap = await _eventDocRef.get();
       final existing = _eventVideosFromData(snap.data() ?? {});
       if (existing.length >= _maxVideosPerEvent) {
@@ -6383,6 +6540,22 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _save() async {
     if (_saving) return;
+    if (_uploadingVideo) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Aguarde o envio do vídeo terminar antes de publicar.',
+        ),
+      );
+      return;
+    }
+    if (_mediaPicking) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Aguarde a preparação das fotos terminar.',
+        ),
+      );
+      return;
+    }
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Informe o título.')));
@@ -6390,7 +6563,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _saving = true);
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
@@ -6460,7 +6633,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           _schedulePostPublishCacheWarmup();
           unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
+            ThemeCleanPremium.successSnackBar(
+              'Evento criado — a enviar fotos em segundo plano',
+            ),
           );
           Navigator.pop(context, true);
         }
@@ -6692,7 +6867,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _saving = true);
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
@@ -6928,7 +7103,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   Expanded(
                     flex: 2,
                     child: FilledButton.icon(
-                      onPressed: _saving ? null : _save,
+                      onPressed: (_saving || _uploadingVideo || _mediaPicking)
+                          ? null
+                          : _save,
                       icon: _saving
                           ? const SizedBox(
                               width: 20,

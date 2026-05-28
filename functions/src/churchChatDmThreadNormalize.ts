@@ -15,31 +15,39 @@ export function parseDmThreadParticipants(threadId: string): [string, string] | 
   return [u1, u2];
 }
 
-async function lastMessageAtForThread(
+async function lastMessageFromMessages(
   threadRef: FirebaseFirestore.DocumentReference,
-  data: FirebaseFirestore.DocumentData,
-): Promise<FirebaseFirestore.Timestamp | FirebaseFirestore.FieldValue> {
-  if (data.lastMessageAt) {
-    return data.lastMessageAt as FirebaseFirestore.Timestamp;
-  }
+): Promise<{
+  at: FirebaseFirestore.Timestamp | null;
+  preview: string;
+  senderUid: string;
+} | null> {
   try {
     const last = await threadRef
       .collection("messages")
       .orderBy("createdAt", "desc")
       .limit(1)
       .get();
-    if (!last.empty) {
-      const created = last.docs[0].data().createdAt;
-      if (created) return created as FirebaseFirestore.Timestamp;
-    }
+    if (last.empty) return null;
+    const msg = last.docs[0].data();
+    const created = msg.createdAt as FirebaseFirestore.Timestamp | undefined;
+    if (!created) return null;
+    const t = String(msg.type || "text");
+    let preview = String(msg.text || "").trim();
+    if (t === "image") preview = "📷 Foto";
+    else if (t === "video") preview = "🎬 Vídeo";
+    else if (t === "audio") preview = "🎤 Áudio";
+    else if (t === "sticker") preview = "🎨 Figurinha";
+    if (preview.length > 120) preview = `${preview.slice(0, 117)}…`;
+    return {
+      at: created,
+      preview,
+      senderUid: String(msg.senderUid || ""),
+    };
   } catch (e) {
-    functions.logger.warn("lastMessageAtForThread", { threadId: threadRef.id, e });
+    functions.logger.warn("lastMessageFromMessages", { threadId: threadRef.id, e });
+    return null;
   }
-  return (
-    data.updatedAt ||
-    data.createdAt ||
-    admin.firestore.FieldValue.serverTimestamp()
-  ) as FirebaseFirestore.Timestamp | FirebaseFirestore.FieldValue;
 }
 
 async function patchesForDmThread(
@@ -64,30 +72,22 @@ async function patchesForDmThread(
   if (data.type !== "dm") {
     patches.type = "dm";
   }
-  if (!data.lastMessageAt) {
-    patches.lastMessageAt = await lastMessageAtForThread(threadRef, data);
-  }
-  if (!data.lastMessagePreview) {
-    try {
-      const last = await threadRef
-        .collection("messages")
-        .orderBy("createdAt", "desc")
-        .limit(1)
-        .get();
-      if (!last.empty) {
-        const msg = last.docs[0].data();
-        const t = String(msg.type || "text");
-        let preview = String(msg.text || "").trim();
-        if (t === "image") preview = "📷 Foto";
-        else if (t === "video") preview = "🎬 Vídeo";
-        else if (t === "audio") preview = "🎤 Áudio";
-        else if (t === "sticker") preview = "🎨 Figurinha";
-        if (preview.length > 120) preview = `${preview.slice(0, 117)}…`;
-        if (preview) patches.lastMessagePreview = preview;
-        if (msg.senderUid) patches.lastSenderUid = String(msg.senderUid);
-      }
-    } catch (e) {
-      functions.logger.warn("patchesForDmThread preview", { threadId, e });
+
+  const lastMsg = await lastMessageFromMessages(threadRef);
+  if (lastMsg) {
+    if (!data.lastMessageAt) patches.lastMessageAt = lastMsg.at;
+    if (!data.lastMessagePreview && lastMsg.preview) {
+      patches.lastMessagePreview = lastMsg.preview;
+    }
+    if (!data.lastSenderUid && lastMsg.senderUid) {
+      patches.lastSenderUid = lastMsg.senderUid;
+    }
+  } else {
+    const preview = String(data.lastMessagePreview || "").trim();
+    const sender = String(data.lastSenderUid || "").trim();
+    if (!preview && !sender && data.lastMessageAt) {
+      patches.lastMessageAt = admin.firestore.FieldValue.delete();
+      patches.lastMessagePreview = admin.firestore.FieldValue.delete();
     }
   }
   return Object.keys(patches).length > 0 ? patches : null;

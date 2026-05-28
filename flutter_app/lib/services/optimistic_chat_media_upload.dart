@@ -3,7 +3,8 @@ import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show VoidCallback, kIsWeb;
-import 'package:gestao_yahweh/services/church_chat_fs.dart';
+import 'package:gestao_yahweh/services/church_chat_fs.dart'
+    show churchChatReadFileBytes;
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
@@ -168,143 +169,31 @@ abstract final class OptimisticChatMediaUpload {
           pending.localPath = uploadPath;
         }
       } else if (pending.kind == 'image') {
-        void uploadProgress(double t) =>
-            _mapProgress(reportProgress, 0.15, 0.96, t);
-        // Mobile: 1× WebP leve (turbo) ou ficheiro direto — evita 2 tiers + 2 uploads.
-        if (!kIsWeb &&
-            uploadPath != null &&
-            uploadPath.isNotEmpty &&
-            messageId != null &&
-            messageId.isNotEmpty) {
-          try {
-            if (kMediaTurboEnabled) {
-              reportProgress(0.22);
-              final webp = await IosPublishImagePipeline.compressForPublishFromPath(
-                uploadPath,
-              );
-              if (webp.isNotEmpty) {
-                final up = await ChurchChatService.uploadChatBytes(
-                  tenantId: tenantId,
-                  threadId: threadId,
-                  bytes: webp,
-                  fileName: pending.fileName.replaceAll(
-                    RegExp(r'\.[a-z0-9]+$', caseSensitive: false),
-                    '.webp',
-                  ),
-                  contentType: 'image/webp',
-                  storagePathOverride: storagePath,
-                  skipClientPrepare: true,
-                  onProgress: uploadProgress,
-                );
-                await ChurchChatService.completeMediaUploadMessage(
-                  tenantId: tenantId,
-                  threadId: threadId,
-                  messageId: messageId,
-                  downloadUrl: up.url,
-                  storagePath: up.path,
-                  fileName: pending.fileName,
-                );
-                reportProgress(1.0);
-                onSuccess();
-                return;
-              }
-            }
-            final up = await ChurchChatService.uploadChatFile(
-              tenantId: tenantId,
-              threadId: threadId,
-              localPath: uploadPath,
-              fileName: pending.fileName,
-              contentType: pending.mime,
-              storagePathOverride: storagePath,
-              skipRecompress: true,
-              onProgress: uploadProgress,
-            );
-            await ChurchChatService.completeMediaUploadMessage(
-              tenantId: tenantId,
-              threadId: threadId,
-              messageId: messageId,
-              downloadUrl: up.url,
-              storagePath: up.path,
-              fileName: pending.fileName,
-            );
-            reportProgress(1.0);
-            onSuccess();
-            return;
-          } catch (_) {
-            // Fallback: variantes WebP abaixo.
-          }
+        final mid = messageId;
+        if (mid == null || mid.isEmpty) {
+          throw StateError('Stub Firestore ausente para foto.');
         }
-        reportProgress(0.38);
-        final stem = pending.fileName.replaceAll(RegExp(r'\.[a-z0-9]+$'), '');
-        try {
-          final tiers = await MediaImageVariantsService.encodeChatWebpTiers(
-            bytes: uploadBytes is Uint8List && uploadBytes.isNotEmpty
-                ? Uint8List.fromList(uploadBytes)
-                : null,
-            localPath: uploadPath,
-          );
-          final thumbPath = ChurchStorageLayout.chatMediaVariantPath(
-            tenantId,
-            threadId,
-            stem,
-            MediaImageVariantsService.tierThumb,
-          );
-          final fullPath = ChurchStorageLayout.chatMediaVariantPath(
-            tenantId,
-            threadId,
-            stem,
-            MediaImageVariantsService.tierFull,
-          );
-          final chatUp = await MediaImageVariantsService.uploadChatTiers(
-            thumbPath: thumbPath,
-            fullPath: fullPath,
-            thumbBytes: tiers.thumb,
-            fullBytes: tiers.full,
-            onProgress: uploadProgress,
-          );
-          await ChurchChatService.completeMediaUploadMessage(
-            tenantId: tenantId,
-            threadId: threadId,
-            messageId: messageId,
-            downloadUrl: chatUp.primaryUrl,
-            storagePath: fullPath,
-            fileName: pending.fileName,
-            thumbUrl: chatUp.thumbUrl,
-          );
-          reportProgress(1.0);
-          onSuccess();
-          return;
-        } catch (_) {
-          // Fallback: JPEG/PNG original (web ou compressão WebP indisponível).
-          final raw = uploadBytes is Uint8List && uploadBytes.isNotEmpty
-              ? uploadBytes
-              : (uploadPath != null && uploadPath.isNotEmpty && !kIsWeb)
-                  ? await churchChatReadFileBytes(uploadPath)
-                  : null;
-          if (raw == null || raw.isEmpty) {
-            rethrow;
-          }
-          final up = await ChurchChatService.uploadChatBytes(
-            tenantId: tenantId,
-            threadId: threadId,
-            bytes: raw,
-            fileName: pending.fileName,
-            contentType: pending.mime,
-            storagePathOverride: storagePath,
-            onProgress: uploadProgress,
-          );
-          await ChurchChatService.completeMediaUploadMessage(
-            tenantId: tenantId,
-            threadId: threadId,
-            messageId: messageId,
-            downloadUrl: up.url,
-            storagePath: up.path,
-            fileName: pending.fileName,
-          );
-          reportProgress(1.0);
-          onSuccess();
-          return;
-        }
+        final up = await _uploadChatImageWithFallbacks(
+          pending: pending,
+          tenantId: tenantId,
+          threadId: threadId,
+          storagePath: storagePath!,
+          uploadPath: uploadPath,
+          uploadBytes: uploadBytes,
+          reportProgress: reportProgress,
+        );
+        await _finalizeChatMediaUpload(
+          tenantId: tenantId,
+          threadId: threadId,
+          messageId: mid,
+          pending: pending,
+          downloadUrl: up.url,
+          storagePath: up.path,
+          thumbUrl: up.thumbUrl,
+          reportProgress: reportProgress,
+          onSuccess: onSuccess,
+        );
+        return;
       }
 
       final ({String url, String path}) up;
@@ -336,16 +225,16 @@ abstract final class OptimisticChatMediaUpload {
         throw StateError('Sem dados para enviar.');
       }
 
-      await ChurchChatService.completeMediaUploadMessage(
+      await _finalizeChatMediaUpload(
         tenantId: tenantId,
         threadId: threadId,
-        messageId: messageId,
+        messageId: messageId!,
+        pending: pending,
         downloadUrl: up.url,
         storagePath: up.path,
-        fileName: pending.kind == 'document' ? pending.fileName : null,
+        reportProgress: reportProgress,
+        onSuccess: onSuccess,
       );
-      reportProgress(1.0);
-      onSuccess();
     } on FirebaseException catch (e) {
       await _abandonStub(pending, tenantId, threadId);
       onFailed(formatUploadErrorForUser(e));
@@ -353,5 +242,152 @@ abstract final class OptimisticChatMediaUpload {
       await _abandonStub(pending, tenantId, threadId);
       onFailed(formatUploadErrorForUser(e));
     }
+  }
+
+  static Future<void> _finalizeChatMediaUpload({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+    required ChurchChatOutboundPending pending,
+    required String downloadUrl,
+    required String storagePath,
+    String? thumbUrl,
+    required void Function(double progress) reportProgress,
+    required VoidCallback onSuccess,
+  }) async {
+    reportProgress(0.94);
+    await ChurchChatService.completeMediaUploadMessageWithRetry(
+      tenantId: tenantId,
+      threadId: threadId,
+      messageId: messageId,
+      downloadUrl: downloadUrl,
+      storagePath: storagePath,
+      fileName: pending.kind == 'document' ? pending.fileName : null,
+      thumbUrl: thumbUrl,
+    );
+    reportProgress(1.0);
+    onSuccess();
+  }
+
+  static Future<({String url, String path, String? thumbUrl})>
+      _uploadChatImageWithFallbacks({
+    required ChurchChatOutboundPending pending,
+    required String tenantId,
+    required String threadId,
+    required String storagePath,
+    required String? uploadPath,
+    required List<int>? uploadBytes,
+    required void Function(double progress) reportProgress,
+  }) async {
+    void uploadProgress(double t) =>
+        _mapProgress(reportProgress, 0.12, 0.90, t);
+
+    Object? lastError;
+
+    // Android/iOS: ficheiro directo primeiro (mesma estabilidade que web após bytes).
+    if (!kIsWeb && uploadPath != null && uploadPath.isNotEmpty) {
+      try {
+        reportProgress(0.14);
+        final up = await ChurchChatService.uploadChatFile(
+          tenantId: tenantId,
+          threadId: threadId,
+          localPath: uploadPath,
+          fileName: pending.fileName,
+          contentType: pending.mime,
+          storagePathOverride: storagePath,
+          skipRecompress: true,
+          onProgress: uploadProgress,
+        );
+        return (url: up.url, path: up.path, thumbUrl: null);
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    if (!kIsWeb &&
+        kMediaTurboEnabled &&
+        uploadPath != null &&
+        uploadPath.isNotEmpty) {
+      try {
+        reportProgress(0.20);
+        final webp = await IosPublishImagePipeline.compressForPublishFromPath(
+          uploadPath,
+        );
+        if (webp.isNotEmpty) {
+          final up = await ChurchChatService.uploadChatBytes(
+            tenantId: tenantId,
+            threadId: threadId,
+            bytes: webp,
+            fileName: pending.fileName.replaceAll(
+              RegExp(r'\.[a-z0-9]+$', caseSensitive: false),
+              '.webp',
+            ),
+            contentType: 'image/webp',
+            storagePathOverride: storagePath,
+            skipClientPrepare: true,
+            onProgress: uploadProgress,
+          );
+          return (url: up.url, path: up.path, thumbUrl: null);
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    try {
+      reportProgress(0.32);
+      final stem = pending.fileName.replaceAll(RegExp(r'\.[a-z0-9]+$'), '');
+      final tiers = await MediaImageVariantsService.encodeChatWebpTiers(
+        bytes: uploadBytes != null && uploadBytes.isNotEmpty
+            ? Uint8List.fromList(uploadBytes)
+            : null,
+        localPath: uploadPath,
+      );
+      final thumbPath = ChurchStorageLayout.chatMediaVariantPath(
+        tenantId,
+        threadId,
+        stem,
+        MediaImageVariantsService.tierThumb,
+      );
+      final fullPath = ChurchStorageLayout.chatMediaVariantPath(
+        tenantId,
+        threadId,
+        stem,
+        MediaImageVariantsService.tierFull,
+      );
+      final chatUp = await MediaImageVariantsService.uploadChatTiers(
+        thumbPath: thumbPath,
+        fullPath: fullPath,
+        thumbBytes: tiers.thumb,
+        fullBytes: tiers.full,
+        onProgress: uploadProgress,
+      );
+      return (
+        url: chatUp.primaryUrl,
+        path: fullPath,
+        thumbUrl: chatUp.thumbUrl,
+      );
+    } catch (e) {
+      lastError = e;
+    }
+
+    final raw = uploadBytes != null && uploadBytes.isNotEmpty
+        ? uploadBytes
+        : (uploadPath != null && uploadPath.isNotEmpty && !kIsWeb)
+            ? await churchChatReadFileBytes(uploadPath)
+            : null;
+    if (raw == null || raw.isEmpty) {
+      throw lastError ?? StateError('Sem dados para enviar a foto.');
+    }
+    final up = await ChurchChatService.uploadChatBytes(
+      tenantId: tenantId,
+      threadId: threadId,
+      bytes: raw,
+      fileName: pending.fileName,
+      contentType: pending.mime,
+      storagePathOverride: storagePath,
+      onProgress: uploadProgress,
+    );
+    return (url: up.url, path: up.path, thumbUrl: null);
   }
 }

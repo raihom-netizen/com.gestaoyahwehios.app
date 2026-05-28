@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
 import '../theme_clean_premium.dart';
 
 /// Cabeçalho discreto de módulo no painel da igreja: cartão claro compacto (menos altura que o gradiente antigo).
@@ -48,17 +49,12 @@ class ModuleHeaderPremium extends StatelessWidget {
         child: Row(
           children: [
             if (onPainelBack != null) ...[
-              IconButton(
-                icon: Icon(Icons.arrow_back_rounded,
-                    color: ThemeCleanPremium.primary.withOpacity(0.9)),
+              YahwehSuperPremiumBackButton(
                 onPressed: onPainelBack,
                 tooltip: 'Voltar ao Painel',
-                style: IconButton.styleFrom(
-                  minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget),
-                  visualDensity: VisualDensity.compact,
-                ),
+                variant: YahwehSuperPremiumBackVariant.onLightSurface,
               ),
-              SizedBox(width: isVeryNarrow ? 2 : 4),
+              SizedBox(width: isVeryNarrow ? 4 : 6),
             ],
             Container(
               padding: const EdgeInsets.all(5),

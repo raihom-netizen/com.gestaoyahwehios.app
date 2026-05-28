@@ -3822,7 +3822,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           _schedulePostPublishCacheWarmup();
           unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
+            ThemeCleanPremium.successSnackBar(
+              'Aviso criado — a enviar fotos em segundo plano',
+            ),
           );
           Navigator.pop(context, true);
         }

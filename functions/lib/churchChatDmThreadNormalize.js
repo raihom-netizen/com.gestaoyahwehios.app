@@ -53,28 +53,41 @@ function parseDmThreadParticipants(threadId) {
         return null;
     return [u1, u2];
 }
-async function lastMessageAtForThread(threadRef, data) {
-    if (data.lastMessageAt) {
-        return data.lastMessageAt;
-    }
+async function lastMessageFromMessages(threadRef) {
     try {
         const last = await threadRef
             .collection("messages")
             .orderBy("createdAt", "desc")
             .limit(1)
             .get();
-        if (!last.empty) {
-            const created = last.docs[0].data().createdAt;
-            if (created)
-                return created;
-        }
+        if (last.empty)
+            return null;
+        const msg = last.docs[0].data();
+        const created = msg.createdAt;
+        if (!created)
+            return null;
+        const t = String(msg.type || "text");
+        let preview = String(msg.text || "").trim();
+        if (t === "image")
+            preview = "📷 Foto";
+        else if (t === "video")
+            preview = "🎬 Vídeo";
+        else if (t === "audio")
+            preview = "🎤 Áudio";
+        else if (t === "sticker")
+            preview = "🎨 Figurinha";
+        if (preview.length > 120)
+            preview = `${preview.slice(0, 117)}…`;
+        return {
+            at: created,
+            preview,
+            senderUid: String(msg.senderUid || ""),
+        };
     }
     catch (e) {
-        functions.logger.warn("lastMessageAtForThread", { threadId: threadRef.id, e });
+        functions.logger.warn("lastMessageFromMessages", { threadId: threadRef.id, e });
+        return null;
     }
-    return (data.updatedAt ||
-        data.createdAt ||
-        admin.firestore.FieldValue.serverTimestamp());
 }
 async function patchesForDmThread(threadId, data, threadRef) {
     const parsed = parseDmThreadParticipants(threadId);
@@ -93,38 +106,23 @@ async function patchesForDmThread(threadId, data, threadRef) {
     if (data.type !== "dm") {
         patches.type = "dm";
     }
-    if (!data.lastMessageAt) {
-        patches.lastMessageAt = await lastMessageAtForThread(threadRef, data);
-    }
-    if (!data.lastMessagePreview) {
-        try {
-            const last = await threadRef
-                .collection("messages")
-                .orderBy("createdAt", "desc")
-                .limit(1)
-                .get();
-            if (!last.empty) {
-                const msg = last.docs[0].data();
-                const t = String(msg.type || "text");
-                let preview = String(msg.text || "").trim();
-                if (t === "image")
-                    preview = "📷 Foto";
-                else if (t === "video")
-                    preview = "🎬 Vídeo";
-                else if (t === "audio")
-                    preview = "🎤 Áudio";
-                else if (t === "sticker")
-                    preview = "🎨 Figurinha";
-                if (preview.length > 120)
-                    preview = `${preview.slice(0, 117)}…`;
-                if (preview)
-                    patches.lastMessagePreview = preview;
-                if (msg.senderUid)
-                    patches.lastSenderUid = String(msg.senderUid);
-            }
+    const lastMsg = await lastMessageFromMessages(threadRef);
+    if (lastMsg) {
+        if (!data.lastMessageAt)
+            patches.lastMessageAt = lastMsg.at;
+        if (!data.lastMessagePreview && lastMsg.preview) {
+            patches.lastMessagePreview = lastMsg.preview;
         }
-        catch (e) {
-            functions.logger.warn("patchesForDmThread preview", { threadId, e });
+        if (!data.lastSenderUid && lastMsg.senderUid) {
+            patches.lastSenderUid = lastMsg.senderUid;
+        }
+    }
+    else {
+        const preview = String(data.lastMessagePreview || "").trim();
+        const sender = String(data.lastSenderUid || "").trim();
+        if (!preview && !sender && data.lastMessageAt) {
+            patches.lastMessageAt = admin.firestore.FieldValue.delete();
+            patches.lastMessagePreview = admin.firestore.FieldValue.delete();
         }
     }
     return Object.keys(patches).length > 0 ? patches : null;

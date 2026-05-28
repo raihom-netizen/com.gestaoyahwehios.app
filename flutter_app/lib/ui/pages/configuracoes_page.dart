@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
+import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/media_cache_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/mercado_pago_church_settings_section.dart';
@@ -530,6 +531,34 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                             ),
                           ),
                         ],
+                        const SizedBox(height: 14),
+                        Divider(height: 1, color: Colors.grey.shade200),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Versão do aplicativo (controlo interno)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        SelectableText(
+                          appVersionFull,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        Text(
+                          'Build $appBuildNumber · marketing $appVersion',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                            height: 1.35,
+                          ),
+                        ),
                       ],
                     ),
                   ),
