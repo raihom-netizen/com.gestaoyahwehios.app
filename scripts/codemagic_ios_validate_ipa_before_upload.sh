@@ -107,4 +107,44 @@ if [[ -n "$REPO_ENT" ]] && grep -q 'com.apple.developer.applesignin' "$REPO_ENT"
   echo "OK: Sign In with Apple no IPA."
 fi
 
+# 90189 Redundant Binary Upload: bloquear antes do passo Publishing (ex.: Retry só em upload).
+IPA_MARKETING="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" 2>/dev/null || true)"
+IPA_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST" 2>/dev/null || true)"
+case "$IPA_BUILD" in
+  ''|*[!0-9]*) IPA_BUILD="" ;;
+esac
+if [[ -n "$IPA_BUILD" && -n "${APP_STORE_APPLE_ID:-}" ]]; then
+  LATEST_ASC=0
+  if LATEST_ASC="$(bash "$ROOT/scripts/codemagic_ios_asc_latest_build_number.sh" 2>/dev/null)"; then
+    case "$LATEST_ASC" in
+      ''|*[!0-9]*) LATEST_ASC=0 ;;
+    esac
+    if [[ "$LATEST_ASC" -gt 0 && "$IPA_BUILD" -le "$LATEST_ASC" ]]; then
+      echo ""
+      echo "ERRO 90189 (evitado): o IPA já tem CFBundleVersion=$IPA_BUILD ($IPA_MARKETING),"
+      echo "       mas a App Store Connect já tem build number $LATEST_ASC ou superior."
+      echo ""
+      echo "       NÃO use «Retry» só no passo Publishing — o binário é o mesmo."
+      echo "       Na Codemagic: Start new build (build completo) para gerar IPA com número novo."
+      echo ""
+      exit 1
+    fi
+    EXPECTED=""
+    if [[ -f /tmp/cm_ios_build_number ]]; then
+      EXPECTED="$(tr -d '\r\n' < /tmp/cm_ios_build_number)"
+    fi
+    if [[ -n "$EXPECTED" && "$EXPECTED" != "$IPA_BUILD" ]]; then
+      echo ""
+      echo "ERRO: CFBundleVersion no IPA ($IPA_BUILD) ≠ esperado pelo CI ($EXPECTED)."
+      echo "       O flutter build ipa não aplicou o build number — corrija antes do upload."
+      exit 1
+    fi
+    echo "OK: CFBundleVersion $IPA_BUILD > ASC último $LATEST_ASC (sem risco 90189)."
+  else
+    echo "AVISO: não consultou ASC para 90189 — upload segue (API indisponível)."
+  fi
+else
+  echo "AVISO: CFBundleVersion ou APP_STORE_APPLE_ID ausente — validação 90189 ignorada."
+fi
+
 echo "=== Validação IPA concluída — seguro para upload TestFlight ==="

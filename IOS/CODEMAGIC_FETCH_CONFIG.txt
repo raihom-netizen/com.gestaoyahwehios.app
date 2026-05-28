@@ -20,4 +20,5 @@ Codemagic — "Fetching configuration file" / build cancelado antes dos passos
    falhar o pipeline (se falhar, mantém-se o secret). O passo "Verificar perfil vs P12"
    continua a ser o fail-fast se ainda houver mismatch.
 
-6) TestFlight: cada upload precisa de build number novo (pubspec + CM_BUILD_NUMBER no Codemagic).
+6) TestFlight: CFBundleVersion = último na App Store Connect + BUILD_NUMBER (script sync na raiz).
+   NÃO usar Retry só em Publishing após 90189 — Start new build completo.

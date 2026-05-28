@@ -198,6 +198,15 @@ workflows:
           xcode-project use-profiles
           echo "--- Identidades de assinatura ---"
           security find-identity -v -p codesigning | head -40 || true
+      - name: Versão iOS (ASC + app_version.dart — evita 90189)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          SCRIPTS="$ROOT/scripts"
+          [ -d "$SCRIPTS" ] || SCRIPTS="$ROOT/../scripts"
+          echo root > /tmp/cm_yw_layout
+          bash "$SCRIPTS/codemagic_ios_prepare_api_pem.sh"
+          bash "$SCRIPTS/codemagic_ios_sync_version_from_app_version_dart.sh"
       - name: Flutter build IPA
         script: |
           set -e
@@ -210,12 +219,14 @@ workflows:
           else
             echo "AVISO: scripts/codemagic_ios_verify_profile_matches_p12.sh nao encontrado (copie scripts/ do monorepo)."
           fi
-          VERSION_LINE="$(grep '^version:' pubspec.yaml | head -1 | sed 's/^version:[[:space:]]*//;s/[[:space:]]*$//')"
-          BUILD_NAME="${VERSION_LINE%%+*}"
-          if [ -z "$BUILD_NAME" ]; then echo "ERRO: version no pubspec"; exit 1; fi
-          if [ -n "${CM_BUILD_NUMBER:-}" ]; then BN="$CM_BUILD_NUMBER"; else BN="${VERSION_LINE##*+}"; echo "AVISO: CM_BUILD_NUMBER vazio — pubspec +$BN"; fi
-          [ -n "$BN" ] || BN="1"
-          echo "build-name=$BUILD_NAME build-number=$BN"
+          if [ ! -f /tmp/cm_ios_build_name ] || [ ! -f /tmp/cm_ios_build_number ]; then
+            echo "ERRO: execute o passo Versão iOS antes do build."
+            exit 1
+          fi
+          BUILD_NAME="$(tr -d '\r\n' < /tmp/cm_ios_build_name)"
+          BN="$(tr -d '\r\n' < /tmp/cm_ios_build_number)"
+          [ -n "$BUILD_NAME" ] && [ -n "$BN" ] || { echo "ERRO: build-name/number vazio"; exit 1; }
+          echo "build-name=$BUILD_NAME build-number=$BN (ASC+offset, evita 90189)"
           set +e
           flutter build ipa --release \
             --build-name="$BUILD_NAME" \

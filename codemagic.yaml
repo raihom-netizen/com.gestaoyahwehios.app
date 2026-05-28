@@ -65,9 +65,9 @@
 # (reutilizar perfil ou POST IOS_APP_STORE); (2) se já coincidir, salta fetch-signing-files; (3) senão
 # app-store-connect fetch-signing-files; (4) segunda passagem API. Chave API com papel Admin recomendado
 # para criar perfis. Desativar: CM_SKIP_ASC_PROFILE_SYNC=1.
-# Versão visível no IPA: lib/app_version.dart (marketing). CFBundleVersion em CI = timestamp
-# único por build (scripts/codemagic_ios_sync_version_from_app_version_dart.sh) — NÃO usar
-# CM_BUILD_NUMBER no iOS (causa 90189 Redundant Binary Upload). Android/Play usa +pubspec (ex. 1626).
+# Versão visível no IPA: lib/app_version.dart (marketing). CFBundleVersion em CI =
+# último build na App Store Connect + BUILD_NUMBER (scripts/codemagic_ios_sync_version_from_app_version_dart.sh).
+# NÃO usar Retry só em Publishing (90189). Android/Play usa +pubspec (ex. 1626).
 #
 # Sign In with Apple: o Runner.entitlements pode omitir o entitlement (padrão atual) para
 # o perfil App Store em Codemagic assinar sem capability. Para voltar a Apple Sign In no iOS,
@@ -235,7 +235,7 @@ workflows:
             exit 1
           fi
           echo "flutter build ipa --build-name=$BUILD_NAME --build-number=$BN"
-          echo "  (CFBundleVersion único por execução CI — não reutilizar Retry só em Publishing)"
+          echo "  (CFBundleVersion = ASC último + offset — ver passo Versão iOS; sem Retry só em Publishing)"
           grep '^version:' pubspec.yaml || true
           set +e
           flutter build ipa --release \
