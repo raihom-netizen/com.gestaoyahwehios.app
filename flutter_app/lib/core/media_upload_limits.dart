@@ -52,11 +52,11 @@ int get mediaVideoHardMaxBytesEffective =>
 Duration get mediaVideoMaxDurationEffective => kMediaChatVideoMaxDuration;
 
 int get mediaVideoSkipTranscodeMaxBytes =>
-    kMediaTurboMobilePreset ? (42 * 1024 * 1024) : (32 * 1024 * 1024);
+    kMediaTurboMobilePreset ? (64 * 1024 * 1024) : (32 * 1024 * 1024);
 
-/// Uploads em lote (avisos/eventos): até 3 em paralelo com turbo (1 WebP/foto no nativo).
+/// Uploads em lote (avisos/eventos): até 4 em paralelo com turbo (1 WebP/foto no nativo).
 int get mediaFeedUploadMaxConcurrent =>
-    kMediaTurboMobilePreset ? 3 : 4;
+    kMediaTurboMobilePreset ? 4 : 4;
 
 int get mediaPickerImageQuality =>
     kMediaTurboMobilePreset ? 62 : 70;

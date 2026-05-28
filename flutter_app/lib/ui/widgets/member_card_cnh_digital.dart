@@ -143,8 +143,8 @@ class MemberCardCnhDigital extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
                                 Container(
-                                  width: 136,
-                                  height: 136,
+                                  width: 118,
+                                  height: 118,
                                   decoration: BoxDecoration(
                                     color: Colors.white,
                                     shape: BoxShape.circle,
@@ -172,8 +172,15 @@ class MemberCardCnhDigital extends StatelessWidget {
                                   ),
                                   clipBehavior: Clip.antiAlias,
                                   child: Padding(
-                                    padding: const EdgeInsets.all(8),
-                                    child: logoSlot,
+                                    padding: const EdgeInsets.all(2),
+                                    child: FittedBox(
+                                      fit: BoxFit.contain,
+                                      child: SizedBox(
+                                        width: 114,
+                                        height: 114,
+                                        child: logoSlot,
+                                      ),
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(height: 10),

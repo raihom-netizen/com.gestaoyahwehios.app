@@ -7304,6 +7304,8 @@ class _PainelDestaqueMediaCarousel extends StatefulWidget {
   final Future<void> Function()? onLikeDoubleTap;
   /// Altura do cartão no painel segue o slide atual (site público).
   final ValueChanged<int>? onCarouselPageChanged;
+  /// Ação rápida para abrir álbum completo (quando houver várias fotos).
+  final VoidCallback? onOpenAlbumTap;
 
   const _PainelDestaqueMediaCarousel({
     required this.data,
@@ -7312,6 +7314,7 @@ class _PainelDestaqueMediaCarousel extends StatefulWidget {
     this.onGalleryPhotoTap,
     this.onLikeDoubleTap,
     this.onCarouselPageChanged,
+    this.onOpenAlbumTap,
   });
 
   @override
@@ -7633,6 +7636,37 @@ class _PainelDestaqueMediaCarouselState
               ),
             ),
           ),
+          if (refs.length > 1 && widget.onOpenAlbumTap != null)
+            Positioned(
+              top: 34,
+              right: 6,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: widget.onOpenAlbumTap,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.62),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.18),
+                      ),
+                    ),
+                    child: const Text(
+                      'Ver todas',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ],
     );
@@ -8114,6 +8148,16 @@ class _DestaqueCardState extends State<_DestaqueCard> {
                 _painelDestaqueToggleLike(context, widget.doc, widget.tenantId),
             onCarouselPageChanged:
                 (i) => setState(() => _carouselPage = i),
+            onOpenAlbumTap: galleryRefs.length > 1
+                ? () => _openPainelDestaqueFotoAmpliar(
+                      context,
+                      galleryRefs: galleryRefs,
+                      data: data,
+                      title: title,
+                      isEvento: isEvento,
+                      photoIndex: 0,
+                    )
+                : null,
           )
         : _DestaqueCard._DestaqueCardImage(
             displayImageUrl: urlForStable,

@@ -23,8 +23,11 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show kMaxAvisoFeedPhotosPerPost, kEffectiveMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
+import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
+import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
@@ -243,12 +246,7 @@ class InstagramMuralState extends State<InstagramMural> {
   void initState() {
     super.initState();
     logYahwehModuleScreen('avisos');
-    if (widget.initialTenantData != null) {
-      _tenantData = widget.initialTenantData;
-    } else {
-      _loadTenant();
-    }
-    _startFeedLiveSync();
+    unawaited(_bootstrapMural());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_canManageAll) {
@@ -267,13 +265,33 @@ class InstagramMuralState extends State<InstagramMural> {
       _hasMoreFeedPages = true;
       _isFeedInitialLoading = true;
       _feedLoadError = null;
-      _startFeedLiveSync();
+      unawaited(_startFeedLiveSync());
       unawaited(_loadFeedPage(reset: true));
     }
   }
 
+  Future<void> _bootstrapMural() async {
+    try {
+      await ensureFirebaseInitialized();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isFeedInitialLoading = false;
+        _feedLoadError = e;
+      });
+      return;
+    }
+    if (widget.initialTenantData != null) {
+      if (mounted) setState(() => _tenantData = widget.initialTenantData);
+    } else {
+      await _loadTenant();
+    }
+    await _startFeedLiveSync();
+  }
+
   Future<void> _loadTenant() async {
     try {
+      await ensureFirebaseInitialized();
       final snap = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId)
@@ -317,6 +335,19 @@ class InstagramMuralState extends State<InstagramMural> {
   Future<void> _openEditor(
       {DocumentSnapshot<Map<String, dynamic>>? doc,
       required String type}) async {
+    try {
+      await ensureFirebaseInitialized();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(formatUploadErrorForUser(e)),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
+      return;
+    }
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
@@ -346,7 +377,17 @@ class InstagramMuralState extends State<InstagramMural> {
     return _avisos.orderBy('createdAt', descending: true);
   }
 
-  void _startFeedLiveSync() {
+  Future<void> _startFeedLiveSync() async {
+    try {
+      await ensureFirebaseInitialized();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _feedLoadError = e;
+        _isFeedInitialLoading = false;
+      });
+      return;
+    }
     _feedLiveSub?.cancel();
     _feedLiveSub = _feedBaseQuery()
         .limit(_feedPageSize)
@@ -398,6 +439,7 @@ class InstagramMuralState extends State<InstagramMural> {
     });
 
     try {
+      await ensureFirebaseInitialized();
       Query<Map<String, dynamic>> q = _feedBaseQuery().limit(_feedPageSize);
       if (!reset && _feedLastCursor != null) {
         q = q.startAfterDocument(_feedLastCursor!);
@@ -3137,6 +3179,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   @override
   void initState() {
     super.initState();
+    unawaited(ensureFirebaseInitialized());
+    unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
     _bodyDescription = TextEditingController(
@@ -3241,6 +3285,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   Future<void> _usarEnderecoIgreja() async {
     try {
+      await ensureFirebaseInitialized();
       final snap = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId)
@@ -3699,6 +3744,20 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     return payload;
   }
 
+  void _schedulePostPublishCacheWarmup() {
+    // Pós-publicação: garante painel + site público atualizados sem esperar cron.
+    unawaited(
+      PanelDashboardSnapshotService.warmFromCallableIfStale(widget.tenantId),
+    );
+    if (_publicSite) {
+      unawaited(
+        ChurchPerformanceCacheService.warmPublicFeedCacheFromCallableIfStale(
+          widget.tenantId,
+        ),
+      );
+    }
+  }
+
   Future<void> _save() async {
     if (_saving) return;
     if (_title.text.trim().isEmpty) {
@@ -3713,14 +3772,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     try {
       await ensureFirebaseInitialized();
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+      // Publicação instantânea: evita leitura/compressão pesada antes do stub no Firestore.
+      // Para novas fotos, usamos razão padrão e deixamos ajustes para o pipeline assíncrono.
       var aspectRatio = 1.0;
-      if (hasNewImages) {
-        final firstBytes = await _firstNewImageBytes();
-        if (firstBytes != null) {
-          final ar = await imageAspectRatioFromBytes(firstBytes);
-          if (ar != null) aspectRatio = ar.clamp(0.4, 2.3);
-        }
-      } else if (existingUrls.isNotEmpty) {
+      if (!hasNewImages && existingUrls.isNotEmpty) {
         final prev = widget.doc?.data()?['media_info'];
         if (prev is Map) {
           final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
@@ -3764,6 +3819,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         );
         if (mounted) {
           setState(() => _saving = false);
+          _schedulePostPublishCacheWarmup();
           unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
@@ -3783,6 +3839,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         isNewDoc: isNewDoc,
       );
       if (mounted) {
+        _schedulePostPublishCacheWarmup();
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
         );

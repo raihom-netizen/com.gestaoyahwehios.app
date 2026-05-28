@@ -1,10 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 /// Lê caches gerados pelas Cloud Functions (`_performance_cache`).
 ///
 /// Reduz consultas pesadas no site público e no painel (aniversariantes).
 abstract final class ChurchPerformanceCacheService {
   ChurchPerformanceCacheService._();
+  static final _functions =
+      FirebaseFunctions.instanceFor(region: 'us-central1');
 
   static DocumentReference<Map<String, dynamic>> _ref(
     String tenantId,
@@ -60,5 +63,43 @@ abstract final class ChurchPerformanceCacheService {
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
     });
+  }
+
+  static const Duration _publicFeedStaleAfter = Duration(seconds: 90);
+
+  static bool _isFresh(Timestamp? updatedAt) {
+    if (updatedAt == null) return false;
+    return DateTime.now().difference(updatedAt.toDate()) < _publicFeedStaleAfter;
+  }
+
+  /// Força atualização do cache público no backend (site/painel).
+  static Future<void> warmPublicFeedCacheFromCallable(String tenantId) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    try {
+      final callable = _functions.httpsCallable(
+        'warmChurchPublicFeedCache',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+      );
+      await callable.call<Map<String, dynamic>>(<String, dynamic>{
+        'tenantId': tid,
+      });
+    } catch (_) {
+      // Não bloquear o fluxo principal de publicação por falha de warmup.
+    }
+  }
+
+  /// Chama callable só quando o cache público está ausente/velho.
+  static Future<void> warmPublicFeedCacheFromCallableIfStale(
+    String tenantId,
+  ) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    try {
+      final doc = await _ref(tid, 'public_feed').get();
+      final u = doc.data()?['updatedAt'];
+      if (u is Timestamp && _isFresh(u)) return;
+    } catch (_) {}
+    await warmPublicFeedCacheFromCallable(tid);
   }
 }

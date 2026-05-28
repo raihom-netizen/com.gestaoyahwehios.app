@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Fonte única do marketing: lib/app_version.dart; build number do pubspec (+ CM_BUILD_NUMBER se definido).
+# Fonte única do marketing: lib/app_version.dart.
+# Build number iOS em CI precisa ser único por upload (ASC erro 90189 se repetir).
+# Estratégia:
+#  1) CM_BUILD_NUMBER (se existir) como base;
+#  2) sufixo +N do pubspec como base;
+#  3) fallback 1.
+# Em seguida, no Codemagic, elevamos para um número único com timestamp Unix
+# (mesmo padrão usado no Controle Total para evitar "Redundant Binary Upload").
 set -euo pipefail
 
 ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
@@ -27,6 +34,15 @@ fi
 if [ -z "$BN" ]; then
   BN="1"
   echo "AVISO: build number vazio — usando 1"
+fi
+
+# Codemagic/TestFlight: garantir build number sempre único por execução.
+if [ -n "${CI:-}" ] || [ -n "${CM_BUILD_ID:-}" ] || [ -n "${FCI_BUILD_ID:-}" ]; then
+  TS="$(date +%s)"
+  if [ "${#TS}" -gt "${#BN}" ] || { [ "${#TS}" -eq "${#BN}" ] && [ "$TS" -gt "$BN" ]; }; then
+    echo "CI detectado: elevando build number para timestamp único ($TS)."
+    BN="$TS"
+  fi
 fi
 
 BASE_PUB="${VERSION_LINE%%+*}"

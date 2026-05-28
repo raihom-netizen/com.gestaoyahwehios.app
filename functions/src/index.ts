@@ -7127,6 +7127,7 @@ export {
   generatePublicFeedCache,
   refreshPublicFeedCacheOnAvisoWrite,
   refreshPublicFeedCacheOnNoticiaWrite,
+  warmChurchPublicFeedCache,
 } from "./churchPerformancePack";
 
 export {

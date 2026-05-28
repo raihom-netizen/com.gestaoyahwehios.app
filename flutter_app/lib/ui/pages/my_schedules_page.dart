@@ -2645,13 +2645,39 @@ class _MinhaEscalaListaPageState extends State<_MinhaEscalaListaPage> {
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () {
-            widget.onPop();
-            Navigator.pop(context);
-          },
-          style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
+        leadingWidth: 64,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 10, top: 6, bottom: 6),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.96),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x33000000),
+                  blurRadius: 10,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
+            child: IconButton(
+              icon: Icon(
+                Icons.arrow_back_rounded,
+                color: ThemeCleanPremium.primary,
+              ),
+              onPressed: () {
+                widget.onPop();
+                Navigator.pop(context);
+              },
+              tooltip: 'Voltar',
+              style: IconButton.styleFrom(
+                minimumSize: const Size(
+                  ThemeCleanPremium.minTouchTarget,
+                  ThemeCleanPremium.minTouchTarget,
+                ),
+              ),
+            ),
+          ),
         ),
         title: Text(widget.titulo, style: const TextStyle(fontWeight: FontWeight.w700)),
         backgroundColor: ThemeCleanPremium.primary,

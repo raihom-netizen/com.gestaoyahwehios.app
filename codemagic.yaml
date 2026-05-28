@@ -235,8 +235,8 @@ workflows:
             if [ -n "${CM_BUILD_NUMBER:-}" ]; then
               BN="$CM_BUILD_NUMBER"
             else
-              BN="${VERSION_LINE##*+}"
-              echo "AVISO: CM_BUILD_NUMBER vazio — a usar sufixo + do pubspec: $BN"
+              BN="$(date +%s)"
+              echo "CM_BUILD_NUMBER vazio — a usar timestamp único para iOS: $BN"
             fi
             if [ -z "$BN" ]; then
               BN="1"

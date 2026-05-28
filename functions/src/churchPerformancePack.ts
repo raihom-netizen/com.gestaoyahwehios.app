@@ -8,6 +8,7 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import sharp from "sharp";
+import { resolveTenantIdForCallable } from "./tenantCallableResolve";
 
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
@@ -447,3 +448,22 @@ export const refreshPublicFeedCacheOnNoticiaWrite = functions
   .onWrite((change, ctx) =>
     onPublicPostWrite(ctx.params.tenantId as string, change.after),
   );
+
+/** Warmup explícito pós-publicação: atualiza cache público imediatamente. */
+export const warmChurchPublicFeedCache = functions
+  .region("us-central1")
+  .https.onCall(async (request, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Login necessario");
+    }
+    const body = (request || {}) as Record<string, unknown>;
+    const tenantId = await resolveTenantIdForCallable(
+      { uid: context.auth.uid, token: context.auth.token as Record<string, unknown> },
+      String(body.tenantId || ""),
+    );
+    if (!tenantId) {
+      throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
+    }
+    await refreshPublicFeedCacheForTenant(tenantId);
+    return { ok: true, tenantId, warmed: true };
+  });

@@ -20,6 +20,8 @@ import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
+import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -223,6 +225,19 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
   Future<void> _novoEvento(
       {DocumentSnapshot<Map<String, dynamic>>? doc}) async {
+    try {
+      await ensureFirebaseInitialized();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(formatUploadErrorForUser(e)),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
+      return;
+    }
     final result = await Navigator.push<bool>(
         context,
         MaterialPageRoute(
@@ -1409,6 +1424,22 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
           final cmp = db.compareTo(da);
           return _order == 'recent_first' ? cmp : -cmp;
         });
+        final archivePreloadUrls = docs
+            .take(12)
+            .map((d) {
+              final post = d.data();
+              final ph = eventNoticiaPhotoUrls(post);
+              if (ph.isNotEmpty) return ph.first;
+              final thumb = eventNoticiaDisplayVideoThumbnailUrl(post);
+              return (thumb ?? '').toString().trim();
+            })
+            .where((u) => u.isNotEmpty)
+            .toList();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (context.mounted && archivePreloadUrls.isNotEmpty) {
+            preloadNetworkImages(context, archivePreloadUrls, maxItems: 8);
+          }
+        });
         final categories = <String>{
           for (final d in snap.data!.docs)
             (d.data()['eventCategoryId'] ?? '').toString().trim()
@@ -1656,11 +1687,11 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                     final videos = eventNoticiaVideosFromDoc(p);
                     final dt = _eventDate(p);
                     return Material(
-                      color: Colors.white,
+                      color: Colors.transparent,
                       borderRadius:
                           BorderRadius.circular(ThemeCleanPremium.radiusLg),
                       elevation: 0,
-                      shadowColor: Colors.black.withValues(alpha: 0.08),
+                      shadowColor: Colors.transparent,
                       child: InkWell(
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusLg),
@@ -1676,47 +1707,159 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Expanded(
-                              child: _archiveGalleryCardMedia(
-                                post: p,
-                                photos: photos,
-                                videos: videos,
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    (p['title'] ?? 'Evento').toString(),
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 14.5,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusLg,
+                                  ),
+                                  border:
+                                      Border.all(color: const Color(0xFFE2E8F0)),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.06),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 6),
                                     ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    _formatDatePt(dt),
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade700,
-                                      fontWeight: FontWeight.w600,
+                                  ],
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    Expanded(
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          _archiveGalleryCardMedia(
+                                            post: p,
+                                            photos: photos,
+                                            videos: videos,
+                                          ),
+                                          DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                begin: Alignment.topCenter,
+                                                end: Alignment.bottomCenter,
+                                                colors: [
+                                                  Colors.black.withValues(
+                                                      alpha: 0.08),
+                                                  Colors.black.withValues(
+                                                      alpha: 0.40),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          Positioned(
+                                            top: 10,
+                                            right: 10,
+                                            child: _miniChip(
+                                              Icons.photo_library_rounded,
+                                              '${photos.length + videos.length} mídia(s)',
+                                            ),
+                                          ),
+                                          Positioned(
+                                            bottom: 10,
+                                            left: 10,
+                                            right: 10,
+                                            child: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    (p['title'] ?? 'Evento')
+                                                        .toString(),
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      fontSize: 14.5,
+                                                      height: 1.2,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 6),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white
+                                                        .withValues(
+                                                            alpha: 0.94),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            999),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: const [
+                                                      Icon(
+                                                        Icons.grid_view_rounded,
+                                                        size: 13,
+                                                        color: ThemeCleanPremium
+                                                            .primary,
+                                                      ),
+                                                      SizedBox(width: 4),
+                                                      Text(
+                                                        'Abrir álbum',
+                                                        style: TextStyle(
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color:
+                                                              ThemeCleanPremium
+                                                                  .primary,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      _miniChip(Icons.photo_library_rounded,
-                                          '${photos.length} foto(s)'),
-                                      _miniChip(Icons.videocam_rounded,
-                                          '${videos.length} vídeo(s)'),
-                                    ],
-                                  ),
-                                ],
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          12, 10, 12, 12),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _formatDatePt(dt),
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey.shade700,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: [
+                                              _miniChip(
+                                                Icons.photo_library_rounded,
+                                                '${photos.length} foto(s)',
+                                              ),
+                                              _miniChip(
+                                                Icons.videocam_rounded,
+                                                '${videos.length} vídeo(s)',
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ],
@@ -5147,6 +5290,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _usarEnderecoIgreja() async {
     try {
+      await ensureFirebaseInitialized();
       final snap = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId)
@@ -5304,6 +5448,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   @override
   void initState() {
     super.initState();
+    unawaited(ensureFirebaseInitialized().catchError((_) {}));
+    unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
     _eventDocRef = widget.doc?.reference ?? widget.noticias.doc();
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
@@ -5409,6 +5555,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _refreshAgendaLinkFromFirestore() async {
     try {
+      await ensureFirebaseInitialized();
       final q = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId)
@@ -5504,6 +5651,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _applyAgendaSyncAfterSave(String postId) async {
     try {
+      await ensureFirebaseInitialized();
       if (_syncAgenda) {
         await _upsertAgendaLinkedNoticia(postId);
       } else if (widget.doc != null) {
@@ -5524,6 +5672,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _loadCategories() async {
     setState(() => _loadingCategories = true);
     try {
+      await ensureFirebaseInitialized();
       final q = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId)
@@ -5869,37 +6018,39 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       return;
     }
-    final snap = await _eventDocRef.get();
-    final existing = _eventVideosFromData(snap.data() ?? {});
-    if (existing.length >= _maxVideosPerEvent) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text(
-              'Este evento já atingiu o limite de 1 vídeo. Remova para adicionar outro.'),
-          backgroundColor: ThemeCleanPremium.error,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-      return;
-    }
-    final slot = _nextHostedVideoStorageSlot();
-    if (slot < 0) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text(
-              'Limite de 1 vídeo no Storage. Remova o vídeo para adicionar outro.'),
-          backgroundColor: ThemeCleanPremium.error,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-      return;
-    }
-    setState(() {
-      _uploadingVideo = true;
-      _videoUploadFraction = null;
-    });
     try {
       await ensureFirebaseInitialized();
+      final snap = await _eventDocRef.get();
+      final existing = _eventVideosFromData(snap.data() ?? {});
+      if (existing.length >= _maxVideosPerEvent) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: const Text(
+                'Este evento já atingiu o limite de 1 vídeo. Remova para adicionar outro.'),
+            backgroundColor: ThemeCleanPremium.error,
+            behavior: SnackBarBehavior.floating,
+          ));
+        }
+        return;
+      }
+      final slot = _nextHostedVideoStorageSlot();
+      if (slot < 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: const Text(
+                'Limite de 1 vídeo no Storage. Remova o vídeo para adicionar outro.'),
+            backgroundColor: ThemeCleanPremium.error,
+            behavior: SnackBarBehavior.floating,
+          ));
+        }
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _uploadingVideo = true;
+          _videoUploadFraction = null;
+        });
+      }
       if (mounted)
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -6216,6 +6367,20 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return payload;
   }
 
+  void _schedulePostPublishCacheWarmup() {
+    // Pós-publicação: acelera atualização no painel inicial e no site público.
+    unawaited(
+      PanelDashboardSnapshotService.warmFromCallableIfStale(widget.tenantId),
+    );
+    if (_publicSite) {
+      unawaited(
+        ChurchPerformanceCacheService.warmPublicFeedCacheFromCallableIfStale(
+          widget.tenantId,
+        ),
+      );
+    }
+  }
+
   Future<void> _save() async {
     if (_saving) return;
     if (_title.text.trim().isEmpty) {
@@ -6242,13 +6407,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final hasNewImages = _newPhotoCount > 0;
     try {
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+      // Publicação instantânea no app: evita leitura/compressão antes de gravar o stub.
+      // Quando há novas fotos, usa razão padrão e deixa o pipeline assíncrono finalizar a mídia.
       double? aspectRatio;
-      if (hasNewImages) {
-        final firstBytes = await _firstNewImageBytes();
-        if (firstBytes != null) {
-          aspectRatio = await imageAspectRatioFromBytes(firstBytes);
-        }
-      } else if (existingUrls.isNotEmpty) {
+      if (!hasNewImages && existingUrls.isNotEmpty) {
         final prev = widget.doc?.data()?['media_info'];
         if (prev is Map) {
           final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
@@ -6295,6 +6457,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         await _applyAgendaSyncAfterSave(postId);
         if (mounted) {
           setState(() => _saving = false);
+          _schedulePostPublishCacheWarmup();
           unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
@@ -6316,6 +6479,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       await _applyAgendaSyncAfterSave(postId);
       if (mounted) {
+        _schedulePostPublishCacheWarmup();
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
         );
@@ -6491,6 +6655,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           }
           await _applyAgendaSyncAfterSave(postId);
           if (mounted) {
+            _schedulePostPublishCacheWarmup();
             ScaffoldMessenger.of(context).showSnackBar(
                 ThemeCleanPremium.successSnackBar('Evento publicado!'));
             Navigator.pop(context, true);

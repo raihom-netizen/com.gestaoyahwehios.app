@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.refreshPublicFeedCacheOnNoticiaWrite = exports.refreshPublicFeedCacheOnAvisoWrite = exports.generatePublicFeedCache = exports.generateBirthdayCache = exports.compressVideo = exports.optimizeImage = void 0;
+exports.warmChurchPublicFeedCache = exports.refreshPublicFeedCacheOnNoticiaWrite = exports.refreshPublicFeedCacheOnAvisoWrite = exports.generatePublicFeedCache = exports.generateBirthdayCache = exports.compressVideo = exports.optimizeImage = void 0;
 exports.refreshPublicFeedCacheForTenant = refreshPublicFeedCacheForTenant;
 /**
  * Pacote definitivo de performance — Gestão YAHWEH
@@ -48,6 +48,7 @@ exports.refreshPublicFeedCacheForTenant = refreshPublicFeedCacheForTenant;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const sharp_1 = __importDefault(require("sharp"));
+const tenantCallableResolve_1 = require("./tenantCallableResolve");
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
 const WEBP_Q = 70;
@@ -410,4 +411,19 @@ exports.refreshPublicFeedCacheOnNoticiaWrite = functions
     .region("us-central1")
     .firestore.document("igrejas/{tenantId}/noticias/{postId}")
     .onWrite((change, ctx) => onPublicPostWrite(ctx.params.tenantId, change.after));
+/** Warmup explícito pós-publicação: atualiza cache público imediatamente. */
+exports.warmChurchPublicFeedCache = functions
+    .region("us-central1")
+    .https.onCall(async (request, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Login necessario");
+    }
+    const body = (request || {});
+    const tenantId = await (0, tenantCallableResolve_1.resolveTenantIdForCallable)({ uid: context.auth.uid, token: context.auth.token }, String(body.tenantId || ""));
+    if (!tenantId) {
+        throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
+    }
+    await refreshPublicFeedCacheForTenant(tenantId);
+    return { ok: true, tenantId, warmed: true };
+});
 //# sourceMappingURL=churchPerformancePack.js.map

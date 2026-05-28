@@ -31,6 +31,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
+import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_delivery_status.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_media_preview_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_forward_sheet.dart';
@@ -187,6 +188,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   void initState() {
     super.initState();
     logYahwehModuleScreen('chat_thread');
+    unawaited(ensureFirebaseInitialized().catchError((_) {}));
+    unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
@@ -1581,18 +1584,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       tenantId: widget.tenantId,
       threadId: widget.threadId,
     ));
+    // Enfileira imediatamente (estilo WhatsApp): evita bloquear envio lendo bytes antes.
     Uint8List? previewBytes;
-    if (kind == 'image') {
-      try {
-        final f = File(localPath);
-        if (await f.exists()) {
-          final len = await f.length();
-          if (len > 0 && len <= 4 * 1024 * 1024) {
-            previewBytes = await f.readAsBytes();
-          }
-        }
-      } catch (_) {}
-    }
     final pending = ChurchChatOutboundPending(
       localId: 'p_${DateTime.now().millisecondsSinceEpoch}',
       kind: kind,
@@ -1939,23 +1932,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _startVoiceRecording() async {
-    if (!await _chatAudio.hasPermission()) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'Permissão de microfone necessária para gravar.',
-            ),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: ThemeCleanPremium.error,
-          ),
-        );
-      }
-      return;
-    }
-
     try {
-      await _chatAudio.startRecording();
+      final startedPath = await _chatAudio.startRecording();
+      if (startedPath == null && !kIsWeb) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Permissão de microfone necessária para gravar.',
+              ),
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+          );
+        }
+        return;
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2040,6 +2032,41 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final name = 'voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
     unawaited(_uploadAndSendFromPath(path, name, mime, 'audio'));
+  }
+
+  Future<void> _openAttachmentExternally(String rawUrl) async {
+    final raw = rawUrl.trim();
+    if (raw.isEmpty) {
+      _showChatAttachmentError('Ficheiro indisponível.');
+      return;
+    }
+    try {
+      String resolved = raw;
+      if (StorageMediaService.isFirebaseStorageMediaUrl(raw) ||
+          raw.contains('firebasestorage') ||
+          raw.startsWith('gs://') ||
+          raw.startsWith('igrejas/')) {
+        resolved = await StorageMediaService.freshPlayableMediaUrl(raw);
+      } else {
+        final alt = await StorageMediaService.downloadUrlFromPathOrUrl(raw);
+        if (alt != null && alt.isNotEmpty) {
+          resolved = alt;
+        }
+      }
+      final uri = Uri.tryParse(resolved);
+      if (uri == null) {
+        _showChatAttachmentError('Link do ficheiro inválido.');
+        return;
+      }
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) {
+        _showChatAttachmentError('Não foi possível abrir o ficheiro.');
+      }
+    } catch (e) {
+      _showChatAttachmentError(
+        'Erro ao abrir ficheiro: ${formatUploadErrorForUser(e)}',
+      );
+    }
   }
 
   @override
@@ -2772,6 +2799,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                   data: m,
                                   mine: mine,
                                   replyQuoteAccent: quoteAccent,
+                                  onOpenAttachment: _openAttachmentExternally,
                                 ),
                                 _buildReactionsStrip(m, uid, mine),
                                 Padding(
@@ -3097,6 +3125,7 @@ class _MessageBody extends StatelessWidget {
   final Map<String, dynamic> data;
   final bool mine;
   final Color? replyQuoteAccent;
+  final Future<void> Function(String rawUrl)? onOpenAttachment;
 
   const _MessageBody({
     required this.messageId,
@@ -3104,6 +3133,7 @@ class _MessageBody extends StatelessWidget {
     required this.data,
     required this.mine,
     this.replyQuoteAccent,
+    this.onOpenAttachment,
   });
 
   Widget _replyQuote(BuildContext context) {
@@ -3545,10 +3575,7 @@ class _MessageBody extends StatelessWidget {
           ..._quotePrefix(context),
           InkWell(
             onTap: () async {
-              final u = Uri.parse(url);
-              if (await canLaunchUrl(u)) {
-                await launchUrl(u, mode: LaunchMode.externalApplication);
-              }
+              await onOpenAttachment?.call(url);
             },
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -3597,10 +3624,7 @@ class _MessageBody extends StatelessWidget {
         ..._quotePrefix(context),
         InkWell(
           onTap: () async {
-            final u = Uri.parse(url);
-            if (await canLaunchUrl(u)) {
-              await launchUrl(u, mode: LaunchMode.externalApplication);
-            }
+            await onOpenAttachment?.call(url);
           },
           child: Row(
             mainAxisSize: MainAxisSize.min,

@@ -45,11 +45,32 @@ Future<void> churchChatSaveImageUrl(BuildContext context, String rawUrl) async {
       throw Exception('HTTP ${res.statusCode}');
     }
     final stamp = DateTime.now().millisecondsSinceEpoch;
-    await Gal.putImageBytes(
-      res.bodyBytes,
-      album: 'Gestão YAHWEH',
-      name: 'chat_foto_$stamp',
-    );
+    final ct = (res.headers['content-type'] ?? '').toLowerCase();
+    final ext = ct.contains('png')
+        ? 'png'
+        : ct.contains('webp')
+            ? 'webp'
+            : 'jpg';
+    final dir = await getTemporaryDirectory();
+    final tmpPath = '${dir.path}/chat_foto_$stamp.$ext';
+    final tmp = File(tmpPath);
+    await tmp.writeAsBytes(res.bodyBytes, flush: true);
+    try {
+      await Gal.putImage(
+        tmp.path,
+        album: 'Gestão YAHWEH',
+      );
+    } catch (_) {
+      // Fallback para bytes (alguns aparelhos falham no path e aceitam bytes).
+      await Gal.putImageBytes(
+        res.bodyBytes,
+        album: 'Gestão YAHWEH',
+        name: 'chat_foto_$stamp',
+      );
+    }
+    try {
+      await tmp.delete();
+    } catch (_) {}
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       ThemeCleanPremium.feedbackSnackBar('Imagem guardada na galeria.'),
