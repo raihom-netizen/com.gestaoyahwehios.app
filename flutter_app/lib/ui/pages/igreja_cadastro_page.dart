@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart' show XFile, ImageSource;
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
@@ -125,8 +126,8 @@ String _ageRangeGestor(int? age) {
   return '51+';
 }
 
-/// Cadastro da Igreja â€” dados do tenant (nome, logo da galeria, endereço completo, dados do gestor).
-/// EdiÃ§Ã£o apenas para gestor/admin/master.
+/// Cadastro da Igreja — dados do tenant (nome, logo da galeria, endereço completo, dados do gestor).
+/// Edição apenas para gestor/admin/master.
 class IgrejaCadastroPage extends StatefulWidget {
   final String tenantId;
   final String role;
@@ -149,7 +150,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
 
-  /// CPF (11) ou CNPJ (14) da instituição â€” rodapÃ© e relatórios.
+  /// CPF (11) ou CNPJ (14) da instituição — rodapé e relatórios.
   final _cnpjIgrejaCtrl = TextEditingController();
   final _cidadeCtrl = TextEditingController();
   final _estadoCtrl = TextEditingController();
@@ -170,20 +171,24 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   final _facebookUrlCtrl = TextEditingController();
   final _whatsappChatUrlCtrl = TextEditingController();
 
-  /// Meta ministerial no painel "SaÃºde ministerial & BI" (Firestore: metaMinisterial*).
+  /// Meta ministerial no painel "Saúde ministerial & BI" (Firestore: metaMinisterial*).
   final _metaMinisterialTituloCtrl = TextEditingController();
   final _metaMinisterialValorCtrl = TextEditingController();
   final _metaMinisterialAcumuladoCtrl = TextEditingController();
 
+  /// Validade da carteirinha de membro (aplica-se a todos os membros).
+  CarteiraValidadeModo _carteiraValidadeModo = CarteiraValidadeModo.anos3;
+  DateTime? _carteiraValidadeDataFixa;
+
   String? _logoUrl;
 
-  /// Caminho no Storage (renovaÃ§Ã£o de token / cache central).
+  /// Caminho no Storage (renovação de token / cache central).
   String? _logoStoragePath;
 
-  /// Logo em memÃ³ria (exibido imediatamente ao escolher, antes do upload).
+  /// Logo em memória (exibido imediatamente ao escolher, antes do upload).
   Uint8List? _logoBytes;
 
-  /// HÃ¡ logo nova na galeria/corte ainda não publicada no Storage â€” [Salvar igreja] deve enviar antes do merge.
+  /// Há logo nova na galeria/corte ainda não publicada no Storage — [Salvar igreja] deve enviar antes do merge.
   bool _logoStagedNotUploaded = false;
   double? _latitude;
   double? _longitude;
@@ -191,7 +196,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   bool _uploadingLogo = false;
   double _logoUploadProgress = 0;
 
-  /// '' | encoding | uploading â€” feedback quando o progresso de rede ainda não comeÃ§ou.
+  /// '' | encoding | uploading — feedback quando o progresso de rede ainda não começou.
   String _logoUploadPhase = '';
 
   bool _loadingCep = false;
@@ -201,11 +206,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   bool _notedNonexistentIgrejaDoc = false;
   bool _logoTokenRefreshAttempted = false;
 
-  /// Evita mÃºltiplas resoluÃ§Ãµes Storageâ†’URL para o mesmo tenant na mesma sessÃ£o.
+  /// Evita múltiplas resoluções Storage→URL para o mesmo tenant na mesma sessão.
   String? _logoStorageHydrationTenantId;
   late Future<String> _resolvedIdFuture;
 
-  /// Ficha completa do gestor (espelha cadastro de Membros â€” funÃ§Ã£o administrador).
+  /// Ficha completa do gestor (espelha cadastro de Membros — função administrador).
   final _gFiliacaoMaeCtrl = TextEditingController();
   final _gFiliacaoPaiCtrl = TextEditingController();
   final _gEstadoCivilCtrl = TextEditingController();
@@ -216,14 +221,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Uint8List? _gPhotoBytes;
   String? _gestorExistingPhotoUrl;
 
-  /// Snapshot do doc `membros` do gestor â€” usado por [FotoMembroWidget] (path/`gs://` sem URL https).
+  /// Snapshot do doc `membros` do gestor — usado por [FotoMembroWidget] (path/`gs://` sem URL https).
   Map<String, dynamic>? _gestorMemberData;
 
-  /// ID real do documento em `membros` (padrÃ£o: UID do Firebase; legado: CPF).
+  /// ID real do documento em `membros` (padrão: UID do Firebase; legado: CPF).
   String? _gestorMemberDocId;
   String? _lastHydratedCpf;
 
-  /// Invalida [setState] de hidrataÃ§Ãµes antigas (ex.: concluem depois do salvar e zeravam a foto).
+  /// Invalida [setState] de hidratações antigas (ex.: concluem depois do salvar e zeravam a foto).
   int _gestorHydrateSeq = 0;
 
   void _onNameChanged() {
@@ -353,7 +358,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return s.replaceAll(RegExp(r'[^0-9]'), '');
   }
 
-  /// Exibe valor numÃ©rico de meta como texto (pt-BR simples).
+  /// Exibe valor numérico de meta como texto (pt-BR simples).
   static String _metaMoneyDisplayFromFirestore(dynamic v) {
     if (v == null) return '';
     final d = v is num
@@ -363,7 +368,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return d.toStringAsFixed(2).replaceAll('.', ',');
   }
 
-  /// Interpreta campo monetÃ¡rio (ex.: 1500, 1.500,50 1500,50).
+  /// Interpreta campo monetário (ex.: 1500, 1.500,50 1500,50).
   static double? _parseMetaMoneyField(String raw) {
     final cleaned = raw
         .trim()
@@ -434,7 +439,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _nameCtrl.text = (data['name'] ?? data['nome'] ?? '').toString();
     _cnpjIgrejaCtrl.text =
         (data['cnpj'] ?? data['CNPJ'] ?? data['cnpjCpf'] ?? '').toString();
-    // Logo: URL do Storage (vÃ¡rios campos) ou, se vazio, Base64 gravado no doc (legado / export).
+    // Logo: URL do Storage (vários campos) ou, se vazio, Base64 gravado no doc (legado / export).
     final url = churchTenantLogoUrl(data);
     _logoUrl = url.isEmpty ? null : url;
     _logoStoragePath = ChurchImageFields.logoStoragePath(data);
@@ -496,6 +501,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         _metaMoneyDisplayFromFirestore(data['metaMinisterialValor']);
     _metaMinisterialAcumuladoCtrl.text =
         _metaMoneyDisplayFromFirestore(data['metaMinisterialAcumulado']);
+    final carteiraCfg = CarteiraValidadeChurch.fromTenant(data);
+    _carteiraValidadeModo = carteiraCfg.modo;
+    _carteiraValidadeDataFixa = carteiraCfg.dataFixa;
     _gestorEmailCtrl.text =
         (data['gestorEmail'] ?? data['gestor_email'] ?? '').toString();
     _instagramUrlCtrl.text = _firstNonEmptyString(data, const [
@@ -554,7 +562,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return RegExp(r'^[A-Za-z0-9]+$').hasMatch(t);
   }
 
-  /// CPF canÃ´nico (11 dígitos) a partir dos campos do membro.
+  /// CPF canónico (11 dígitos) a partir dos campos do membro.
   static String _cpfDigitsFromMemberData(Map<String, dynamic>? d) {
     if (d == null) return '';
     final raw =
@@ -562,7 +570,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return raw.length == 11 ? raw : '';
   }
 
-  /// Legado / master: localiza documento por CPF (id ou campo). Com login, o padrÃ£o Ã© `membros/{uid}`.
+  /// Legado / master: localiza documento por CPF (id ou campo). Com login, o padrão é `membros/{uid}`.
   Future<String> _resolveGestorMembroDocumentId(
       String resolvedId, String cpfDigits) async {
     if (cpfDigits.length != 11) return cpfDigits;
@@ -864,7 +872,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         _gestorMemberDocId != null && _gestorMemberDocId!.trim().isNotEmpty;
     final hasPhoto = _gPhotoBytes != null || hasNet || hasStorageFallback;
     if (!hasPhoto)
-      return 'Envie a foto do gestor (mesmo padrÃ£o do cadastro de membros).';
+      return 'Envie a foto do gestor (mesmo padrão do cadastro de membros).';
     return null;
   }
 
@@ -1072,7 +1080,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         ? authUidForPayload
         : (uid.isNotEmpty && editorIsChurchStaff ? uid : '');
 
-    // GravaÃ§Ãµes em paralelo (menos tempo em "Salvando...").
+    // Gravações em paralelo (menos tempo em "Salvando...").
     final parallel = <Future<void>>[];
     if (userWriteId.isNotEmpty && _looksLikeFirebaseAuthUid(userWriteId)) {
       parallel.add(
@@ -1173,7 +1181,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  /// Galeria ou câmera: alta resoluÃ§Ã£o â†’ bytes locais; use [Cortar] e [Enviar logo] para publicar.
+  /// Galeria ou câmera: alta resolução → bytes locais; use [Cortar] e [Enviar logo] para publicar.
   Future<void> _pickLogoFromGallery() async {
     if (!_canEdit) return;
     try {
@@ -1274,7 +1282,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           await FirebaseStorage.instance.ref('$base$suffix').delete();
         } catch (_) {}
       }
-      // ExtensÃ£o Resize Images: `thumb_<baseDoFicheiro>.jpg` junto a `logo_igreja.png`
+      // Extensão Resize Images: `thumb_<baseDoFicheiro>.jpg` junto a `logo_igreja.png`
       final slash = p.lastIndexOf('/');
       if (slash >= 0 && dot > slash) {
         final dir = p.substring(0, slash);
@@ -1312,7 +1320,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         _logoUploadProgress = 0;
       });
       await _deleteChurchLogoStorageObjectAndVariants(_logoStoragePath);
-      // MantÃ©m sÃ³ a identidade canÃ³nica em PNG: remove legado `.jpg` no mesmo sÃ­tio.
+      // Mantém só a identidade canónica em PNG: remove legado `.jpg` no mesmo sítio.
       try {
         await FirebaseStorage.instance
             .ref(
@@ -1433,7 +1441,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  /// Monta o endereço completo para exibiÃ§Ã£o e para o site público.
+  /// Monta o endereço completo para exibição e para o site público.
   String _buildEnderecoCompleto() {
     final rua = _ruaCtrl.text.trim();
     final qdLt = _quadraLoteNumeroCtrl.text.trim();
@@ -1531,7 +1539,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  /// Token do Firebase Storage expira: renova URL e grava no Firestore (logo â€œsempre disponívelâ€).
+  /// Token do Firebase Storage expira: renova URL e grava no Firestore (logo "sempre disponível").
   Future<void> _maybeRefreshStorageLogoUrl() async {
     final u = _logoUrl;
     if (u == null || u.isEmpty) return;
@@ -1727,6 +1735,32 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (_latitude != null) data['latitude'] = _latitude;
       if (_longitude != null) data['longitude'] = _longitude;
 
+      final carteiraCfg = CarteiraValidadeChurch(
+        modo: _carteiraValidadeModo,
+        dataFixa: _carteiraValidadeDataFixa,
+      );
+      data[CarteiraValidadeChurch.firestoreKeyModo] = carteiraCfg.firestoreModoValue;
+      data['carteiraValidadePermanente'] =
+          _carteiraValidadeModo == CarteiraValidadeModo.permanente;
+      final anosLegado = switch (_carteiraValidadeModo) {
+        CarteiraValidadeModo.anos2 => 2,
+        CarteiraValidadeModo.anos3 => 3,
+        CarteiraValidadeModo.anos5 => 5,
+        _ => null,
+      };
+      if (anosLegado != null) {
+        data['carteiraValidadeAnos'] = anosLegado;
+      } else {
+        data['carteiraValidadeAnos'] = FieldValue.delete();
+      }
+      if (_carteiraValidadeModo == CarteiraValidadeModo.dataFixa &&
+          _carteiraValidadeDataFixa != null) {
+        data[CarteiraValidadeChurch.firestoreKeyDataFixa] =
+            Timestamp.fromDate(_carteiraValidadeDataFixa!);
+      } else {
+        data[CarteiraValidadeChurch.firestoreKeyDataFixa] = FieldValue.delete();
+      }
+
       if (slugRaw.isNotEmpty) {
         if (AppConstants.reservedChurchSlugs.contains(slugRaw)) {
           if (mounted) {
@@ -1847,7 +1881,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (picked != null && mounted) setState(() => _gBirthDate = picked);
   }
 
-  /// PrÃ©via compacta â€” alinhada ao tamanho usado no cadastro de membros (~120px).
+  /// Prévia compacta — alinhada ao tamanho usado no cadastro de membros (~120px).
   Widget _gestorPhotoPlaceholder(double side, {bool circular = true}) {
     final inner = Container(
       width: side,
@@ -2642,7 +2676,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                           const SizedBox(height: 8),
                                           Text(
                                             _logoUploadPhase == 'encoding'
-                                                ? 'A otimizar imagem em segundo planoâ€¦'
+                                                ? 'A otimizar imagem em segundo plano…'
                                                 : 'A enviar para a nuvem: ${(_logoUploadProgress * 100).clamp(0, 100).toStringAsFixed(0)}%',
                                             style: TextStyle(
                                               fontSize: 12,
@@ -3008,6 +3042,96 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                       border: OutlineInputBorder(),
                                     ),
                                   ),
+                                  const SizedBox(
+                                      height: ThemeCleanPremium.spaceLg),
+                                  _cadastroSectionLabel(
+                                      'Carteirinha de membro — validade'),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Define a validade exibida em todas as carteirinhas. '
+                                    'Para prazos em anos, a data conta a partir da emissão ou assinatura de cada membro.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      height: 1.4,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  DropdownButtonFormField<CarteiraValidadeModo>(
+                                    value: _carteiraValidadeModo,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Validade da carteirinha',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    items: const [
+                                      DropdownMenuItem(
+                                        value: CarteiraValidadeModo.permanente,
+                                        child: Text('Permanente'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: CarteiraValidadeModo.anos2,
+                                        child: Text('02 anos'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: CarteiraValidadeModo.anos3,
+                                        child: Text('03 anos'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: CarteiraValidadeModo.anos5,
+                                        child: Text('05 anos'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: CarteiraValidadeModo.dataFixa,
+                                        child: Text('Data fixa (escolher)'),
+                                      ),
+                                    ],
+                                    onChanged: !_canEdit
+                                        ? null
+                                        : (v) {
+                                            if (v == null) return;
+                                            setState(() {
+                                              _carteiraValidadeModo = v;
+                                              if (v != CarteiraValidadeModo.dataFixa) {
+                                                _carteiraValidadeDataFixa = null;
+                                              }
+                                            });
+                                          },
+                                  ),
+                                  if (_carteiraValidadeModo ==
+                                      CarteiraValidadeModo.dataFixa) ...[
+                                    const SizedBox(height: 10),
+                                    OutlinedButton.icon(
+                                      onPressed: !_canEdit
+                                          ? null
+                                          : () async {
+                                              final now = DateTime.now();
+                                              final picked = await showDatePicker(
+                                                context: context,
+                                                locale: const Locale('pt', 'BR'),
+                                                initialDate:
+                                                    _carteiraValidadeDataFixa ??
+                                                        DateTime(
+                                                          now.year + 3,
+                                                          now.month,
+                                                          now.day,
+                                                        ),
+                                                firstDate: now,
+                                                lastDate: DateTime(now.year + 30),
+                                              );
+                                              if (picked != null && mounted) {
+                                                setState(() =>
+                                                    _carteiraValidadeDataFixa =
+                                                        picked);
+                                              }
+                                            },
+                                      icon: const Icon(Icons.event_rounded),
+                                      label: Text(
+                                        _carteiraValidadeDataFixa == null
+                                            ? 'Escolher data de validade'
+                                            : 'Validade até: ${_carteiraValidadeDataFixa!.day.toString().padLeft(2, '0')}/${_carteiraValidadeDataFixa!.month.toString().padLeft(2, '0')}/${_carteiraValidadeDataFixa!.year}',
+                                      ),
+                                    ),
+                                  ],
                                   const SizedBox(
                                       height: ThemeCleanPremium.spaceLg),
                                   _cadastroSectionLabel(

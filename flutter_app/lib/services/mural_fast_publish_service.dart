@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/network_media_quality_policy.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
@@ -183,8 +184,8 @@ abstract final class MuralFastPublishService {
     try {
       await FeedPostMediaUpload.warmAuthToken().timeout(const Duration(seconds: 25));
       Map<String, dynamic>? firstVariants;
-      final maxConc = IosPublishImagePipeline.useIosLightweightPublish
-          ? 1
+      final maxConc = IosPublishImagePipeline.useNativeFastFeedUpload
+          ? mediaFeedUploadMaxConcurrent
           : await NetworkMediaQualityPolicy.maxConcurrentUploads();
       final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
         count: newImages.length,
@@ -281,7 +282,9 @@ abstract final class MuralFastPublishService {
       Map<String, dynamic>? firstVariants;
       final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
         count: paths.length,
-        maxConcurrent: IosPublishImagePipeline.useIosLightweightPublish ? 1 : null,
+        maxConcurrent: IosPublishImagePipeline.useNativeFastFeedUpload
+            ? mediaFeedUploadMaxConcurrent
+            : null,
         progressLabel: 'A enviar imagens…',
         uploadOne: (i, report) async {
           final r = await MuralPostMediaPayload.uploadPhotoSlotWithVariants(

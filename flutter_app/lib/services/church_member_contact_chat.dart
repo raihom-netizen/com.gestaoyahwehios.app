@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_birthday_parabenizar.dart';
@@ -15,21 +16,43 @@ abstract final class ChurchMemberContactChat {
   static String? authUidFromMember(Map<String, dynamic> data) =>
       ChurchBirthdayParabenizar.authUidFromMember(data);
 
+  static String _stripPhoneDigits(dynamic v) {
+    if (v == null) return '';
+    if (v is num) {
+      final s = v.toInt().toString();
+      return s.length >= 10 ? s : '';
+    }
+    if (v is List) {
+      for (final e in v) {
+        final s = _stripPhoneDigits(e);
+        if (s.length >= 10) return s;
+      }
+      return v
+          .map((e) => e.toString())
+          .join('')
+          .replaceAll(RegExp(r'[^0-9]'), '');
+    }
+    return v.toString().replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
+  /// Dígitos do telefone/WhatsApp na ficha do membro (≥10 dígitos).
   static String phoneDigitsFromMember(Map<String, dynamic> data) {
-    for (final k in [
+    const keys = [
+      'TELEFONES',
+      'telefones',
       'whatsapp',
       'WHATSAPP',
       'whatsappIgreja',
-      'TELEFONES',
-      'telefones',
       'celular',
       'CELULAR',
       'telefone',
       'TELEFONE',
       'fone',
       'phone',
-    ]) {
-      final s = (data[k] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+      'PHONE',
+    ];
+    for (final k in keys) {
+      final s = _stripPhoneDigits(data[k]);
       if (s.length >= 10) return s;
     }
     for (final e in data.entries) {
@@ -40,10 +63,36 @@ abstract final class ChurchMemberContactChat {
           !key.contains('whats')) {
         continue;
       }
-      final s = (e.value ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+      final s = _stripPhoneDigits(e.value);
       if (s.length >= 10) return s;
     }
     return '';
+  }
+
+  /// Completa [memberData] com a ficha em Firestore quando o mapa leve não traz telefone.
+  static Future<Map<String, dynamic>> enrichMemberDataWithPhone({
+    required String tenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+  }) async {
+    if (phoneDigitsFromMember(memberData).length >= 10) return memberData;
+    final tid = tenantId.trim();
+    final mid = memberDocId.trim();
+    if (tid.isEmpty || mid.isEmpty) return memberData;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .collection('membros')
+          .doc(mid)
+          .get();
+      if (!snap.exists) return memberData;
+      final fresh = snap.data();
+      if (fresh == null || fresh.isEmpty) return memberData;
+      return {...memberData, ...fresh};
+    } catch (_) {
+      return memberData;
+    }
   }
 
   static Future<void> openChatIgreja({
@@ -127,8 +176,20 @@ abstract final class ChurchMemberContactChat {
     BuildContext context,
     Map<String, dynamic> memberData, {
     String message = 'Fale comigo',
+    String? tenantId,
+    String? memberDocId,
   }) async {
-    final digits = phoneDigitsFromMember(memberData);
+    var data = memberData;
+    if (phoneDigitsFromMember(data).length < 10 &&
+        tenantId != null &&
+        memberDocId != null) {
+      data = await enrichMemberDataWithPhone(
+        tenantId: tenantId,
+        memberDocId: memberDocId,
+        memberData: data,
+      );
+    }
+    final digits = phoneDigitsFromMember(data);
     if (digits.length < 10) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

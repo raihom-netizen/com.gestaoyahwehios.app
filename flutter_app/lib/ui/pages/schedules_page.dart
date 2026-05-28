@@ -283,21 +283,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   /// Filtros da aba Escalas geradas — recolhido por defeito para ganhar área útil.
   bool _escalaFiltersExpanded = false;
 
-  /// Pastoral / gestão / papel global com escala geral.
-  bool get _canWriteFull {
-    if (AppPermissions.canEditSchedules(widget.role)) return true;
-    final r = widget.role.trim().toLowerCase();
-    return r == 'gestor' ||
-        r == 'pastor' ||
-        r == 'pastora' ||
-        r == 'pastor_presidente' ||
-        r == 'admin' ||
-        r == 'adm' ||
-        r == 'administrador' ||
-        r == 'administradora' ||
-        r == 'lider' ||
-        r == 'lider_departamento';
-  }
+  /// Pastoral / gestão com escala geral (todos os departamentos). Líder de departamento usa [_managedDeptIds].
+  bool get _canWriteFull => AppPermissions.canEditSchedules(widget.role);
 
   /// Inclui líder ou vice-líder de departamento (CPF no doc do grupo), mesmo com papel [membro].
   bool get _canWrite => _canWriteFull || _managedDeptIds.isNotEmpty;

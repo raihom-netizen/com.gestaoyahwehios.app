@@ -44,7 +44,7 @@ class ChurchFuncoesControleService {
         _doc(
             'lider_departamento',
             'Líder de Departamento',
-            'Membros e escalas do seu ministério — sem cadastro da igreja ou financeiro.',
+            'Agenda, mural (avisos), eventos e escalas dos departamentos em que é líder (pode ser vários). Sem financeiro.',
             7),
         _doc('pastor', 'Pastor (legado)', 'Amplo acesso (igrejas antigas): mantém financeiro e patrimônio.', 8),
         _doc('presbitero', 'Presbítero', 'Membros, escalas, departamentos, financeiro, patrimônio.', 9),

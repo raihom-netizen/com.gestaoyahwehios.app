@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/ui/widgets/member_digital_wallet_card.dart'
     show walletFiliacaoFromMember;
@@ -118,28 +119,13 @@ class MemberCardCnhViewData {
     return _pick(tenant, ['nome', 'name', 'titulo']);
   }
 
-  static String _validityLabel(Map<String, dynamic> member) {
-    if (member['CARTEIRA_PERMANENTE'] == true) return 'Permanente';
-    final validadeCartao = member['validadeCartao'] ??
-        member['VALIDADE_CARTAO'] ??
-        member['validade_cartao'] ??
-        member['validade'] ??
-        member['VALIDADE'] ??
-        member['dataValidade'] ??
-        member['data_validade'];
-    final v1 = _fmtDate(validadeCartao);
-    if (v1.isNotEmpty) return v1;
-    final carteiraValidade =
-        member['CARTEIRA_VALIDADE'] ?? member['carteiraValidade'];
-    final v2 = _fmtDate(carteiraValidade);
-    if (v2.isNotEmpty) return v2;
-    final years = member['CARTEIRA_ANOS'];
-    if (years is int && years > 0) {
-      final now = DateTime.now();
-      return _fmtDate(DateTime(now.year + years, now.month, now.day));
-    }
-    final now = DateTime.now();
-    return _fmtDate(DateTime(now.year + 1, now.month, now.day));
+  static String _validityLabel(
+    Map<String, dynamic> member,
+    Map<String, dynamic> tenant,
+  ) {
+    final cfg = CarteiraValidadeChurch.fromTenant(tenant);
+    final base = CarteiraValidadeChurch.emissionBaseFromMember(member);
+    return cfg.displayLabel(baseDate: base);
   }
 
   static String _categoria(Map<String, dynamic> m, String cargoLabel) {
@@ -217,7 +203,7 @@ class MemberCardCnhViewData {
       codigoMembro: _memberCode(member, memberId),
       igrejaSede: _churchSede(tenant, churchSubtitle),
       dataNascimento: nasc.isEmpty ? '—' : nasc,
-      validade: _validityLabel(member),
+      validade: _validityLabel(member, tenant),
       filiacao: walletFiliacaoFromMember(member).trim().isEmpty
           ? '—'
           : walletFiliacaoFromMember(member),

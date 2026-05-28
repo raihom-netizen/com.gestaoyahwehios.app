@@ -137,40 +137,11 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   final GlobalKey<_FeedTabState> _feedTabKey = GlobalKey<_FeedTabState>();
   final GlobalKey<_FixosTabState> _fixosTabKey = GlobalKey<_FixosTabState>();
 
-  /// Alinhado às regras Firestore [canWriteMuralFeed]: equipe + permissão `eventos` em usuários.
-  bool get _canWrite {
-    if (AppPermissions.hasModulePermission(widget.permissions, 'eventos')) {
-      return true;
-    }
-    if (widget.permissions != null) {
-      if (AppPermissions.hasModulePermission(
-          widget.permissions, 'eventos_avisos_edicao')) {
-        return true;
-      }
-      if (AppPermissions.hasModulePermission(
-              widget.permissions, 'eventos_avisos_ver') &&
-          !AppPermissions.hasModulePermission(
-              widget.permissions, 'eventos_avisos_edicao')) {
-        return false;
-      }
-    }
-    if (AppPermissions.isRestrictedMember(widget.role)) return false;
-    final r = widget.role.toLowerCase();
-    return r == 'adm' ||
-        r == 'admin' ||
-        r == 'gestor' ||
-        r == 'master' ||
-        r == 'lider' ||
-        r == 'lider_departamento' ||
-        r == 'pastor' ||
-        r == 'pastora' ||
-        r == 'secretario' ||
-        r == 'presbitero' ||
-        r == 'tesoureiro' ||
-        r == 'tesouraria' ||
-        r == 'diacono' ||
-        r == 'evangelista';
-  }
+  /// Alinhado às regras Firestore [canWriteMuralFeed]: equipe + permissão `eventos` + líder de departamento.
+  bool get _canWrite => AppPermissions.canManageChurchMuralEventsAgenda(
+        widget.role,
+        permissions: widget.permissions,
+      );
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
       FirebaseFirestore.instance
@@ -9463,6 +9434,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
   static const int _maxEvents = 20;
   List<_EventStats> _stats = [];
   List<PieChartSectionData> _categoryPieSections = [];
+  List<({String name, int count, Color color})> _categoryLegend = [];
   bool _loading = true;
   String? _error;
 
@@ -9511,24 +9483,20 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
         Colors.brown.shade400,
       ];
       final pieSections = <PieChartSectionData>[];
+      final legend = <({String name, int count, Color color})>[];
       var ci = 0;
       for (final e in catMap.entries) {
-        final raw = e.key;
-        final short = raw.length > 16 ? '${raw.substring(0, 16)}…' : raw;
+        final sliceColor = pieColors[ci % pieColors.length];
         pieSections.add(PieChartSectionData(
           value: e.value.toDouble(),
-          title: '$short\n${e.value}',
-          color: pieColors[ci % pieColors.length],
-          radius: 46,
-          titleStyle: const TextStyle(
-            fontSize: 10,
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-            height: 1.15,
-          ),
+          title: '',
+          color: sliceColor,
+          radius: 52,
         ));
+        legend.add((name: e.key, count: e.value, color: sliceColor));
         ci++;
       }
+      legend.sort((a, b) => b.count.compareTo(a.count));
       var eventDocs = allSorted.take(_maxEvents).toList();
       final commentCounts = await Future.wait<int>(
         eventDocs.map((d) async {
@@ -9559,6 +9527,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
         setState(() {
           _stats = list;
           _categoryPieSections = pieSections;
+          _categoryLegend = legend;
           _loading = false;
         });
     } catch (e) {
@@ -9610,31 +9579,22 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
               icon: Icons.pie_chart_outline_rounded,
               color: const Color(0xFF7C3AED),
               onTap: null,
-              child: SizedBox(
-                height: 240,
-                child: PieChart(
-                  PieChartData(
-                    sections: _categoryPieSections,
-                    sectionsSpace: 2,
-                    centerSpaceRadius: 44,
-                    startDegreeOffset: -90,
-                  ),
-                ),
-              ),
+              child: _CategoryPiePanel(legend: _categoryLegend),
             ),
             const SizedBox(height: ThemeCleanPremium.spaceLg),
           ],
+          _DashboardTotalsRow(stats: _stats),
+          const SizedBox(height: ThemeCleanPremium.spaceLg),
           _ChartCard(
             title: 'Confirmações de presença (RSVP) por evento',
             icon: Icons.check_circle_rounded,
             color: ThemeCleanPremium.success,
             onTap: () => _showNamesSheet(context, 'rsvp'),
-            child: SizedBox(
-              height: 280,
-              child: BarChart(
-                _barChartData(_stats, (e) => e.rsvp.toDouble(),
-                    ThemeCleanPremium.success),
-              ),
+            child: _EventMetricBars(
+              stats: _stats,
+              valueOf: (e) => e.rsvp,
+              color: ThemeCleanPremium.success,
+              maxItems: _dashboardChartMaxItems(context),
             ),
           ),
           const SizedBox(height: ThemeCleanPremium.spaceLg),
@@ -9643,12 +9603,11 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
             icon: Icons.favorite_rounded,
             color: Colors.red.shade400,
             onTap: () => _showNamesSheet(context, 'likes'),
-            child: SizedBox(
-              height: 280,
-              child: BarChart(
-                _barChartData(
-                    _stats, (e) => e.likes.toDouble(), Colors.red.shade400),
-              ),
+            child: _EventMetricBars(
+              stats: _stats,
+              valueOf: (e) => e.likes,
+              color: Colors.red.shade400,
+              maxItems: _dashboardChartMaxItems(context),
             ),
           ),
           const SizedBox(height: ThemeCleanPremium.spaceLg),
@@ -9657,12 +9616,11 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
             icon: Icons.comment_rounded,
             color: const Color(0xFF0EA5E9),
             onTap: () => _showNamesSheet(context, 'comments'),
-            child: SizedBox(
-              height: 280,
-              child: BarChart(
-                _barChartData(_stats, (e) => e.comments.toDouble(),
-                    const Color(0xFF0EA5E9)),
-              ),
+            child: _EventMetricBars(
+              stats: _stats,
+              valueOf: (e) => e.comments,
+              color: const Color(0xFF0EA5E9),
+              maxItems: _dashboardChartMaxItems(context),
             ),
           ),
           const SizedBox(height: 24),
@@ -9683,91 +9641,415 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
     );
   }
 
-  BarChartData _barChartData(List<_EventStats> stats,
-      double Function(_EventStats) valueOf, Color color) {
-    final maxY = stats.isEmpty
-        ? 5.0
-        : stats.map((e) => valueOf(e)).reduce((a, b) => a > b ? a : b);
-    final top = (maxY + 2).clamp(5.0, 100.0).toDouble();
-    return BarChartData(
-      alignment: BarChartAlignment.spaceAround,
-      maxY: top,
-      barGroups: stats.asMap().entries.map((e) {
-        final v = valueOf(e.value);
-        return BarChartGroupData(
-          x: e.key,
-          barRods: [
-            BarChartRodData(
-              toY: v,
-              color: color,
-              width: 14,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(6)),
+  int _dashboardChartMaxItems(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    if (w >= 1100) return 15;
+    if (w >= 720) return 12;
+    return 8;
+  }
+}
+
+/// Resumo rápido no topo do dashboard.
+class _DashboardTotalsRow extends StatelessWidget {
+  final List<_EventStats> stats;
+
+  const _DashboardTotalsRow({required this.stats});
+
+  @override
+  Widget build(BuildContext context) {
+    var rsvp = 0;
+    var likes = 0;
+    var comments = 0;
+    for (final s in stats) {
+      rsvp += s.rsvp;
+      likes += s.likes;
+      comments += s.comments;
+    }
+    final narrow = MediaQuery.sizeOf(context).width < 520;
+    Widget chip(IconData icon, String label, String value, Color color) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: color,
+                height: 1,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey.shade700,
+                height: 1.2,
+              ),
             ),
           ],
-          showingTooltipIndicators: [0],
-        );
-      }).toList(),
-      titlesData: FlTitlesData(
-        show: true,
-        bottomTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 36,
-            getTitlesWidget: (v, meta) {
-              final i = v.toInt();
-              if (i >= 0 && i < stats.length) {
-                final t = stats[i].title;
-                final label = t.length > 12 ? '${t.substring(0, 12)}…' : t;
-                return Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(label,
-                      style:
-                          TextStyle(fontSize: 9, color: Colors.grey.shade700),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1),
-                );
-              }
-              return const SizedBox();
+        ),
+      );
+    }
+
+    Widget chipExpanded(
+      IconData icon,
+      String label,
+      String value,
+      Color color,
+    ) {
+      return Expanded(child: chip(icon, label, value, color));
+    }
+
+    if (narrow) {
+      return Column(
+        children: [
+          chip(Icons.check_circle_rounded, 'RSVP total', '$rsvp',
+              ThemeCleanPremium.success),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              chipExpanded(Icons.favorite_rounded, 'Curtidas', '$likes',
+                  Colors.red.shade400),
+              const SizedBox(width: 10),
+              chipExpanded(Icons.comment_rounded, 'Comentários', '$comments',
+                  const Color(0xFF0EA5E9)),
+            ],
+          ),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        chipExpanded(Icons.check_circle_rounded, 'RSVP total', '$rsvp',
+            ThemeCleanPremium.success),
+        const SizedBox(width: 10),
+        chipExpanded(Icons.favorite_rounded, 'Curtidas', '$likes',
+            Colors.red.shade400),
+        const SizedBox(width: 10),
+        chipExpanded(Icons.comment_rounded, 'Comentários', '$comments',
+            const Color(0xFF0EA5E9)),
+      ],
+    );
+  }
+}
+
+/// Barras horizontais — nomes completos, sem tooltips sobrepostos (web / iOS / Android).
+class _EventMetricBars extends StatelessWidget {
+  final List<_EventStats> stats;
+  final int Function(_EventStats) valueOf;
+  final Color color;
+  final int maxItems;
+
+  const _EventMetricBars({
+    required this.stats,
+    required this.valueOf,
+    required this.color,
+    required this.maxItems,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sorted = List<_EventStats>.from(stats)
+      ..sort((a, b) => valueOf(b).compareTo(valueOf(a)));
+    final top = sorted.take(maxItems).toList();
+    if (top.isEmpty) {
+      return Text(
+        'Sem dados para exibir.',
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: Colors.grey.shade600,
+        ),
+      );
+    }
+    final maxVal = top.map(valueOf).fold<int>(0, (a, b) => a > b ? a : b);
+    final scale = maxVal <= 0 ? 1 : maxVal;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Top ${top.length} — maior valor primeiro',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: Colors.grey.shade600,
+          ),
+        ),
+        const SizedBox(height: 14),
+        for (var i = 0; i < top.length; i++) ...[
+          if (i > 0) const SizedBox(height: 12),
+          _EventMetricBarRow(
+            rank: i + 1,
+            title: top[i].title,
+            value: valueOf(top[i]),
+            fraction: valueOf(top[i]) / scale,
+            color: color,
+          ),
+        ],
+        if (stats.length > maxItems)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(
+              '+ ${stats.length - maxItems} evento(s) fora do gráfico — toque no cartão para ver a lista completa.',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+                height: 1.35,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _EventMetricBarRow extends StatelessWidget {
+  final int rank;
+  final String title;
+  final int value;
+  final double fraction;
+  final Color color;
+
+  const _EventMetricBarRow({
+    required this.rank,
+    required this.title,
+    required this.value,
+    required this.fraction,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final barFraction = fraction.clamp(0.0, 1.0);
+    return Semantics(
+      label: '$title: $value',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '$rank',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    color: color,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    height: 1.25,
+                    color: ThemeCleanPremium.onSurface,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '$value',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: color,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final w = constraints.maxWidth * barFraction;
+              return Stack(
+                children: [
+                  Container(
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 320),
+                    curve: Curves.easeOutCubic,
+                    height: 10,
+                    width: w < 4 && value > 0 ? 4 : w,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(6),
+                      gradient: LinearGradient(
+                        colors: [
+                          color.withValues(alpha: 0.85),
+                          color,
+                        ],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: color.withValues(alpha: 0.25),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
             },
           ),
-        ),
-        leftTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 32,
-            getTitlesWidget: (v, _) => Text(v.toInt().toString(),
-                style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Pizza + legenda lateral (sem texto sobreposto nas fatias).
+class _CategoryPiePanel extends StatelessWidget {
+  final List<({String name, int count, Color color})> legend;
+
+  const _CategoryPiePanel({required this.legend});
+
+  @override
+  Widget build(BuildContext context) {
+    if (legend.isEmpty) return const SizedBox.shrink();
+    final sections = legend
+        .map(
+          (e) => PieChartSectionData(
+            value: e.count.toDouble(),
+            title: '',
+            color: e.color,
+            radius: 52,
           ),
-        ),
-        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-        rightTitles:
-            const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-      ),
-      gridData: FlGridData(
-          show: true,
-          drawVerticalLine: false,
-          getDrawingHorizontalLine: (_) =>
-              FlLine(color: Colors.grey.shade200, strokeWidth: 1)),
-      borderData: FlBorderData(show: false),
-      barTouchData: BarTouchData(
-        enabled: true,
-        touchTooltipData: BarTouchTooltipData(
-          getTooltipItem: (group, groupIndex, rod, rodIndex) {
-            final i = group.x;
-            if (i >= 0 && i < stats.length) {
-              return BarTooltipItem(
-                '${stats[i].title}\n${rod.toY.toInt()}',
-                TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600),
-              );
-            }
-            return null;
-          },
-        ),
-      ),
+        )
+        .toList();
+    final total = legend.fold<int>(0, (a, e) => a + e.count);
+    return LayoutBuilder(
+      builder: (context, c) {
+        final wide = c.maxWidth >= 520;
+        final pie = SizedBox(
+          height: wide ? 200 : 180,
+          width: wide ? 200 : double.infinity,
+          child: PieChart(
+            PieChartData(
+              sections: sections,
+              sectionsSpace: 2,
+              centerSpaceRadius: 42,
+              startDegreeOffset: -90,
+            ),
+          ),
+        );
+        if (!wide) {
+          return Column(
+            children: [
+              pie,
+              const SizedBox(height: 12),
+              _CategoryLegend(legend: legend, total: total),
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            pie,
+            const SizedBox(width: 16),
+            Expanded(
+              child: _CategoryLegend(legend: legend, total: total),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CategoryLegend extends StatelessWidget {
+  final List<({String name, int count, Color color})> legend;
+  final int total;
+
+  const _CategoryLegend({
+    required this.legend,
+    required this.total,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < legend.length; i++) ...[
+          if (i > 0) const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                margin: const EdgeInsets.only(top: 3),
+                decoration: BoxDecoration(
+                  color: legend[i].color,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  legend[i].name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    height: 1.25,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                '${legend[i].count} (${total > 0 ? ((legend[i].count / total) * 100).round() : 0}%)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }
@@ -10185,7 +10467,8 @@ class _ChartCard extends StatelessWidget {
               if (onTap != null)
                 Padding(
                     padding: const EdgeInsets.only(top: 6),
-                    child: Text('Toque para ver nomes',
+                    child: Text(
+                        'Toque no cartão para ver nomes e detalhes',
                         style: TextStyle(
                             fontSize: 12, color: Colors.grey.shade600))),
               const SizedBox(height: 16),

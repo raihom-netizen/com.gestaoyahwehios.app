@@ -229,17 +229,32 @@ class _LiderancaPageState extends State<LiderancaPage> {
       );
     }
 
+    final canPop = Navigator.canPop(context);
+    final isMobile = ThemeCleanPremium.isMobile(context);
+
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: ThemeCleanPremium.isMobile(context)
-          ? null
-          : AppBar(
-              title: const Text('Organograma ministerial'),
-              backgroundColor: Colors.white,
-              foregroundColor: ThemeCleanPremium.onSurface,
-              elevation: 0,
-            ),
+      appBar: AppBar(
+        leading: canPop
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: () => Navigator.maybePop(context),
+                tooltip: 'Voltar',
+              )
+            : null,
+        automaticallyImplyLeading: canPop,
+        title: const Text(
+          'Organograma ministerial',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        backgroundColor: Colors.white,
+        foregroundColor: ThemeCleanPremium.onSurface,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+      ),
       body: SafeArea(
+        top: false,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
             : CustomScrollView(
@@ -247,19 +262,21 @@ class _LiderancaPageState extends State<LiderancaPage> {
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: EdgeInsets.fromLTRB(
-                          padding.left, 16, padding.right, 8),
+                          padding.left, isMobile ? 12 : 16, padding.right, 8),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Organograma ministerial',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                              color: ThemeCleanPremium.onSurface,
+                          if (!isMobile) ...[
+                            Text(
+                              'Organograma ministerial',
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w800,
+                                color: ThemeCleanPremium.onSurface,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 6),
+                            const SizedBox(height: 6),
+                          ],
                           Text(
                             _usedPanelCache
                                 ? 'Lista rápida do painel (líderes de departamento). Para cargos ministeriais completos, atribua funções em Membros ou Cargos.'

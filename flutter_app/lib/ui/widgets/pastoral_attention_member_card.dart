@@ -164,6 +164,8 @@ class PastoralAttentionMemberCard extends StatelessWidget {
                               context,
                               memberData,
                               message: whatsappPrefill,
+                              tenantId: tenantId,
+                              memberDocId: alert.memberId,
                             )
                         : null,
                   ),

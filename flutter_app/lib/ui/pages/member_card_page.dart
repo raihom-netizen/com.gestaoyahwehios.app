@@ -1,4 +1,4 @@
-﻿import 'dart:async' show unawaited, Timer;
+import 'dart:async' show unawaited, Timer;
 import 'dart:convert';
 import 'dart:math' show min;
 
@@ -66,6 +66,7 @@ import 'package:gal/gal.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/carteirinha_consulta_url.dart';
+import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/ui/widgets/member_card_cnh_data.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_cnh_nav.dart';
 import 'package:gestao_yahweh/ui/widgets/member_card_cnh_digital.dart';
@@ -93,33 +94,33 @@ String? _memberAuthUidForCarteiraFoto(Map<String, dynamic> d) {
   return null;
 }
 
-/// Layout ao emitir vÃ¡rias carteirinhas (PDF).
+/// Layout ao emitir várias carteirinhas (PDF).
 enum _PdfManyLayout {
   /// A4 com uma carteirinha centralizada por folha.
   a4OnePerPage,
 
-  /// A4: 5 membros por folha â€” em cada linha, frente e verso lado a lado (economia de papel).
+  /// A4: 5 membros por folha — em cada linha, frente e verso lado a lado (economia de papel).
   a4FrenteVerso5PorFolha,
 
-  /// A4: 2 membros/folha â€” frente sobre verso (igual Ã  carteirinha digital no ecrÃ£).
+  /// A4: 2 membros/folha — frente sobre verso (igual à carteirinha digital no ecrã).
   a4FrenteSobreVerso2Digital,
 
-  /// Grade 2Ã—2 (4) no A4.
+  /// Grade 2×2 (4) no A4.
   a4Grid2x2,
 
-  /// Grade 2Ã—3 (6) no A4.
+  /// Grade 2×3 (6) no A4.
   a4Grid2x3,
 
-  /// Grade 2Ã—4 (8) no A4 â€” ideal para impressora jato de tinta.
+  /// Grade 2×4 (8) no A4 — ideal para impressora jato de tinta.
   a4Grid2x4,
 
-  /// Grade 2Ã—5 (10) no A4.
+  /// Grade 2×5 (10) no A4.
   a4Grid2x5,
 
-  /// PÃ¡gina no tamanho fÃ­sico CR80 (~cartÃ£o PVC / papel fotogrÃ¡fico cortado).
+  /// Página no tamanho físico CR80 (~cartão PVC / papel fotográfico cortado).
   cr80sheet,
 
-  /// CR80 com sangria e marcas de corte para grÃ¡fica.
+  /// CR80 com sangria e marcas de corte para gráfica.
   cr80grafica,
 }
 
@@ -219,10 +220,10 @@ class MemberCardPage extends StatefulWidget {
   /// Chamado ao clicar em "Ir para Membros"; troca para a aba Membros no shell (evita pop que deslogava).
   final VoidCallback? onNavigateToMembers;
 
-  /// Dentro de [IgrejaCleanShell]: sem AppBar duplicada; aÃ§Ãµes em barra compacta no corpo.
+  /// Dentro de [IgrejaCleanShell]: sem AppBar duplicada; ações em barra compacta no corpo.
   final bool embeddedInShell;
 
-  /// SÃ³ o cartÃ£o CNH centralizado (usado por [MemberCardCnhFullscreenPage]).
+  /// Só o cartão CNH centralizado (usado por [MemberCardCnhFullscreenPage]).
   final bool cnhFullscreenOnly;
 
   const MemberCardPage({
@@ -245,7 +246,7 @@ class _MemberItem {
   final String name;
   final String? photoUrl;
 
-  /// Dados brutos do Firestore para filtros (gÃªnero, idade, departamento, CPF).
+  /// Dados brutos do Firestore para filtros (gênero, idade, departamento, CPF).
   final Map<String, dynamic> data;
   _MemberItem(
       {required this.id,
@@ -256,7 +257,7 @@ class _MemberItem {
 }
 
 class _MemberCardPageState extends State<MemberCardPage> {
-  /// Tamanho fÃ­sico CR80 â€” export Ãºnico legÃ­vel (evita folha A4 com cartÃ£o â€œgiganteâ€).
+  /// Tamanho físico CR80 — export único legível (evita folha A4 com cartão “gigante”).
   static final PdfPageFormat _kPdfCr80Export = PdfPageFormat(
     85.6 * 72 / 25.4,
     53.98 * 72 / 25.4,
@@ -264,46 +265,46 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   Future<_CardData?>? _loadFuture;
 
-  /// Doc `igrejas/{id}` apÃ³s [resolveEffectiveTenantId] (cache por sessÃ£o desta pÃ¡gina).
+  /// Doc `igrejas/{id}` após [resolveEffectiveTenantId] (cache por sessão desta página).
   String? _cachedIgrejaDocId;
 
   String _memberSearch = '';
   late Future<List<_MemberItem>> _membersListFuture;
 
-  /// Departamentos da igreja (para filtro e correspondÃªncia com nome legado).
+  /// Departamentos da igreja (para filtro e correspondência com nome legado).
   List<({String id, String name})> _deptFilterItems = [];
   String? _lastWarmupKey;
 
-  /// GÃªnero: todos | masculino | feminino
+  /// Gênero: todos | masculino | feminino
   String _filtroGeneroCarteira = 'todos';
 
-  /// Faixa etÃ¡ria: todas | criancas | adolescentes | adultos | idosos
+  /// Faixa etária: todas | criancas | adolescentes | adultos | idosos
   String _filtroFaixaCarteira = 'todas';
 
   /// id do documento em departamentos ou 'todos'
   String _filtroDepartamentoCarteira = 'todos';
 
-  /// Busca com debounce â€” evita setState a cada tecla (travava filtros/lista).
+  /// Busca com debounce — evita setState a cada tecla (travava filtros/lista).
   late final TextEditingController _memberSearchController;
   Timer? _memberSearchDebounce;
   String? _memberListPreloadFingerprint;
   String _signatureEnhanceMode = kSignatureEnhanceModeUltra;
 
-  /// SeleÃ§Ã£o na lista de membros (emissÃ£o / assinatura em bloco).
+  /// Seleção na lista de membros (emissão / assinatura em bloco).
   final Set<String> _carteiraListaSelecionados = {};
 
   final ScreenshotController _walletScreenshotController = ScreenshotController();
 
-  /// Durante exportaÃ§Ã£o PDF (captura da carteira): assinatura/nome no verso antes do [Screenshot].
+  /// Durante exportação PDF (captura da carteira): assinatura/nome no verso antes do [Screenshot].
   String? _walletPdfExportSigUrl;
   String? _walletPdfExportSignatoryNome;
   String? _walletPdfExportSignatoryCargo;
   String? _walletPdfExportSignatoryCpf;
 
-  /// `true` = PNG/PDF com imagem da assinatura digital; `false` = Ã¡rea para assinar Ã  mÃ£o.
+  /// `true` = PNG/PDF com imagem da assinatura digital; `false` = área para assinar à mão.
   bool _walletIncluirAssinaturaDigital = true;
 
-  /// Captura raster em lote (mesmo visual da carteira digital) â€” fora do ecrÃ£.
+  /// Captura raster em lote (mesmo visual da carteira digital) — fora do ecrã.
   final ScreenshotController _rasterBatchScreenshotController =
       ScreenshotController();
   _CardData? _rasterBatchCard;
@@ -315,7 +316,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   /// `true` = captura em lote com [MemberDigitalWalletFront] e [MemberDigitalWalletBack] na mesma linha.
   bool _rasterBatchLadoALado = false;
 
-  /// Mesmas cores da [MemberDigitalWalletFront] / config â€” PDF vetorial nÃ£o usa hex com fallback errado.
+  /// Mesmas cores da [MemberDigitalWalletFront] / config — PDF vetorial não usa hex com fallback errado.
   ({PdfColor bg, PdfColor bgEnd, PdfColor fg}) _pdfCarteiraColors(
       _CardConfig cfg, bool inkEco) {
     if (inkEco) {
@@ -417,7 +418,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<List<_MemberItem>> _loadMembersList() =>
       _loadMemberItemsForPicker(limit: 200);
 
-  /// Filtro por departamento alinhado Ã  pÃ¡gina Membros (lista de ids ou campo texto legado).
+  /// Filtro por departamento alinhado à página Membros (lista de ids ou campo texto legado).
   bool _memberMatchesDepartment(Map<String, dynamic> data, String deptDocId,
       List<({String id, String name})> deptList) {
     if (deptDocId == 'todos') return true;
@@ -504,7 +505,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     super.dispose();
   }
 
-  /// Se a URL da assinatura nÃ£o foi gravada no membro (fluxo antigo ou falha), busca em [membros/carteirinhaAssinadaPor].assinaturaUrl.
+  /// Se a URL da assinatura não foi gravada no membro (fluxo antigo ou falha), busca em [membros/carteirinhaAssinadaPor].assinaturaUrl.
   Future<Map<String, dynamic>> _enrichMemberCarteirinhaSignatureFromSignatory(
     Map<String, dynamic> raw, {
     String? igrejaDocId,
@@ -552,8 +553,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return out;
   }
 
-  /// SeleÃ§Ã£o em lote e PDF em massa â€” alinhado a quem edita membros / perfil da igreja.
-  /// Inclui pastores/secretÃ¡rios ([editAnyMember]) e corrige papÃ©is compostos via [ChurchRolePermissions.normalize].
+  /// Seleção em lote e PDF em massa — alinhado a quem edita membros / perfil da igreja.
+  /// Inclui pastores/secretários ([editAnyMember]) e corrige papéis compostos via [ChurchRolePermissions.normalize].
   bool get _canManage {
     if (AppPermissions.isRestrictedMember(widget.role)) return false;
     final n = ChurchRolePermissions.normalize(widget.role);
@@ -566,15 +567,15 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return s.editAnyMember || s.editChurchProfile;
   }
 
-  /// Membro sÃ³ vÃª e emite a prÃ³pria carteirinha (acesso restrito).
-  /// Perfil bÃ¡sico no painel: sÃ³ a prÃ³pria carteirinha (membro ou visitante com menu restrito).
+  /// Membro só vê e emite a própria carteirinha (acesso restrito).
+  /// Perfil básico no painel: só a própria carteirinha (membro ou visitante com menu restrito).
   bool get _isRestrictedMember {
     final r = widget.role.toLowerCase();
     return r == 'membro' || r == 'visitante';
   }
 
-  /// Gestor/admin sÃ³ carrega ficha quando hÃ¡ [memberId] explÃ­cito.
-  /// O CPF do usuÃ¡rio logado na shell nÃ£o deve prÃ©-selecionar membro (senÃ£o sÃ³ emite a prÃ³pria).
+  /// Gestor/admin só carrega ficha quando há [memberId] explícito.
+  /// O CPF do usuário logado na shell não deve pré-selecionar membro (senão só emite a própria).
   bool get _hasExplicitMemberTarget =>
       widget.memberId != null && widget.memberId!.trim().isNotEmpty;
 
@@ -584,7 +585,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final membersCol =
         db.collection('igrejas').doc(igrejaDocId).collection('membros');
 
-    // Carrega tenant (obrigatÃ³rio) e config automÃ¡tica do cartÃ£o
+    // Carrega tenant (obrigatório) e config automática do cartão
     Map<String, dynamic> tenant = {};
 
     try {
@@ -594,7 +595,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ..['id'] = igrejaDocId;
     } catch (_) {}
 
-    // Logo, nome e cores automÃ¡ticos (cadastro da igreja; sem painel de configuraÃ§Ã£o).
+    // Logo, nome e cores automáticos (cadastro da igreja; sem painel de configuração).
     final cardCfg =
         await _resolveAutomaticCardConfig(tenant: tenant, igrejaDocId: igrejaDocId);
 
@@ -743,17 +744,17 @@ class _MemberCardPageState extends State<MemberCardPage> {
         .trim();
   }
 
-  /// Frente da carteira: estado civil + admissÃ£o + batismo (uma linha; rÃ³tulos por extenso).
+  /// Frente da carteira: estado civil + admissão + batismo (uma linha; rótulos por extenso).
   String _admissionBatismoLine(Map<String, dynamic> member) {
     final parts = <String>[];
     final ec = _estadoCivilFromMember(member);
     if (ec.isNotEmpty) parts.add('Estado civil: $ec');
     final adm = _admissionForWallet(member);
     final bat = _fmtDate(_dateFromMember(member, 'DATA_BATISMO')).trim();
-    if (adm.isNotEmpty) parts.add('AdmissÃ£o: $adm');
+    if (adm.isNotEmpty) parts.add('Admissão: $adm');
     if (bat.isNotEmpty) parts.add('Batismo: $bat');
     if (parts.isEmpty) return '';
-    return parts.join('  Â·  ');
+    return parts.join('  ·  ');
   }
 
   String _telefoneFromMember(Map<String, dynamic> m) {
@@ -773,33 +774,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return (m['EMAIL'] ?? m['email'] ?? '').toString().trim();
   }
 
-  String _validityLabel(Map<String, dynamic> member) {
-    if (member['CARTEIRA_PERMANENTE'] == true) return 'Permanente';
-    final validadeCartao = member['validadeCartao'] ??
-        member['VALIDADE_CARTAO'] ??
-        member['validade_cartao'] ??
-        member['validade'] ??
-        member['VALIDADE'] ??
-        member['dataValidade'] ??
-        member['data_validade'];
-    if (validadeCartao != null) {
-      final txt = _fmtDate(validadeCartao).trim();
-      if (txt.isNotEmpty) return txt;
-    }
-    final carteiraValidade =
-        member['CARTEIRA_VALIDADE'] ?? member['carteiraValidade'];
-    if (carteiraValidade != null) {
-      final txt = _fmtDate(carteiraValidade).trim();
-      if (txt.isNotEmpty) return txt;
-    }
-    final years = member['CARTEIRA_ANOS'];
-    if (years is int && years > 0) {
-      final now = DateTime.now();
-      final dt = DateTime(now.year + years, now.month, now.day);
-      return _fmtDate(dt);
-    }
-    final now = DateTime.now();
-    return _fmtDate(DateTime(now.year + 1, now.month, now.day));
+  String _validityLabel(_CardData data) {
+    final cfg = CarteiraValidadeChurch.fromTenant(data.tenant);
+    final base = CarteiraValidadeChurch.emissionBaseFromMember(data.member);
+    return cfg.displayLabel(baseDate: base);
   }
 
   String _churchNameFromTenant(Map<String, dynamic> tenant) {
@@ -828,8 +806,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (logoUrl.isEmpty) {
       return Image.asset(
         'assets/logo.png',
-        width: 160,
-        height: 160,
+        width: 272,
+        height: 272,
         fit: BoxFit.contain,
         filterQuality: FilterQuality.medium,
       );
@@ -839,11 +817,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
       tenantData: data.tenant,
       storagePath: ChurchImageFields.logoStoragePath(data.tenant),
       imageUrl: logoUrl.isEmpty ? null : logoUrl,
-      width: 160,
-      height: 160,
+      width: 272,
+      height: 272,
       fit: BoxFit.contain,
-      memCacheWidth: 320,
-      memCacheHeight: 320,
+      memCacheWidth: 544,
+      memCacheHeight: 544,
     );
   }
 
@@ -921,7 +899,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   Text(
                     snap.hasError
                         ? snap.error.toString()
-                        : 'CartÃ£o nÃ£o disponÃ­vel.',
+                        : 'Cartão não disponível.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white70),
                   ),
@@ -983,7 +961,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final igrejaDocId = await _effectiveIgrejaDocId();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Gerando cÃ³digos de membro em faltaâ€¦')),
+      const SnackBar(content: Text('Gerando códigos de membro em falta…')),
     );
     try {
       final r = await MemberCodigoService.backfillMissing(
@@ -993,7 +971,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          '${r.assigned} cÃ³digo(s) atribuÃ­do(s). ${r.skipped} jÃ¡ tinham cÃ³digo.'
+          '${r.assigned} código(s) atribuído(s). ${r.skipped} já tinham código.'
           '${r.errors > 0 ? " ${r.errors} erro(s)." : ""}',
         ),
       );
@@ -1001,7 +979,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Erro ao gerar cÃ³digos: $e'),
+          ThemeCleanPremium.feedbackSnackBar('Erro ao gerar códigos: $e'),
         );
       }
     }
@@ -1015,7 +993,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Cadastre a assinatura do pastor/gestor em Membros â†’ Editar.',
+            'Cadastre a assinatura do pastor/gestor em Membros → Editar.',
           ),
         ),
       );
@@ -1048,7 +1026,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Assinar cartÃ£o de ${_memberNome(data.member)}',
+                  'Assinar cartão de ${_memberNome(data.member)}',
                   style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
@@ -1073,7 +1051,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         (o) => DropdownMenuItem(
                           value: o,
                           child: Text(
-                            '${o.nome} â€” ${o.cargo}',
+                            '${o.nome} — ${o.cargo}',
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -1102,7 +1080,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           }
                         },
                   icon: const Icon(Icons.draw_rounded),
-                  label: const Text('Assinar cartÃ£o'),
+                  label: const Text('Assinar cartão'),
                 ),
               ],
             ),
@@ -1136,7 +1114,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     var selectedSignatory = _selectSignatory(
         signatoryOptions, defaultSigId.isEmpty ? null : defaultSigId);
     var pdfLayout = _PdfManyLayout.a4FrenteVerso5PorFolha;
-    /// Igual Ã  carteira digital na app (degradÃª + borda ouro). SÃ³ desligar para modo pouca tinta.
+    /// Igual à carteira digital na app (degradê + borda ouro). Só desligar para modo pouca tinta.
     var pdfInkEconomy = false;
     var modalSearch = '';
     var modalGenero = 'todos';
@@ -1257,7 +1235,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         const Text(
-                                          'Emitir vÃ¡rias carteirinhas',
+                                          'Emitir várias carteirinhas',
                                           style: TextStyle(
                                             fontSize: 18,
                                             fontWeight: FontWeight.w800,
@@ -1266,7 +1244,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          'Selecione os membros e gere um Ãºnico PDF.',
+                                          'Selecione os membros e gere um único PDF.',
                                           style: TextStyle(
                                             fontSize: 13,
                                             color: Colors.grey.shade700,
@@ -1319,7 +1297,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         .map((o) => DropdownMenuItem(
                                             value: o,
                                             child: Text(
-                                                '${o.nome} â€” ${o.cargo}',
+                                                '${o.nome} — ${o.cargo}',
                                                 overflow:
                                                     TextOverflow.ellipsis)))
                                         .toList(),
@@ -1341,9 +1319,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                   value: pdfLayout,
                                   isExpanded: true,
                                   decoration: InputDecoration(
-                                    labelText: 'Papel / disposiÃ§Ã£o na folha',
+                                    labelText: 'Papel / disposição na folha',
                                     helperText:
-                                        'â€œ5 por folhaâ€ = modelo da carteira digital, frente e verso na mesma linha por membro. Grades 2Ã—N = 1.Âª folha sÃ³ frentes, 2.Âª sÃ³ versos.',
+                                        '“5 por folha” = modelo da carteira digital, frente e verso na mesma linha por membro. Grades 2×N = 1.ª folha só frentes, 2.ª só versos.',
                                     border: OutlineInputBorder(
                                         borderRadius: BorderRadius.circular(
                                             ThemeCleanPremium.radiusSm)),
@@ -1355,40 +1333,40 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         value:
                                             _PdfManyLayout.a4FrenteVerso5PorFolha,
                                         child: Text(
-                                            'A4 â€” 5 por folha (frente e verso na mesma linha â€” modelo digital â€” predefiniÃ§Ã£o)')),
+                                            'A4 — 5 por folha (frente e verso na mesma linha — modelo digital — predefinição)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout
                                             .a4FrenteSobreVerso2Digital,
                                         child: Text(
-                                            'A4 â€” 2 por folha (frente sobre verso, como no ecrÃ£ vertical)')),
+                                            'A4 — 2 por folha (frente sobre verso, como no ecrã vertical)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.a4OnePerPage,
                                         child: Text(
-                                            'A4 â€” 1 por folha (centralizada)')),
+                                            'A4 — 1 por folha (centralizada)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.a4Grid2x2,
                                         child: Text(
-                                            'A4 â€” 4 por folha (grade 2Ã—2)')),
+                                            'A4 — 4 por folha (grade 2×2)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.a4Grid2x3,
                                         child: Text(
-                                            'A4 â€” 6 por folha (grade 2Ã—3)')),
+                                            'A4 — 6 por folha (grade 2×3)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.a4Grid2x4,
                                         child: Text(
-                                            'A4 â€” 8 por folha (grade 2Ã—4, jato de tinta)')),
+                                            'A4 — 8 por folha (grade 2×4, jato de tinta)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.a4Grid2x5,
                                         child: Text(
-                                            'A4 â€” 10 por folha (grade 2Ã—5)')),
+                                            'A4 — 10 por folha (grade 2×5)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.cr80sheet,
                                         child: Text(
-                                            'SÃ³ cartÃ£o CR80 â€” 1 por folha (papel especial)')),
+                                            'Só cartão CR80 — 1 por folha (papel especial)')),
                                     DropdownMenuItem(
                                         value: _PdfManyLayout.cr80grafica,
                                         child: Text(
-                                            'CR80 + marcas de corte (grÃ¡fica / PVC)')),
+                                            'CR80 + marcas de corte (gráfica / PVC)')),
                                   ],
                                   onChanged: (v) => setModal(() => pdfLayout =
                                       v ??
@@ -1415,7 +1393,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                             Icons.grid_on_rounded,
                                             size: 20),
                                         label: const Text(
-                                            'PredefiniÃ§Ã£o: A4 com 8 cartÃµes + menos tinta'),
+                                            'Predefinição: A4 com 8 cartões + menos tinta'),
                                       ),
                                     ),
                                   ),
@@ -1427,9 +1405,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       onChanged: (v) => setModal(
                                           () => pdfInkEconomy = v ?? false),
                                       title: const Text(
-                                          'Visual econÃ´mico (menos tinta)'),
+                                          'Visual econômico (menos tinta)'),
                                       subtitle: const Text(
-                                          'Desligado = mesmo modelo da carteirinha digital (cores e degradÃª). Ligado = fundo claro, ideal para jato de tinta.'),
+                                          'Desligado = mesmo modelo da carteirinha digital (cores e degradê). Ligado = fundo claro, ideal para jato de tinta.'),
                                       controlAffinity:
                                           ListTileControlAffinity.leading,
                                       contentPadding: EdgeInsets.zero,
@@ -1491,7 +1469,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                                 value: modalGenero,
                                                 isExpanded: true,
                                                 decoration: InputDecoration(
-                                                  labelText: 'GÃªnero',
+                                                  labelText: 'Gênero',
                                                   border: OutlineInputBorder(
                                                       borderRadius:
                                                           BorderRadius.circular(
@@ -1529,7 +1507,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                                 value: modalFaixa,
                                                 isExpanded: true,
                                                 decoration: InputDecoration(
-                                                  labelText: 'Faixa etÃ¡ria',
+                                                  labelText: 'Faixa etária',
                                                   border: OutlineInputBorder(
                                                       borderRadius:
                                                           BorderRadius.circular(
@@ -1549,7 +1527,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                                   DropdownMenuItem(
                                                       value: 'criancas',
                                                       child: Text(
-                                                          'CrianÃ§as (<13)')),
+                                                          'Crianças (<13)')),
                                                   DropdownMenuItem(
                                                       value: 'adolescentes',
                                                       child: Text(
@@ -1757,7 +1735,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                           content: Text(
-                                              'Nenhum membro vÃ¡lido selecionado.')));
+                                              'Nenhum membro válido selecionado.')));
                                 return;
                               }
                               try {
@@ -1809,7 +1787,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     );
                                   } catch (e, st) {
                                     debugPrint(
-                                        'emitir vÃ¡rios: raster falhou, PDF vetorial: $e\n$st');
+                                        'emitir vários: raster falhou, PDF vetorial: $e\n$st');
                                     bytes = await _buildPdfMulti(
                                       list,
                                       lay.format,
@@ -1857,7 +1835,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     );
                                   } catch (e, st) {
                                     debugPrint(
-                                        'emitir vÃ¡rios: raster frente|verso falhou, PDF vetorial: $e\n$st');
+                                        'emitir vários: raster frente|verso falhou, PDF vetorial: $e\n$st');
                                     bytes = await _buildPdfMulti(
                                       list,
                                       lay.format,
@@ -1918,7 +1896,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                 pdfLayout == _PdfManyLayout.a4Grid2x3 ||
                                 pdfLayout == _PdfManyLayout.a4Grid2x4 ||
                                 pdfLayout == _PdfManyLayout.a4Grid2x5)
-                            ? 'Gerar PDF para impressÃ£o (A4) â€” ${selectedIds.length}'
+                            ? 'Gerar PDF para impressão (A4) — ${selectedIds.length}'
                             : 'Gerar PDF (${selectedIds.length} selecionados)',
                       ),
                       style: FilledButton.styleFrom(
@@ -1997,10 +1975,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (!context.mounted) return;
     final lastErr = r.lastErr;
     final errTail = lastErr == null
-        ? 'Verifique permissÃµes e conexÃ£o.'
+        ? 'Verifique permissões e conexão.'
         : (lastErr.length > 120
-            ? 'Ãšltimo erro: ${lastErr.substring(0, 120)}â€¦'
-            : 'Ãšltimo erro: $lastErr');
+            ? 'Último erro: ${lastErr.substring(0, 120)}…'
+            : 'Último erro: $lastErr');
     final msg = r.fail == 0
         ? '${r.ok} carteirinha(s) assinada(s) com sucesso.'
         : '${r.ok} ok, ${r.fail} falha(s). $errTail';
@@ -2029,7 +2007,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-              'Cadastre assinatura em Membros â†’ Editar para quem tem cargo alÃ©m de membro (pastor, tesoureiro, lÃ­der etc.).'),
+              'Cadastre assinatura em Membros → Editar para quem tem cargo além de membro (pastor, tesoureiro, líder etc.).'),
         ),
       );
       return;
@@ -2097,7 +2075,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
                   Text(
-                    'Escolha o signatÃ¡rio e assine todas ou por seleÃ§Ã£o. Os dados sÃ£o gravados no Firestore em lotes (mais rÃ¡pido e confiÃ¡vel).',
+                    'Escolha o signatário e assine todas ou por seleção. Os dados são gravados no Firestore em lotes (mais rápido e confiável).',
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 16),
@@ -2120,7 +2098,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     items: options
                         .map((o) => DropdownMenuItem(
                             value: o,
-                            child: Text('${o.nome} â€” ${o.cargo}',
+                            child: Text('${o.nome} — ${o.cargo}',
                                 overflow: TextOverflow.ellipsis)))
                         .toList(),
                     onChanged: (v) => _refreshSignatoryFromFirestore(
@@ -2132,7 +2110,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     Padding(
                       padding: const EdgeInsets.only(top: 12),
                       child: Text(
-                        'AtenÃ§Ã£o: este signatÃ¡rio nÃ£o tem imagem de assinatura no cadastro. O nome aparecerÃ¡ no PDF, mas a imagem sÃ³ apÃ³s cadastrar a assinatura em Membros â†’ Editar.',
+                        'Atenção: este signatário não tem imagem de assinatura no cadastro. O nome aparecerá no PDF, mas a imagem só após cadastrar a assinatura em Membros → Editar.',
                         style: TextStyle(
                             fontSize: 12, color: Colors.orange.shade800),
                       ),
@@ -2242,7 +2220,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             );
                           },
                     icon: const Icon(Icons.list_rounded),
-                    label: const Text('Assinar por seleÃ§Ã£o'),
+                    label: const Text('Assinar por seleção'),
                   ),
                 ],
               ),
@@ -2323,7 +2301,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Cadastre a assinatura de um lÃ­der em Membros â†’ Editar (pastor, tesoureiro, etc.).',
+            'Cadastre a assinatura de um líder em Membros → Editar (pastor, tesoureiro, etc.).',
           ),
         ),
       );
@@ -2354,8 +2332,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       builder: (ctx) => AlertDialog(
         title: Text('Assinar ${ids.length} carteirinha(s)?'),
         content: Text(
-          'SignatÃ¡rio: ${signat.nome} (${signat.cargo}). '
-          'A assinatura serÃ¡ gravada no cadastro de cada membro.',
+          'Signatário: ${signat.nome} (${signat.cargo}). '
+          'A assinatura será gravada no cadastro de cada membro.',
         ),
         actions: [
           TextButton(
@@ -2444,7 +2422,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 const CircularProgressIndicator(),
                 const SizedBox(height: 16),
                 Text(
-                  'Gerando PNGâ€¦ ${(p * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                  'Gerando PNG… ${(p * 100).clamp(0, 100).toStringAsFixed(0)}%',
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -2504,7 +2482,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${zipEntries.length} PNG(s) no ZIP â€” envie por WhatsApp ou salve no dispositivo.',
+              '${zipEntries.length} PNG(s) no ZIP — envie por WhatsApp ou salve no dispositivo.',
             ),
           ),
         );
@@ -2538,7 +2516,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 const CircularProgressIndicator(),
                 const SizedBox(height: 16),
                 Text(
-                  'PDF tamanho real (CR80)â€¦ ${(p * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                  'PDF tamanho real (CR80)… ${(p * 100).clamp(0, 100).toStringAsFixed(0)}%',
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -2632,7 +2610,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              'PNG individual (ZIP), PDF tamanho real CR80 (ZIP) ou PDF Ãºnico A4 para visualizar e imprimir.',
+              'PNG individual (ZIP), PDF tamanho real CR80 (ZIP) ou PDF único A4 para visualizar e imprimir.',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 16),
@@ -2648,7 +2626,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
             ListTile(
               leading: const Icon(Icons.credit_card_rounded),
               title: const Text('ZIP com PDF tamanho real (CR80)'),
-              subtitle: const Text('Um PDF por membro, medida fÃ­sica do cartÃ£o'),
+              subtitle: const Text('Um PDF por membro, medida física do cartão'),
               onTap: () {
                 Navigator.pop(ctx);
                 _exportarPdfCr80ZipGestor(context, memberIds: ids);
@@ -2656,7 +2634,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
             ),
             ListTile(
               leading: const Icon(Icons.picture_as_pdf_rounded),
-              title: const Text('PDF Ãºnico (vÃ¡rias por folha A4)'),
+              title: const Text('PDF único (várias por folha A4)'),
               subtitle: const Text('Visualizar, imprimir ou compartilhar'),
               onTap: () async {
                 Navigator.pop(ctx);
@@ -2695,7 +2673,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
-                  'AÃ§Ãµes rÃ¡pidas (gestor)',
+                  'Ações rápidas (gestor)',
                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
                 ),
               ),
@@ -2703,7 +2681,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Assinar recÃ©m-cadastrados, exportar todos em PNG/PDF (tamanho real) e enviar por WhatsApp.',
+            'Assinar recém-cadastrados, exportar todos em PNG/PDF (tamanho real) e enviar por WhatsApp.',
             style: TextStyle(fontSize: 12, height: 1.35, color: Colors.grey.shade700),
           ),
           const SizedBox(height: 12),
@@ -2719,7 +2697,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'Nenhum membro dos Ãºltimos 30 dias pendente de assinatura.',
+                          'Nenhum membro dos últimos 30 dias pendente de assinatura.',
                         ),
                       ),
                     );
@@ -2728,7 +2706,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   await _assinarIdsComSignatarioPadrao(context, ids);
                 },
                 icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-                label: const Text('Assinar recÃ©m-cadastrados'),
+                label: const Text('Assinar recém-cadastrados'),
                 style: FilledButton.styleFrom(
                   backgroundColor: ThemeCleanPremium.primary,
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -2755,7 +2733,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   if (context.mounted) await _gerarPdfUnicoLote(context);
                 },
                 icon: const Icon(Icons.visibility_rounded, size: 18),
-                label: const Text('Visualizar PDF Ãºnico'),
+                label: const Text('Visualizar PDF único'),
               ),
             ],
           ),
@@ -2769,7 +2747,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     _CardData data,
     _CardConfig cfg,
   ) {
-    final validade = _validityLabel(data.member);
+    final validade = _validityLabel(data);
     return Wrap(
       spacing: 10,
       runSpacing: 10,
@@ -2780,7 +2758,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
             context,
             data,
             cfg,
-            validade.isEmpty ? 'â€”' : validade,
+            validade.isEmpty ? '—' : validade,
           ),
           style: FilledButton.styleFrom(
             backgroundColor: const Color(0xFF25D366),
@@ -2827,7 +2805,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return s.isEmpty ? 'membro' : s.substring(0, s.length > 40 ? 40 : s.length);
   }
 
-  /// Lista da tela inicial: assinatura em bloco com ZIP e opÃ§Ã£o certificado (PAdES = stub atÃ© integraÃ§Ã£o).
+  /// Lista da tela inicial: assinatura em bloco com ZIP e opção certificado (PAdES = stub até integração).
   Future<void> _abrirAssinaturaBlocoSelecionados(BuildContext context) async {
     final ids = _carteiraListaSelecionados.toList();
     if (ids.isEmpty) return;
@@ -2852,13 +2830,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),
             Text(
-                'Assinatura visual: um PDF Ãºnico para visualizar (frente + verso por membro), depois gravamos a assinatura no cadastro. Certificado digital continua em ZIP com um PDF por membro.',
+                'Assinatura visual: um PDF único para visualizar (frente + verso por membro), depois gravamos a assinatura no cadastro. Certificado digital continua em ZIP com um PDF por membro.',
                 style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
             const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: () => Navigator.pop(ctx, 'visual'),
               icon: const Icon(Icons.draw_rounded),
-              label: const Text('Assinatura visual (imagem do lÃ­der)'),
+              label: const Text('Assinatura visual (imagem do líder)'),
               style: FilledButton.styleFrom(
                   backgroundColor: ThemeCleanPremium.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14)),
@@ -2868,7 +2846,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
               onPressed: () => Navigator.pop(ctx, 'cert'),
               icon: const Icon(Icons.verified_user_rounded),
               label: const Text(
-                  'Certificado digital (A1 / A3 â€” PAdES em roadmap)'),
+                  'Certificado digital (A1 / A3 — PAdES em roadmap)'),
             ),
             const SizedBox(height: 8),
             TextButton(
@@ -2886,7 +2864,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text(
-                  'Cadastre a assinatura visual dos lÃ­deres em Membros â†’ Editar.')),
+                  'Cadastre a assinatura visual dos líderes em Membros → Editar.')),
         );
       }
       return;
@@ -2936,7 +2914,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 value: selected,
                 isExpanded: true,
                 decoration: InputDecoration(
-                  labelText: 'SignatÃ¡rio',
+                  labelText: 'Signatário',
                   border: OutlineInputBorder(
                       borderRadius:
                           BorderRadius.circular(ThemeCleanPremium.radiusSm)),
@@ -2944,7 +2922,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 items: options
                     .map((o) => DropdownMenuItem(
                         value: o,
-                        child: Text('${o.nome} â€” ${o.cargo}',
+                        child: Text('${o.nome} — ${o.cargo}',
                             overflow: TextOverflow.ellipsis)))
                     .toList(),
                 onChanged: (v) async {
@@ -3045,8 +3023,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
               const SizedBox(width: 20),
               Expanded(
                   child: Text(modo == 'cert'
-                      ? 'Gerando PDFs e preparando certificadoâ€¦'
-                      : 'Gerando PDFs e gravando assinaturasâ€¦')),
+                      ? 'Gerando PDFs e preparando certificado…'
+                      : 'Gerando PDFs e gravando assinaturas…')),
             ],
           ),
         ),
@@ -3083,7 +3061,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         if (list.isEmpty) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                content: Text('Nenhum PDF gerado (membros nÃ£o encontrados).')));
+                content: Text('Nenhum PDF gerado (membros não encontrados).')));
           }
           return;
         }
@@ -3182,7 +3160,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       if (zipEntries.isEmpty) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Nenhum PDF gerado (membros nÃ£o encontrados).')));
+              content: Text('Nenhum PDF gerado (membros não encontrados).')));
         }
         return;
       }
@@ -3214,7 +3192,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
-  /// Um Ãºnico PDF (frente + verso por membro) para grÃ¡fica ou WhatsApp â€” com progresso.
+  /// Um único PDF (frente + verso por membro) para gráfica ou WhatsApp — com progresso.
   Future<void> _gerarPdfUnicoLote(BuildContext context) async {
     final ids = List<String>.from(_carteiraListaSelecionados);
     if (ids.isEmpty || !_canManage) return;
@@ -3256,12 +3234,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('PDF em lote â€” ${ids.length} carteirinha(s)',
+              Text('PDF em lote — ${ids.length} carteirinha(s)',
                   style: const TextStyle(
                       fontSize: 18, fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
               Text(
-                'Um Ãºnico PDF: por defeito, cada membro com frente e verso na mesma linha (atÃ© 5 por folha A4), igual ao modelo da carteira no mÃ³dulo Membro.',
+                'Um único PDF: por defeito, cada membro com frente e verso na mesma linha (até 5 por folha A4), igual ao modelo da carteira no módulo Membro.',
                 style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
               ),
               const SizedBox(height: 12),
@@ -3269,9 +3247,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 value: pdfLayoutLote,
                 isExpanded: true,
                 decoration: InputDecoration(
-                  labelText: 'DisposiÃ§Ã£o no papel A4',
+                  labelText: 'Disposição no papel A4',
                   helperText:
-                      'PredefiniÃ§Ã£o: 5 por folha, frente e verso lado a lado (captura do ecrÃ£). Grades 2Ã—N: 1.Âª folha sÃ³ frentes, 2.Âª sÃ³ versos.',
+                      'Predefinição: 5 por folha, frente e verso lado a lado (captura do ecrã). Grades 2×N: 1.ª folha só frentes, 2.ª só versos.',
                   border: OutlineInputBorder(
                       borderRadius:
                           BorderRadius.circular(ThemeCleanPremium.radiusSm)),
@@ -3282,26 +3260,26 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4FrenteVerso5PorFolha,
                       child: Text(
-                          '5 por folha â€” frente e verso na mesma linha (modelo digital â€” predefiniÃ§Ã£o)')),
+                          '5 por folha — frente e verso na mesma linha (modelo digital — predefinição)')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4FrenteSobreVerso2Digital,
                       child: Text(
-                          '2 por folha â€” frente sobre verso (como no ecrÃ£ vertical)')),
+                          '2 por folha — frente sobre verso (como no ecrã vertical)')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4OnePerPage,
                       child: Text('1 por folha (maior no centro)')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4Grid2x2,
-                      child: Text('4 por folha â€” grelha 2Ã—2')),
+                      child: Text('4 por folha — grelha 2×2')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4Grid2x3,
-                      child: Text('6 por folha â€” grelha 2Ã—3')),
+                      child: Text('6 por folha — grelha 2×3')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4Grid2x4,
-                      child: Text('8 por folha â€” grelha 2Ã—4')),
+                      child: Text('8 por folha — grelha 2×4')),
                   DropdownMenuItem(
                       value: _PdfManyLayout.a4Grid2x5,
-                      child: Text('10 por folha â€” grelha 2Ã—5')),
+                      child: Text('10 por folha — grelha 2×5')),
                 ],
                 onChanged: (v) => setModal(
                     () => pdfLayoutLote =
@@ -3315,7 +3293,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     : (v) => setModal(() {
                           incluirAssinatura = v ?? false;
                         }),
-                title: const Text('Incluir assinatura visual do lÃ­der'),
+                title: const Text('Incluir assinatura visual do líder'),
                 controlAffinity: ListTileControlAffinity.leading,
                 contentPadding: EdgeInsets.zero,
               ),
@@ -3340,7 +3318,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   items: options
                       .map((o) => DropdownMenuItem(
                           value: o,
-                          child: Text('${o.nome} â€” ${o.cargo}',
+                          child: Text('${o.nome} — ${o.cargo}',
                               overflow: TextOverflow.ellipsis)))
                       .toList(),
                   onChanged: (v) async {
@@ -3409,12 +3387,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 const SizedBox(height: 16),
                 Text(
                   p < 0.14
-                      ? 'A carregar membros e identidade visual (logo)â€¦'
+                      ? 'A carregar membros e identidade visual (logo)…'
                       : (p < 0.24
-                          ? 'A finalizar brandingâ€¦'
+                          ? 'A finalizar branding…'
                           : (p < 0.93
-                              ? 'A preparar fotos (em paralelo)â€¦'
-                              : 'A montar o PDFâ€¦')),
+                              ? 'A preparar fotos (em paralelo)…'
+                              : 'A montar o PDF…')),
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
                 ),
@@ -3449,7 +3427,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       }
 
       prog.value = 0.04;
-      // Membros (Firestore) em paralelo com logo da igreja â€” reduz tempo em que o diÃ¡logo fica em â€œpreparar logoâ€.
+      // Membros (Firestore) em paralelo com logo da igreja — reduz tempo em que o diálogo fica em “preparar logo”.
       final batch = await Future.wait<dynamic>([
         Future.wait(
           ids.map(
@@ -3481,11 +3459,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
       }
 
       final sigUrl = signat?.assinaturaUrl;
-      // Assinatura do lÃ­der (perfil Membros â€” URL fresca acima).
+      // Assinatura do líder (perfil Membros — URL fresca acima).
       await _prefetchSharedPdfBrandingForLote(list, signatoryAssinaturaUrl: sigUrl);
       prog.value = 0.24;
 
-      // SÃ³ fotos por membro (logo jÃ¡ estÃ¡ em cache).
+      // Só fotos por membro (logo já está em cache).
       const preloadBatch = 30;
       for (var i = 0; i < list.length; i += preloadBatch) {
         final end = min(i + preloadBatch, list.length);
@@ -3631,42 +3609,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
-  Future<void> _setValidity(_CardData data, _ValidityOption option) async {
-    final ref = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
-        .collection('membros')
-        .doc(data.memberId);
-
-    if (option.permanent) {
-      await ref.set(
-        {
-          'CARTEIRA_PERMANENTE': true,
-          'CARTEIRA_ANOS': FieldValue.delete(),
-          'CARTEIRA_VALIDADE': FieldValue.delete(),
-          'CARTEIRA_ATUALIZADA_EM': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-      if (mounted) setState(() => _loadFuture = _load());
-      return;
-    }
-
-    final now = DateTime.now();
-    final exp = DateTime(now.year + option.years, now.month, now.day);
-    await ref.set(
-      {
-        'CARTEIRA_PERMANENTE': false,
-        'CARTEIRA_ANOS': option.years,
-        'CARTEIRA_VALIDADE': Timestamp.fromDate(exp),
-        'CARTEIRA_ATUALIZADA_EM': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
-    if (mounted) setState(() => _loadFuture = _load());
-  }
-
-  /// Nome mascarado para o verso do PDF / validaÃ§Ã£o pÃºblica.
+  /// Nome mascarado para o verso do PDF / validação pública.
   String _maskNomePublico(String nome) {
     final p =
         nome.trim().split(RegExp(r'\s+')).where((e) => e.isNotEmpty).toList();
@@ -3681,7 +3624,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return '${p.first} $ini.';
   }
 
-  /// Contexto comum para gerar vÃ¡rias carteirinhas (tenant + config mesclada).
+  /// Contexto comum para gerar várias carteirinhas (tenant + config mesclada).
   Future<
           ({
             Map<String, dynamic> tenant,
@@ -3708,11 +3651,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final s = (tenant[k] ?? '').toString().trim();
       if (s.isNotEmpty) return s;
     }
-    return 'GestÃ£o YAHWEH';
+    return 'Gestão YAHWEH';
   }
 
-  /// Modelo Ãºnico CNH: nome/logo do cadastro da igreja + cores fixas do app.
-  /// Em [config/carteira] sÃ³ lÃª signatÃ¡rio predefinido e intensidade da assinatura no PDF.
+  /// Modelo único CNH: nome/logo do cadastro da igreja + cores fixas do app.
+  /// Em [config/carteira] só lê signatário predefinido e intensidade da assinatura no PDF.
   Future<Map<String, dynamic>> _resolveAutomaticCardConfig({
     required Map<String, dynamic> tenant,
     required String igrejaDocId,
@@ -3770,7 +3713,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return merged;
   }
 
-  /// Se nÃ£o houver URL no Firestore, tenta `configuracoes/logo_igreja.png` no Storage.
+  /// Se não houver URL no Firestore, tenta `configuracoes/logo_igreja.png` no Storage.
   Future<void> _hydrateCardCfgLogoFromIdentityPathIfNeeded(
     Map<String, dynamic> cardCfg,
     String igrejaDocId,
@@ -3838,14 +3781,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (sig.isNotEmpty) await _pdfSignatureImageProviderFromUrlCached(sig);
   }
 
-  /// Alias explÃ­cito para prÃ©-carregamento de imagens antes da montagem do PDF.
+  /// Alias explícito para pré-carregamento de imagens antes da montagem do PDF.
   Future<void> preLoadImages(_CardData data,
       {String? signatoryAssinaturaUrl}) async {
     await _prefetchPdfAssetsForCard(data,
         signatoryAssinaturaUrl: signatoryAssinaturaUrl);
   }
 
-  /// PrÃ©-carrega o logo assim que existe contexto de template â€” corre em paralelo a [Future.wait] dos membros.
+  /// Pré-carrega o logo assim que existe contexto de template — corre em paralelo a [Future.wait] dos membros.
   Future<void> _prefetchLogoFromCarteiraContext(
     ({
       Map<String, dynamic> tenant,
@@ -3864,7 +3807,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     await _pdfLogoProvider(cfg, synthetic);
   }
 
-  /// Assinatura do lÃ­der + logo sÃ³ se ainda nÃ£o estiver em cache (apÃ³s [_prefetchLogoFromCarteiraContext]).
+  /// Assinatura do líder + logo só se ainda não estiver em cache (após [_prefetchLogoFromCarteiraContext]).
   Future<void> _prefetchSharedPdfBrandingForLote(
     List<_CardData> list, {
     String? signatoryAssinaturaUrl,
@@ -3882,16 +3825,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (s.isNotEmpty) await _pdfSignatureImageProviderFromUrlCached(s);
   }
 
-  /// Mesmo tamanho fÃ­sico da frente e do verso (CR80 ~ ISO/IEC 7810).
+  /// Mesmo tamanho físico da frente e do verso (CR80 ~ ISO/IEC 7810).
   static const double _pdfCardSlotW = VersoCarteirinhaPdfWidget.cardWidthPt;
   static const double _pdfCardSlotH = VersoCarteirinhaPdfWidget.cardHeightPt;
 
-  /// Cache de imagens na mesma geraÃ§Ã£o de PDF (evita baixar a mesma foto/logo vÃ¡rias vezes).
+  /// Cache de imagens na mesma geração de PDF (evita baixar a mesma foto/logo várias vezes).
   final Map<String, pw.ImageProvider?> _pdfImageSessionCache = {};
   final Map<String, Uint8List?> _pdfImageBytesSessionCache = {};
-  /// Assinatura no PDF: bytes realÃ§ados (cache separado da URL genÃ©rica).
+  /// Assinatura no PDF: bytes realçados (cache separado da URL genérica).
   final Map<String, pw.ImageProvider?> _pdfSignatureImageSessionCache = {};
-  /// Logo resolvida uma vez por `igrejaDocId` â€” evita [loadReportPdfBranding] N vezes no lote.
+  /// Logo resolvida uma vez por `igrejaDocId` — evita [loadReportPdfBranding] N vezes no lote.
   final Map<String, pw.ImageProvider?> _pdfLogoProviderMemo = {};
 
   void _clearPdfImageSessionCache() {
@@ -3901,7 +3844,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     _pdfLogoProviderMemo.clear();
   }
 
-  /// Redimensiona fora da UI no mobile (decode JPEG/PNG Ã© pesado); na web mantÃ©m na thread atual.
+  /// Redimensiona fora da UI no mobile (decode JPEG/PNG é pesado); na web mantém na thread atual.
   Future<Uint8List?> _resizeForPdf(Uint8List bytes, {int maxSide = 200}) async {
     if (bytes.length < 33) return null;
     try {
@@ -3944,7 +3887,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (_pdfImageBytesSessionCache.containsKey(u)) {
       return _pdfImageBytesSessionCache[u];
     }
-    // URLs do Firebase Storage: na web o HTTP direto costuma falhar (CORS) â€” SDK primeiro.
+    // URLs do Firebase Storage: na web o HTTP direto costuma falhar (CORS) — SDK primeiro.
     if (isFirebaseStorageHttpUrl(u)) {
       try {
         if (kIsWeb) {
@@ -4000,7 +3943,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return p;
   }
 
-  /// Bytes **originais** da assinatura (sem JPEG 68% do fluxo de fotos â€” preserva traÃ§os finos).
+  /// Bytes **originais** da assinatura (sem JPEG 68% do fluxo de fotos — preserva traços finos).
   Future<Uint8List?> _downloadRawBytesForSignaturePdf(String rawUrl) async {
     final u = sanitizeImageUrl(rawUrl.trim());
     if (u.isEmpty || !isValidImageUrl(u)) return null;
@@ -4041,7 +3984,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return null;
   }
 
-  /// Assinatura visual no PDF: pipeline PNG (redimensiona + realÃ§a) sem esmagar traÃ§os em JPEG.
+  /// Assinatura visual no PDF: pipeline PNG (redimensiona + realça) sem esmagar traços em JPEG.
   Future<pw.ImageProvider?> _pdfSignatureImageProviderFromUrlCached(
       String? rawUrl) async {
     var u = sanitizeImageUrl((rawUrl ?? '').trim());
@@ -4080,7 +4023,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
-  /// SÃ³ preenche logo a partir do cadastro da igreja quando a carteirinha nÃ£o tem logo prÃ³pria (URL ou base64).
+  /// Só preenche logo a partir do cadastro da igreja quando a carteirinha não tem logo própria (URL ou base64).
   Map<String, dynamic> _mergeChurchLogoIntoCardConfig(
       Map<String, dynamic> cardCfg, Map<String, dynamic> tenant) {
     final m = Map<String, dynamic>.from(cardCfg);
@@ -4097,7 +4040,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return m;
   }
 
-  /// Config efetiva para prÃ©via e PDF (cores, logo e modelo visual da igreja).
+  /// Config efetiva para prévia e PDF (cores, logo e modelo visual da igreja).
   _CardConfig _cardConfigForPdf(_CardData data) {
     return _CardConfig.from(
         _mergeChurchLogoIntoCardConfig(data.cardConfig, data.tenant));
@@ -4208,7 +4151,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return options.first;
   }
 
-  /// Garante [assinaturaUrl] atualizada a partir da ficha do membro (mÃ³dulo Membros).
+  /// Garante [assinaturaUrl] atualizada a partir da ficha do membro (módulo Membros).
   Future<
       ({
         String memberId,
@@ -4252,7 +4195,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
-  /// Nome/cargo/CPF do signatÃ¡rio para verso da carteirinha: override explÃ­cito, campos no membro, `carteirinhaAssinadaPor` ou `defaultSignatoryMemberId` na config.
+  /// Nome/cargo/CPF do signatário para verso da carteirinha: override explícito, campos no membro, `carteirinhaAssinadaPor` ou `defaultSignatoryMemberId` na config.
   Future<({String nome, String cargo, String cpf})> _resolveSignatoryLabelsForWallet(
     Map<String, dynamic> member,
     Map<String, dynamic> cardCfg,
@@ -4308,7 +4251,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return (nome: nome, cargo: cargo, cpf: cpf);
   }
 
-  /// URL da assinatura institucional + nome/cargo/CPF do pastor (config ou membro signatÃ¡rio).
+  /// URL da assinatura institucional + nome/cargo/CPF do pastor (config ou membro signatário).
   Future<({String pastorUrl, String sigNome, String sigCargo, String sigCpf})>
       _walletDisplayContext(_CardData data) async {
     final url = await FirebaseStorageService.getPastorSignatureConfigDownloadUrl(
@@ -4329,8 +4272,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     );
   }
 
-  /// PDF: [networkImage] do pacote `pdf` falha com frequÃªncia em URLs do Firebase Storage (web/token).
-  /// Bytes vÃªm de [_loadCachedImageBytes] (SDK no Storage); Ãºltimo recurso [networkImage].
+  /// PDF: [networkImage] do pacote `pdf` falha com frequência em URLs do Firebase Storage (web/token).
+  /// Bytes vêm de [_loadCachedImageBytes] (SDK no Storage); último recurso [networkImage].
   Future<pw.ImageProvider?> _pdfImageProviderFromUrl(String? rawUrl) async {
     var u = sanitizeImageUrl((rawUrl ?? '').trim());
     if (u.isEmpty || !isValidImageUrl(u)) return null;
@@ -4425,7 +4368,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     required String nomeMae,
     required String sexo,
 
-    /// Mesma linha da carteira digital (admissÃ£o / batismo).
+    /// Mesma linha da carteira digital (admissão / batismo).
     required String admissionLine,
 
     required _CardConfig cfg,
@@ -4440,11 +4383,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
     String? signatoryCargo,
     double width = 360,
 
-    /// Quando preenchidos, o degradÃª cobre exatamente o retÃ¢ngulo CR80 (igual ao verso).
+    /// Quando preenchidos, o degradê cobre exatamente o retângulo CR80 (igual ao verso).
     double? outerSlotWidth,
     double? outerSlotHeight,
   }) {
-    // Modelo Ãºnico (igual Ã  carteira digital): degradÃª, logo em caixa clara, painel vidro.
+    // Modelo único (igual à carteira digital): degradê, logo em caixa clara, painel vidro.
     const cardHeight = 228.0;
     final inkEco = bgColor == PdfColors.white && bgColorSec == null;
     final ac = accentColor;
@@ -4468,7 +4411,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final glassBorder =
         inkEco ? PdfColors.grey500 : PdfColor(1, 1, 1, 0.24);
     final adm =
-        admissionLine.trim().isEmpty ? 'AdmissÃ£o: â€”' : admissionLine.trim();
+        admissionLine.trim().isEmpty ? 'Admissão: —' : admissionLine.trim();
 
     final columnChildren = <pw.Widget>[
       if (!inkEco)
@@ -4640,7 +4583,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         child: pw.Text(
                           () {
                             final v = validade.trim();
-                            if (v.isEmpty || v == '---') return 'â€”';
+                            if (v.isEmpty || v == '---') return '—';
                             return v;
                           }(),
                           maxLines: 1,
@@ -4738,7 +4681,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return VersoCarteirinhaPdfWidget(
       nomeIgreja: igreja,
       regrasUso: cfg.versoRegrasUso,
-      // Mesmo eixo que [MemberDigitalWalletBack]: [colorB, colorA] no degradÃª.
+      // Mesmo eixo que [MemberDigitalWalletBack]: [colorB, colorA] no degradê.
       gradientStart: g2,
       gradientEnd: g1,
       foregroundColor: fg,
@@ -4812,9 +4755,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final nascimento =
         _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
     final batismo = _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO'));
-    final validade = _validityLabel(data.member).trim().isEmpty
+    final validade = _validityLabel(data).trim().isEmpty
         ? '---'
-        : _validityLabel(data.member);
+        : _validityLabel(data);
     final nomePai = _memberFatherName(data.member).trim().isEmpty
         ? '---'
         : _memberFatherName(data.member);
@@ -4824,7 +4767,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final sexo = _memberSexo(data.member);
     final admissionLinePdf = () {
       final s = _admissionBatismoLine(data.member).trim();
-      return s.isEmpty ? 'AdmissÃ£o: â€”' : s;
+      return s.isEmpty ? 'Admissão: —' : s;
     }();
     final incluirAssinaturaDig =
         includeDigitalSignature ?? _walletIncluirAssinaturaDigital;
@@ -4921,7 +4864,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final compactCard =
         format.width <= cw + 1 && format.height <= ch + 1;
     if (compactCard) {
-      /// CR80: frente sobre verso (igual Ã  carteirinha digital e ao PNG exportado).
+      /// CR80: frente sobre verso (igual à carteirinha digital e ao PNG exportado).
       const gap = 12.0;
       final tall = PdfPageFormat(cw, ch * 2 + gap);
       doc.addPage(
@@ -4963,7 +4906,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     );
   }
 
-  /// CartÃ£o CNH digital para captura raster (lote / PNG / PDF).
+  /// Cartão CNH digital para captura raster (lote / PNG / PDF).
   Widget _walletDigitalFrontBackForRaster({
     required BuildContext context,
     required _CardData data,
@@ -4991,8 +4934,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return im.height / im.width;
   }
 
-  /// VÃ¡rias carteirinhas num Ãºnico PDF â€” **mesmo visual** da carteira digital (captura raster),
-  /// pÃ¡gina A4 por membro (como o PDF Ãºnico â€œVisualizarâ€).
+  /// Várias carteirinhas num único PDF — **mesmo visual** da carteira digital (captura raster),
+  /// página A4 por membro (como o PDF único “Visualizar”).
   Future<Uint8List> _buildPdfMultiWalletRaster(
     BuildContext context,
     List<_CardData> list, {
@@ -5036,7 +4979,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         final sc = sigLabels.cargo;
         final scpf = sigLabels.cpf;
 
-        if (!mounted) throw StateError('contexto invÃ¡lido');
+        if (!mounted) throw StateError('contexto inválido');
         setState(() {
           _rasterBatchCard = data;
           _rasterBatchLadoALado = false;
@@ -5090,8 +5033,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return doc.save();
   }
 
-  /// A4: atÃ© 5 membros por folha; **por membro**, frente e verso na mesma linha, com captura raster
-  /// dos widgets da carteira digital (fidelidade ao ecrÃ£).
+  /// A4: até 5 membros por folha; **por membro**, frente e verso na mesma linha, com captura raster
+  /// dos widgets da carteira digital (fidelidade ao ecrã).
   Future<Uint8List> _buildPdfMultiWalletRasterFrenteVersoLinhaA4(
     BuildContext context,
     List<_CardData> list, {
@@ -5149,7 +5092,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           final sc = sigLabels.cargo;
           final scpf = sigLabels.cpf;
 
-          if (!mounted) throw StateError('contexto invÃ¡lido');
+          if (!mounted) throw StateError('contexto inválido');
           setState(() {
             _rasterBatchCard = data;
             _rasterBatchLadoALado = true;
@@ -5174,7 +5117,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           }
           final ar = _aspectRatioFromPngBytes(png);
           if (ar == null) {
-            throw StateError('Imagem invÃ¡lida apÃ³s captura (${data.memberId})');
+            throw StateError('Imagem inválida após captura (${data.memberId})');
           }
           pngBytesList.add(png);
           aspects.add(ar);
@@ -5238,21 +5181,21 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return doc.save();
   }
 
-  /// PDF com o **mesmo layout** da Ã¡rea â€œCarteira digital (Wallet)â€ na tela â€” captura
+  /// PDF com o **mesmo layout** da área “Carteira digital (Wallet)” na tela — captura
   /// [MemberDigitalWalletFront] + [MemberDigitalWalletBack] (logo [StableChurchLogo],
-  /// foto [FotoMembroWidget]). Evita divergÃªncia do modelo sÃ³ em PDF vetorial.
+  /// foto [FotoMembroWidget]). Evita divergência do modelo só em PDF vetorial.
   Future<Uint8List> _buildPdfFromWalletScreenshot(BuildContext context) async {
     // Aguarda pintura completa da carteira (glass/gradient) sem atraso fixo longo.
     for (var i = 0; i < 3; i++) {
       await WidgetsBinding.instance.endOfFrame;
     }
     if (!context.mounted) {
-      throw StateError('Contexto invÃ¡lido para exportar PDF.');
+      throw StateError('Contexto inválido para exportar PDF.');
     }
     final pr = MediaQuery.devicePixelRatioOf(context).clamp(1.25, 2.25);
     final png = await _walletScreenshotController.capture(pixelRatio: pr);
     if (png == null || png.isEmpty) {
-      throw StateError('NÃ£o foi possÃ­vel capturar a carteirinha.');
+      throw StateError('Não foi possível capturar a carteirinha.');
     }
     final doc = await _newCarteirinhaPdfDoc();
     final img = pw.MemoryImage(png);
@@ -5282,8 +5225,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     } catch (_) {}
   }
 
-  /// PDF Ãºnico: **prioriza** o mesmo layout da carteira na tela (captura raster).
-  /// Recua para PDF vetorial se a captura falhar (ex.: widget ainda nÃ£o pintado).
+  /// PDF único: **prioriza** o mesmo layout da carteira na tela (captura raster).
+  /// Recua para PDF vetorial se a captura falhar (ex.: widget ainda não pintado).
   Future<Uint8List> _exportCarteirinhaPdfPreferringWalletModel(
     BuildContext context,
     _CardData data,
@@ -5359,7 +5302,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Sua carteirinha ainda nÃ£o estÃ¡ assinada. Solicite assinatura ao pastor/gestor para liberar a exportaÃ§Ã£o.',
+              'Sua carteirinha ainda não está assinada. Solicite assinatura ao pastor/gestor para liberar a exportação.',
             ),
           ),
         );
@@ -5402,7 +5345,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           ?.copyWith(fontWeight: FontWeight.w800)),
                   const SizedBox(height: 8),
                   Text(
-                    'Assinatura visual (imagem no cadastro do membro) ou em lote pelo gestor â€” certificado A1/A3 conforme integraÃ§Ã£o disponÃ­vel.',
+                    'Assinatura visual (imagem no cadastro do membro) ou em lote pelo gestor — certificado A1/A3 conforme integração disponível.',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 16),
@@ -5410,7 +5353,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       child: Text(
-                        'Nenhuma pessoa com cargo de lideranÃ§a (alÃ©m de membro) encontrada. Atribua funÃ§Ãµes em Membros â†’ Editar e cadastre a assinatura.',
+                        'Nenhuma pessoa com cargo de liderança (além de membro) encontrada. Atribua funções em Membros → Editar e cadastre a assinatura.',
                         style: TextStyle(
                             fontSize: 13, color: Colors.grey.shade700),
                       ),
@@ -5433,7 +5376,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       ),
                       items: options
                           .map((o) => DropdownMenuItem(
-                              value: o, child: Text('${o.nome} â€” ${o.cargo}')))
+                              value: o, child: Text('${o.nome} — ${o.cargo}')))
                           .toList(),
                       onChanged: (v) => _refreshSignatoryFromFirestore(
                           ctx, setModal, v, (nv) => selected = nv),
@@ -5446,7 +5389,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     title: const Text(
                         'Gravar assinatura na carteirinha do membro'),
                     subtitle: const Text(
-                        'A carteirinha ficarÃ¡ assinada para o membro visualizar'),
+                        'A carteirinha ficará assinada para o membro visualizar'),
                     controlAffinity: ListTileControlAffinity.leading,
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -5559,7 +5502,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
-  /// Frente + verso PDF (sem escala) â€” mesmo modelo da carteira digital.
+  /// Frente + verso PDF (sem escala) — mesmo modelo da carteira digital.
   Future<({pw.Widget face, pw.Widget verso})> _pdfMemberFaceVersoUnscaled(
     _CardData data, {
     required bool inkEconomy,
@@ -5577,9 +5520,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final nascimento =
         _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
     final batismo = _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO'));
-    final validade = _validityLabel(data.member).trim().isEmpty
+    final validade = _validityLabel(data).trim().isEmpty
         ? '---'
-        : _validityLabel(data.member);
+        : _validityLabel(data);
     final nomePai = _memberFatherName(data.member).trim().isEmpty
         ? '---'
         : _memberFatherName(data.member);
@@ -5603,7 +5546,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
     final admissionLinePdf = () {
       final s = _admissionBatismoLine(data.member).trim();
-      return s.isEmpty ? 'AdmissÃ£o: â€”' : s;
+      return s.isEmpty ? 'Admissão: —' : s;
     }();
     final face = _pdfCardFace(
       name: name,
@@ -5680,8 +5623,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     bool frontVersoPorLinha = false,
     bool digitalVerticalStack = false,
   }) async {
-    // NÃ£o limpar cache no inÃ­cio: [_gerarPdfUnicoLote] / assinatura em lote jÃ¡ rodaram
-    // [preLoadImages] â€” limpar aqui obrigava a baixar logo/foto de novo (lento e falha na web).
+    // Não limpar cache no início: [_gerarPdfUnicoLote] / assinatura em lote já rodaram
+    // [preLoadImages] — limpar aqui obrigava a baixar logo/foto de novo (lento e falha na web).
     try {
       final doc = await _newCarteirinhaPdfDoc();
       pw.ImageProvider? signatoryImage;
@@ -5690,8 +5633,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
         signatoryImage =
             await _pdfSignatureImageProviderFromUrlCached(sigUrlParam);
       }
-      // SÃ³ usa assinatura gravada na ficha do **membro** quando o PDF nÃ£o pediu
-      // assinatura explÃ­cita do lÃ­der (evita misturar outro signatÃ¡rio).
+      // Só usa assinatura gravada na ficha do **membro** quando o PDF não pediu
+      // assinatura explícita do líder (evita misturar outro signatário).
       final incluirPdfSig =
           includeDigitalSignature ?? _walletIncluirAssinaturaDigital;
       if (!incluirPdfSig) {
@@ -5729,7 +5672,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           final rowH = innerH / nRows;
           final halfW = (innerW - gapMid) / 2;
 
-          // Paralelo: [_gerarPdfUnicoLote] jÃ¡ prÃ©-carregou fotos; aqui sÃ³ monta widgets (antes era sequencial).
+          // Paralelo: [_gerarPdfUnicoLote] já pré-carregou fotos; aqui só monta widgets (antes era sequencial).
           final pairs = await Future.wait([
             for (final data in chunk)
               _pdfMemberFaceVersoUnscaled(
@@ -5846,7 +5789,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         return doc.save();
       }
 
-      // Mesmo tamanho fÃ­sico CR80 que a folha â€œ1 por pÃ¡ginaâ€ / modelo no ecrÃ£.
+      // Mesmo tamanho físico CR80 que a folha “1 por página” / modelo no ecrã.
       const crW = VersoCarteirinhaPdfWidget.cardWidthPt;
       const crH = VersoCarteirinhaPdfWidget.cardHeightPt;
       final slots = gridCols * gridRows;
@@ -5872,9 +5815,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
               _fmtDate(_dateFromMember(data.member, 'DATA_NASCIMENTO'));
           final batismo =
               _fmtDate(_dateFromMember(data.member, 'DATA_BATISMO'));
-          final validade = _validityLabel(data.member).trim().isEmpty
+          final validade = _validityLabel(data).trim().isEmpty
               ? '---'
-              : _validityLabel(data.member);
+              : _validityLabel(data);
           final nomePai = _memberFatherName(data.member).trim().isEmpty
               ? '---'
               : _memberFatherName(data.member);
@@ -5899,7 +5842,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           }
           final admissionLinePdf = () {
             final s = _admissionBatismoLine(data.member).trim();
-            return s.isEmpty ? 'AdmissÃ£o: â€”' : s;
+            return s.isEmpty ? 'Admissão: —' : s;
           }();
           final face = _pdfCardFace(
             name: name,
@@ -6080,7 +6023,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return (data[key] ?? fallback).toString();
   }
 
-  /// Mesmos aliases do cadastro â€” evita PDF/prÃ©via com "Membro" genÃ©rico quando sÃ³ existe [nome].
+  /// Mesmos aliases do cadastro — evita PDF/prévia com "Membro" genérico quando só existe [nome].
   String _memberNome(Map<String, dynamic> m) {
     final r = _memberNomeOrEmpty(m);
     return r.isNotEmpty ? r : 'Membro';
@@ -6136,11 +6079,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
       'nomeMae',
       'NOME_MAE',
       'mae',
-      'mÃ£e',
+      'mãe',
       'MAE',
-      'MÃƒE',
       'nome_da_mae',
-      'nome_da_mÃ£e'
+      'nome_da_mãe'
     ]) {
       final s = (member[k] ?? '').toString().trim();
       if (s.isNotEmpty) return s;
@@ -6156,13 +6098,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return '';
   }
 
-  /// Foto do cadastro do membro â€” mesma lÃ³gica de [imageUrlFromMap] para nÃ£o perder URL (Storage, defaultImageUrl, listas).
+  /// Foto do cadastro do membro — mesma lógica de [imageUrlFromMap] para não perder URL (Storage, defaultImageUrl, listas).
   String _photoUrlFromMember(Map<String, dynamic> member) {
     final s = imageUrlFromMap(member);
     return isValidImageUrl(s) ? s : '';
   }
 
-  /// URL para PDF / impressÃ£o: path/`gs://`/https via [AppStorageImageService], depois `membros/{id}.jpg`.
+  /// URL para PDF / impressão: path/`gs://`/https via [AppStorageImageService], depois `membros/{id}.jpg`.
   Future<String> _resolvedMemberPhotoUrlForPdf(
     String memberId,
     Map<String, dynamic> member, {
@@ -6315,7 +6257,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
               const SizedBox(width: 12),
               const Expanded(
                 child: Text(
-                  'HistÃ³rico financeiro',
+                  'Histórico financeiro',
                   style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
@@ -6329,8 +6271,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
           const SizedBox(height: 8),
           Text(
             _isRestrictedMember
-                ? 'LanÃ§amentos em que este cadastro Ã© o titular (ex.: dÃ­zimos e recorrÃªncias).'
-                : 'LanÃ§amentos do financeiro que referenciam este membro (memberDocId).',
+                ? 'Lançamentos em que este cadastro é o titular (ex.: dízimos e recorrências).'
+                : 'Lançamentos do financeiro que referenciam este membro (memberDocId).',
             style: TextStyle(
               fontSize: 12,
               height: 1.35,
@@ -6345,7 +6287,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Text(
-                    'NÃ£o foi possÃ­vel carregar o histÃ³rico. Verifique permissÃ£o ou conexÃ£o.',
+                    'Não foi possível carregar o histórico. Verifique permissão ou conexão.',
                     style: TextStyle(fontSize: 13, color: Colors.orange.shade800),
                   ),
                 );
@@ -6368,7 +6310,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 return Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    'Nenhum lanÃ§amento vinculado a este cadastro.',
+                    'Nenhum lançamento vinculado a este cadastro.',
                     style: TextStyle(fontSize: 14, color: Colors.grey.shade700),
                   ),
                 );
@@ -6401,7 +6343,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       ? '${ts.toDate().day.toString().padLeft(2, '0')}/${ts.toDate().month.toString().padLeft(2, '0')}/${ts.toDate().year}'
                       : '';
                   final valorStr =
-                      '${isEntrada ? '+' : 'âˆ’'} ${brl.format(valor.abs())}';
+                      '${isEntrada ? '+' : '−'} ${brl.format(valor.abs())}';
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Row(
@@ -6428,7 +6370,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     [
                                       if (cat.isNotEmpty) cat,
                                       if (comp.isNotEmpty) 'Comp. $comp',
-                                    ].join(' Â· '),
+                                    ].join(' · '),
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade700,
@@ -6479,9 +6421,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final cons =
         _fmtDate(_dateFromMember(member, 'DATA_CONSAGRACAO')).trim();
     if (cons.isNotEmpty && base.trim().isNotEmpty) {
-      return '$base Â· ConsagraÃ§Ã£o $cons';
+      return '$base · Consagração $cons';
     }
-    if (cons.isNotEmpty) return 'ConsagraÃ§Ã£o $cons';
+    if (cons.isNotEmpty) return 'Consagração $cons';
     return base;
   }
 
@@ -6509,7 +6451,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     icon: const Icon(Icons.picture_as_pdf_rounded,
                         color: Colors.white),
                     label: Text(
-                      'VÃ¡rios em PDF (${_carteiraListaSelecionados.length})',
+                      'Vários em PDF (${_carteiraListaSelecionados.length})',
                       style: const TextStyle(
                           color: Colors.white, fontWeight: FontWeight.w600),
                     ),
@@ -6541,7 +6483,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 onPressed: () => Navigator.maybePop(context),
                 tooltip: 'Voltar',
               ),
-              title: const Text('CartÃ£o membro digital',
+              title: const Text('Cartão membro digital',
                   style: TextStyle(
                       fontWeight: FontWeight.w800, letterSpacing: -0.3)),
               flexibleSpace: Container(
@@ -6699,7 +6641,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             ),
                             const SizedBox(height: ThemeCleanPremium.spaceSm),
                             Text(
-                              'Cadastro de membro nÃ£o encontrado. Entre em contato com o gestor da igreja.',
+                              'Cadastro de membro não encontrado. Entre em contato com o gestor da igreja.',
                               textAlign: TextAlign.center,
                               style: const TextStyle(
                                 fontSize: 14,
@@ -6773,7 +6715,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text(
-                                      'EmissÃ£o de Carteirinha',
+                                      'Emissão de Carteirinha',
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w800,
@@ -6783,8 +6725,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
-                                      'A logo e o nome vÃªm do cadastro da igreja. '
-                                      'Sem logo cadastrada, usamos a marca GestÃ£o YAHWEH. '
+                                      'A logo e o nome vêm do cadastro da igreja. '
+                                      'Sem logo cadastrada, usamos a marca Gestão YAHWEH. '
                                       'Selecione o membro e assine ou exporte em PDF.',
                                       style: TextStyle(
                                         fontSize: 13,
@@ -6803,7 +6745,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             const SizedBox(height: 16),
                           ],
                           Text(
-                            'Selecione um membro abaixo para emitir a carteirinha ou use o botÃ£o para ir Ã  lista completa.',
+                            'Selecione um membro abaixo para emitir a carteirinha ou use o botão para ir à lista completa.',
                             style: TextStyle(
                               fontSize: 14,
                               height: 1.45,
@@ -6899,7 +6841,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     value: _filtroGeneroCarteira,
                                     isExpanded: true,
                                     decoration: InputDecoration(
-                                      labelText: 'GÃªnero',
+                                      labelText: 'Gênero',
                                       border: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(
                                               ThemeCleanPremium.radiusSm)),
@@ -6928,7 +6870,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     value: _filtroFaixaCarteira,
                                     isExpanded: true,
                                     decoration: InputDecoration(
-                                      labelText: 'Faixa etÃ¡ria',
+                                      labelText: 'Faixa etária',
                                       border: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(
                                               ThemeCleanPremium.radiusSm)),
@@ -6942,7 +6884,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                           value: 'todas', child: Text('Todas')),
                                       DropdownMenuItem(
                                           value: 'criancas',
-                                          child: Text('CrianÃ§as')),
+                                          child: Text('Crianças')),
                                       DropdownMenuItem(
                                           value: 'adolescentes',
                                           child: Text('Adolescentes')),
@@ -7074,7 +7016,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                     Text(
                                       all.isEmpty
                                           ? 'Nenhum membro cadastrado.'
-                                          : 'Nenhum membro corresponde Ã  busca e aos filtros.',
+                                          : 'Nenhum membro corresponde à busca e aos filtros.',
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(
                                         fontSize: 14,
@@ -7127,7 +7069,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          '${_carteiraListaSelecionados.length} selecionado(s) â€¢ ${filtered.length} visÃ­vel(is) nesta lista',
+                                          '${_carteiraListaSelecionados.length} selecionado(s) • ${filtered.length} visível(is) nesta lista',
                                           style: TextStyle(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w700,
@@ -7148,12 +7090,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                           _carteiraListaSelecionados.add(x.id);
                                         }
                                       }),
-                                      child: const Text('Marcar visÃ­veis'),
+                                      child: const Text('Marcar visíveis'),
                                     ),
                                     TextButton(
                                       onPressed: () => setState(
                                           _carteiraListaSelecionados.clear),
-                                      child: const Text('Limpar seleÃ§Ã£o'),
+                                      child: const Text('Limpar seleção'),
                                     ),
                                   ],
                                 ),
@@ -7256,7 +7198,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         OutlinedButton.icon(
                           onPressed: () => _abrirAssinarEmLote(context),
                           icon: const Icon(Icons.draw_rounded),
-                          label: const Text('Assinar cartÃµes em lote'),
+                          label: const Text('Assinar cartões em lote'),
                         ),
                       ],
                     ],
@@ -7271,7 +7213,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
             final name = _memberNome(data.member);
             final photoUrlPreview =
                 sanitizeImageUrl(imageUrlFromMap(data.member));
-            final validade = _validityLabel(data.member);
+            final validade = _validityLabel(data);
             _warmupCarteiraAssets(data, cfg);
 
             return Center(
@@ -7331,7 +7273,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'EmissÃ£o para',
+                                        'Emissão para',
                                         style: TextStyle(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
@@ -7426,12 +7368,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           OutlinedButton.icon(
                             onPressed: () => _backfillCodigosMembro(context),
                             icon: const Icon(Icons.pin_outlined),
-                            label: const Text('Gerar cÃ³digos em falta'),
+                            label: const Text('Gerar códigos em falta'),
                           ),
                           FilledButton.icon(
                             onPressed: () => _assinarMembroAtual(context, data),
                             icon: const Icon(Icons.draw_rounded),
-                            label: const Text('Assinar este cartÃ£o'),
+                            label: const Text('Assinar este cartão'),
                           ),
                           OutlinedButton.icon(
                             onPressed: () =>
@@ -7448,8 +7390,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Modelo Ãºnico GestÃ£o YAHWEH â€” logo e nome da igreja vÃªm do cadastro '
-                        '(sem logo: marca GestÃ£o YAHWEH). Cores fixas do cartÃ£o CNH.',
+                        'Modelo único Gestão YAHWEH — logo e nome da igreja vêm do cadastro '
+                        '(sem logo: marca Gestão YAHWEH). Cores fixas do cartão CNH.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -7460,7 +7402,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     ] else ...[
                       const SizedBox(height: 8),
                       Text(
-                        'Seu cartÃ£o digital oficial â€” apresente no celular. NÃ£o precisa imprimir.',
+                        'Seu cartão digital oficial — apresente no celular. Não precisa imprimir.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -7524,7 +7466,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Carteirinha nÃ£o assinada.',
+                                Text('Carteirinha não assinada.',
                                     style: TextStyle(
                                         fontSize: 14,
                                         fontWeight: FontWeight.w600,
@@ -7547,7 +7489,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                         ScaffoldMessenger.of(context)
                                             .showSnackBar(const SnackBar(
                                                 content: Text(
-                                                    'SolicitaÃ§Ã£o enviada. O pastor/gestor irÃ¡ assinar sua carteirinha.')));
+                                                    'Solicitação enviada. O pastor/gestor irá assinar sua carteirinha.')));
                                     } catch (e) {
                                       if (context.mounted)
                                         ScaffoldMessenger.of(context)
@@ -7573,7 +7515,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        'CartÃ£o membro digital',
+                        'Cartão membro digital',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
@@ -7583,8 +7525,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Visual Ãºnico em todo o GestÃ£o YAHWEH. Apenas a logo e o nome da sua igreja mudam. '
-                      'O QR Code abre a validaÃ§Ã£o oficial no app.',
+                      'Visual único em todo o Gestão YAHWEH. Apenas a logo e o nome da sua igreja mudam. '
+                      'O QR Code abre a validação oficial no app.',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.4,
@@ -7663,7 +7605,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             context,
                             data,
                             cfg,
-                            validade.isEmpty ? 'â€”' : validade,
+                            validade.isEmpty ? '—' : validade,
                           ),
                           icon: const Icon(Icons.chat_rounded),
                           label: const Text('Enviar (WhatsApp / compart.)'),
@@ -7677,7 +7619,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                     if (_maskNomePublico(name).isNotEmpty) ...[
                       const SizedBox(height: 10),
                       Text(
-                        'Titular pÃºblico (mascarado): ${_maskNomePublico(name)}',
+                        'Titular público (mascarado): ${_maskNomePublico(name)}',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 11,
@@ -7689,13 +7631,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       Padding(
                         padding: const EdgeInsets.only(top: 16),
                         child: _buildMemberFinanceHistorySection(data),
-                      ),
-                    if (_canManage)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 16),
-                        child: _ValidityEditor(
-                          onSave: (opt) => _setValidity(data, opt),
-                        ),
                       ),
                   ],
                 ),
@@ -7755,14 +7690,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (!context.mounted) return;
     if (bytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('NÃ£o foi possÃ­vel gerar a imagem.')),
+        const SnackBar(content: Text('Não foi possível gerar a imagem.')),
       );
       return;
     }
     try {
       await Gal.putImageBytes(
         bytes,
-        album: 'GestÃ£o YAHWEH',
+        album: 'Gestão YAHWEH',
         name: 'carteira_yahweh_${DateTime.now().millisecondsSinceEpoch}',
       );
       if (context.mounted) {
@@ -7785,7 +7720,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (!context.mounted) return;
     if (bytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('NÃ£o foi possÃ­vel gerar a imagem.')),
+        const SnackBar(content: Text('Não foi possível gerar a imagem.')),
       );
       return;
     }
@@ -7855,13 +7790,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (!context.mounted) return;
     if (digits.isEmpty) {
       await Share.share(
-        'Carteirinha digital â€” $church. Validade: $validade',
-        subject: 'Carteirinha â€” $church',
+        'Carteirinha digital — $church. Validade: $validade',
+        subject: 'Carteirinha — $church',
       );
       return;
     }
     final text = Uri.encodeComponent(
-      'OlÃ¡! Segue a imagem da carteirinha digital ($church).',
+      'Olá! Segue a imagem da carteirinha digital ($church).',
     );
     final uri = Uri.parse('https://wa.me/$digits?text=$text');
     try {
@@ -7871,7 +7806,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('NÃ£o foi possÃ­vel compartilhar: $e')),
+          SnackBar(content: Text('Não foi possível compartilhar: $e')),
         );
       }
     }
@@ -7922,119 +7857,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }
 }
 
-class _ValidityOption {
-  final bool permanent;
-  final int years;
-  const _ValidityOption({required this.permanent, required this.years});
-  const _ValidityOption.permanent()
-      : permanent = true,
-        years = 0;
-
-  @override
-  bool operator ==(Object other) {
-    return other is _ValidityOption &&
-        other.permanent == permanent &&
-        other.years == years;
-  }
-
-  @override
-  int get hashCode => Object.hash(permanent, years);
-}
-
-class _ValidityEditor extends StatefulWidget {
-  final Future<void> Function(_ValidityOption option) onSave;
-  const _ValidityEditor({required this.onSave});
-
-  @override
-  State<_ValidityEditor> createState() => _ValidityEditorState();
-}
-
-class _ValidityEditorState extends State<_ValidityEditor> {
-  _ValidityOption _opt = _ValidityOption.permanent();
-  bool _saving = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: const Color(0xFFF1F5F9)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.verified_rounded,
-                  size: 20, color: ThemeCleanPremium.primary),
-              const SizedBox(width: 8),
-              const Text(
-                'Validade da carteirinha',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<_ValidityOption>(
-            value: _opt,
-            items: [
-              const DropdownMenuItem(
-                value: _ValidityOption(permanent: true, years: 0),
-                child: Text('Permanente'),
-              ),
-              const DropdownMenuItem(
-                value: _ValidityOption(permanent: false, years: 1),
-                child: Text('01 ano'),
-              ),
-              const DropdownMenuItem(
-                value: _ValidityOption(permanent: false, years: 2),
-                child: Text('02 anos'),
-              ),
-              const DropdownMenuItem(
-                value: _ValidityOption(permanent: false, years: 3),
-                child: Text('03 anos'),
-              ),
-              const DropdownMenuItem(
-                value: _ValidityOption(permanent: false, years: 5),
-                child: Text('05 anos'),
-              ),
-            ],
-            onChanged: (v) => setState(() => _opt = v ?? _opt),
-            decoration: const InputDecoration(
-              labelText: 'Tipo de validade',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _saving
-                  ? null
-                  : () async {
-                      setState(() => _saving = true);
-                      await widget.onSave(_opt);
-                      if (mounted) setState(() => _saving = false);
-                    },
-              child: Text(_saving ? 'Salvando...' : 'Salvar validade'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _CardData {
   final String memberId;
   final Map<String, dynamic> member;
   final Map<String, dynamic> cardConfig;
   final Map<String, dynamic> tenant;
 
-  /// Doc `igrejas/{id}` canÃ³nico (Storage + logo institucional).
+  /// Doc `igrejas/{id}` canónico (Storage + logo institucional).
   final String igrejaDocId;
 
   const _CardData({
@@ -8051,13 +7880,13 @@ class _CardConfig {
   final String subtitle;
   final String logoUrl;
 
-  /// Logo em base64 (galeria); usado quando nÃ£o hÃ¡ permissÃ£o no Storage.
+  /// Logo em base64 (galeria); usado quando não há permissão no Storage.
   final String? logoDataBase64;
   final String bgColor;
   final String textColor;
   final String? bgColorSecondary;
 
-  /// Hex 6 dÃ­gitos (sem #) â€” faixa dourada / detalhes; Firestore: `accentColor` ou `accentGold`.
+  /// Hex 6 dígitos (sem #) — faixa dourada / detalhes; Firestore: `accentColor` ou `accentGold`.
   final String? accentColorHex;
   final String cargoLabel;
   final bool showPhoto;
@@ -8066,10 +7895,10 @@ class _CardConfig {
   /// Firestore: `regrasVerso`, `carteiraRegrasVerso` ou `regrasUsoVerso` (lista ou texto com linhas).
   final List<String>? versoRegrasUso;
 
-  /// Legado Firestore; o app usa um Ãºnico modelo visual (`padrao`).
+  /// Legado Firestore; o app usa um único modelo visual (`padrao`).
   final String visualModel;
 
-  /// Frase no rodapÃ© do verso (PDF e carteira digital).
+  /// Frase no rodapé do verso (PDF e carteira digital).
   final String fraseRodape;
 
   const _CardConfig({
@@ -8167,7 +7996,7 @@ class _CardConfig {
       : _hexToColor(bgColorSecondary!, const Color(0xFF1E3A5F));
   Color get textColorValue => _hexToColor(textColor, Colors.white);
 
-  /// Cor de destaque (bordas, selo) â€” igual Ã  carteirinha digital e ao PDF.
+  /// Cor de destaque (bordas, selo) — igual à carteirinha digital e ao PDF.
   Color get accentColorValue {
     if (accentColorHex == null || accentColorHex!.length != 6) {
       return CarteirinhaVisualTokens.accentGoldFlutter;

@@ -12,14 +12,12 @@ import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
-import 'package:gestao_yahweh/services/login_preferences.dart';
+import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_warmup_service.dart';
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
-import 'package:gestao_yahweh/services/app_google_sign_in.dart'
-    show appGoogleSignOutForAccountPicker;
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
 import 'package:gestao_yahweh/services/church_client_session_reporter.dart';
@@ -1197,20 +1195,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               IconButton(
                 icon: const Icon(Icons.logout_rounded,
                     color: Colors.white, size: 22),
-                onPressed: () async {
-                  if (kIsWeb) {
-                    try {
-                      final p = await SharedPreferences.getInstance();
-                      await p.remove('last_route');
-                    } catch (_) {}
-                  }
-                  await LoginPreferences.clearOAuthHints();
-                  if (!kIsWeb) {
-                    await appGoogleSignOutForAccountPicker();
-                  }
-                  await FirebaseAuth.instance.signOut();
-                  // Web: [AuthGate] troca para divulgação (evita stack duplicado / tela branca).
-                },
+                onPressed: () =>
+                    ChurchSignOutNavigation.signOutFromChurchPanel(),
                 style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
                 tooltip: 'Sair',
               ),
@@ -2110,19 +2096,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         churchName: churchName,
         logoUrl: logoUrl,
         onRenew: () => unawaited(_openUpgradePlans()),
-        onLogout: () async {
-          if (kIsWeb) {
-            try {
-              final p = await SharedPreferences.getInstance();
-              await p.remove('last_route');
-            } catch (_) {}
-          }
-          await LoginPreferences.clearOAuthHints();
-          if (!kIsWeb) {
-            await appGoogleSignOutForAccountPicker();
-          }
-          await FirebaseAuth.instance.signOut();
-        },
+        onLogout: ChurchSignOutNavigation.signOutFromChurchPanel,
       ),
     );
   }

@@ -41,11 +41,11 @@ class AppRoles {
   static bool canAccessFinanceAndPatrimonio(String role) =>
       ChurchRolePermissions.isFinanceCoreTeam(role);
 
-  /// Funções que podem editar escalas
+  /// Escala geral da igreja (todos os departamentos) — não inclui líder de departamento (escopo por CPF).
   static bool canAccessEditSchedules(String role) {
     final r = role.toLowerCase();
     return [
-      admin, adm, master, gestor, lider, pastor, presbitero, secretario,
+      admin, adm, master, gestor, pastor, presbitero, secretario,
       'administrador', 'administradora',
     ].contains(r);
   }
@@ -81,6 +81,84 @@ class AppPermissions {
       return set.contains('eventos') || set.contains('eventos_avisos_edicao');
     }
     return false;
+  }
+
+  /// Permissões granulares recomendadas para [lider_departamento] (mural, eventos, agenda).
+  static List<String> defaultDepartmentLeaderModulePermissions() => const [
+        'mural_avisos_edicao',
+        'eventos_avisos_edicao',
+        'eventos',
+        'agenda_edicao',
+        'agenda_ver',
+        'departamentos',
+        'escalas',
+      ];
+
+  /// Mescla permissões do cargo líder sem remover chaves já concedidas pelo gestor.
+  static List<String> mergeDepartmentLeaderModulePermissions(
+    List<String>? existing,
+  ) {
+    final out = <String>{
+      ...defaultDepartmentLeaderModulePermissions(),
+      ...normalizePermissions(existing),
+    };
+    out.remove('mural_avisos_somente_leitura');
+    out.remove('financeiro');
+    out.remove('patrimonio');
+    out.remove('fornecedores');
+    out.remove('relatorios');
+    out.removeWhere((k) => k.startsWith('relatorio_'));
+    return out.toList();
+  }
+
+  /// Criar/editar/excluir avisos, eventos (feed) e agenda interna.
+  static bool canManageChurchMuralEventsAgenda(
+    String role, {
+    List<String>? permissions,
+  }) {
+    if (hasModulePermission(permissions, 'mural_avisos_somente_leitura') &&
+        !hasModulePermission(permissions, 'mural_avisos_edicao')) {
+      return false;
+    }
+    if (hasModulePermission(permissions, 'eventos_avisos_ver') &&
+        !hasModulePermission(permissions, 'eventos_avisos_edicao') &&
+        !hasModulePermission(permissions, 'eventos')) {
+      return false;
+    }
+    if (hasModulePermission(permissions, 'agenda_ver') &&
+        !hasModulePermission(permissions, 'agenda_edicao')) {
+      return false;
+    }
+    if (hasModulePermission(permissions, 'eventos') ||
+        hasModulePermission(permissions, 'eventos_avisos_edicao') ||
+        hasModulePermission(permissions, 'mural_avisos_edicao') ||
+        hasModulePermission(permissions, 'agenda_edicao')) {
+      return true;
+    }
+    if (isRestrictedMember(role)) return false;
+    final n = ChurchRolePermissions.normalize(role);
+    if (ChurchRolePermissions.isDepartmentLeaderRoleKey(n)) return true;
+    if (n == ChurchRoleKeys.pastor ||
+        n == ChurchRoleKeys.pastorAuxiliar ||
+        n == ChurchRoleKeys.pastorPresidente ||
+        n == ChurchRoleKeys.secretario ||
+        n == ChurchRoleKeys.presbitero ||
+        n == ChurchRoleKeys.tesoureiro ||
+        n == ChurchRoleKeys.tesouraria ||
+        n == ChurchRoleKeys.diacono ||
+        n == ChurchRoleKeys.evangelista) {
+      return true;
+    }
+    return AppRoles.isFullAccess(role);
+  }
+
+  /// Escalas: pastoral com escala geral OU líder com pelo menos um departamento (vários permitidos).
+  static bool canWriteDepartmentSchedules(
+    String role, {
+    Set<String> managedDepartmentIds = const {},
+  }) {
+    if (canEditSchedules(role)) return true;
+    return managedDepartmentIds.isNotEmpty;
   }
 
   /// Há chaves `relatorio_*` sem o guarda-chuva `relatorios` — relatórios passam a ser só os marcados.

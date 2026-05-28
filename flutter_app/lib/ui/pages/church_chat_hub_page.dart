@@ -125,7 +125,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
-    _hubTabController = TabController(length: 2, vsync: this);
+    _hubTabController = TabController(length: 3, vsync: this);
     _hubTabController.addListener(_hubTabListener);
     _membersFilterCtrl.addListener(() => setState(() {}));
     _deptFilterCtrl.addListener(() => setState(() {}));
@@ -968,7 +968,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             child: Text(
               _dmSelectMode
                   ? 'Modo seleção — toque para marcar'
-                  : 'Mantenha premido ou use ⋮ para opções',
+                  : 'Mantenha premido ou use o menu para opções',
               style: TextStyle(
                 fontSize: 11.5,
                 fontWeight: FontWeight.w600,
@@ -1312,9 +1312,16 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   onChanged: () => setState(() {}),
                 );
               }
+              if (i == 1) {
+                return _HubScopedSearchBar(
+                  controller: _deptFilterCtrl,
+                  hintText: 'Pesquisar grupos…',
+                  icon: Icons.groups_rounded,
+                );
+              }
               return _HubScopedSearchBar(
                 controller: _membersFilterCtrl,
-                hintText: 'Pesquisar membros ou departamentos…',
+                hintText: 'Pesquisar membros…',
                 icon: Icons.person_search_rounded,
               );
             },
@@ -1325,6 +1332,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               children: [
                 _KeepAliveHubTab(
                   child: _buildConversasTab(context, tid, uid),
+                ),
+                _KeepAliveHubTab(
+                  child: _buildGruposTab(context, tid, uid),
                 ),
                 _KeepAliveHubTab(
                   child: _buildContatosTab(context, tid, uid),
@@ -1585,7 +1595,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                         q.isNotEmpty
                             ? 'Nenhuma conversa corresponde à pesquisa.'
                             : _conversasFilter == _HubConversasFilter.favorites
-                                ? 'Sem favoritas. Toque numa conversa e use «Favoritar».'
+                                ? 'Sem favoritas. Toque numa conversa e use Favoritar.'
                                 : _conversasFilter == _HubConversasFilter.archived
                                     ? 'Sem conversas arquivadas.'
                                     : _conversasFilter == _HubConversasFilter.unread
@@ -1643,162 +1653,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       stream: ChurchChatMemberPrefs.watch(tid),
       builder: (context, prefSnap) {
         final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_departments.isNotEmpty)
-              _buildDepartmentGroupsQuickAccess(context, tid, uid),
-            Expanded(
-              child: _AllMembersDirectoryView(
-                tenantId: tid,
-                myUid: uid,
-                prefs: prefs,
-                filterCtrl: _membersFilterCtrl,
-                role: widget.role,
-                cpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-                onOpenDm: (peerUid, displayName) =>
-                    _startDmWithPeer(context, tid, uid, peerUid, displayName),
-              ),
-            ),
-          ],
+        return _AllMembersDirectoryView(
+          tenantId: tid,
+          myUid: uid,
+          prefs: prefs,
+          filterCtrl: _membersFilterCtrl,
+          role: widget.role,
+          cpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+          onOpenDm: (peerUid, displayName) =>
+              _startDmWithPeer(context, tid, uid, peerUid, displayName),
         );
       },
-    );
-  }
-
-  Widget _buildDepartmentGroupsQuickAccess(
-    BuildContext context,
-    String tid,
-    String uid,
-  ) {
-    final ql = _membersFilterCtrl.text.trim().toLowerCase();
-    final filtered = _departments.where((d) {
-      if (ql.isEmpty) return true;
-      return d.name.toLowerCase().contains(ql);
-    }).toList();
-    if (filtered.isEmpty) return const SizedBox.shrink();
-
-    return Material(
-      color: ThemeCleanPremium.primary.withValues(alpha: 0.04),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.groups_rounded,
-                  size: 20,
-                  color: ThemeCleanPremium.primary,
-                ),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Grupos (departamentos)',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 14,
-                    ),
-                  ),
-                ),
-                Text(
-                  '${filtered.length}',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                    color: ThemeCleanPremium.onSurfaceVariant,
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => _openAllDepartmentGroups(context, tid, uid),
-                  child: const Text(
-                    'Ver todos',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 92,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: filtered.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 10),
-                itemBuilder: (context, i) {
-                  final d = filtered[i];
-                  final threadId = ChurchChatService.deptThreadId(d.id);
-                  return InkWell(
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          fullscreenDialog: true,
-                          builder: (_) => ChurchChatThreadPage(
-                            tenantId: tid,
-                            threadId: threadId,
-                            title: d.name,
-                            isDepartment: true,
-                            departmentId: d.id,
-                            memberRole: widget.role,
-                            memberCpfDigits:
-                                widget.cpf.replaceAll(RegExp(r'\D'), ''),
-                          ),
-                        ),
-                      );
-                    },
-                    borderRadius: BorderRadius.circular(14),
-                    child: SizedBox(
-                      width: 76,
-                      child: Column(
-                        children: [
-                          ChurchChatDepartmentAvatar(
-                            deptData: d.deptData,
-                            fallbackName: d.name,
-                            radius: 28,
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            _firstNameForChatRow(d.name),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              height: 1.15,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _openAllDepartmentGroups(
-    BuildContext context,
-    String tid,
-    String uid,
-  ) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (ctx) => Scaffold(
-          backgroundColor: Colors.white,
-          appBar: AppBar(
-            title: const Text('Grupos (departamentos)'),
-            backgroundColor: ThemeCleanPremium.primary,
-            foregroundColor: Colors.white,
-          ),
-          body: _buildGruposTab(ctx, tid, uid),
-        ),
-      ),
     );
   }
 
@@ -1903,10 +1768,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               'Pesquisa ativa — grupos em ordem alfabética. Limpe o campo para voltar à sua ordem.';
         } else if (ordered.length > 1) {
           helpPrimary =
-              'Grupos em faixas — arraste ⋮⋮ para a sua ordem (guarda neste aparelho/conta). Toque na faixa para abrir · «Ver membros» à direita.';
+              'Grupos em faixas. Arraste para definir a ordem neste aparelho. Toque na faixa para abrir o chat ou use Ver membros à direita.';
         } else {
           helpPrimary =
-              'Grupos em faixas — toque na linha para abrir · «Ver membros» à direita.';
+              'Grupos em faixas. Toque na linha para abrir o chat ou Ver membros à direita.';
         }
 
         Widget stripTile(_DeptEntry d, {int? reorderIndex}) {
@@ -2009,7 +1874,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                                 color: ThemeCleanPremium.primary,
                               ),
                               label: Text(
-                                'Ordem alfabética (A–Z)',
+                                'Ordem alfabética (A-Z)',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w700,
                                   color: ThemeCleanPremium.primary,
@@ -2739,77 +2604,94 @@ class _PremiumHubTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final narrow = MediaQuery.sizeOf(context).width < 380;
+    final labelSize = narrow ? 10.5 : 11.5;
+    final iconSize = narrow ? 16.0 : 17.0;
+    final tabH = narrow ? 42.0 : 46.0;
+
+    Widget tabContent(IconData icon, String label) {
+      return FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: iconSize),
+            SizedBox(width: narrow ? 4 : 5),
+            Text(label),
+          ],
+        ),
+      );
+    }
+
     return Container(
-          padding: const EdgeInsets.all(1.5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(17.5),
+      padding: const EdgeInsets.all(1.5),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(17.5),
+        gradient: churchChatWhatsPremiumLinearGradient,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF2563EB).withValues(alpha: 0.28),
+            blurRadius: 18,
+            offset: const Offset(0, 7),
+          ),
+          BoxShadow(
+            color: const Color(0xFF7C3AED).withValues(alpha: 0.12),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: ThemeCleanPremium.cardBackground,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: TabBar(
+          controller: controller,
+          dividerColor: Colors.transparent,
+          tabAlignment: TabAlignment.fill,
+          indicatorSize: TabBarIndicatorSize.tab,
+          indicator: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
             gradient: churchChatWhatsPremiumLinearGradient,
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF2563EB).withValues(alpha: 0.24),
-                blurRadius: 16,
-                offset: const Offset(0, 6),
+                color: const Color(0xFF2563EB).withValues(alpha: 0.42),
+                blurRadius: 14,
+                offset: const Offset(0, 4),
               ),
             ],
           ),
-          child: Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: ThemeCleanPremium.cardBackground,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: TabBar(
-              controller: controller,
-              dividerColor: Colors.transparent,
-              indicatorSize: TabBarIndicatorSize.tab,
-              indicator: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                gradient: churchChatWhatsPremiumLinearGradient,
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF2563EB).withValues(alpha: 0.38),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              labelColor: Colors.white,
-              unselectedLabelColor: ThemeCleanPremium.onSurfaceVariant,
-              labelStyle: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 12,
-              ),
-              unselectedLabelStyle: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
-              ),
-              tabs: [
-                const Tab(
-                  height: 46,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.chat_bubble_rounded, size: 18),
-                      SizedBox(width: 6),
-                      Text('Conversas'),
-                    ],
-                  ),
-                ),
-                const Tab(
-                  height: 46,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.contacts_rounded, size: 18),
-                      SizedBox(width: 6),
-                      Text('Contatos'),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+          labelColor: Colors.white,
+          unselectedLabelColor: ThemeCleanPremium.onSurfaceVariant,
+          labelStyle: TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: labelSize,
+            letterSpacing: 0.15,
           ),
-        );
+          unselectedLabelStyle: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: labelSize,
+          ),
+          tabs: [
+            Tab(
+              height: tabH,
+              child: tabContent(Icons.chat_bubble_rounded, 'Conversas'),
+            ),
+            Tab(
+              height: tabH,
+              child: tabContent(Icons.groups_rounded, 'Grupos'),
+            ),
+            Tab(
+              height: tabH,
+              child: tabContent(Icons.contacts_rounded, 'Contatos'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -3520,22 +3402,12 @@ class _PremiumChatHeader extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Super Premium · conversas, membros e grupos',
+                          'Mensagens, fotos, vídeos e grupos por departamento',
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.95),
+                            color: Colors.white.withValues(alpha: 0.92),
                             fontSize: 12.5,
                             height: 1.35,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Estilo WhatsApp — mensagens, fotos e vídeos no thread',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.82),
-                            fontSize: 11.5,
-                            height: 1.3,
-                            fontWeight: FontWeight.w500,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
@@ -3810,7 +3682,7 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
                             child: Text(
                               _eligible.isEmpty
                                   ? 'Nenhum membro disponível para conversa.'
-                                  : 'Nenhum resultado para «${_filter.text.trim()}».',
+                                  : 'Nenhum resultado para "${_filter.text.trim()}".',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: ThemeCleanPremium.onSurfaceVariant,

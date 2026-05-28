@@ -1406,6 +1406,7 @@ class ChurchChatService {
     required String fileName,
     required String contentType,
     String? storagePathOverride,
+    bool skipClientPrepare = false,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
@@ -1427,6 +1428,7 @@ class ChurchChatService {
       contentType: contentType,
       useOfflineQueue: false,
       maxAttempts: 4,
+      skipClientPrepare: skipClientPrepare,
       chatJpegFast: chatJpegFast,
       onProgress: onProgress,
       onUploadTaskCreated: onUploadTaskCreated,

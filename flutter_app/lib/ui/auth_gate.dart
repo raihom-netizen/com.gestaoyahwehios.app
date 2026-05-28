@@ -6,10 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
 import 'package:gestao_yahweh/core/license_access_policy.dart';
-import '../pages/site_public_page.dart';
 import '../services/ios_payments_gate.dart';
 
 import 'pages/biometric_lock_page.dart';
@@ -28,8 +25,8 @@ import '../services/tenant_resolver_service.dart';
 import '../services/church_binding_repair_coordinator.dart';
 import '../services/church_chat_alert_notification_service.dart';
 import '../services/church_chat_notification_prefs.dart';
-import '../services/login_preferences.dart';
 import '../services/church_auto_session_service.dart';
+import '../services/church_sign_out_navigation.dart';
 import '../core/roles_permissions.dart';
 
 /// Tela quando usuário logou mas não tem igreja vinculada em claims nem em users.
@@ -571,6 +568,11 @@ class _AuthGateState extends State<AuthGate> {
                 role,
               );
             } catch (_) {}
+            if (ChurchRolePermissions.isDepartmentLeaderRoleKey(role)) {
+              permissions = AppPermissions.mergeDepartmentLeaderModulePermissions(
+                permissions,
+              );
+            }
           }
           if (active && userDoc.exists) {
             db.collection('users').doc(user.uid).update({'ativo': true}).catchError((_) {});
@@ -726,41 +728,25 @@ class _AuthGateState extends State<AuthGate> {
               body: Center(child: CircularProgressIndicator()),
             );
           }
-          // Sem sessão: não ficar em spinner sobre fundo branco (web após logout).
+          // Sem sessão: redirecionar (web → divulgação `/`). Não renderizar SitePublicPage
+          // dentro do AuthGate em /painel — isso deixava o shell por baixo (overlay branco).
           if (!_scheduledLoginRedirect) {
             _scheduledLoginRedirect = true;
             WidgetsBinding.instance.addPostFrameCallback((_) async {
               if (!mounted) return;
               final currentUser = FirebaseAuth.instance.currentUser;
               if (currentUser != null && !currentUser.isAnonymous) {
+                _scheduledLoginRedirect = false;
                 return;
               }
-              final nav = Navigator.of(context, rootNavigator: true);
-              if (kIsWeb) {
-                try {
-                  final p = await SharedPreferences.getInstance();
-                  await p.remove('last_route');
-                } catch (_) {}
-              }
-              await ChurchAutoSessionService.clearAutoPainel();
-              if (!mounted) return;
-              final currentUserAfterCleanup = FirebaseAuth.instance.currentUser;
-              if (currentUserAfterCleanup != null &&
-                  !currentUserAfterCleanup.isAnonymous) {
-                return;
-              }
-              final override =
-                  await LoginPreferences.consumePostSignOutRouteOverride();
-              final dest = (override != null && override.isNotEmpty)
-                  ? override
-                  : (kIsWeb ? '/' : '/login');
-              if (!mounted) return;
-              nav.pushNamedAndRemoveUntil(dest, (_) => false);
+              await ChurchSignOutNavigation.redirectAfterSignOut();
             });
           }
-          // Web: mostrar divulgação já no 1º frame (evita tela branca até o replace da URL).
           if (kIsWeb) {
-            return const SitePublicPage();
+            return const ColoredBox(
+              color: Color(0xFFF8FAFC),
+              child: SizedBox.expand(),
+            );
           }
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),

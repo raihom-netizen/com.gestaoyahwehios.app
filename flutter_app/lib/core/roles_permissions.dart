@@ -110,7 +110,7 @@ class ChurchRolePermissions {
     return r;
   }
 
-  /// Pastoral com papel [lider] / [lider_departamento] — vê o módulo Escalas; escrita limita-se aos departamentos em que é líder (ver [SchedulesPage]).
+  /// Pastoral com papel [lider] / [lider_departamento] — vê Escalas, Agenda, Mural e Eventos; escalas só nos departamentos em que é líder (CPF em [leaderCpfs], vários OK — ver [SchedulesPage]).
   static bool isDepartmentLeaderRoleKey(String role) {
     final n = normalize(role);
     return n == ChurchRoleKeys.liderDepartamento || n == ChurchRoleKeys.lider;

@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb, kReleaseMode;
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 
 /// Política única de limites para uploads de mídia (painel igreja + master).
 ///
@@ -34,7 +34,7 @@ bool get kMediaTurboMobilePreset {
   switch (defaultTargetPlatform) {
     case TargetPlatform.android:
     case TargetPlatform.iOS:
-      return kReleaseMode;
+      return true;
     default:
       return false;
   }
@@ -54,13 +54,9 @@ Duration get mediaVideoMaxDurationEffective => kMediaChatVideoMaxDuration;
 int get mediaVideoSkipTranscodeMaxBytes =>
     kMediaTurboMobilePreset ? (42 * 1024 * 1024) : (32 * 1024 * 1024);
 
-/// Uploads em lote (avisos/eventos): iOS = 1 por vez (evita OOM); Android até 3–4.
-int get mediaFeedUploadMaxConcurrent {
-  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
-    return 1;
-  }
-  return kMediaTurboMobilePreset ? 3 : 4;
-}
+/// Uploads em lote (avisos/eventos): até 3 em paralelo com turbo (1 WebP/foto no nativo).
+int get mediaFeedUploadMaxConcurrent =>
+    kMediaTurboMobilePreset ? 3 : 4;
 
 int get mediaPickerImageQuality =>
     kMediaTurboMobilePreset ? 62 : 70;

@@ -134,6 +134,18 @@ function lightMember(
   const cpf = canonicalCpf(
     pickString(d, ["CPF", "cpf"]) || normCpf(doc.id),
   );
+  const telefone =
+    pickString(d, [
+      "TELEFONES",
+      "telefones",
+      "TELEFONE",
+      "telefone",
+      "whatsapp",
+      "WHATSAPP",
+      "celular",
+      "CELULAR",
+      "phone",
+    ]) || null;
   return {
     memberDocId: doc.id,
     displayName:
@@ -144,6 +156,7 @@ function lightMember(
     cpfDigits: cpf || null,
     birthMonth: birth?.month ?? null,
     birthDay: birth?.day ?? null,
+    telefone,
   };
 }
 

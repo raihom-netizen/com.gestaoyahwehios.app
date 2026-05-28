@@ -714,28 +714,10 @@ class _CalendarPageState extends State<CalendarPage>
   bool get _embeddedMobile =>
       widget.embeddedInShell && ThemeCleanPremium.isMobile(context);
 
-  bool get _canWrite {
-    final p = widget.permissions;
-    if (p != null) {
-      if (AppPermissions.hasModulePermission(p, 'agenda_edicao')) return true;
-      if (AppPermissions.hasModulePermission(p, 'agenda_ver')) return false;
-    }
-    final r = widget.role.toLowerCase();
-    return r == 'adm' ||
-        r == 'admin' ||
-        r == 'gestor' ||
-        r == 'master' ||
-        r == 'lider' ||
-        r == 'lider_departamento' ||
-        r == 'pastor' ||
-        r == 'pastora' ||
-        r == 'secretario' ||
-        r == 'presbitero' ||
-        r == 'tesoureiro' ||
-        r == 'tesouraria' ||
-        r == 'diacono' ||
-        r == 'evangelista';
-  }
+  bool get _canWrite => AppPermissions.canManageChurchMuralEventsAgenda(
+        widget.role,
+        permissions: widget.permissions,
+      );
 
   CollectionReference<Map<String, dynamic>> get _agenda =>
       FirebaseFirestore.instance

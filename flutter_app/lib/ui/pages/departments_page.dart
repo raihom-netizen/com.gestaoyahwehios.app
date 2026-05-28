@@ -37,7 +37,6 @@ import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class DepartmentsPage extends StatefulWidget {
   final String tenantId;
@@ -1512,36 +1511,11 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   Future<void> _openWhatsAppForMemberData(Map<String, dynamic> d) async {
-    String digits = '';
-    for (final k in [
-      'whatsapp',
-      'WHATSAPP',
-      'whatsappIgreja',
-      'celular',
-      'CELULAR',
-      'telefone',
-      'TELEFONE',
-    ]) {
-      final s = (d[k] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
-      if (s.length >= 10) {
-        digits = s;
-        break;
-      }
-    }
-    if (digits.length < 10) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Telefone/WhatsApp não encontrado na ficha do membro.'),
-          ),
-        );
-      }
-      return;
-    }
-    final uri = Uri.parse('https://wa.me/$digits');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    await ChurchMemberContactChat.openWhatsAppFaleComigo(
+      context,
+      d,
+      tenantId: _tid,
+    );
   }
 
   void _openDepartmentHubSheet({

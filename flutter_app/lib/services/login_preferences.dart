@@ -52,6 +52,13 @@ class LoginPreferences {
     await prefs.remove(_kLastOAuthProvider);
   }
 
+  /// Lê a rota pós-logout sem apagar (navegação web antes do [FirebaseAuth.signOut]).
+  static Future<String?> peekPostSignOutRouteOverride() async {
+    final prefs = await SharedPreferences.getInstance();
+    final v = (prefs.getString(_kPostSignOutRouteOverride) ?? '').trim();
+    return v.isEmpty ? null : v;
+  }
+
   /// Lê e apaga a rota pós-logout definida antes do [FirebaseAuth.signOut] (ex.: trocar de conta).
   static Future<String?> consumePostSignOutRouteOverride() async {
     final prefs = await SharedPreferences.getInstance();
@@ -69,6 +76,8 @@ class LoginPreferences {
     await prefs.remove(_kLastLoginIdentifier);
     await prefs.remove(_kLastOAuthProvider);
     await prefs.remove(kAutoPainelLogin);
+    await prefs.setBool('biometric_enabled', false);
+    await prefs.setBool('biometric_asked', true);
     const prefix = 'igreja';
     await prefs.remove('remember_login_$prefix');
     await prefs.remove('saved_login_$prefix');

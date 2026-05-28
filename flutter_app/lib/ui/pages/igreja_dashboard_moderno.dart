@@ -3010,9 +3010,18 @@ void _leaderGalleryOpenChat(
 
 void _leaderGalleryOpenWhatsApp(
   BuildContext context,
-  Map<String, dynamic> memberData,
-) {
-  unawaited(ChurchMemberContactChat.openWhatsAppFaleComigo(context, memberData));
+  Map<String, dynamic> memberData, {
+  required String tenantId,
+  String? memberDocId,
+}) {
+  unawaited(
+    ChurchMemberContactChat.openWhatsAppFaleComigo(
+      context,
+      memberData,
+      tenantId: tenantId,
+      memberDocId: memberDocId,
+    ),
+  );
 }
 
 /// Cartão premium para Galeria de Líderes / Corpo Administrativo (lista no telefone, grelha no desktop).
@@ -3329,7 +3338,12 @@ class _LideresGaleria extends StatelessWidget {
               viewerCpfDigits: viewerCpfDigits,
               displayName: nome,
             ),
-            onWhatsApp: () => _leaderGalleryOpenWhatsApp(context, data),
+            onWhatsApp: () => _leaderGalleryOpenWhatsApp(
+              context,
+              data,
+              tenantId: tenantId,
+              memberDocId: lite.memberDocId,
+            ),
           );
         }).toList();
         return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
@@ -3578,8 +3592,12 @@ class _LideresGaleria extends StatelessWidget {
                     viewerCpfDigits: viewerCpfDigits,
                     displayName: nome,
                   ),
-                  onWhatsApp: () =>
-                      _leaderGalleryOpenWhatsApp(context, contactData),
+                  onWhatsApp: () => _leaderGalleryOpenWhatsApp(
+                    context,
+                    contactData,
+                    tenantId: tenantId,
+                    memberDocId: memberDocId,
+                  ),
                 );
               }).toList();
               return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
@@ -3726,7 +3744,12 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
               viewerCpfDigits: viewerCpfDigits,
               displayName: nome,
             ),
-            onWhatsApp: () => _leaderGalleryOpenWhatsApp(context, data),
+            onWhatsApp: () => _leaderGalleryOpenWhatsApp(
+              context,
+              data,
+              tenantId: tenantId,
+              memberDocId: lite.memberDocId,
+            ),
           );
         }).toList();
         return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
@@ -3863,7 +3886,12 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
                     viewerCpfDigits: viewerCpfDigits,
                     displayName: nome.trim().isEmpty ? 'Membro' : nome.trim(),
                   ),
-                  onWhatsApp: () => _leaderGalleryOpenWhatsApp(context, data),
+                  onWhatsApp: () => _leaderGalleryOpenWhatsApp(
+                    context,
+                    data,
+                    tenantId: tenantId,
+                    memberDocId: m.id,
+                  ),
                 );
               }).toList();
               ChurchGalleryPhotoWarmup.schedule(

@@ -12,6 +12,7 @@ class PanelHomeMemberLite {
     this.fotoUrlCacheRevision = 0,
     this.authUid,
     this.cpfDigits,
+    this.telefone,
     this.birthMonth,
     this.birthDay,
     this.deptNames = const [],
@@ -24,6 +25,7 @@ class PanelHomeMemberLite {
   final int fotoUrlCacheRevision;
   final String? authUid;
   final String? cpfDigits;
+  final String? telefone;
   final int? birthMonth;
   final int? birthDay;
   final List<String> deptNames;
@@ -48,6 +50,9 @@ class PanelHomeMemberLite {
       cpfDigits: (raw['cpfDigits'] ?? '').toString().trim().isEmpty
           ? null
           : (raw['cpfDigits'] ?? '').toString(),
+      telefone: (raw['telefone'] ?? '').toString().trim().isEmpty
+          ? null
+          : (raw['telefone'] ?? '').toString(),
       birthMonth: raw['birthMonth'] == null ? null : n(raw['birthMonth']),
       birthDay: raw['birthDay'] == null ? null : n(raw['birthDay']),
       deptNames: strList(raw['deptNames']),
@@ -66,6 +71,7 @@ class PanelHomeMemberLite {
       if (fotoUrlCacheRevision > 0)
         'fotoUrlCacheRevision': fotoUrlCacheRevision,
       if (cpfDigits != null && cpfDigits!.isNotEmpty) 'CPF': cpfDigits,
+      if (telefone != null && telefone!.isNotEmpty) 'TELEFONES': telefone,
     };
   }
 }

@@ -6,20 +6,29 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/widgets.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
 
-/// Blindagem iOS — nunca processar 12–48 MP no aparelho antes do upload.
+/// Feed nativo (iOS/Android) — evita 3× WebP + 3 uploads no telemóvel.
 ///
-/// Fluxo: comprimir para WebP ≤1080px (q60) → 1 upload → Cloud Function gera variantes.
+/// Fluxo: comprimir para WebP ≤1080px (q75, igual web) → 1 upload → CF gera variantes.
 abstract final class IosPublishImagePipeline {
   IosPublishImagePipeline._();
 
-  static bool get useIosLightweightPublish =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+  static bool get _isNativeMobile =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android);
 
-  static const int publishMaxEdge = 1080;
-  static const int publishWebpQuality = 60;
+  /// Avisos/eventos no app — mesmo caminho rápido que a PWA (1 ficheiro por foto).
+  static bool get useNativeFastFeedUpload => _isNativeMobile;
+
+  /// Retrocompat.
+  static bool get useIosLightweightPublish => useNativeFastFeedUpload;
+
+  static const int publishMaxEdge = kEventoAvisoFeedEncodeMaxEdgePx;
+  static const int publishWebpQuality = kEventoAvisoFeedWebpQuality;
   static const int previewDecodeWidth = 300;
 
   /// Miniatura leve no editor (evita decode 12–48 MP no iPhone).
@@ -27,7 +36,7 @@ abstract final class IosPublishImagePipeline {
     required File file,
     required double size,
   }) {
-    if (useIosLightweightPublish) {
+    if (useNativeFastFeedUpload) {
       return Image(
         image: ResizeImage(
           FileImage(file),
@@ -52,7 +61,7 @@ abstract final class IosPublishImagePipeline {
 
   static Future<Uint8List> compressForPublishFromPath(String path) async {
     if (kIsWeb) return Uint8List(0);
-    if (useIosLightweightPublish) {
+    if (useNativeFastFeedUpload) {
       return compute(_compressFileIsolate, path);
     }
     return _compressFileInline(path);
@@ -60,7 +69,7 @@ abstract final class IosPublishImagePipeline {
 
   static Future<Uint8List> compressForPublishBytes(Uint8List raw) async {
     if (raw.isEmpty) return raw;
-    if (useIosLightweightPublish) {
+    if (useNativeFastFeedUpload) {
       return compute(_compressBytesIsolate, raw);
     }
     return _compressBytesInline(raw);
@@ -161,7 +170,7 @@ abstract final class IosPublishMemory {
   IosPublishMemory._();
 
   static Future<void> releaseAfterHeavyWork() async {
-    if (!IosPublishImagePipeline.useIosLightweightPublish) return;
+    if (!IosPublishImagePipeline.useNativeFastFeedUpload) return;
     try {
       final cache = PaintingBinding.instance.imageCache;
       cache.clear();

@@ -599,7 +599,9 @@ class _CargosPageState extends State<CargosPage> {
           'order': i,
           'isDefaultPreset': true,
           'isWelcomeKit': true,
-          'modulePermissions': <String>[],
+          'modulePermissions': row.key == 'lider_departamento'
+              ? AppPermissions.defaultDepartmentLeaderModulePermissions()
+              : <String>[],
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         });

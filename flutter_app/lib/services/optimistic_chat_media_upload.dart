@@ -10,6 +10,8 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/media_image_variants_service.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
@@ -168,13 +170,45 @@ abstract final class OptimisticChatMediaUpload {
       } else if (pending.kind == 'image') {
         void uploadProgress(double t) =>
             _mapProgress(reportProgress, 0.15, 0.96, t);
-        // Mobile: ficheiro direto ao Storage (rápido, estilo WhatsApp).
+        // Mobile: 1× WebP leve (turbo) ou ficheiro direto — evita 2 tiers + 2 uploads.
         if (!kIsWeb &&
             uploadPath != null &&
             uploadPath.isNotEmpty &&
             messageId != null &&
             messageId.isNotEmpty) {
           try {
+            if (kMediaTurboEnabled) {
+              reportProgress(0.22);
+              final webp = await IosPublishImagePipeline.compressForPublishFromPath(
+                uploadPath,
+              );
+              if (webp.isNotEmpty) {
+                final up = await ChurchChatService.uploadChatBytes(
+                  tenantId: tenantId,
+                  threadId: threadId,
+                  bytes: webp,
+                  fileName: pending.fileName.replaceAll(
+                    RegExp(r'\.[a-z0-9]+$', caseSensitive: false),
+                    '.webp',
+                  ),
+                  contentType: 'image/webp',
+                  storagePathOverride: storagePath,
+                  skipClientPrepare: true,
+                  onProgress: uploadProgress,
+                );
+                await ChurchChatService.completeMediaUploadMessage(
+                  tenantId: tenantId,
+                  threadId: threadId,
+                  messageId: messageId,
+                  downloadUrl: up.url,
+                  storagePath: up.path,
+                  fileName: pending.fileName,
+                );
+                reportProgress(1.0);
+                onSuccess();
+                return;
+              }
+            }
             final up = await ChurchChatService.uploadChatFile(
               tenantId: tenantId,
               threadId: threadId,

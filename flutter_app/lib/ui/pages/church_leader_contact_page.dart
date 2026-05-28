@@ -214,6 +214,8 @@ class ChurchLeaderContactPage extends StatelessWidget {
                 onPressed: () => ChurchMemberContactChat.openWhatsAppFaleComigo(
                   context,
                   memberData,
+                  tenantId: tenantId,
+                  memberDocId: memberDocId,
                 ),
               ),
               if (phone.length < 10) ...[

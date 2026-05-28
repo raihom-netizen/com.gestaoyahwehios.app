@@ -837,9 +837,85 @@ service cloud.firestore {
         allow read: if isMaster() || canAccessTenant(id);
         allow create, update, delete: if isAdminPanel() || canWriteTenant(id);
       }
+
+      /// CPF 11 dígitos em `users/{uid}` — bate com `leaderCpfs` no departamento (escalas + chat).
+      function userElevenDigitCpfFromUserData(d) {
+        let raw = d.cpf is string ? d.cpf : (d.CPF is string ? d.CPF : '');
+        return raw.size() == 11 && raw.matches('^[0-9]{11}$') ? raw : '';
+      }
+      function userElevenDigitCpfOrEmpty() {
+        let u = /databases/$(database)/documents/users/$(request.auth.uid);
+        return exists(u) ? userElevenDigitCpfFromUserData(get(u).data) : '';
+      }
+      /// CPF do login: `users/{uid}` ou ficha `membros/{authUid}` (comum em líderes de departamento).
+      function userElevenDigitCpfForTenant(tenantId) {
+        let fromUsers = userElevenDigitCpfOrEmpty();
+        let pM = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid);
+        let fromMembro = exists(pM)
+          ? (
+              get(pM).data.CPF is string
+              && get(pM).data.CPF.size() == 11
+              && get(pM).data.CPF.matches('^[0-9]{11}$')
+                ? get(pM).data.CPF
+                : (
+                    get(pM).data.cpf is string
+                    && get(pM).data.cpf.size() == 11
+                    && get(pM).data.cpf.matches('^[0-9]{11}$')
+                      ? get(pM).data.cpf
+                      : ''
+                  )
+            )
+          : '';
+        return fromUsers.size() == 11 ? fromUsers : fromMembro;
+      }
+      function departmentLeaderListsMatch(tenantId, dd) {
+        let cpf = userElevenDigitCpfForTenant(tenantId);
+        return dd.leaderUid == request.auth.uid
+          || dd.leader_uid == request.auth.uid
+          || (dd.leaderUids is list && dd.leaderUids.hasAny([request.auth.uid]))
+          || (dd.leader_uids is list && dd.leader_uids.hasAny([request.auth.uid]))
+          || (cpf.size() == 11 && (
+            (dd.leaderCpfs is list && dd.leaderCpfs.hasAny([cpf])) ||
+            (dd.leader_cpfs is list && dd.leader_cpfs.hasAny([cpf])) ||
+            (dd.liderCpfs is list && dd.liderCpfs.hasAny([cpf])) ||
+            (dd.lider_cpfs is list && dd.lider_cpfs.hasAny([cpf]))
+          ));
+      }
+      function departmentDocListsRequesterAsLeader(tenantId, deptId) {
+        let dpath = /databases/$(database)/documents/igrejas/$(tenantId)/departamentos/$(deptId);
+        return exists(dpath) && departmentLeaderListsMatch(tenantId, get(dpath).data);
+      }
+      function escalaDeptIdFromRequest() {
+        return request.resource.data.keys().hasAll(['departmentId'])
+          && request.resource.data.departmentId is string
+          ? request.resource.data.departmentId
+          : '';
+      }
+      function escalaDeptIdFromResource() {
+        return resource.data.keys().hasAll(['departmentId'])
+          && resource.data.departmentId is string
+          ? resource.data.departmentId
+          : '';
+      }
+      function departmentLeaderMayWriteEscalaCreate(tenantId) {
+        let deptId = escalaDeptIdFromRequest();
+        return deptId.size() > 0
+          && canAccessTenant(tenantId)
+          && departmentDocListsRequesterAsLeader(tenantId, deptId);
+      }
+      function departmentLeaderMayWriteEscalaExisting(tenantId) {
+        let deptId = escalaDeptIdFromResource();
+        return deptId.size() > 0
+          && canAccessTenant(tenantId)
+          && departmentDocListsRequesterAsLeader(tenantId, deptId);
+      }
+
       match /escala_templates/{tplId} {
         allow read: if isMaster() || canAccessTenant(id);
-        allow write: if isAdminPanel() || canWriteTenant(id);
+        allow create: if (isAdminPanel() || canWriteTenant(id))
+          || departmentLeaderMayWriteEscalaCreate(id);
+        allow update, delete: if (isAdminPanel() || canWriteTenant(id))
+          || departmentLeaderMayWriteEscalaExisting(id);
       }
       // Membro na escala pode atualizar só confirmação / indisponibilidade (próprio CPF no users).
       function userScheduleCpfDigits() {
@@ -905,11 +981,21 @@ service cloud.firestore {
       }
       match /escalas/{escId} {
         allow read: if isMaster() || canAccessTenant(id);
-        allow create: if (isAdminPanel() || canWriteTenant(id))
-          && escalaMemberListsShapeOk();
-        allow delete: if isAdminPanel() || canWriteTenant(id);
+        allow create: if escalaMemberListsShapeOk()
+          && (
+            isAdminPanel() || canWriteTenant(id)
+            || departmentLeaderMayWriteEscalaCreate(id)
+          );
+        allow delete: if isAdminPanel() || canWriteTenant(id)
+          || departmentLeaderMayWriteEscalaExisting(id);
         allow update: if scheduleMemberSelfConfirmOnly(id)
-          || ((isAdminPanel() || canWriteTenant(id)) && escalaMemberListsShapeOk());
+          || (
+            escalaMemberListsShapeOk()
+            && (
+              isAdminPanel() || canWriteTenant(id)
+              || departmentLeaderMayWriteEscalaExisting(id)
+            )
+          );
       }
       // Pedido de troca de escala (membro → líder aprova).
       match /escala_trocas/{trocaId} {
@@ -925,7 +1011,12 @@ service cloud.firestore {
           && (request.resource.data.status == 'pendente' || request.resource.data.status == 'pendente_alvo')
           && scheduleTrocaSolicitanteMatches(id, request.resource.data.solicitanteCpf)
           && request.resource.data.solicitanteCpf != request.resource.data.alvoCpf;
-        allow update, delete: if isAdminPanel() || canWriteTenant(id);
+        allow update, delete: if isAdminPanel() || canWriteTenant(id)
+          || (
+            canAccessTenant(id)
+            && resource.data.departmentId is string
+            && departmentDocListsRequesterAsLeader(id, resource.data.departmentId)
+          );
       }
       function scheduleTrocaSolicitanteMatches(tenantId, solCpf) {
         return solCpf is string
@@ -1030,36 +1121,6 @@ service cloud.firestore {
           r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar' ||
           r == 'ministerial' || r == 'pastor_auxiliar_ministerial'
         );
-      }
-
-      /// CPF 11 dígitos em `users/{uid}` (sem máscara) — para bater com `leaderCpfs` no departamento.
-      /// (Sem `if` no corpo — o compilador das regras só aceita expressões.)
-      function userElevenDigitCpfFromUserData(d) {
-        let raw = d.cpf is string ? d.cpf : (d.CPF is string ? d.CPF : '');
-        return raw.size() == 11 && raw.matches('^[0-9]{11}$') ? raw : '';
-      }
-      function userElevenDigitCpfOrEmpty() {
-        let u = /databases/$(database)/documents/users/$(request.auth.uid);
-        return exists(u) ? userElevenDigitCpfFromUserData(get(u).data) : '';
-      }
-
-      /// Líder do departamento (UID ou CPF em listas do doc `departamentos/{id}`).
-      function departmentLeaderListsMatch(dd) {
-        let cpf = userElevenDigitCpfOrEmpty();
-        return dd.leaderUid == request.auth.uid
-          || dd.leader_uid == request.auth.uid
-          || (dd.leaderUids is list && dd.leaderUids.hasAny([request.auth.uid]))
-          || (dd.leader_uids is list && dd.leader_uids.hasAny([request.auth.uid]))
-          || (cpf.size() == 11 && (
-            (dd.leaderCpfs is list && dd.leaderCpfs.hasAny([cpf])) ||
-            (dd.leader_cpfs is list && dd.leader_cpfs.hasAny([cpf])) ||
-            (dd.liderCpfs is list && dd.liderCpfs.hasAny([cpf])) ||
-            (dd.lider_cpfs is list && dd.lider_cpfs.hasAny([cpf]))
-          ));
-      }
-      function departmentDocListsRequesterAsLeader(tenantId, deptId) {
-        let dpath = /databases/$(database)/documents/igrejas/$(tenantId)/departamentos/$(deptId);
-        return exists(dpath) && departmentLeaderListsMatch(get(dpath).data);
       }
 
       /// «Apagar para todos» (DELETE): DM — qualquer participante pode apagar qualquer mensagem (estilo limpar conversa).

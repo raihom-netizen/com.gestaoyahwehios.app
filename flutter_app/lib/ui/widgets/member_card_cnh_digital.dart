@@ -140,71 +140,70 @@ class MemberCardCnhDigital extends StatelessWidget {
                           if (showPhoto) const SizedBox(width: 12),
                           Expanded(
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                              crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      width: 68,
-                                      height: 68,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: _borderGreen.withValues(
-                                            alpha: 0.5,
-                                          ),
-                                          width: 1.5,
+                                Container(
+                                  width: 136,
+                                  height: 136,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: _borderGreen.withValues(
+                                        alpha: 0.72,
+                                      ),
+                                      width: 2.5,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: _borderGreen.withValues(
+                                          alpha: 0.22,
                                         ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black
-                                                .withValues(alpha: 0.08),
-                                            blurRadius: 6,
-                                          ),
-                                        ],
+                                        blurRadius: 14,
+                                        spreadRadius: 1,
                                       ),
-                                      clipBehavior: Clip.antiAlias,
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(4),
-                                        child: logoSlot,
+                                      BoxShadow(
+                                        color: Colors.black
+                                            .withValues(alpha: 0.12),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            data.churchTitle.toUpperCase(),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: GoogleFonts.poppins(
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 11.5,
-                                              color: _headerNavy,
-                                              height: 1.15,
-                                            ),
-                                          ),
-                                          if (data.churchSubtitle.isNotEmpty)
-                                            Text(
-                                              data.churchSubtitle,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: GoogleFonts.poppins(
-                                                fontSize: 8.5,
-                                                color: _labelColor,
-                                                fontWeight: FontWeight.w600,
-                                                fontStyle: FontStyle.italic,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(8),
+                                    child: logoSlot,
+                                  ),
                                 ),
+                                const SizedBox(height: 10),
+                                Text(
+                                  data.churchTitle.toUpperCase(),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.poppins(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 11.5,
+                                    color: _headerNavy,
+                                    height: 1.15,
+                                  ),
+                                ),
+                                if (data.churchSubtitle.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    data.churchSubtitle,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 8.5,
+                                      color: _labelColor,
+                                      fontWeight: FontWeight.w600,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(height: 10),
                                 _field('CÓD. MEMBRO', data.codigoMembro),
                                 const SizedBox(height: 5),

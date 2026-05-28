@@ -35,41 +35,12 @@ class _MuralPageState extends State<MuralPage>
   final GlobalKey<InstagramMuralState> _muralFeedKey =
       GlobalKey<InstagramMuralState>();
 
-  bool get _canWriteAvisos {
-    if (AppPermissions.hasModulePermission(
-        widget.permissions, 'mural_avisos_somente_leitura')) {
-      return false;
-    }
-    if (AppPermissions.hasModulePermission(
-        widget.permissions, 'mural_avisos_edicao')) {
-      return true;
-    }
-    final r = widget.role.toLowerCase();
-    return r == 'adm' ||
-        r == 'admin' ||
-        r == 'gestor' ||
-        r == 'master' ||
-        r == 'lider' ||
-        r == 'lider_departamento';
-  }
+  bool get _canWriteAvisos => AppPermissions.canManageChurchMuralEventsAgenda(
+        widget.role,
+        permissions: widget.permissions,
+      );
 
-  bool get _canModerateAvisosComments {
-    if (AppPermissions.hasModulePermission(
-        widget.permissions, 'mural_avisos_somente_leitura')) {
-      return false;
-    }
-    if (AppPermissions.hasModulePermission(
-        widget.permissions, 'mural_avisos_edicao')) {
-      return true;
-    }
-    final r = widget.role.toLowerCase();
-    return r == 'adm' ||
-        r == 'admin' ||
-        r == 'gestor' ||
-        r == 'master' ||
-        r == 'lider' ||
-        r == 'lider_departamento';
-  }
+  bool get _canModerateAvisosComments => _canWriteAvisos;
 
   @override
   void initState() {

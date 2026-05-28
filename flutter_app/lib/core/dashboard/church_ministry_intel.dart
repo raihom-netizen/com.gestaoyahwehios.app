@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
@@ -88,39 +89,9 @@ class ChurchMinistryIntelService {
   static String _normCpf(String? raw) =>
       (raw ?? '').replaceAll(RegExp(r'\D'), '');
 
-  /// Dígitos para WhatsApp a partir da ficha em [membros] (alinhado a [departments_page]).
-  static String memberPhoneDigitsForWhatsApp(Map<String, dynamic> m) {
-    String strip(dynamic v) {
-      if (v == null) return '';
-      if (v is List) {
-        for (final e in v) {
-          final s = strip(e);
-          if (s.length >= 10) return s;
-        }
-        return v.map((e) => e.toString()).join('').replaceAll(RegExp(r'[^0-9]'), '');
-      }
-      return v.toString().replaceAll(RegExp(r'[^0-9]'), '');
-    }
-
-    const keys = [
-      'TELEFONES',
-      'telefones',
-      'whatsapp',
-      'WHATSAPP',
-      'whatsappIgreja',
-      'celular',
-      'CELULAR',
-      'telefone',
-      'TELEFONE',
-      'phone',
-      'PHONE',
-    ];
-    for (final k in keys) {
-      final digits = strip(m[k]);
-      if (digits.length >= 10) return digits;
-    }
-    return '';
-  }
+  /// Dígitos para WhatsApp a partir da ficha em [membros].
+  static String memberPhoneDigitsForWhatsApp(Map<String, dynamic> m) =>
+      ChurchMemberContactChat.phoneDigitsFromMember(m);
 
   /// Evita `List.cast<String>()` / `as List?` com tipos errados vindos do Firestore.
   static List<String> _memberCpfDigitsFromField(dynamic v) {

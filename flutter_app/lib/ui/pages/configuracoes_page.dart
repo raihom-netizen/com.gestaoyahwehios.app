@@ -12,9 +12,8 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
+import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
-import 'package:gestao_yahweh/services/app_google_sign_in.dart'
-    show appGoogleSignOutForAccountPicker;
 import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/media_cache_preferences.dart';
@@ -216,19 +215,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     if (ok != true) return;
     try {
       await LoginPreferences.prepareChurchAccountSwitch();
-      if (kIsWeb) {
-        try {
-          final p = await SharedPreferences.getInstance();
-          await p.remove('last_route');
-        } catch (_) {}
-      }
-      if (!kIsWeb) {
-        await appGoogleSignOutForAccountPicker();
-      }
-      await FirebaseAuth.instance.signOut();
+      await BiometricService().disableForThisDevice();
+      await ChurchSignOutNavigation.signOutFromChurchPanel();
     } catch (_) {}
-    // Navegação: o AuthGate reage ao `user == null` e faz pushNamedAndRemoveUntil
-    // (evita depender do context desta página, que pode desmontar antes do Navigator).
   }
 
   Future<void> _onBiometricSwitch(bool wantOn) async {

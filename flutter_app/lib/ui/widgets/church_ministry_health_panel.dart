@@ -547,7 +547,10 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     return {
       'NOME_COMPLETO': a.name,
       'CPF': a.cpfDigits,
-      'TELEFONE': a.phoneDigits,
+      if (a.phoneDigits.length >= 10) ...{
+        'TELEFONES': a.phoneDigits,
+        'TELEFONE': a.phoneDigits,
+      },
       if (a.authUid != null && a.authUid!.isNotEmpty) 'authUid': a.authUid,
     };
   }

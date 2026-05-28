@@ -145,7 +145,7 @@ class _ChurchChatNotificationSettingsPageState
 
   static String _inheritSubtitle(String? specific) {
     if (specific == null) {
-      return 'Usa o modo global da conta (padrão WhatsApp).';
+      return 'Usa o modo global da conta (padrão do app).';
     }
     return 'Override: ${_modeLabel(specific)}';
   }
@@ -621,7 +621,7 @@ class _ChurchChatNotificationSettingsPageState
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 0, 16, 44),
                       child: Text(
-                        'Super Premium · estilo WhatsApp — global, DM, grupo, departamento, pessoa e conversa',
+                        'Alertas personalizados — global, DM, grupo, departamento, pessoa e conversa',
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.92),
                           fontSize: 12,
@@ -863,7 +863,7 @@ class _ChurchChatNotificationSettingsPageState
                                 child: Text(
                                   q.isEmpty
                                       ? 'Sem departamentos.'
-                                      : 'Nenhum resultado para «$q».',
+                                      : 'Nenhum resultado para "$q".',
                                   style: TextStyle(
                                     color: ThemeCleanPremium.onSurfaceVariant,
                                     fontWeight: FontWeight.w600,
@@ -1079,7 +1079,7 @@ class _ChurchChatNotificationSettingsPageState
                                 child: Text(
                                   q.isEmpty
                                       ? 'Sem mensagens diretas com contactos.'
-                                      : 'Nenhum resultado para «$q».',
+                                      : 'Nenhum resultado para "$q".',
                                   style: TextStyle(
                                     color: ThemeCleanPremium.onSurfaceVariant,
                                     fontWeight: FontWeight.w600,
@@ -1211,7 +1211,7 @@ class _ChurchChatNotificationSettingsPageState
                               child: Text(
                                 q.isEmpty
                                     ? 'Sem conversas.'
-                                    : 'Nenhum resultado para «$q».',
+                                    : 'Nenhum resultado para "$q".',
                                 style: TextStyle(
                                   color: ThemeCleanPremium.onSurfaceVariant,
                                   fontWeight: FontWeight.w600,

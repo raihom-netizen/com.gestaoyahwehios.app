@@ -206,23 +206,10 @@ class InstagramMuralState extends State<InstagramMural> {
     return 'Administrador';
   }
 
-  bool get _canEdit {
-    if (AppPermissions.hasModulePermission(
-        widget.permissions, 'mural_avisos_somente_leitura')) {
-      return false;
-    }
-    if (AppPermissions.hasModulePermission(
-        widget.permissions, 'mural_avisos_edicao')) {
-      return true;
-    }
-    final r = widget.role.toLowerCase();
-    return r == 'adm' ||
-        r == 'admin' ||
-        r == 'gestor' ||
-        r == 'master' ||
-        r == 'lider' ||
-        r == 'lider_departamento';
-  }
+  bool get _canEdit => AppPermissions.canManageChurchMuralEventsAgenda(
+        widget.role,
+        permissions: widget.permissions,
+      );
 
   bool get _canManageAll {
     final r = widget.role.toLowerCase();
