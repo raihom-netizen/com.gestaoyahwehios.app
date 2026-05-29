@@ -35,7 +35,6 @@ class VideoHandlerService implements IVideoHandlerService {
     void Function(double uploadProgress01)? onUploadProgress,
     int? maxRawPickBytes,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
     final effectiveMaxDuration =
         maxDuration < mediaVideoMaxDurationEffective
             ? maxDuration
@@ -66,8 +65,6 @@ class VideoHandlerService implements IVideoHandlerService {
   }) async {
     final path = localPath;
     if (path.isEmpty || !File(path).existsSync()) return null;
-
-    await ensureFirebaseReadyForMediaUpload();
 
     try {
       final lower = path.toLowerCase();
@@ -102,7 +99,7 @@ class VideoHandlerService implements IVideoHandlerService {
         compressed = mediaInfo.file!;
       }
 
-      await FirebaseAuth.instance.currentUser?.getIdToken();
+      await firebaseDefaultAuth.currentUser?.getIdToken();
       final slot = videoSlotIndex.clamp(0, 1);
       await FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
         tenantId: tenantId,

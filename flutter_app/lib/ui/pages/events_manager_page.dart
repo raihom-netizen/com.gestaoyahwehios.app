@@ -227,19 +227,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
   Future<void> _novoEvento(
       {DocumentSnapshot<Map<String, dynamic>>? doc}) async {
-    try {
-      await ensureFirebaseReadyForMediaUpload();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(formatUploadErrorForUser(e)),
-            backgroundColor: ThemeCleanPremium.error,
-          ),
-        );
-      }
-      return;
-    }
+    await ensureFirebaseInitialized().catchError((_) {});
     final result = await Navigator.push<bool>(
         context,
         MaterialPageRoute(
@@ -5307,6 +5295,128 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   int get _newPhotoCount => kIsWeb ? _newImages.length : _newImagePaths.length;
 
+  /// Fotos a enviar ao Storage assim que são escolhidas (fila serial por slot).
+  int _inFlightPhotoUploads = 0;
+  Future<void>? _photoUploadChain;
+
+  void _enqueueEventPhotoUpload(Future<void> Function() task) {
+    _photoUploadChain = (_photoUploadChain ?? Future.value()).then((_) async {
+      try {
+        await task();
+      } catch (_) {}
+    });
+    unawaited(_photoUploadChain);
+  }
+
+  Future<void> _mergeEventMediaDraftToFirestore() async {
+    try {
+      await runFirebaseBackgroundTask(() async {
+        final urls = dedupeImageRefsByStorageIdentity(_existingUrls);
+        final firstVideoUrl = _eventVideos.isNotEmpty
+            ? (_eventVideos.first['videoUrl'] ?? '').toString().trim()
+            : _videoUrl.text.trim();
+        final videosClean = _eventVideos
+            .map((e) => <String, dynamic>{
+                  'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
+                  'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
+                })
+            .where((m) => (m['videoUrl'] as String).isNotEmpty)
+            .toList();
+        final patch = <String, dynamic>{
+          'updatedAt': FieldValue.serverTimestamp(),
+          'publishState': FeedMediaPublishService.statusDraft,
+          if (firstVideoUrl.isNotEmpty) 'videoUrl': firstVideoUrl,
+          if (_eventVideos.isNotEmpty)
+            'thumbUrl': (_eventVideos.first['thumbUrl'] ?? '').toString().trim(),
+          'videos': videosClean,
+          ...MuralPostMediaPayload.buildMediaFields(
+            allUrls: urls,
+            aspectRatio: 1.0,
+            hasVideo: firstVideoUrl.isNotEmpty,
+            allowDeleteSentinels: false,
+          ),
+        };
+        await _eventDocRef.set(patch, SetOptions(merge: true));
+      }, debugLabel: 'event_media_draft');
+    } catch (_) {}
+  }
+
+  void _removeLocalEventPhoto({Uint8List? bytes, String? localPath}) {
+    if (kIsWeb && bytes != null) {
+      final i = _newImages.indexOf(bytes);
+      if (i >= 0) {
+        _newImages.removeAt(i);
+        if (i < _newNames.length) _newNames.removeAt(i);
+      }
+      return;
+    }
+    if (localPath != null) {
+      final i = _newImagePaths.indexOf(localPath);
+      if (i >= 0) {
+        _newImagePaths.removeAt(i);
+        if (i < _newNames.length) _newNames.removeAt(i);
+      }
+    }
+  }
+
+  Future<void> _uploadNewEventPhotoImmediate({
+    Uint8List? bytes,
+    String? localPath,
+  }) async {
+    final slotIndex = _existingUrls.length;
+    if (mounted) setState(() => _inFlightPhotoUploads++);
+    try {
+      await runFirebaseBackgroundTask(() async {
+        final postId = _eventDocRef.id;
+        late final String primaryUrl;
+        if (kIsWeb) {
+          if (bytes == null || bytes.isEmpty) {
+            throw StateError('Foto não encontrada.');
+          }
+          primaryUrl = await MuralPostMediaPayload.uploadPhotoSlot(
+            tenantId: widget.tenantId,
+            postType: 'evento',
+            postId: postId,
+            bytes: bytes,
+            slotIndex: slotIndex,
+          );
+        } else {
+          final path = localPath?.trim() ?? '';
+          if (path.isEmpty || !File(path).existsSync()) {
+            throw StateError('Foto não encontrada.');
+          }
+          final r = await IosPublishImagePipeline.uploadFeedPhotoSlot(
+            tenantId: widget.tenantId,
+            postType: 'evento',
+            postId: postId,
+            slotIndex: slotIndex,
+            localPath: path,
+          );
+          primaryUrl = r.primaryUrl;
+        }
+        if (!mounted) return;
+        setState(() {
+          _removeLocalEventPhoto(bytes: bytes, localPath: localPath);
+          _existingUrls.add(primaryUrl);
+        });
+        unawaited(_mergeEventMediaDraftToFirestore());
+      }, debugLabel: 'event_photo_immediate');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(formatUploadErrorForUser(e)),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _inFlightPhotoUploads =
+            (_inFlightPhotoUploads - 1).clamp(0, 99));
+      }
+    }
+  }
+
   Future<void> _addEncodedEventPhoto(XFile encoded) async {
     if (kIsWeb) {
       final bytes = await encoded.readAsBytes();
@@ -5315,6 +5425,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         _newImages.add(bytes);
         _newNames.add(encoded.name);
       });
+      final captured = bytes;
+      _enqueueEventPhotoUpload(
+        () => _uploadNewEventPhotoImmediate(bytes: captured),
+      );
       return;
     }
     final path = await FeedEditorMediaService.persistXFileToTemp(
@@ -5332,12 +5446,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       return;
     }
     if (!mounted) return;
+    final capturedPath = path;
     setState(() {
-      _newImagePaths.add(path);
+      _newImagePaths.add(capturedPath);
       _newNames.add(
-        encoded.name.isNotEmpty ? encoded.name : path.split('/').last,
+        encoded.name.isNotEmpty ? encoded.name : capturedPath.split('/').last,
       );
     });
+    _enqueueEventPhotoUpload(
+      () => _uploadNewEventPhotoImmediate(localPath: capturedPath),
+    );
   }
 
   Future<List<Uint8List>> _copyNewImagesForPublish() async {
@@ -6001,7 +6119,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      await ensureFirebaseReadyForMediaUpload();
       final remaining =
           (_maxPhotosPerEvent - totalAtual).clamp(1, _maxPhotosPerEvent);
       await MediaHandlerService.instance.pickMultiCropEncodeFeedWebpFromGallery(
@@ -6043,7 +6160,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      await ensureFirebaseReadyForMediaUpload();
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
         webCropContext: context,
@@ -6177,97 +6293,98 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       return;
     }
-    try {
-      await ensureFirebaseReadyForMediaUpload();
-      final snap = await _eventDocRef.get();
-      final existing = _eventVideosFromData(snap.data() ?? {});
-      if (existing.length >= _maxVideosPerEvent) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: const Text(
-                'Este evento já atingiu o limite de 1 vídeo. Remova para adicionar outro.'),
-            backgroundColor: ThemeCleanPremium.error,
-            behavior: SnackBarBehavior.floating,
-          ));
-        }
-        return;
-      }
-      final slot = _nextHostedVideoStorageSlot();
-      if (slot < 0) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: const Text(
-                'Limite de 1 vídeo no Storage. Remova o vídeo para adicionar outro.'),
-            backgroundColor: ThemeCleanPremium.error,
-            behavior: SnackBarBehavior.floating,
-          ));
-        }
-        return;
-      }
-      if (mounted) {
-        setState(() {
-          _uploadingVideo = true;
-          _videoUploadFraction = null;
-        });
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            'A preparar vídeo… Pode tocar em «Publicar Evento» — as fotos publicam já; o vídeo entra em seguida.',
-          ),
-        );
-      }
-      final result = await VideoHandlerService.instance
-          .pickCompressAndUpload(
-        tenantId: widget.tenantId,
-        eventPostDocId: _eventDocRef.id,
-        videoSlotIndex: slot,
-        maxDuration: mediaEventVideoMaxDurationEffective,
-        maxRawPickBytes:
-            kIsWeb ? null : mediaEventVideoMobilePickMaxBytesEffective,
-        onUploadProgress: (p) {
-          if (!mounted) return;
-          setState(() => _videoUploadFraction = p.clamp(0.0, 1.0));
-        },
-      )
-          .timeout(
-        const Duration(minutes: 10),
-        onTimeout: () => throw TimeoutException(
-          'O vídeo demorou demais. Remova-o, escolha um ficheiro menor ou publique só com fotos.',
-        ),
-      );
-      if (result == null || !mounted) {
-        setState(() {
-          _uploadingVideo = false;
-          _videoUploadFraction = null;
-        });
-        return;
-      }
+    if (mounted) {
       setState(() {
-        _eventVideos
-            .add({'videoUrl': result.videoUrl, 'thumbUrl': result.thumbUrl});
-        _uploadingVideo = false;
+        _uploadingVideo = true;
         _videoUploadFraction = null;
       });
-      if (_publishedAwaitingVideoMerge) {
-        _publishedAwaitingVideoMerge = false;
-        unawaited(_mergePublishedEventVideoFields());
-      }
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-                'Vídeo anexado (máx. ${_maxVideoSeconds}s, até $_maxVideosPerEvent por evento).'));
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _uploadingVideo = false;
-          _videoUploadFraction = null;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(formatUploadErrorForUser(e)),
-            backgroundColor: ThemeCleanPremium.error));
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'A enviar vídeo em segundo plano… Pode publicar o evento — o vídeo entra no documento ao concluir.',
+        ),
+      );
     }
+    unawaited(runFirebaseBackgroundTask(() async {
+      try {
+        final snap = await _eventDocRef.get();
+        final existing = _eventVideosFromData(snap.data() ?? {});
+        if (existing.length >= _maxVideosPerEvent) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: const Text(
+                  'Este evento já atingiu o limite de 1 vídeo. Remova para adicionar outro.'),
+              backgroundColor: ThemeCleanPremium.error,
+              behavior: SnackBarBehavior.floating,
+            ));
+          }
+          return;
+        }
+        final slot = _nextHostedVideoStorageSlot();
+        if (slot < 0) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: const Text(
+                  'Limite de 1 vídeo no Storage. Remova o vídeo para adicionar outro.'),
+              backgroundColor: ThemeCleanPremium.error,
+              behavior: SnackBarBehavior.floating,
+            ));
+          }
+          return;
+        }
+        final result = await VideoHandlerService.instance
+            .pickCompressAndUpload(
+          tenantId: widget.tenantId,
+          eventPostDocId: _eventDocRef.id,
+          videoSlotIndex: slot,
+          maxDuration: mediaEventVideoMaxDurationEffective,
+          maxRawPickBytes:
+              kIsWeb ? null : mediaEventVideoMobilePickMaxBytesEffective,
+          onUploadProgress: (p) {
+            if (!mounted) return;
+            setState(() => _videoUploadFraction = p.clamp(0.0, 1.0));
+          },
+        )
+            .timeout(
+          const Duration(minutes: 10),
+          onTimeout: () => throw TimeoutException(
+            'O vídeo demorou demais. Remova-o, escolha um ficheiro menor ou publique só com fotos.',
+          ),
+        );
+        if (result == null || !mounted) return;
+        setState(() {
+          _eventVideos.add({
+            'videoUrl': result.videoUrl,
+            'thumbUrl': result.thumbUrl,
+          });
+        });
+        unawaited(_mergeEventMediaDraftToFirestore());
+        if (_publishedAwaitingVideoMerge) {
+          _publishedAwaitingVideoMerge = false;
+          unawaited(_mergePublishedEventVideoFields());
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+              'Vídeo anexado (máx. ${_maxVideoSeconds}s).',
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(formatUploadErrorForUser(e)),
+            backgroundColor: ThemeCleanPremium.error,
+          ));
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _uploadingVideo = false;
+            _videoUploadFraction = null;
+          });
+        }
+      }
+    }, debugLabel: 'event_video_upload'));
   }
 
   Future<void> _openAddMediaSheet() async {
@@ -6556,7 +6673,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _mergePublishedEventVideoFields() async {
     try {
-      await ensureFirebaseReadyForMediaUpload();
+      await runFirebaseBackgroundTask(() async {
       final firstVideoUrl = _eventVideos.isNotEmpty
           ? (_eventVideos.first['videoUrl'] ?? '').toString().trim()
           : _videoUrl.text.trim();
@@ -6581,6 +6698,15 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         SetOptions(merge: true),
       );
       _schedulePostPublishCacheWarmup();
+      }, debugLabel: 'event_video_merge');
+    } catch (_) {}
+  }
+
+  Future<void> _waitEventPhotoUploadQueue() async {
+    if (_inFlightPhotoUploads <= 0 && _newPhotoCount <= 0) return;
+    try {
+      await (_photoUploadChain ?? Future.value())
+          .timeout(const Duration(minutes: 2));
     } catch (_) {}
   }
 
@@ -6600,94 +6726,68 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       return;
     }
     setState(() => _saving = true);
-    try {
-      await ensureFirebaseReadyForMediaUpload();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(formatUploadErrorForUser(e)),
-          backgroundColor: ThemeCleanPremium.error,
-        ));
-      }
-      return;
-    }
     final docRef = _eventDocRef;
     final postId = docRef.id;
     final isNewDoc = widget.doc == null;
-    final hasNewImages = _newPhotoCount > 0;
     try {
-      final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
-      // Publicação instantânea no app: evita leitura/compressão antes de gravar o stub.
-      // Quando há novas fotos, usa razão padrão e deixa o pipeline assíncrono finalizar a mídia.
-      double? aspectRatio;
-      if (!hasNewImages && existingUrls.isNotEmpty) {
-        final prev = widget.doc?.data()?['media_info'];
-        if (prev is Map) {
-          final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
-          if (oar is num) aspectRatio = oar.toDouble();
-        }
-      }
-
-      if (hasNewImages) {
-        final startSlot = existingUrls.length;
-        List<String> uploadedUrls;
-        if (kIsWeb) {
-          final imagesCopy = await _copyNewImagesForPublish();
-          if (imagesCopy.isEmpty) {
-            throw StateError('Não foi possível ler as fotos para enviar.');
+      await _waitEventPhotoUploadQueue();
+      await runFirebaseBackgroundTask(() async {
+        final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+        final hasPendingLocal = _newPhotoCount > 0;
+        double? aspectRatio;
+        if (!hasPendingLocal && existingUrls.isNotEmpty) {
+          final prev = widget.doc?.data()?['media_info'];
+          if (prev is Map) {
+            final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+            if (oar is num) aspectRatio = oar.toDouble();
           }
-          uploadedUrls = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
-            tenantId: widget.tenantId,
-            postType: 'evento',
-            postId: postId,
-            newImages: imagesCopy,
-            startSlotIndex: startSlot,
-          );
-          aspectRatio = _aspectRatioFromBytes(imagesCopy.first);
-        } else {
-          final paths =
-              FeedEditorMediaService.existingValidPaths(_newImagePaths);
-          if (paths.isEmpty) {
-            throw StateError('Não foi possível ler as fotos para enviar.');
-          }
-          uploadedUrls =
-              await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
-            tenantId: widget.tenantId,
-            postType: 'evento',
-            postId: postId,
-            localPaths: paths,
-            startSlotIndex: startSlot,
-          );
-          try {
-            final firstBytes = await File(paths.first).readAsBytes();
-            aspectRatio = _aspectRatioFromBytes(firstBytes);
-          } catch (_) {}
         }
-        final allUrls = dedupeImageRefsByStorageIdentity([
-          ...existingUrls,
-          ...uploadedUrls,
-        ]);
+        final hasVideo = _eventVideos.isNotEmpty ||
+            _videoUrl.text.trim().isNotEmpty;
         final payload = _buildEventCorePayload(
-          allUrls: allUrls,
+          allUrls: existingUrls,
           aspectRatio: aspectRatio,
           isNewDoc: isNewDoc,
         );
-        await FeedMediaPublishService.publishNow(
-          docRef: docRef,
-          payload: payload,
-          isNewDoc: isNewDoc,
-        );
-        if (_newPhotoCount > 0) {
-          FirebaseStorageCleanupService.scheduleCleanupAfterEventPostImageUpload(
+        if (hasPendingLocal) {
+          final startSlot = existingUrls.length;
+          List<Uint8List>? bytes;
+          List<String>? paths;
+          if (kIsWeb) {
+            bytes = await _copyNewImagesForPublish();
+          } else {
+            paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
+          }
+          final n = bytes?.length ?? paths?.length ?? 0;
+          if (n == 0) {
+            throw StateError('Não foi possível ler as fotos para enviar.');
+          }
+          await FeedMediaPublishService.saveStubAndSchedulePhotos(
+            docRef: docRef,
             tenantId: widget.tenantId,
-            postDocId: postId,
+            postType: 'evento',
+            stubPayload: payload,
+            isNewDoc: isNewDoc,
+            pendingPhotoCount: n,
+            existingUrls: existingUrls,
+            startSlotIndex: startSlot,
+            hasVideo: hasVideo,
+            newImagesBytes: bytes,
+            newImagePaths: paths,
+            onPublished: () async {
+              _schedulePostPublishCacheWarmup();
+            },
+          );
+        } else {
+          await FeedMediaPublishService.publishNow(
+            docRef: docRef,
+            payload: payload,
+            isNewDoc: isNewDoc,
           );
         }
         await _applyAgendaSyncAfterSave(postId);
         if (mounted) {
           if (_uploadingVideo) _publishedAwaitingVideoMerge = true;
-          setState(() => _saving = false);
           _schedulePostPublishCacheWarmup();
           unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
@@ -6699,32 +6799,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           );
           Navigator.pop(context, true);
         }
-        return;
-      }
-
-      final payload = _buildEventCorePayload(
-        allUrls: existingUrls,
-        aspectRatio: aspectRatio,
-        isNewDoc: isNewDoc,
-      );
-      await FeedMediaPublishService.publishNow(
-        docRef: docRef,
-        payload: payload,
-        isNewDoc: isNewDoc,
-      );
-      await _applyAgendaSyncAfterSave(postId);
-      if (mounted) {
-        if (_uploadingVideo) _publishedAwaitingVideoMerge = true;
-        _schedulePostPublishCacheWarmup();
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            _uploadingVideo
-                ? 'Evento publicado — vídeo a concluir…'
-                : 'Publicado com sucesso',
-          ),
-        );
-        Navigator.pop(context, true);
-      }
+      }, debugLabel: 'event_publish');
     } catch (e, st) {
       unawaited(CrashlyticsService.record(e, st, reason: 'eventos_publish'));
       final msg = e.toString();
@@ -6923,29 +6998,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           .showSnackBar(const SnackBar(content: Text('Informe o título.')));
       return;
     }
-    if (_newPhotoCount > 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-          'Fotos novas não entram no rascunho. Publique para enviar a mídia.',
-        ),
-      );
-    }
     setState(() => _saving = true);
-    try {
-      await ensureFirebaseReadyForMediaUpload();
-    } catch (e) {
-      if (mounted) {
-        setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(formatUploadErrorForUser(e)),
-          backgroundColor: ThemeCleanPremium.error,
-        ));
-      }
-      return;
-    }
     final docRef = _eventDocRef;
     final isNewDoc = widget.doc == null;
     try {
+      await _waitEventPhotoUploadQueue();
+      await runFirebaseBackgroundTask(() async {
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       double? aspectRatio;
       if (existingUrls.isNotEmpty) {
@@ -6971,6 +7029,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         );
         Navigator.pop(context, true);
       }
+      }, debugLabel: 'event_draft');
     } catch (e, st) {
       unawaited(CrashlyticsService.record(e, st, reason: 'eventos_draft'));
       if (mounted) {
@@ -7209,10 +7268,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               padding.bottom + bottomInset),
           children: [
             AsyncUploadProgressStrip(
-              localActive: _mediaPicking || _uploadingVideo || _saving,
+              localActive: _mediaPicking ||
+                  _uploadingVideo ||
+                  _saving ||
+                  _inFlightPhotoUploads > 0,
               localLabel: _uploadingVideo
                   ? 'A enviar vídeo…'
-                  : (_mediaPicking ? 'A preparar fotos…' : 'A publicar evento…'),
+                  : (_inFlightPhotoUploads > 0
+                      ? 'A enviar fotos…'
+                      : (_mediaPicking
+                          ? 'A preparar fotos…'
+                          : 'A publicar evento…')),
             ),
             // Mídia no topo (fotos + vídeos antes dos campos de texto).
             Container(

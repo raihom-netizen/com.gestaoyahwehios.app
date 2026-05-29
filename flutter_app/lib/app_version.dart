@@ -1,4 +1,5 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1636: Eventos — fotos ao escolher (Storage+Fila), publicar instantâneo, vídeo em background.
 /// 11.2.295+1635: Chat/avisos/eventos — regras memberLinked+chatTenantMemberFast, Firebase bootstrap, login OAuth, upload mídia.
 /// 11.2.295+1606: iOS «Alterar plano» — Safari abre `/atualizar-plano` (login Google/Apple/e-mail + PIX/cartão).
 /// 11.2.295+1605: Chat WhatsApp igreja — fixar/arquivar, typing na lista, gravar áudio,
@@ -158,7 +159,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1635';
+const String appBuildNumber = '1636';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

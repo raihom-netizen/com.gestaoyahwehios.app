@@ -22,7 +22,7 @@ Future<String> uploadStoragePutDataWithRetry({
   Object? lastError;
   for (var attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      final ref = FirebaseStorage.instance.ref(storagePath);
+      final ref = firebaseStorageRef(storagePath);
       final task = ref.putData(
         bytes,
         SettableMetadata(contentType: contentType, cacheControl: cacheControl),
@@ -64,7 +64,7 @@ Future<String> uploadStoragePutFileWithRetry({
   Object? lastError;
   for (var attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      final ref = FirebaseStorage.instance.ref(storagePath);
+      final ref = firebaseStorageRef(storagePath);
       final task = ref.putFile(
         file,
         SettableMetadata(contentType: contentType, cacheControl: cacheControl),

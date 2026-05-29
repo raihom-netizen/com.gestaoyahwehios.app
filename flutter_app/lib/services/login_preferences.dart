@@ -68,14 +68,14 @@ class LoginPreferences {
     return v;
   }
 
-  /// Configurações → «Trocar de conta»: próximo redirect do AuthGate vai para o login do painel da igreja
-  /// e os campos locais de e-mail/senha «lembrar» ficam limpos para outro utilizador escolher.
+  /// Configurações → «Trocar e-mail de login»: limpa credenciais locais para novo utilizador.
   static Future<void> prepareChurchAccountSwitch() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kPostSignOutRouteOverride, '/igreja/login');
     await prefs.remove(_kLastLoginIdentifier);
     await prefs.remove(_kLastOAuthProvider);
     await prefs.remove(kAutoPainelLogin);
+    await prefs.remove('last_route');
     await prefs.setBool('biometric_enabled', false);
     await prefs.setBool('biometric_asked', true);
     const prefix = 'igreja';
@@ -83,6 +83,10 @@ class LoginPreferences {
     await prefs.remove('saved_login_$prefix');
     await prefs.remove('saved_senha_$prefix');
     await prefs.remove('saved_cpf_$prefix');
+    await prefs.remove('remember_login_default');
+    await prefs.remove('saved_login_default');
+    await prefs.remove('saved_senha_default');
+    await prefs.remove('saved_cpf_default');
     await prefs.remove('web_remember_password');
     await prefs.remove('web_saved_login');
     await prefs.remove('web_saved_cpf');

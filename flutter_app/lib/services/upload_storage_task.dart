@@ -10,7 +10,12 @@ String formatUploadErrorForUser(Object error) {
     return 'Tempo esgotado no envio. Use Wi‑Fi ou tente de novo.';
   }
   final raw = '$error';
-  if (raw.contains('No Firebase App') || raw.contains('firebase.initializeapp')) {
+  if (raw.contains('Sessão expirada')) {
+    return raw;
+  }
+  if (raw.contains('No Firebase App') ||
+      raw.contains('firebase.initializeapp') ||
+      raw.contains('Serviços Firebase não iniciaram')) {
     return 'Serviços Firebase não iniciaram. Feche o app por completo (não só minimizar) e abra de novo. Se persistir, reinstale a versão mais recente.';
   }
   if (error is FirebaseException) {

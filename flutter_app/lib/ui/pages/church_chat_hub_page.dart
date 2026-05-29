@@ -418,8 +418,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _syncingChatThreads = true;
     if (mounted) setState(() {});
     try {
+      await _primeConversasListFromFallback(tenantId);
+      if (!mounted) return;
+      setState(() => _syncingChatThreads = false);
       await ChurchChatService.syncDmThreadsIndex(tenantId).timeout(
-        const Duration(seconds: 28),
+        const Duration(seconds: 20),
         onTimeout: () => 0,
       );
       await _primeConversasListFromFallback(tenantId);
@@ -1643,8 +1646,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                                             (snapForList?.docs.isEmpty ?? true) &&
                                             (_lastGoodChatThreadsSnap?.docs.isEmpty ??
                                                 true)
-                                        ? 'A sincronizar conversas…'
-                                        : 'Sem conversas ainda. Use + para nova mensagem ou Contatos para abrir um grupo de departamento.',
+                                        ? 'A carregar conversas…'
+                                        : streamError != null &&
+                                                (snapForList?.docs.isEmpty ?? true)
+                                            ? 'Não foi possível carregar. Puxe para baixo para atualizar.'
+                                            : 'Sem conversas ainda. Use + para nova mensagem ou Contatos para abrir um grupo de departamento.',
                         style: TextStyle(
                           color: ThemeCleanPremium.onSurfaceVariant,
                           height: 1.45,

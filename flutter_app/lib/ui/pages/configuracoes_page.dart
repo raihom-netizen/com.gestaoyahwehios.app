@@ -245,7 +245,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       setState(() => _bioEnabled = true);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Digital/Face ID ativado. Na entrada do app, marque também «Lembrar usuário e senha» para usar o acesso rápido.'),
+          content: Text(
+            'Digital/Face ID ativado. Nas próximas aberturas o app pede só a biometria '
+            '(sem digitar o e-mail). Para outra conta: «Trocar e-mail de login».',
+          ),
           duration: Duration(seconds: 5),
         ),
       );

@@ -1102,7 +1102,8 @@ service cloud.firestore {
         return exists(path) && (
           (t.participantUids is list && request.auth.uid in t.participantUids)
           || dmThreadAuthUserInThreadId(threadId)
-          || (isDept && chatTenantMemberFast(tenantId))
+          || (isDept && (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId)))
+          || (memberLinkedToTenant(tenantId) && dmThreadAuthUserInThreadId(threadId))
         );
       }
 
@@ -1191,7 +1192,7 @@ service cloud.firestore {
 
       /// Mídia: stub «uploading» → `sent` após Storage — sem segundo `get(thread)` (só valida remetente).
       function chatMessageSendingFinalizeAllowed(tenantId, threadId) {
-        return chatTenantMemberFast(tenantId)
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
           && resource.data.senderUid == request.auth.uid
           && resource.data.deliveryStatus == 'sending'
           && request.resource.data.deliveryStatus == 'sent'
@@ -1209,7 +1210,7 @@ service cloud.firestore {
       }
 
       function chatMessageMediaDeliveryPatchAllowed(tenantId, threadId) {
-        return chatTenantMemberFast(tenantId)
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
           && resource.data.senderUid == request.auth.uid
           && resource.data.deliveryStatus == 'uploading'
           && request.resource.data.deliveryStatus == 'sent'
@@ -1221,7 +1222,7 @@ service cloud.firestore {
       }
 
       function chatMessageUploadProgressOnly(tenantId, threadId) {
-        return chatTenantMemberFast(tenantId)
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
           && resource.data.senderUid == request.auth.uid
           && resource.data.deliveryStatus == 'uploading'
           && request.resource.data.deliveryStatus == 'uploading'
@@ -1323,7 +1324,7 @@ service cloud.firestore {
         match /messages/{msgId} {
           allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
             && canReadChatThreadDoc(id, threadId);
-          allow create: if chatTenantMemberFast(id)
+          allow create: if (chatTenantMemberFast(id) || memberLinkedToTenant(id))
             && chatSenderMayPostToThread(id, threadId)
             && request.resource.data.senderUid == request.auth.uid
             && request.resource.data.keys().hasAll(['senderUid', 'type', 'createdAt', 'expiresAt'])

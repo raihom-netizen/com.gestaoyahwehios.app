@@ -3519,7 +3519,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      await ensureFirebaseReadyForMediaUpload();
       final remaining = (kMaxAvisoFeedPhotosPerPost -
               _existingUrls.length -
               _newPhotoCount)
@@ -3563,7 +3562,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      await ensureFirebaseReadyForMediaUpload();
       final file = await MediaHandlerService.instance.pickCropEncodeFeedImageWebp(
         source: ImageSource.camera,
         webCropContext: context,
@@ -3769,66 +3767,88 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await ensureFirebaseReadyForMediaUpload();
-      final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
-      final isNewDoc = widget.doc == null;
-      final hasNewImages = _newPhotoCount > 0;
-      final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
-      // Publicação instantânea: evita leitura/compressão pesada antes do stub no Firestore.
-      // Para novas fotos, usamos razão padrão e deixamos ajustes para o pipeline assíncrono.
-      var aspectRatio = 1.0;
-      if (!hasNewImages && existingUrls.isNotEmpty) {
-        final prev = widget.doc?.data()?['media_info'];
-        if (prev is Map) {
-          final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
-          if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
+      await runFirebaseBackgroundTask(() async {
+        final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
+        final isNewDoc = widget.doc == null;
+        final hasNewImages = _newPhotoCount > 0;
+        final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+        var aspectRatio = 1.0;
+        if (!hasNewImages && existingUrls.isNotEmpty) {
+          final prev = widget.doc?.data()?['media_info'];
+          if (prev is Map) {
+            final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+            if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
+          }
         }
-      }
 
-      if (hasNewImages) {
-        final startSlot = existingUrls.length;
-        final postId = docRef.id;
-        List<String> uploadedUrls;
-        if (kIsWeb) {
-          final imagesCopy = await _copyNewImagesForPublish();
-          if (imagesCopy.isEmpty) {
-            throw StateError('Não foi possível ler as fotos para enviar.');
-          }
-          uploadedUrls = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
-            tenantId: widget.tenantId,
-            postType: widget.type,
-            postId: postId,
-            newImages: imagesCopy,
-            startSlotIndex: startSlot,
-          );
-          final ar = await imageAspectRatioFromBytes(imagesCopy.first);
-          if (ar != null) aspectRatio = ar.clamp(0.4, 2.3);
-        } else {
-          final paths =
-              FeedEditorMediaService.existingValidPaths(_newImagePaths);
-          if (paths.isEmpty) {
-            throw StateError('Não foi possível ler as fotos para enviar.');
-          }
-          uploadedUrls =
-              await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
-            tenantId: widget.tenantId,
-            postType: widget.type,
-            postId: postId,
-            localPaths: paths,
-            startSlotIndex: startSlot,
-          );
-          try {
-            final firstBytes = await File(paths.first).readAsBytes();
-            final ar = await imageAspectRatioFromBytes(firstBytes);
+        if (hasNewImages) {
+          final startSlot = existingUrls.length;
+          final postId = docRef.id;
+          List<String> uploadedUrls;
+          if (kIsWeb) {
+            final imagesCopy = await _copyNewImagesForPublish();
+            if (imagesCopy.isEmpty) {
+              throw StateError('Não foi possível ler as fotos para enviar.');
+            }
+            uploadedUrls =
+                await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
+              tenantId: widget.tenantId,
+              postType: widget.type,
+              postId: postId,
+              newImages: imagesCopy,
+              startSlotIndex: startSlot,
+            );
+            final ar = await imageAspectRatioFromBytes(imagesCopy.first);
             if (ar != null) aspectRatio = ar.clamp(0.4, 2.3);
-          } catch (_) {}
+          } else {
+            final paths =
+                FeedEditorMediaService.existingValidPaths(_newImagePaths);
+            if (paths.isEmpty) {
+              throw StateError('Não foi possível ler as fotos para enviar.');
+            }
+            uploadedUrls =
+                await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
+              tenantId: widget.tenantId,
+              postType: widget.type,
+              postId: postId,
+              localPaths: paths,
+              startSlotIndex: startSlot,
+            );
+            try {
+              final firstBytes = await File(paths.first).readAsBytes();
+              final ar = await imageAspectRatioFromBytes(firstBytes);
+              if (ar != null) aspectRatio = ar.clamp(0.4, 2.3);
+            } catch (_) {}
+          }
+          final allUrls = dedupeImageRefsByStorageIdentity([
+            ...existingUrls,
+            ...uploadedUrls,
+          ]);
+          final payload = _buildCorePayload(
+            allUrls: allUrls,
+            aspectRatio: aspectRatio,
+            isNewDoc: isNewDoc,
+          );
+          await FeedMediaPublishService.publishNow(
+            docRef: docRef,
+            payload: payload,
+            isNewDoc: isNewDoc,
+          );
+          if (mounted) {
+            setState(() => _saving = false);
+            _schedulePostPublishCacheWarmup();
+            unawaited(IosPublishMemory.releaseAfterHeavyWork());
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.successSnackBar(
+                isNewDoc ? 'Aviso publicado!' : 'Aviso atualizado!',
+              ),
+            );
+            Navigator.pop(context, true);
+          }
+          return;
         }
-        final allUrls = dedupeImageRefsByStorageIdentity([
-          ...existingUrls,
-          ...uploadedUrls,
-        ]);
         final payload = _buildCorePayload(
-          allUrls: allUrls,
+          allUrls: existingUrls,
           aspectRatio: aspectRatio,
           isNewDoc: isNewDoc,
         );
@@ -3838,35 +3858,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           isNewDoc: isNewDoc,
         );
         if (mounted) {
-          setState(() => _saving = false);
           _schedulePostPublishCacheWarmup();
-          unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-              isNewDoc ? 'Aviso publicado!' : 'Aviso atualizado!',
-            ),
+            ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
           );
           Navigator.pop(context, true);
         }
-        return;
-      }
-      final payload = _buildCorePayload(
-        allUrls: existingUrls,
-        aspectRatio: aspectRatio,
-        isNewDoc: isNewDoc,
-      );
-      await FeedMediaPublishService.publishNow(
-        docRef: docRef,
-        payload: payload,
-        isNewDoc: isNewDoc,
-      );
-      if (mounted) {
-        _schedulePostPublishCacheWarmup();
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
-        );
-        Navigator.pop(context, true);
-      }
+      }, debugLabel: 'avisos_publish');
     } catch (e, st) {
       await CrashlyticsService.record(e, st, reason: 'avisos_publish');
       if (mounted) {

@@ -32,7 +32,7 @@ abstract final class MuralPostMediaPayload {
     required int startSlotIndex,
   }) async {
     if (newImages.isEmpty) return const [];
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     await FeedPostMediaUpload.warmAuthToken()
         .timeout(const Duration(seconds: 25));
     final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
@@ -66,7 +66,7 @@ abstract final class MuralPostMediaPayload {
         .where((p) => p.isNotEmpty)
         .toList();
     if (paths.isEmpty) return const [];
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     await FeedPostMediaUpload.warmAuthToken()
         .timeout(const Duration(seconds: 25));
     final uploaded = await FeedPostMediaUpload.uploadParallel<String>(

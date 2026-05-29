@@ -17,11 +17,11 @@ abstract final class FeedPostMediaUpload {
   static Future<void> warmAuthToken() async {
     await ensureFirebaseReadyForMediaUpload();
     try {
-      await FirebaseAuth.instance.currentUser
+      await firebaseDefaultAuth.currentUser
           ?.getIdToken(true)
           .timeout(const Duration(seconds: 20));
     } catch (_) {
-      await FirebaseAuth.instance.currentUser?.getIdToken();
+      await firebaseDefaultAuth.currentUser?.getIdToken();
     }
   }
 

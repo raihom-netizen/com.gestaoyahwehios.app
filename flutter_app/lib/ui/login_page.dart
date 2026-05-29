@@ -151,6 +151,8 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscure = true;
   bool _rememberLogin = true; // padrão: salvar para não digitar toda vez
   bool _hasSavedCredentials = false;
+  /// E-mail já gravado após primeiro login (Google/Apple ou e-mail) — não pedir de novo.
+  bool _hasSavedEmailHint = false;
   bool _quickBiometricReady = false;
   /// Google/Apple já usados neste aparelho + biometria activa (sem senha guardada).
   bool _oauthQuickUnlockReady = false;
@@ -397,7 +399,12 @@ class _LoginPageState extends State<LoginPage> {
       _senhaController.text = savedSenha;
     }
     _hasSavedCredentials = savedLogin.isNotEmpty && savedSenha.isNotEmpty;
-    if (remember && savedLogin.isNotEmpty && savedSenha.isNotEmpty) {
+    final lastId = (await LoginPreferences.getLastLoginIdentifier()).trim();
+    _hasSavedEmailHint =
+        _emailController.text.trim().contains('@') || lastId.contains('@');
+    if (remember &&
+        (savedLogin.isNotEmpty || _hasSavedEmailHint) &&
+        (savedSenha.isNotEmpty || _hasSavedEmailHint)) {
       setState(() => _rememberLogin = true);
     }
     await _refreshQuickBiometricState();
@@ -467,6 +474,8 @@ class _LoginPageState extends State<LoginPage> {
 
   /// Biometria activa → so digital/Face ID; senao OAuth silencioso ou e-mail/senha salvos.
   Future<void> _tryAutoQuickLoginOnce() async {
+    await _refreshQuickBiometricState();
+    if (!mounted) return;
     await _tryAutoBiometricLoginOnce();
     if (!mounted) return;
     await _tryAutoOAuthSilentOnce();
@@ -544,14 +553,13 @@ class _LoginPageState extends State<LoginPage> {
     if (_autoBiometricSessionAttempted) return;
     if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
     if (FirebaseAuth.instance.currentUser != null) return;
-    if (!_hasSavedCredentials) return;
-    if (!_painelBiometricCompact) return;
     if (_showManualCredentialFields) return;
+    if (!_quickBiometricReady && !_oauthQuickUnlockReady) return;
 
     final bio = await BiometricService().canUseQuickBiometricLogin();
     if (!mounted) return;
     if (!bio) return;
-    if (!_painelBiometricCompact || _showManualCredentialFields) return;
+    if (_showManualCredentialFields) return;
     if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
 
     _autoBiometricSessionAttempted = true;
@@ -605,14 +613,41 @@ class _LoginPageState extends State<LoginPage> {
     if (_nativeChurchLogin && bioOn && !_hasSavedCredentials) {
       final lastId = (await LoginPreferences.getLastLoginIdentifier()).trim();
       final lastProv = await LoginPreferences.getLastOAuthProvider();
+      final autoPainel = await ChurchAutoSessionService.isAutoPainelEnabled();
       oauthReady = lastId.contains('@') &&
-          (lastProv == 'google' || lastProv == 'apple');
+          ((lastProv == 'google' || lastProv == 'apple') || autoPainel);
     }
     if (mounted) {
       setState(() {
         _quickBiometricReady = credReady;
         _oauthQuickUnlockReady = oauthReady;
       });
+    }
+  }
+
+  /// Grava e-mail localmente após primeiro login (OAuth ou senha) — não pedir de novo.
+  Future<void> _persistEmailHintForNativeChurch() async {
+    if (!_nativeChurchLogin) return;
+    var login = _emailController.text.trim();
+    if (!login.contains('@')) {
+      login = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+    }
+    if (!login.contains('@')) {
+      login = (await LoginPreferences.getLastLoginIdentifier()).trim();
+    }
+    if (!login.contains('@')) return;
+
+    _emailController.text = login;
+    _hasSavedEmailHint = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefSavedLogin, login);
+    await prefs.remove('saved_cpf_$_prefPrefix');
+    await prefs.setBool(_prefRememberLogin, true);
+    await LoginPreferences.setLastLoginIdentifier(login);
+    if (_prefPrefix == 'igreja' || _prefPrefix == 'default') {
+      await prefs.setString(_legacyPrefWebLogin, login);
+      await prefs.remove(_legacyPrefWebCpf);
+      await prefs.setBool(_legacyPrefRememberWeb, true);
     }
   }
 
@@ -708,34 +743,14 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _forgetThisDevice() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_prefSavedLogin);
-    await prefs.remove('saved_cpf_$_prefPrefix');
-    await prefs.remove(_prefSavedSenha);
-    await prefs.setBool(_prefRememberLogin, false);
-    if (_prefPrefix == 'igreja' || _prefPrefix == 'default') {
-      await prefs.remove(_legacyPrefWebLogin);
-      await prefs.remove(_legacyPrefWebCpf);
-      await prefs.remove(_legacyPrefWebSenha);
-      await prefs.setBool(_legacyPrefRememberWeb, false);
-    }
-    await BiometricService().disableForThisDevice();
-
     if (!mounted) return;
-    setState(() {
-      _rememberLogin = false;
-      _hasSavedCredentials = false;
-      _quickBiometricReady = false;
-      _emailController.clear();
-      _senhaController.clear();
-    });
-
-    await LoginPreferences.clearOAuthHints();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
-          'Sessão e credenciais removidas. Use Google, Apple ou outro e-mail na próxima entrada.',
+          'Para trocar o e-mail de login: entre no painel → Configurações → '
+          '«Trocar e-mail de login».',
         ),
+        duration: Duration(seconds: 5),
       ),
     );
   }
@@ -855,6 +870,7 @@ class _LoginPageState extends State<LoginPage> {
         return false;
       }
     }
+    await _persistEmailHintForNativeChurch();
     if (persistPasswordFields) {
       _hasSavedCredentials = _emailController.text.trim().isNotEmpty &&
           _senhaController.text.isNotEmpty;
@@ -2157,11 +2173,21 @@ class _LoginPageState extends State<LoginPage> {
           defaultTargetPlatform == TargetPlatform.iOS) &&
       widget.afterLoginRoute == '/painel';
 
-  /// App nativo: biometria ativa + credenciais salvas — só botão "Entrar" (uma leitura biométrica).
+  /// App nativo: biometria ativa — só digital/Face ID (sem pedir e-mail de novo).
   bool get _painelBiometricCompact =>
       !_simplifiedGoogleOnlyLogin &&
       _nativeChurchLogin &&
       (_quickBiometricReady || _oauthQuickUnlockReady) &&
+      !_showManualCredentialFields &&
+      (!_useSmartFlow || _smartStep == _SmartStep.credentials);
+
+  /// Já entrou antes (e-mail gravado), sem biometria: só Google/Apple + entrada automática.
+  bool get _nativeOAuthOnlyCompact =>
+      !_simplifiedGoogleOnlyLogin &&
+      _nativeChurchLogin &&
+      _hasSavedEmailHint &&
+      !_quickBiometricReady &&
+      !_oauthQuickUnlockReady &&
       !_showManualCredentialFields &&
       (!_useSmartFlow || _smartStep == _SmartStep.credentials);
 
@@ -2451,6 +2477,67 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   /// Painel igreja (app): sem campos de e-mail/senha até o usuário pedir o modo manual.
+  /// Sem biometria: conta já conhecida — só Google/Apple (sem campo de e-mail).
+  Widget _buildNativeOAuthOnlyCompactBody(Color theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          widget.title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 16,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Conta já registada neste aparelho. O app tenta reabrir a sessão '
+          'automaticamente — use Google ou Apple se precisar.',
+          style: TextStyle(
+            fontSize: 13,
+            color: Colors.grey.shade700,
+            height: 1.35,
+          ),
+        ),
+        if (_loading || _sessionFinalizing) ...[
+          const SizedBox(height: 16),
+          const Center(
+            child: SizedBox(
+              height: 28,
+              width: 28,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        ],
+        const SizedBox(height: 14),
+        _buildChurchOAuthButtons(theme),
+        if (_errorMessage != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            _errorMessage!,
+            style: const TextStyle(color: Colors.red, fontSize: 13),
+          ),
+        ],
+        const SizedBox(height: 6),
+        TextButton(
+          onPressed: _loading
+              ? null
+              : () => setState(() => _showManualCredentialFields = true),
+          child: Text(
+            'Entrar com e-mail e senha',
+            style: TextStyle(fontWeight: FontWeight.w600, color: theme),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Outro e-mail? Configurações → Trocar e-mail de login.',
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
   Widget _buildNativeBiometricOnlyBody(Color theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2465,10 +2552,10 @@ class _LoginPageState extends State<LoginPage> {
         const SizedBox(height: 8),
         Text(
           _oauthQuickUnlockReady
-              ? 'Conta Google ou Apple já vinculada neste aparelho. Toque em Entrar '
-                  'para usar digital ou Face ID — ou escolha Google/Apple de novo.'
-              : 'Credenciais deste aparelho já estão salvas. Nas próximas vezes o app pede '
-                  'digital ou Face ID sozinho (como Controle Total). Toque em Entrar ou aguarde.',
+              ? 'Conta Google ou Apple já vinculada. Toque em Entrar para '
+                  'digital ou Face ID — sem digitar o e-mail.'
+              : 'Credenciais salvas neste aparelho. Toque em Entrar ou aguarde '
+                  'a leitura biométrica automática.',
           style: TextStyle(
             fontSize: 13,
             color: Colors.grey.shade700,
@@ -2522,11 +2609,12 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ),
         ),
-        TextButton(
-          onPressed: _loading ? null : _forgetThisDevice,
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
           child: Text(
-            'Trocar de conta neste aparelho',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+            'Outro e-mail? Configurações → Trocar e-mail de login.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            textAlign: TextAlign.center,
           ),
         ),
         if (_errorMessage != null) ...[
@@ -2706,7 +2794,10 @@ class _LoginPageState extends State<LoginPage> {
                                           usePoppins: false)
                                   : _painelBiometricCompact
                                       ? _buildNativeBiometricOnlyBody(theme)
-                                      : Column(
+                                      : _nativeOAuthOnlyCompact
+                                          ? _buildNativeOAuthOnlyCompactBody(
+                                              theme)
+                                          : Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Text(
