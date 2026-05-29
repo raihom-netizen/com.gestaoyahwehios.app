@@ -7,7 +7,6 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
-import 'package:gestao_yahweh/services/media_image_variants_service.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -137,45 +136,25 @@ abstract final class MuralPostMediaPayload {
     String? localPath,
   }) async {
     await ensureFirebaseReadyForMediaUpload();
-    if (IosPublishImagePipeline.useIosLightweightPublish) {
-      try {
-        return await IosPublishImagePipeline.uploadFeedPhotoSlot(
-          tenantId: tenantId,
-          postType: postType,
-          postId: postId,
-          slotIndex: slotIndex,
-          bytes: bytes,
-          localPath: localPath,
-          onProgress: onProgress,
-        );
-      } catch (e, st) {
-        await YahwehTelemetry.recordUploadFailure(
-          e,
-          st,
-          context: 'uploadPhotoSlotWithVariants_ios',
-        );
-        rethrow;
-      }
+    // v1555: 1 WebP por foto (web + mobile) — CF `optimizeImage` gera variantes.
+    try {
+      return await IosPublishImagePipeline.uploadFeedPhotoSlot(
+        tenantId: tenantId,
+        postType: postType,
+        postId: postId,
+        slotIndex: slotIndex,
+        bytes: bytes,
+        localPath: localPath,
+        onProgress: onProgress,
+      );
+    } catch (e, st) {
+      await YahwehTelemetry.recordUploadFailure(
+        e,
+        st,
+        context: 'uploadPhotoSlotWithVariants_fast',
+      );
+      rethrow;
     }
-    final tiers = await MediaImageVariantsService.encodeFeedWebpTiers(
-      bytes: bytes,
-      localPath: localPath,
-    );
-    String variantPath(String tier) => postType == 'evento'
-        ? ChurchStorageLayout.eventPostPhotoVariantPath(
-            tenantId, postId, slotIndex, tier)
-        : ChurchStorageLayout.avisoPostPhotoVariantPath(
-            tenantId, postId, slotIndex, tier);
-
-    return MediaImageVariantsService.uploadFeedTiers(
-      thumbPath: variantPath(MediaImageVariantsService.tierThumb),
-      mediumPath: variantPath(MediaImageVariantsService.tierMedium),
-      fullPath: variantPath(MediaImageVariantsService.tierFull),
-      thumbBytes: tiers.thumb,
-      mediumBytes: tiers.medium,
-      fullBytes: tiers.full,
-      onProgress: onProgress,
-    );
   }
 
   static Map<String, dynamic> buildMediaFields({

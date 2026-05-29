@@ -425,7 +425,10 @@ class ChurchChatService {
       if (controller.isClosed) return;
       final merged = _mergeThreadSnapshots(uid, lastIndexed, lastBroad);
       controller.add(merged);
-      if (merged.docs.isNotEmpty || fallbackInFlight) return;
+      final hasListableDm =
+          merged.docs.any((d) => _docIsDmForUserList(d, uid));
+      // Fallback quando não há DM indexada (broad scan negada ou threads legados).
+      if ((hasListableDm && lastBroad != null) || fallbackInFlight) return;
       fallbackInFlight = true;
       unawaited(() async {
         try {
@@ -434,7 +437,10 @@ class ChurchChatService {
             uid: uid,
           );
           if (!controller.isClosed && fb.docs.isNotEmpty) {
-            controller.add(fb);
+            final combined = _mergeThreadSnapshots(uid, merged, fb);
+            if (combined.docs.length >= merged.docs.length) {
+              controller.add(combined);
+            }
           }
         } finally {
           fallbackInFlight = false;
@@ -487,6 +493,8 @@ class ChurchChatService {
           },
           onError: (Object error, StackTrace stack) {
             if (controller.isClosed) return;
+            lastBroad = null;
+            emitMerged();
             if (!FirestoreStreamUtils.isPermissionDenied(error)) {
               controller.addError(error, stack);
             }

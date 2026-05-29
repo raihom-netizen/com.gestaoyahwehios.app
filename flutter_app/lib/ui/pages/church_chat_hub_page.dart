@@ -2088,9 +2088,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             .where((e) => e.isNotEmpty)
             .toList() ??
         [];
-    final others = peers.where((p) => p != uid).toList();
-    if (others.isEmpty) return const SizedBox.shrink();
-    final peer = others.first;
+    var peer = peers.where((p) => p != uid).firstOrNull;
+    peer ??= ChurchChatService.otherUidInDmThread(doc.id, uid);
+    if (peer == null || peer.isEmpty) return const SizedBox.shrink();
     final fullTitle = _dmDisplayTitle(doc, uid);
     final rowTitle = _firstNameForChatRow(fullTitle);
     final rawPreview =

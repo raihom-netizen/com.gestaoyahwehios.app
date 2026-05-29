@@ -6628,42 +6628,61 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         }
       }
 
-      final hasVideo = _eventVideos.isNotEmpty ||
-          _videoUrl.text.trim().isNotEmpty;
       if (hasNewImages) {
         final startSlot = existingUrls.length;
-        final stubPayload = _buildEventCorePayload(
-          allUrls: existingUrls,
-          aspectRatio: aspectRatio,
-          isNewDoc: isNewDoc,
-        );
-        List<Uint8List>? imagesCopy;
-        List<String>? paths;
+        List<String> uploadedUrls;
         if (kIsWeb) {
-          imagesCopy = await _copyNewImagesForPublish();
+          final imagesCopy = await _copyNewImagesForPublish();
           if (imagesCopy.isEmpty) {
             throw StateError('Não foi possível ler as fotos para enviar.');
           }
+          uploadedUrls = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
+            tenantId: widget.tenantId,
+            postType: 'evento',
+            postId: postId,
+            newImages: imagesCopy,
+            startSlotIndex: startSlot,
+          );
+          aspectRatio = _aspectRatioFromBytes(imagesCopy.first);
         } else {
-          paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
+          final paths =
+              FeedEditorMediaService.existingValidPaths(_newImagePaths);
           if (paths.isEmpty) {
             throw StateError('Não foi possível ler as fotos para enviar.');
           }
+          uploadedUrls =
+              await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
+            tenantId: widget.tenantId,
+            postType: 'evento',
+            postId: postId,
+            localPaths: paths,
+            startSlotIndex: startSlot,
+          );
+          try {
+            final firstBytes = await File(paths.first).readAsBytes();
+            aspectRatio = _aspectRatioFromBytes(firstBytes);
+          } catch (_) {}
         }
-        await FeedMediaPublishService.saveStubAndSchedulePhotos(
-          docRef: docRef,
-          tenantId: widget.tenantId,
-          postType: 'evento',
-          stubPayload: stubPayload,
+        final allUrls = dedupeImageRefsByStorageIdentity([
+          ...existingUrls,
+          ...uploadedUrls,
+        ]);
+        final payload = _buildEventCorePayload(
+          allUrls: allUrls,
+          aspectRatio: aspectRatio,
           isNewDoc: isNewDoc,
-          pendingPhotoCount: _newPhotoCount,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlot,
-          hasVideo: hasVideo,
-          newImagesBytes: imagesCopy,
-          newImagePaths: paths,
-          onPublished: () => _applyAgendaSyncAfterSave(postId),
         );
+        await FeedMediaPublishService.publishNow(
+          docRef: docRef,
+          payload: payload,
+          isNewDoc: isNewDoc,
+        );
+        if (_newPhotoCount > 0) {
+          FirebaseStorageCleanupService.scheduleCleanupAfterEventPostImageUpload(
+            tenantId: widget.tenantId,
+            postDocId: postId,
+          );
+        }
         await _applyAgendaSyncAfterSave(postId);
         if (mounted) {
           if (_uploadingVideo) _publishedAwaitingVideoMerge = true;
@@ -6673,8 +6692,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
               _uploadingVideo
-                  ? 'Evento criado — fotos em segundo plano; vídeo a concluir…'
-                  : 'Evento criado — a enviar fotos em segundo plano',
+                  ? 'Evento publicado — vídeo a concluir…'
+                  : (isNewDoc ? 'Evento publicado!' : 'Evento atualizado!'),
             ),
           );
           Navigator.pop(context, true);

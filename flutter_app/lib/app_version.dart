@@ -155,9 +155,9 @@
 /// 11.2.295+1609: Mídia rápida — preview imediato avisos/eventos; chat foto auto-envio;
 /// vídeo 90s (chat + eventos); FAB novo aviso; vídeo hospedado no mural.
 const String appVersion = '11.2.295';
-/// 11.2.295+1633: Chat igreja — conversas DM indexadas ao enviar texto; Firebase pronto
-/// antes de mídia/ficheiros; retry no finalize; hub aceita DMs legados.
-const String appBuildNumber = '1633';
+/// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
+/// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
+const String appBuildNumber = '1634';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

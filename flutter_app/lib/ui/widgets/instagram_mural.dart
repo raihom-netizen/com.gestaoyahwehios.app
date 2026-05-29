@@ -3785,39 +3785,57 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         }
       }
 
-      final hasVideo = _videoUrl.text.trim().isNotEmpty;
       if (hasNewImages) {
         final startSlot = existingUrls.length;
-        final stubPayload = _buildCorePayload(
-          allUrls: existingUrls,
-          aspectRatio: aspectRatio,
-          isNewDoc: isNewDoc,
-        );
-        List<Uint8List>? imagesCopy;
-        List<String>? paths;
+        final postId = docRef.id;
+        List<String> uploadedUrls;
         if (kIsWeb) {
-          imagesCopy = await _copyNewImagesForPublish();
+          final imagesCopy = await _copyNewImagesForPublish();
           if (imagesCopy.isEmpty) {
             throw StateError('Não foi possível ler as fotos para enviar.');
           }
+          uploadedUrls = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
+            tenantId: widget.tenantId,
+            postType: widget.type,
+            postId: postId,
+            newImages: imagesCopy,
+            startSlotIndex: startSlot,
+          );
+          final ar = await imageAspectRatioFromBytes(imagesCopy.first);
+          if (ar != null) aspectRatio = ar.clamp(0.4, 2.3);
         } else {
-          paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
+          final paths =
+              FeedEditorMediaService.existingValidPaths(_newImagePaths);
           if (paths.isEmpty) {
             throw StateError('Não foi possível ler as fotos para enviar.');
           }
+          uploadedUrls =
+              await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
+            tenantId: widget.tenantId,
+            postType: widget.type,
+            postId: postId,
+            localPaths: paths,
+            startSlotIndex: startSlot,
+          );
+          try {
+            final firstBytes = await File(paths.first).readAsBytes();
+            final ar = await imageAspectRatioFromBytes(firstBytes);
+            if (ar != null) aspectRatio = ar.clamp(0.4, 2.3);
+          } catch (_) {}
         }
-        await FeedMediaPublishService.saveStubAndSchedulePhotos(
-          docRef: docRef,
-          tenantId: widget.tenantId,
-          postType: widget.type,
-          stubPayload: stubPayload,
+        final allUrls = dedupeImageRefsByStorageIdentity([
+          ...existingUrls,
+          ...uploadedUrls,
+        ]);
+        final payload = _buildCorePayload(
+          allUrls: allUrls,
+          aspectRatio: aspectRatio,
           isNewDoc: isNewDoc,
-          pendingPhotoCount: _newPhotoCount,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlot,
-          hasVideo: hasVideo,
-          newImagesBytes: imagesCopy,
-          newImagePaths: paths,
+        );
+        await FeedMediaPublishService.publishNow(
+          docRef: docRef,
+          payload: payload,
+          isNewDoc: isNewDoc,
         );
         if (mounted) {
           setState(() => _saving = false);
@@ -3825,7 +3843,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
-              'Aviso criado — a enviar fotos em segundo plano',
+              isNewDoc ? 'Aviso publicado!' : 'Aviso atualizado!',
             ),
           );
           Navigator.pop(context, true);
