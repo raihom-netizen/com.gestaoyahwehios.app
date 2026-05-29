@@ -465,6 +465,17 @@ void main() async {
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS)) {
     try {
+      final restored =
+          await ChurchAutoSessionService.tryRestoreSessionOnColdStart();
+      if (restored) {
+        await ChurchAutoSessionService.markAutoPainelAfterOAuthRestore();
+      }
+    } catch (_) {}
+  }
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS)) {
+    try {
       await ChurchChatAlertNotificationService.instance
           .registerFcmChatAndroidChannelsForBoot();
     } catch (_) {}
@@ -630,13 +641,12 @@ void main() async {
                 ? '/igreja/login'
                 : '/login');
       }
-      if (kIsWeb) {
-        final autoPainel = await ChurchAutoSessionService.painelRouteIfSessionRestored(
-          initialRoute,
-        );
-        if (autoPainel != null) {
-          initialRoute = autoPainel;
-        }
+      final autoPainel =
+          await ChurchAutoSessionService.painelRouteIfSessionRestored(
+        initialRoute,
+      );
+      if (autoPainel != null) {
+        initialRoute = autoPainel;
       }
     } catch (_) {}
     // Fallback se SharedPreferences falhar no app móvel.
@@ -651,13 +661,12 @@ void main() async {
               ? '/igreja/login'
               : '/login');
     }
-    if (kIsWeb) {
-      final autoPainel = await ChurchAutoSessionService.painelRouteIfSessionRestored(
-        initialRoute,
-      );
-      if (autoPainel != null) {
-        initialRoute = autoPainel;
-      }
+    final autoPainelFallback =
+        await ChurchAutoSessionService.painelRouteIfSessionRestored(
+      initialRoute,
+    );
+    if (autoPainelFallback != null) {
+      initialRoute = autoPainelFallback;
     }
     if (!kIsWeb &&
         defaultTargetPlatform == TargetPlatform.android &&

@@ -1473,6 +1473,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   /// Stub Firestore imediato (padrão Controle Total: BD primeiro, ficheiro depois).
   Future<void> _startPendingFirestoreStub(ChurchChatOutboundPending pending) async {
     if ((pending.firestoreMessageId ?? '').trim().isNotEmpty) return;
+    await ensureFirebaseReadyForMediaUpload();
     final begun = await ChurchChatService.beginMediaUploadMessage(
       tenantId: widget.tenantId,
       threadId: widget.threadId,
@@ -1532,6 +1533,18 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required String? localPath,
   }) async {
     _enqueuePending(pending);
+    _setPendingProgress(pending.localId, 0.02);
+    try {
+      await ensureFirebaseReadyForMediaUpload();
+    } catch (e) {
+      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+      if (i >= 0) {
+        _pendingOutbound[i].failed = true;
+        _pendingOutbound[i].errorMessage = formatUploadErrorForUser(e);
+        if (mounted) setState(() {});
+      }
+      return;
+    }
     final bytesCopy = bytes != null && bytes.isNotEmpty
         ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
         : pending.previewBytes;
@@ -2009,6 +2022,20 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
     if (!send) {
       await _chatAudio.stopRecording(send: false);
+      return;
+    }
+
+    try {
+      await ensureFirebaseReadyForMediaUpload();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(formatUploadErrorForUser(e)),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
       return;
     }
 

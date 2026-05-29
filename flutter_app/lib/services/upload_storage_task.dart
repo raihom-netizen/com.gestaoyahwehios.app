@@ -9,20 +9,27 @@ String formatUploadErrorForUser(Object error) {
     if (m != null && m.isNotEmpty) return m;
     return 'Tempo esgotado no envio. Use Wi‑Fi ou tente de novo.';
   }
+  final raw = '$error';
+  if (raw.contains('No Firebase App') || raw.contains('firebase.initializeapp')) {
+    return 'Serviços Firebase não iniciaram. Feche o app por completo (não só minimizar) e abra de novo. Se persistir, reinstale a versão mais recente.';
+  }
   if (error is FirebaseException) {
     final m = error.message?.trim();
-    if (m != null && m.isNotEmpty) return m;
+    if (m != null && m.isNotEmpty) {
+      final ml = m.toLowerCase();
+      if (ml.contains('no firebase app') ||
+          ml.contains('firebase.initializeapp')) {
+        return 'Serviços Firebase não iniciaram. Feche o app por completo (não só minimizar) e abra de novo. Se persistir, reinstale a versão mais recente.';
+      }
+      return m;
+    }
     return 'Falha no envio (${error.code}). Tente de novo.';
   }
-  final raw = '$error';
   if (raw.contains('Tempo esgotado')) {
     return 'Tempo esgotado no envio. Reduza o tamanho da foto ou use Wi‑Fi.';
   }
   if (raw.contains('network') || raw.contains('Network')) {
     return 'Sem conexão estável. Verifique a internet e tente de novo.';
-  }
-  if (raw.contains('No Firebase App') || raw.contains('firebase.initializeapp')) {
-    return 'Serviços Firebase não iniciaram. Feche o app por completo (não só minimizar) e abra de novo. Se persistir, reinstale a versão mais recente.';
   }
   if (raw.length > 160) {
     return 'Não foi possível enviar o ficheiro. Tente de novo.';

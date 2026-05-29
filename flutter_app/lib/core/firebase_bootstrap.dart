@@ -21,11 +21,34 @@ bool _hasDefaultFirebaseApp() {
   }
 }
 
+bool _looksLikeNoFirebaseAppError(Object e) {
+  final low = e.toString().toLowerCase();
+  return low.contains('no firebase app') ||
+      low.contains('firebase.initializeapp') ||
+      low.contains('no-app') ||
+      low.contains('core/no-app');
+}
+
+/// Remove app DEFAULT zombi para permitir novo [Firebase.initializeApp].
+Future<void> _resetDefaultFirebaseApp() async {
+  _bootstrapCompleter = null;
+  try {
+    if (_hasDefaultFirebaseApp()) {
+      await Firebase.app().delete();
+    }
+  } catch (_) {}
+}
+
 /// Aguarda o bootstrap completo (inicialização + Storage/Auth/Firestore utilizáveis).
 Future<void> ensureFirebaseInitialized() async {
   if (_hasDefaultFirebaseApp()) {
-    await _validateFirebasePluginsReady();
-    return;
+    try {
+      await _validateFirebasePluginsReady();
+      return;
+    } catch (e) {
+      if (!_looksLikeNoFirebaseAppError(e)) rethrow;
+      await _resetDefaultFirebaseApp();
+    }
   }
 
   final inflight = _bootstrapCompleter;
@@ -39,11 +62,15 @@ Future<void> ensureFirebaseInitialized() async {
   try {
     for (var attempt = 1; attempt <= 4; attempt++) {
       try {
+        if (attempt > 1) await _resetDefaultFirebaseApp();
         await _initializeFirebaseDefaultApp();
         await _validateFirebasePluginsReady();
         c.complete();
         return;
       } catch (e) {
+        if (_looksLikeNoFirebaseAppError(e)) {
+          await _resetDefaultFirebaseApp();
+        }
         _bootstrapCompleter = null;
         if (attempt >= 4) {
           c.completeError(e);
@@ -60,8 +87,20 @@ Future<void> ensureFirebaseInitialized() async {
 
 /// Upload mural/chat: confirma Storage/Auth após init (evita «No Firebase App» no nativo).
 Future<void> ensureFirebaseReadyForMediaUpload() async {
-  await ensureFirebaseInitialized();
-  await _validateFirebasePluginsReady();
+  Object? last;
+  for (var attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await ensureFirebaseInitialized();
+      await _validateFirebasePluginsReady();
+      return;
+    } catch (e) {
+      last = e;
+      if (attempt >= 3 || !_looksLikeNoFirebaseAppError(e)) rethrow;
+      await _resetDefaultFirebaseApp();
+      await Future.delayed(Duration(milliseconds: 220 * attempt));
+    }
+  }
+  throw last ?? StateError('Firebase indisponível');
 }
 
 /// Executa [fn] só após Firebase pronto — use em `unawaited` de publicação em background.
@@ -76,12 +115,16 @@ Future<T> runFirebaseBackgroundTask<T>(
       return await fn();
     } catch (e, st) {
       last = e;
-      _bootstrapCompleter = null;
+      if (_looksLikeNoFirebaseAppError(e)) {
+        await _resetDefaultFirebaseApp();
+      } else {
+        _bootstrapCompleter = null;
+      }
       if (kDebugMode && debugLabel != null) {
         debugPrint('runFirebaseBackgroundTask($debugLabel) tentativa $attempt: $e');
       }
       if (attempt >= 4) {
-        Error.throwWithStackTrace(last ?? e, st);
+        Error.throwWithStackTrace(last, st);
       }
       await Future.delayed(Duration(milliseconds: 350 * attempt));
     }
@@ -137,9 +180,7 @@ Future<void> _validateFirebasePluginsReady() async {
     // ignore: unnecessary_statements
     storage.ref('_bootstrap_ping').fullPath;
   } catch (e) {
-    final low = e.toString().toLowerCase();
-    if (low.contains('no firebase app') ||
-        low.contains('firebase.initializeapp')) {
+    if (_looksLikeNoFirebaseAppError(e)) {
       throw StateError(
         'Serviços Firebase não iniciaram. Feche o app por completo e abra de novo.',
       );

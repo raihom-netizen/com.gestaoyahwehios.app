@@ -404,7 +404,7 @@ service cloud.firestore {
         ));
     }
 
-    /// Membro da igreja — caminho rápido (exists/claims, sem cadeia CPF/get em `membros`).
+    /// Membro da igreja — caminho rápido (exists/claims) + [memberLinkedToTenant] (ficha em `membros/{cpf}`).
     function chatTenantMemberFast(tenantId) {
       return isSignedIn() && (
         isMaster()
@@ -414,6 +414,7 @@ service cloud.firestore {
         || request.auth.token.tenantId == tenantId
         || exists(/databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid))
         || exists(/databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid))
+        || memberLinkedToTenant(tenantId)
       );
     }
 

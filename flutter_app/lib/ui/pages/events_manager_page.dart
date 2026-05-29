@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:convert';
 import 'dart:io' show File;
 import 'dart:math';
@@ -6210,11 +6210,15 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           _videoUploadFraction = null;
         });
       }
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-                'A preparar vídeo (MP4 leve até ~26 MB envia direto; senão 720p HD). Máx. ${_maxVideoSeconds}s.'));
-      final result = await VideoHandlerService.instance.pickCompressAndUpload(
+          ThemeCleanPremium.successSnackBar(
+            'A preparar vídeo… Pode tocar em «Publicar Evento» — as fotos publicam já; o vídeo entra em seguida.',
+          ),
+        );
+      }
+      final result = await VideoHandlerService.instance
+          .pickCompressAndUpload(
         tenantId: widget.tenantId,
         eventPostDocId: _eventDocRef.id,
         videoSlotIndex: slot,
@@ -6225,6 +6229,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           if (!mounted) return;
           setState(() => _videoUploadFraction = p.clamp(0.0, 1.0));
         },
+      )
+          .timeout(
+        const Duration(minutes: 10),
+        onTimeout: () => throw TimeoutException(
+          'O vídeo demorou demais. Remova-o, escolha um ficheiro menor ou publique só com fotos.',
+        ),
       );
       if (result == null || !mounted) {
         setState(() {
@@ -6576,15 +6586,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _save() async {
     if (_saving) return;
-    final willUsePhotoStub = _newPhotoCount > 0;
-    if (_uploadingVideo && !willUsePhotoStub) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-          'Aguarde o envio do vídeo terminar ou publique com fotos (vídeo entra em seguida).',
-        ),
-      );
-      return;
-    }
     if (_mediaPicking) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
@@ -6713,9 +6714,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       await _applyAgendaSyncAfterSave(postId);
       if (mounted) {
+        if (_uploadingVideo) _publishedAwaitingVideoMerge = true;
         _schedulePostPublishCacheWarmup();
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
+          ThemeCleanPremium.successSnackBar(
+            _uploadingVideo
+                ? 'Evento publicado — vídeo a concluir…'
+                : 'Publicado com sucesso',
+          ),
         );
         Navigator.pop(context, true);
       }
@@ -7084,9 +7090,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   width: double.infinity,
                   height: ThemeCleanPremium.minTouchTarget,
                   child: FilledButton.tonalIcon(
-                    onPressed: (_mediaPicking || _uploadingVideo || _saving)
-                        ? null
-                        : _openAddMediaSheet,
+                    onPressed: (_mediaPicking || _saving) ? null : _openAddMediaSheet,
                     icon: const Icon(Icons.add_photo_alternate_rounded, size: 22),
                     label: Text(
                       'Adicionar foto ou vídeo (${_existingUrls.length + _newPhotoCount + _eventVideos.length})',
@@ -7162,9 +7166,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   Expanded(
                     flex: 2,
                     child: FilledButton.icon(
-                      onPressed: (_saving || _uploadingVideo || _mediaPicking)
-                          ? null
-                          : _save,
+                      onPressed: (_saving || _mediaPicking) ? null : _save,
                       icon: _saving
                           ? const SizedBox(
                               width: 20,

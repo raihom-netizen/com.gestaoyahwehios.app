@@ -3767,12 +3767,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           .showSnackBar(ThemeCleanPremium.successSnackBar('Informe o título.'));
       return;
     }
-    final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
-    final isNewDoc = widget.doc == null;
-    final hasNewImages = _newPhotoCount > 0;
     setState(() => _saving = true);
     try {
       await ensureFirebaseReadyForMediaUpload();
+      final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
+      final isNewDoc = widget.doc == null;
+      final hasNewImages = _newPhotoCount > 0;
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       // Publicação instantânea: evita leitura/compressão pesada antes do stub no Firestore.
       // Para novas fotos, usamos razão padrão e deixamos ajustes para o pipeline assíncrono.
@@ -3898,11 +3898,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         ),
       );
     }
-    final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
-    final isNewDoc = widget.doc == null;
     setState(() => _saving = true);
     try {
       await ensureFirebaseInitialized();
+      final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
+      final isNewDoc = widget.doc == null;
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
       if (existingUrls.isNotEmpty) {

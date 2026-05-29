@@ -7,7 +7,7 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'church_chat_attachment_utils.dart';
@@ -112,6 +112,19 @@ class ChurchChatService {
         .where('participantUids', arrayContains: uid)
         .orderBy('lastMessageAt', descending: true)
         .limit(400);
+  }
+
+  /// Threads com `participantUids` mas sem `lastMessageAt` (não entram na query ordenada).
+  static Query<Map<String, dynamic>> chatThreadsParticipantQuery(
+    String tenantId,
+    String uid,
+  ) {
+    return _db
+        .collection('igrejas')
+        .doc(tenantId)
+        .collection('chat_threads')
+        .where('participantUids', arrayContains: uid)
+        .limit(220);
   }
 
   /// Varredura ampla (regras devolvem DM legíveis pelo id `dm_{uid}_…` mesmo sem índice).
@@ -329,6 +342,29 @@ class ChurchChatService {
       }
     } catch (_) {}
 
+    // Threads onde o utilizador já enviou mensagem (DM legado sem peer_profiles).
+    try {
+      final sent = await _db
+          .collectionGroup('messages')
+          .where('senderUid', isEqualTo: uid)
+          .orderBy('createdAt', descending: true)
+          .limit(80)
+          .get();
+      for (final m in sent.docs) {
+        final segs = m.reference.path.split('/');
+        if (segs.length >= 4 &&
+            segs[0] == 'igrejas' &&
+            segs[1] == tenantId &&
+            segs[2] == 'chat_threads') {
+          final threadId = segs[3];
+          if (threadId.startsWith('dm_')) {
+            final peer = otherUidInDmThread(threadId, uid);
+            if (peer != null && peer.isNotEmpty) peerUids.add(peer);
+          }
+        }
+      }
+    } catch (_) {}
+
     final threadIds = peerUids.map((p) => dmThreadId(uid, p)).toSet();
     if (threadIds.isEmpty) {
       return const MergedFirestoreQuerySnapshot([]);
@@ -372,8 +408,9 @@ class ChurchChatService {
   static QuerySnapshot<Map<String, dynamic>> _mergeThreadSnapshots(
     String uid,
     QuerySnapshot<Map<String, dynamic>>? indexed,
-    QuerySnapshot<Map<String, dynamic>>? broad,
-  ) {
+    QuerySnapshot<Map<String, dynamic>>? broad, [
+    QuerySnapshot<Map<String, dynamic>>? participantOnly,
+  ]) {
     final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
     void absorb(QuerySnapshot<Map<String, dynamic>>? snap) {
       if (snap == null) return;
@@ -386,6 +423,7 @@ class ChurchChatService {
 
     absorb(indexed);
     absorb(broad);
+    absorb(participantOnly);
     final merged = byId.values.toList()
       ..sort(
         (a, b) =>
@@ -415,15 +453,18 @@ class ChurchChatService {
     late StreamController<QuerySnapshot<Map<String, dynamic>>> controller;
     StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subIndexed;
     StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subBroad;
+    StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subParticipant;
     QuerySnapshot<Map<String, dynamic>>? lastIndexed;
     QuerySnapshot<Map<String, dynamic>>? lastBroad;
+    QuerySnapshot<Map<String, dynamic>>? lastParticipant;
     var wireAttempts = 0;
     var wiring = false;
     var fallbackInFlight = false;
 
     void emitMerged() {
       if (controller.isClosed) return;
-      final merged = _mergeThreadSnapshots(uid, lastIndexed, lastBroad);
+      final merged =
+          _mergeThreadSnapshots(uid, lastIndexed, lastBroad, lastParticipant);
       controller.add(merged);
       final hasListableDm =
           merged.docs.any((d) => _docIsDmForUserList(d, uid));
@@ -452,10 +493,15 @@ class ChurchChatService {
       if (wiring) return;
       wiring = true;
       try {
+        await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
+          force: wireAttempts > 0,
+        );
         await subIndexed?.cancel();
         await subBroad?.cancel();
+        await subParticipant?.cancel();
         subIndexed = null;
         subBroad = null;
+        subParticipant = null;
         if (controller.isClosed) return;
 
         subIndexed = chatThreadsQueryForUser(tenantId, uid).snapshots().listen(
@@ -486,6 +532,25 @@ class ChurchChatService {
           cancelOnError: false,
         );
 
+        subParticipant =
+            chatThreadsParticipantQuery(tenantId, uid).snapshots().listen(
+          (event) {
+            lastParticipant = event;
+            emitMerged();
+          },
+          onError: (Object error, StackTrace stack) {
+            if (controller.isClosed) return;
+            lastParticipant = null;
+            emitMerged();
+            if (!FirestoreStreamUtils.isPermissionDenied(error)) {
+              if (kDebugMode) {
+                debugPrint('chatThreadsParticipantQuery: $error');
+              }
+            }
+          },
+          cancelOnError: false,
+        );
+
         subBroad = chatThreadsBroadScanQuery(tenantId).snapshots().listen(
           (event) {
             lastBroad = event;
@@ -495,8 +560,8 @@ class ChurchChatService {
             if (controller.isClosed) return;
             lastBroad = null;
             emitMerged();
-            if (!FirestoreStreamUtils.isPermissionDenied(error)) {
-              controller.addError(error, stack);
+            if (kDebugMode && !FirestoreStreamUtils.isPermissionDenied(error)) {
+              debugPrint('chatThreadsBroadScanQuery: $error');
             }
           },
           cancelOnError: false,
@@ -515,8 +580,10 @@ class ChurchChatService {
         if (!controller.hasListener) {
           subIndexed?.cancel();
           subBroad?.cancel();
+          subParticipant?.cancel();
           subIndexed = null;
           subBroad = null;
+          subParticipant = null;
         }
       },
     );
@@ -1593,9 +1660,14 @@ class ChurchChatService {
     String? thumbUrl,
     int maxAttempts = 5,
   }) async {
+    await ensureFirebaseReadyForMediaUpload();
     Object? last;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
+        if (attempt > 1) {
+          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
+          await ensureFirebaseReadyForMediaUpload();
+        }
         return await completeMediaUploadMessage(
           tenantId: tenantId,
           threadId: threadId,

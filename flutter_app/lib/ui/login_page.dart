@@ -162,6 +162,8 @@ class _LoginPageState extends State<LoginPage> {
   bool _autoBiometricSessionAttempted = false;
   /// Login automatico com e-mail/senha salvos quando biometria nao esta activa.
   bool _autoCredentialLoginAttempted = false;
+  /// Google/Apple silencioso sem biometria (sessão Firebase expirada).
+  bool _autoOAuthSilentAttempted = false;
   String? _errorMessage;
   /// Indicador só no botão «Continuar com Google» durante o diálogo nativo / popup.
   bool _oauthGoogleInFlight = false;
@@ -269,7 +271,8 @@ class _LoginPageState extends State<LoginPage> {
     }
 
     if (!kIsWeb && _nativeChurchLogin) {
-      final restored = await ChurchAutoSessionService.trySilentGoogleRestore();
+      final restored =
+          await ChurchAutoSessionService.restoreOAuthSessionForQuickUnlock();
       if (!mounted) return;
       if (restored && FirebaseAuth.instance.currentUser != null) {
         setState(() => _sessionFinalizing = true);
@@ -462,11 +465,42 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// Biometria activa → so digital/Face ID; senao entra directo com credenciais salvas.
+  /// Biometria activa → so digital/Face ID; senao OAuth silencioso ou e-mail/senha salvos.
   Future<void> _tryAutoQuickLoginOnce() async {
     await _tryAutoBiometricLoginOnce();
     if (!mounted) return;
+    await _tryAutoOAuthSilentOnce();
+    if (!mounted) return;
     await _tryAutoCredentialLoginOnce();
+  }
+
+  /// Sem biometria: reabre sessão Google/Apple guardada no telemóvel (Controle Total).
+  Future<void> _tryAutoOAuthSilentOnce() async {
+    if (kIsWeb || !_nativeChurchLogin) return;
+    if (_autoOAuthSilentAttempted) return;
+    if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
+    if (FirebaseAuth.instance.currentUser != null) return;
+    if (_showManualCredentialFields) return;
+    if (await BiometricService().canUseQuickBiometricLogin()) return;
+
+    _autoOAuthSilentAttempted = true;
+    setState(() => _loading = true);
+    try {
+      final restored =
+          await ChurchAutoSessionService.restoreOAuthSessionForQuickUnlock();
+      if (!mounted) return;
+      if (!restored || FirebaseAuth.instance.currentUser == null) return;
+      setState(() => _sessionFinalizing = true);
+      try {
+        await _afterGoogleSignInSuccess();
+      } finally {
+        if (mounted) setState(() => _sessionFinalizing = false);
+      }
+    } catch (_) {
+      // Mantém ecrã Entrar para Google/Apple manual.
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _tryAutoCredentialLoginOnce() async {
@@ -656,16 +690,12 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
     if (FirebaseAuth.instance.currentUser != null) return;
-    final last = await LoginPreferences.getLastOAuthProvider();
-    if (last != 'google' && last != 'apple') return;
     if (!mounted) return;
     try {
-      UserCredential? cred;
-      if (last == 'google') {
-        cred = await ExpressLoginService.tryGoogleSilentOnly();
-      }
+      final restored =
+          await ChurchAutoSessionService.restoreOAuthSessionForQuickUnlock();
       if (!mounted) return;
-      if (cred == null || cred.user == null) return;
+      if (!restored || FirebaseAuth.instance.currentUser == null) return;
       setState(() => _sessionFinalizing = true);
       try {
         await _afterGoogleSignInSuccess();
@@ -737,29 +767,34 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       if (oauthOnly) {
-        final last = await LoginPreferences.getLastOAuthProvider();
-        if (last == 'google') {
-          final cred = await ExpressLoginService.tryGoogleSilentOnly();
-          if (cred?.user != null && mounted) {
-            setState(() => _sessionFinalizing = true);
-            try {
-              await _afterGoogleSignInSuccess();
-            } finally {
-              if (mounted) setState(() => _sessionFinalizing = false);
-            }
-            return;
+        final restored =
+            await ChurchAutoSessionService.restoreOAuthSessionForQuickUnlock(
+          allowInteractiveOAuth: true,
+        );
+        if (restored && FirebaseAuth.instance.currentUser != null && mounted) {
+          setState(() => _sessionFinalizing = true);
+          try {
+            await _afterGoogleSignInSuccess();
+          } finally {
+            if (mounted) setState(() => _sessionFinalizing = false);
           }
+          return;
         }
         final existing = FirebaseAuth.instance.currentUser;
         if (existing != null && !existing.isAnonymous && mounted) {
-          final ok = await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
+          try {
+            await existing.getIdToken(true);
+          } catch (_) {}
+          final ok =
+              await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
           if (ok) return;
         }
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Use «Continuar com Google» ou «Continuar com Apple» para renovar a sessão.',
+              'Não foi possível renovar a sessão. Toque em «Continuar com Google» '
+              'ou «Continuar com Apple».',
             ),
           ),
         );

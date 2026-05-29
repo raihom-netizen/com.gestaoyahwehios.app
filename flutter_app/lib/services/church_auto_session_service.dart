@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugPrint, defaultTargetPlatform, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/express_login_service.dart';
+import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
@@ -88,24 +90,71 @@ class ChurchAutoSessionService {
 
   /// Android: restaura sessão Google sem UI (após login bem-sucedido anterior).
   static Future<bool> trySilentGoogleRestore() async {
+    return restoreOAuthSessionForQuickUnlock(allowInteractiveOAuth: false);
+  }
+
+  /// Sessão Firebase expirada mas utilizador já entrou antes — Google/Apple silencioso
+  /// (e opcionalmente seletor nativo após biometria).
+  static Future<bool> restoreOAuthSessionForQuickUnlock({
+    bool allowInteractiveOAuth = false,
+  }) async {
     if (kIsWeb) return false;
-    if (FirebaseAuth.instance.currentUser != null) return true;
-    if (!await isAutoPainelEnabled()) return false;
+    final existing = FirebaseAuth.instance.currentUser;
+    if (existing != null && !existing.isAnonymous) return true;
+
+    if (!await _shouldAttemptOAuthRestore()) return false;
 
     final last = await LoginPreferences.getLastOAuthProvider();
-    if (last != 'google') return false;
-    final id = (await LoginPreferences.getLastLoginIdentifier()).trim();
-    if (!id.contains('@')) return false;
+    if (last != 'google' && last != 'apple') return false;
 
     try {
-      final cred = await ExpressLoginService.tryGoogleSilentOnly();
-      return cred?.user != null;
+      if (last == 'google') {
+        final cred = await ExpressLoginService.tryGoogleSilentOnly();
+        if (cred?.user != null) return true;
+      }
+
+      if (last == 'apple' &&
+          defaultTargetPlatform == TargetPlatform.iOS &&
+          !allowInteractiveOAuth) {
+        try {
+          final apple =
+              await GestorOAuthOnboardingService.signInWithAppleIfAvailable();
+          if (apple?.user != null) return true;
+        } catch (_) {}
+      }
+
+      if (!allowInteractiveOAuth) return false;
+
+      final result = await ExpressLoginService.tryExpressLogin(
+        allowFallbackToGoogleUi: true,
+        skipSilentPhase: last == 'apple',
+        skipApplePhase:
+            last == 'google' && defaultTargetPlatform == TargetPlatform.iOS,
+      );
+      return result.success && FirebaseAuth.instance.currentUser != null;
     } catch (e, st) {
       if (kDebugMode) {
-        debugPrint('ChurchAutoSessionService.trySilentGoogleRestore: $e\n$st');
+        debugPrint(
+          'ChurchAutoSessionService.restoreOAuthSessionForQuickUnlock: $e\n$st',
+        );
       }
       return false;
     }
+  }
+
+  static Future<bool> _shouldAttemptOAuthRestore() async {
+    if (await isAutoPainelEnabled()) return true;
+    final prefs = await SharedPreferences.getInstance();
+    final last = (prefs.getString('last_route') ?? '').trim();
+    return last == '/painel' || last.startsWith('/painel/');
+  }
+
+  /// `main.dart`: antes de escolher rota inicial — evita ecrã Entrar com sessão Google/Apple no telemóvel.
+  static Future<bool> tryRestoreSessionOnColdStart() async {
+    if (kIsWeb) return false;
+    if (FirebaseAuth.instance.currentUser != null) return true;
+    if (!await _shouldAttemptOAuthRestore()) return false;
+    return restoreOAuthSessionForQuickUnlock(allowInteractiveOAuth: false);
   }
 
   /// `main.dart`: abrir direto o painel se já houve login com sucesso.
@@ -123,5 +172,12 @@ class ChurchAutoSessionService {
 
     unawaited(preheatPanelCaches());
     return '/painel';
+  }
+
+  /// Após restaurar OAuth no arranque: garante flag de auto-login do painel.
+  static Future<void> markAutoPainelAfterOAuthRestore() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) return;
+    await persistAfterSuccessfulPainelLogin();
   }
 }

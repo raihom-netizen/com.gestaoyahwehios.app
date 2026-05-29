@@ -196,10 +196,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Trocar de conta'),
+        title: const Text('Trocar e-mail de login'),
         content: const Text(
-          'Você sairá desta sessão e poderá entrar com outra conta Google, Apple '
-          '(iPhone) ou outro e-mail e senha.\n\nContinuar?',
+          'Você sairá desta sessão neste aparelho e poderá entrar com outro e-mail, '
+          'outra conta Google ou Apple (iPhone).\n\nContinuar?',
         ),
         actions: [
           TextButton(
@@ -451,7 +451,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                               const SizedBox(height: 10),
                               const _ConfigHelpBullet(
                                 text:
-                                    'Toque no botão verde «Trocar de conta» abaixo.',
+                                    'Toque no botão verde «Trocar e-mail de login» abaixo.',
                               ),
                               const _ConfigHelpBullet(
                                 text:
@@ -468,7 +468,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                         FilledButton.icon(
                           onPressed: () => _trocarConta(context),
                           icon: const Icon(Icons.logout_rounded, size: 22),
-                          label: const Text('Trocar de conta'),
+                          label: const Text('Trocar e-mail de login'),
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFF0F766E),
                             foregroundColor: Colors.white,

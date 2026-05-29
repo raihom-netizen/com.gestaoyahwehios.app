@@ -416,33 +416,44 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   Future<void> _repairChatThreadsIndex(String tenantId) async {
     if (_syncingChatThreads) return;
     _syncingChatThreads = true;
+    if (mounted) setState(() {});
     try {
-      await ChurchChatService.syncDmThreadsIndex(tenantId);
+      await ChurchChatService.syncDmThreadsIndex(tenantId).timeout(
+        const Duration(seconds: 28),
+        onTimeout: () => 0,
+      );
+      await _primeConversasListFromFallback(tenantId);
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      if (uid.isNotEmpty) {
-        final fallback = await ChurchChatService.loadDmThreadsSnapshotFallback(
-          tenantId: tenantId,
-          uid: uid,
-        );
-        if (mounted && fallback.docs.isNotEmpty) {
-          _lastGoodChatThreadsSnap = fallback;
-        }
-      }
-      if (mounted) {
+      if (mounted && uid.isNotEmpty) {
         setState(() {
-          if (uid.isNotEmpty) {
-            _chatThreadsStream =
-                ChurchChatService.chatThreadsSnapshotsForUser(tenantId, uid);
-          }
+          _chatThreadsStream =
+              ChurchChatService.chatThreadsSnapshotsForUser(tenantId, uid);
         });
       }
     } catch (e, st) {
       if (kDebugMode) {
         debugPrint('syncDmThreadsIndex: $e\n$st');
       }
+      await _primeConversasListFromFallback(tenantId);
     } finally {
       _syncingChatThreads = false;
+      if (mounted) setState(() {});
     }
+  }
+
+  /// Lista imediata a partir de `chat_peer_profiles` + ids `dm_*` (não espera reparo CF).
+  Future<void> _primeConversasListFromFallback(String tenantId) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
+    try {
+      final fallback = await ChurchChatService.loadDmThreadsSnapshotFallback(
+        tenantId: tenantId,
+        uid: uid,
+      );
+      if (mounted && fallback.docs.isNotEmpty) {
+        setState(() => _lastGoodChatThreadsSnap = fallback);
+      }
+    } catch (_) {}
   }
 
   Future<void> _bootstrap() async {
@@ -463,8 +474,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           : null;
     });
     unawaited(_loadChatNotifPrefs());
-    await _syncMemberDepartments(tid);
-    await _repairChatThreadsIndex(tid);
+    await _primeConversasListFromFallback(tid);
+    if (!mounted) return;
+    unawaited(_syncMemberDepartments(tid));
+    unawaited(_repairChatThreadsIndex(tid));
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_tryConsumePendingChatThread());
@@ -1626,7 +1639,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                                     ? 'Sem conversas arquivadas.'
                                     : _conversasFilter == _HubConversasFilter.unread
                                     ? 'Sem mensagens não lidas.'
-                                    : _syncingChatThreads
+                                    : _syncingChatThreads &&
+                                            (snapForList?.docs.isEmpty ?? true) &&
+                                            (_lastGoodChatThreadsSnap?.docs.isEmpty ??
+                                                true)
                                         ? 'A sincronizar conversas…'
                                         : 'Sem conversas ainda. Use + para nova mensagem ou Contatos para abrir um grupo de departamento.',
                         style: TextStyle(
