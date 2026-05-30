@@ -102,7 +102,7 @@ Future<void> scheduleYahwehPanelImageWarmup(
   if (!force &&
       _lastPanelImageWarmupAt != null &&
       now.difference(_lastPanelImageWarmupAt!) <
-          const Duration(seconds: 50)) {
+          const Duration(seconds: 30)) {
     return;
   }
   _lastPanelImageWarmupAt = now;

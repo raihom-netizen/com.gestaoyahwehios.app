@@ -216,9 +216,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     );
     if (ok != true) return;
     try {
-      await LoginPreferences.prepareChurchAccountSwitch();
       await BiometricService().disableForThisDevice();
-      await ChurchSignOutNavigation.signOutFromChurchPanel();
+      await ChurchSignOutNavigation.signOutForAccountSwitch();
     } catch (_) {}
   }
 

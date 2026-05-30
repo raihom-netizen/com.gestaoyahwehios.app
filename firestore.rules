@@ -2,6 +2,9 @@ rules_version = '2';
 // Deploy — membros: indisponibilidade escala por e-mail (campos dedicados) + leitura só na própria igreja (+ operador global); CPF público via Cloud Function.
 // Operador global (multi-tenant): e-mail raihom@gmail.com OU CPF 94536368191 em users/{uid} OU documento admins/{uid}.
 // ADM/gestor/pastor **da igreja** ficam isolados ao tenant (sameChurch / canAccessTenant); não recebem bypass por role() ADM/MASTER no doc users.
+//
+// Gravação simples (padrão Controle Total): ficheiros → Firebase Storage (putData); metadados → coleções de negócio.
+// `pending_uploads` está descontinuada no cliente — só leitura/delete para limpar jobs antigos.
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() { return request.auth != null; }
@@ -767,19 +770,15 @@ service cloud.firestore {
           allow update: if false;
         }
       }
-      // Publicações interrompidas (reenvio aviso/evento) — só o autor.
+      // Fila de upload descontinuada — limpeza pelo autor; app não cria novos docs.
       match /pending_uploads/{uploadId} {
         allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
           && isSignedIn()
           && resource.data.ownerUid == request.auth.uid;
-        allow create: if (canAccessTenant(id) || memberLinkedToTenant(id))
-          && isSignedIn()
-          && request.resource.data.ownerUid == request.auth.uid
-          && request.resource.data.type is string
-          && request.resource.data.status is string;
-        allow update, delete: if (canAccessTenant(id) || memberLinkedToTenant(id))
+        allow delete: if (canAccessTenant(id) || memberLinkedToTenant(id))
           && isSignedIn()
           && resource.data.ownerUid == request.auth.uid;
+        allow create, update: if false;
       }
 
       // Mural de avisos (Firestore): separado de `noticias` (eventos).
@@ -1702,17 +1701,13 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Índice global de uploads interrompidos (espelho de igrejas/{tenant}/pending_uploads).
+    // Espelho global descontinuado — só leitura/limpeza.
     match /pendingUploads/{docId} {
       allow read: if isMaster()
         || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
-      allow create: if isSignedIn()
-        && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.tenantId is string
-        && request.resource.data.storagePath is string
-        && request.resource.data.status is string;
-      allow update, delete: if isMaster()
+      allow delete: if isMaster()
         || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create, update: if false;
     }
 
     match /{document=**} {

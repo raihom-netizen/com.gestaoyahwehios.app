@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
+import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
+import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
@@ -21,7 +23,10 @@ abstract final class AppFinalizeBootstrap {
     MuralPublishOutboxService.resumePendingOnAppStart();
     ChurchChatMediaOutboxService.resumePendingOnAppStart();
     unawaited(StorageUploadPersistenceService.resumePendingOnAppStart());
-    unawaited(PendingUploadsFirestoreService.resumeForCurrentUserTenant());
+    unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
+    if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+      unawaited(PendingUploadsFirestoreService.resumeForCurrentUserTenant());
+    }
   }
 
   /// Volta do background — Firebase + filas (chat, mural, pending_uploads).

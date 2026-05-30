@@ -334,6 +334,11 @@ workflows:
           echo "IPA: $ABS_IPA (normalizado para GestaoYahweh.ipa no passo seguinte)"
           echo "Copias para artefactos: $ROOT/build/ios/ipa/ e $FLUTTER_PWD/build/ios/ipa/"
           ls -la "$ROOT/build/ios/ipa" "$FLUTTER_PWD/build/ios/ipa"
+      - name: Upload dSYM para Firebase Crashlytics
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          bash "$ROOT/scripts/codemagic_ios_upload_crashlytics_dsyms.sh"
       # O publicador ASC da Codemagic procura *.ipa nos artefactos; em monorepo o IPA fica
       # em flutter_app/build/ios/ipa/ (ou $FLUTTER_BUILD_DIR). Copiar para build/ios/ipa na raiz.
       - name: IPA para publicação ASC (cópia na raiz do repo)
@@ -502,6 +507,8 @@ workflows:
       - flutter_app/build/ios/ipa/GestaoYahweh.ipa
       - build/ios/ipa/GestaoYahweh.ipa
       - GestaoYahweh.ipa
+      - flutter_app/build/ios/archive/Runner.xcarchive/dSYMs/**
+      - build/ios/archive/Runner.xcarchive/dSYMs/**
       - /tmp/xcodebuild_logs/*.log
       # Se CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 num build, o PEM fica aqui para copiar ao secret.
       - bootstrap_signing_output/**

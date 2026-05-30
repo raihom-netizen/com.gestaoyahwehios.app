@@ -14,7 +14,7 @@ abstract final class FirebaseService {
   static Future<FirebaseFirestore> firestore({bool requireAuth = false}) async {
     await FirebaseBootstrap.ensureInitialized();
     if (requireAuth) {
-      await FirebaseBootstrapService.ensureReady(requireAuthSession: true);
+      await FirebaseBootstrapService.ensureReadyForPublishUpload();
     }
     return FirebaseBootstrapService.firestore;
   }

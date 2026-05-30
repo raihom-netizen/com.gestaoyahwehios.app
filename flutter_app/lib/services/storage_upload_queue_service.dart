@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
+
 import 'app_connectivity_service.dart';
 import 'pending_uploads_firestore_service.dart';
 import 'upload_bytes_core.dart';
@@ -51,6 +53,9 @@ class StorageUploadQueueService {
   /// Itens à espera (útil para testes / futura UI).
   int get pendingCount => _queue.length;
 
+  /// Limpa fila em memória (ex. botão Limpar no chat).
+  void clearPending() => _queue.clear();
+
   void start() {
     _onlineSub?.cancel();
     _onlineSub = AppConnectivityService.instance.onlineStream.listen((online) {
@@ -82,7 +87,9 @@ class StorageUploadQueueService {
     final tid = tenantId ??
         PendingUploadsFirestoreService.tenantFromStoragePath(storagePath);
     String? pendingId;
-    if (tid != null && tid.isNotEmpty) {
+    if (FirebaseUploadPolicy.firestorePendingQueueEnabled &&
+        tid != null &&
+        tid.isNotEmpty) {
       pendingId = await PendingUploadsFirestoreService.recordQueuedBytesUpload(
         tenantId: tid,
         module: module ??
@@ -153,7 +160,8 @@ class StorageUploadQueueService {
         }
         final tid = item.tenantId;
         final pendingId = item.pendingUploadId;
-        if (tid != null &&
+        if (FirebaseUploadPolicy.firestorePendingQueueEnabled &&
+            tid != null &&
             tid.isNotEmpty &&
             pendingId != null &&
             pendingId.isNotEmpty) {
@@ -180,7 +188,8 @@ class StorageUploadQueueService {
           if (!item.completer.isCompleted) {
             item.completer.complete(url);
           }
-          if (tid != null &&
+          if (FirebaseUploadPolicy.firestorePendingQueueEnabled &&
+              tid != null &&
               tid.isNotEmpty &&
               pendingId != null &&
               pendingId.isNotEmpty) {
@@ -208,7 +217,9 @@ class StorageUploadQueueService {
             StackTrace.current,
             context: item.storagePath,
           ));
-          if (tid != null && tid.isNotEmpty) {
+          if (FirebaseUploadPolicy.firestorePendingQueueEnabled &&
+              tid != null &&
+              tid.isNotEmpty) {
             if (pendingId != null && pendingId.isNotEmpty) {
               unawaited(
                 PendingUploadsFirestoreService.markFailed(tid, pendingId, e),

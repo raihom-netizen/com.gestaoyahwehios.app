@@ -290,9 +290,16 @@ abstract final class FirebaseBootstrapService {
   /// Publicar aviso/evento ou enviar mídia — init + sessão, sem health check FCM.
   static Future<void> ensureReadyForPublishUpload() async {
     await FirebaseBootstrap.ensureInitialized();
+    // Controle Total: utilizador já no app — não repetir health check pesado (FCM/Functions).
     if (!_hasApp()) {
-      final r = await initialize();
-      if (!r.isReady && r.failure != null) throw r.failure!;
+      try {
+        final r = await initialize();
+        if (!r.isReady && r.failure != null) throw r.failure!;
+      } catch (e, st) {
+        if (!_hasApp()) {
+          throw FirebaseBootstrapException.from(e, st);
+        }
+      }
     }
     final user = auth.currentUser;
     if (user == null) {
@@ -520,10 +527,20 @@ abstract final class FirebaseBootstrapService {
     }
   }
 
-  /// Envio de mensagens no chat — evita health check + backoff longo da reconexão.
+  /// Envio de mensagens no chat — init + token (sem health check FCM/Functions).
   static Future<void> ensureReadyForChatSend() async {
-    await ensureReady(requireAuthSession: true, forceHealthCheck: false);
-    final user = FirebaseAuth.instanceFor(app: defaultApp).currentUser;
+    await FirebaseBootstrap.ensureInitialized();
+    if (!_hasApp()) {
+      try {
+        final r = await initialize();
+        if (!r.isReady && r.failure != null) throw r.failure!;
+      } catch (e, st) {
+        if (!_hasApp()) {
+          throw FirebaseBootstrapException.from(e, st);
+        }
+      }
+    }
+    final user = auth.currentUser;
     if (user == null) {
       throw StateError(
         'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
@@ -590,8 +607,10 @@ abstract final class FirebaseBootstrapService {
         );
         if (attempt >= maxAttempts) break;
         if (chatOp || mediaPublishOp) {
-          FirebaseBootstrap.reset();
-          await Future.delayed(Duration(milliseconds: 400 * attempt));
+          await Future.delayed(Duration(milliseconds: 350 * attempt));
+          try {
+            await auth.currentUser?.getIdToken(true);
+          } catch (_) {}
           continue;
         }
         try {

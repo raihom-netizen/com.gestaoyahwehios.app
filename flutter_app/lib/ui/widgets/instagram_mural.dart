@@ -3778,83 +3778,85 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await AppFinalizeBootstrap.ensureSessionForPublish(logLabel: 'avisos_publish');
-      await FirebaseBootstrapService.runGuarded(() async {
-        final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
-        final isNewDoc = widget.doc == null;
-        final hasNewImages = _newPhotoCount > 0;
-        final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
-        var aspectRatio = 1.0;
-        if (!hasNewImages && existingUrls.isNotEmpty) {
-          final prev = widget.doc?.data()?['media_info'];
-          if (prev is Map) {
-            final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
-            if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
-          }
+      await ensureFirebaseReadyForPublishUpload();
+      final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
+      final isNewDoc = widget.doc == null;
+      final hasNewImages = _newPhotoCount > 0;
+      final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+      var aspectRatio = 1.0;
+      if (!hasNewImages && existingUrls.isNotEmpty) {
+        final prev = widget.doc?.data()?['media_info'];
+        if (prev is Map) {
+          final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+          if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
         }
+      }
 
-        if (hasNewImages) {
-          final startSlot = existingUrls.length;
-          List<Uint8List>? bytes;
-          List<String>? paths;
-          if (kIsWeb) {
-            bytes = await _copyNewImagesForPublish();
-            if (bytes.isEmpty) {
-              throw StateError('Não foi possível ler as fotos para enviar.');
-            }
-          } else {
-            paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
-            if (paths.isEmpty) {
-              throw StateError('Não foi possível ler as fotos para enviar.');
-            }
+      if (hasNewImages) {
+        final startSlot = existingUrls.length;
+        List<Uint8List>? bytes;
+        List<String>? paths;
+        if (kIsWeb) {
+          bytes = await _copyNewImagesForPublish();
+          if (bytes.isEmpty) {
+            throw StateError('Não foi possível ler as fotos para enviar.');
           }
-          final corePayload = _buildCorePayload(
-            allUrls: existingUrls,
-            aspectRatio: aspectRatio,
-            isNewDoc: isNewDoc,
-          );
-          await FeedMediaPublishStrict.publishWithPhotosFirst(
-            docRef: docRef,
-            tenantId: widget.tenantId,
-            postType: widget.type,
-            corePayload: corePayload,
-            isNewDoc: isNewDoc,
-            existingUrls: existingUrls,
-            startSlotIndex: startSlot,
-            hasVideo: _videoUrl.text.trim().isNotEmpty,
-            newImagesBytes: bytes,
-            newImagePaths: paths,
-            onPublished: () async => _schedulePostPublishCacheWarmup(),
-          );
-          if (mounted) {
-            unawaited(IosPublishMemory.releaseAfterHeavyWork());
-            ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar(
-                isNewDoc ? 'Aviso publicado!' : 'Aviso atualizado!',
-              ),
-            );
-            Navigator.pop(context, true);
+        } else {
+          paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
+          if (paths.isEmpty) {
+            throw StateError('Não foi possível ler as fotos para enviar.');
           }
-          return;
         }
-        final payload = _buildCorePayload(
+        final corePayload = _buildCorePayload(
           allUrls: existingUrls,
           aspectRatio: aspectRatio,
           isNewDoc: isNewDoc,
         );
-        await FeedMediaPublishService.publishNow(
+        final n = bytes?.length ?? paths?.length ?? 0;
+        await FeedMediaPublishService.saveStubAndSchedulePhotos(
           docRef: docRef,
-          payload: payload,
+          tenantId: widget.tenantId,
+          postType: widget.type,
+          stubPayload: corePayload,
           isNewDoc: isNewDoc,
+          pendingPhotoCount: n,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlot,
+          hasVideo: _videoUrl.text.trim().isNotEmpty,
+          newImagesBytes: bytes,
+          newImagePaths: paths,
+          onPublished: () async => _schedulePostPublishCacheWarmup(),
         );
         if (mounted) {
-          _schedulePostPublishCacheWarmup();
+          unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
+            ThemeCleanPremium.successSnackBar(
+              isNewDoc
+                  ? 'Aviso publicado — fotos a concluir em segundo plano.'
+                  : 'Aviso atualizado — fotos a concluir em segundo plano.',
+            ),
           );
           Navigator.pop(context, true);
         }
-      }, debugLabel: 'avisos_publish', requireAuth: true);
+        return;
+      }
+      final payload = _buildCorePayload(
+        allUrls: existingUrls,
+        aspectRatio: aspectRatio,
+        isNewDoc: isNewDoc,
+      );
+      await FeedMediaPublishService.publishNow(
+        docRef: docRef,
+        payload: payload,
+        isNewDoc: isNewDoc,
+      );
+      if (mounted) {
+        _schedulePostPublishCacheWarmup();
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
+        );
+        Navigator.pop(context, true);
+      }
     } catch (e, st) {
       await CrashlyticsService.record(e, st, reason: 'avisos_publish');
       try {

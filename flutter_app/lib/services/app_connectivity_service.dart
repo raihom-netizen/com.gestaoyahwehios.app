@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
+import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 
 /// Monitora rede (Wi‑Fi / dados / ethernet). Não prova “internet até o Google” —
 /// cobre o caso usual de avião / sem sinal. Firestore já persiste e sincroniza escritas offline.
@@ -51,7 +53,10 @@ class AppConnectivityService {
       unawaited(
         FirebaseBootstrapService.reconnect().catchError((_) {}),
       );
-      unawaited(PendingUploadsFirestoreService.resumeForCurrentUserTenant());
+      unawaited(StorageUploadPersistenceService.resumePendingOnAppStart());
+      if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+        unawaited(PendingUploadsFirestoreService.resumeForCurrentUserTenant());
+      }
     }
   }
 

@@ -12,7 +12,9 @@ import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
+import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -26,8 +28,14 @@ abstract final class YahwehMediaUploadPipeline {
   YahwehMediaUploadPipeline._();
 
   static void bindOnAppStart() {
-    StorageUploadQueueService.instance.start();
-    unawaited(PendingUploadsFirestoreService.resumeForCurrentUserTenant());
+    if (FirebaseUploadPolicy.memoryQueueOnNetworkError) {
+      StorageUploadQueueService.instance.start();
+    }
+    unawaited(StorageUploadPersistenceService.resumePendingOnAppStart());
+    unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
+    if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+      unawaited(PendingUploadsFirestoreService.resumeForCurrentUserTenant());
+    }
   }
 
   static YahwehUploadModule moduleFromStoragePath(String storagePath) {
@@ -88,7 +96,7 @@ abstract final class YahwehMediaUploadPipeline {
     String? tenantId,
     String? localFilePathForRetry,
     bool chatJpegFast = false,
-    bool useOfflineQueue = true,
+    bool useOfflineQueue = false,
     String? pendingUploadId,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
@@ -138,8 +146,11 @@ abstract final class YahwehMediaUploadPipeline {
           onTaskStarted: onUploadTaskCreated,
         );
       } catch (e) {
-        if (useOfflineQueue && isLikelyNetworkUploadError(e)) {
-          if (tenant.isNotEmpty) {
+        if (useOfflineQueue &&
+            FirebaseUploadPolicy.memoryQueueOnNetworkError &&
+            isLikelyNetworkUploadError(e)) {
+          if (FirebaseUploadPolicy.firestorePendingQueueEnabled &&
+              tenant.isNotEmpty) {
             unawaited(
               PendingUploadsFirestoreService.recordQueuedBytesUpload(
                 tenantId: tenant,
@@ -183,7 +194,8 @@ abstract final class YahwehMediaUploadPipeline {
           error: e.toString(),
         ),
       );
-      if (tenant.isNotEmpty) {
+      if (FirebaseUploadPolicy.firestorePendingQueueEnabled &&
+          tenant.isNotEmpty) {
         unawaited(
           PendingUploadsFirestoreService.recordFailedBytesUpload(
             tenantId: tenant,

@@ -22,7 +22,8 @@ abstract final class SessionRestoreService {
   static const _diskPollDelay = Duration(milliseconds: 50);
   static const _silentOAuthTimeout = Duration(seconds: 12);
 
-  static Future<User?> tryRestoreIfNeeded() async {
+  /// [allowRetry] — ecrã de login após cold start em [main] (flag já consumida).
+  static Future<User?> tryRestoreIfNeeded({bool allowRetry = false}) async {
     await ensureFirebaseInitialized();
 
     final sync = firebaseDefaultAuth.currentUser;
@@ -31,13 +32,43 @@ abstract final class SessionRestoreService {
     if (await LoginPreferences.isAccountSwitchPending()) return null;
     if (!await _deviceHasReturningLoginHints()) return null;
 
-    if (!_restoreAttempted) {
+    if (!_restoreAttempted || allowRetry) {
       _restoreAttempted = true;
       final fromDisk = await _pollAuthUserFromDisk();
       if (fromDisk != null) return fromDisk;
-      await _silentOAuthRestore();
+      await _silentOAuthRestore(force: allowRetry);
     }
 
+    final u = firebaseDefaultAuth.currentUser;
+    if (u != null && !u.isAnonymous) return u;
+    return null;
+  }
+
+  /// Reconexão Google silenciosa (Controle Total) — sem UI, sem depender da flag de cold start.
+  static Future<User?> tryGoogleSilentReconnect() async {
+    if (kIsWeb) return null;
+    await ensureFirebaseInitialized();
+    if (await LoginPreferences.isAccountSwitchPending()) return null;
+
+    final sync = firebaseDefaultAuth.currentUser;
+    if (sync != null && !sync.isAnonymous) return sync;
+
+    final fromDisk = await _pollAuthUserFromDisk();
+    if (fromDisk != null) return fromDisk;
+
+    final last = await LoginPreferences.getLastOAuthProvider();
+    if (last != 'google') return null;
+
+    try {
+      await ExpressLoginService.tryGoogleSilentOnly().timeout(
+        _silentOAuthTimeout,
+        onTimeout: () => null,
+      );
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('SessionRestoreService.tryGoogleSilentReconnect: $e\n$st');
+      }
+    }
     final u = firebaseDefaultAuth.currentUser;
     if (u != null && !u.isAnonymous) return u;
     return null;

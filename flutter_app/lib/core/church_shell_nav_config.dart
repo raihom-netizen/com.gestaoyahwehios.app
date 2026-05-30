@@ -17,37 +17,38 @@ class ChurchShellNavEntry {
 /// Menu completo — única fonte para labels + ícones + cores + warmup de fonte Material na web.
 const List<ChurchShellNavEntry> kChurchShellNavEntries = [
   ChurchShellNavEntry(
-      Icons.dashboard_rounded, 'Painel', Color(0xFF3B82F6)),
+      Icons.insights_rounded, 'Painel', Color(0xFF3B82F6)),
   ChurchShellNavEntry(
-      Icons.business_rounded, 'Cadastro da Igreja', Color(0xFF6366F1)),
+      Icons.domain_rounded, 'Cadastro da Igreja', Color(0xFF6366F1)),
   ChurchShellNavEntry(
-      Icons.tune_rounded, 'Configurações', Color(0xFF64748B)),
-  ChurchShellNavEntry(Icons.people_rounded, 'Membros', Color(0xFF0D9488)),
+      Icons.settings_suggest_rounded, 'Configurações', Color(0xFF64748B)),
   ChurchShellNavEntry(
-      Icons.groups_rounded, 'Departamentos', Color(0xFF8B5CF6)),
+      Icons.people_alt_rounded, 'Membros', Color(0xFF14B8A6)),
   ChurchShellNavEntry(
-      Icons.person_add_rounded, 'Visitantes', Color(0xFFF59E0B)),
-  ChurchShellNavEntry(Icons.work_rounded, 'Cargos', Color(0xFFF43F5E)),
+      Icons.groups_3_rounded, 'Departamentos', Color(0xFF8B5CF6)),
   ChurchShellNavEntry(
-      Icons.article_rounded, 'Mural de Avisos', Color(0xFF0EA5E9)),
+      Icons.person_add_alt_1_rounded, 'Visitantes', Color(0xFFF59E0B)),
+  ChurchShellNavEntry(Icons.badge_rounded, 'Cargos', Color(0xFFF43F5E)),
   ChurchShellNavEntry(
-      Icons.event_rounded, 'Mural de Eventos', Color(0xFFF97316)),
+      Icons.campaign_rounded, 'Mural de Avisos', Color(0xFF0EA5E9)),
   ChurchShellNavEntry(
-      Icons.favorite_rounded, 'Pedidos de Oração', Color(0xFFEC4899)),
+      Icons.celebration_rounded, 'Mural de Eventos', Color(0xFFF97316)),
   ChurchShellNavEntry(
-      Icons.calendar_today_rounded, 'Agenda', Color(0xFF2563EB)),
+      Icons.volunteer_activism_rounded, 'Pedidos de Oração', Color(0xFFEC4899)),
+  ChurchShellNavEntry(
+      Icons.event_available_rounded, 'Agenda', Color(0xFF2563EB)),
   ChurchShellNavEntry(
       Icons.edit_calendar_rounded, 'Minha Escala', Color(0xFF06B6D4)),
   ChurchShellNavEntry(
-      Icons.schedule_rounded, 'Escala Geral', Color(0xFF14B8A6)),
+      Icons.view_timeline_rounded, 'Escala Geral', Color(0xFF14B8A6)),
   ChurchShellNavEntry(
       Icons.badge_rounded, 'Cartão do membro', Color(0xFF10B981)),
   ChurchShellNavEntry(
       Icons.verified_rounded, 'Certificados', Color(0xFF7C3AED)),
-  ChurchShellNavEntry(Icons.article_rounded, 'Cartas e transferências',
+  ChurchShellNavEntry(Icons.mail_rounded, 'Cartas e transferências',
       Color(0xFFA78BFA)),
   ChurchShellNavEntry(
-      Icons.bar_chart_rounded, 'Relatórios', Color(0xFFCA8A04)),
+      Icons.analytics_rounded, 'Relatórios', Color(0xFFCA8A04)),
   /// `info_rounded` pode sair vazio na web (subset Material tree-shake); `feedback_rounded` cobre bem “informações / sugestões”.
   ChurchShellNavEntry(
       Icons.feedback_rounded, 'Informações', Color(0xFF38BDF8)),
@@ -57,16 +58,16 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
   ChurchShellNavEntry(
       Icons.church_rounded, 'Pastoral & comunicação', Color(0xFFEAB308)),
   ChurchShellNavEntry(
-      Icons.payment_rounded, 'Financeiro', Color(0xFF16A34A)),
+      Icons.account_balance_wallet_rounded, 'Financeiro', Color(0xFF16A34A)),
   ChurchShellNavEntry(
       Icons.inventory_2_rounded, 'Patrimônio', Color(0xFFD97706)),
   ChurchShellNavEntry(
       kFornecedoresModuleIcon, 'Fornecedores', Color(0xFF475569)),
   ChurchShellNavEntry(
-      Icons.card_giftcard_rounded, 'Doação', Color(0xFFDC2626)),
+      Icons.favorite_rounded, 'Doação', Color(0xFFDC2626)),
   /// Chat entre membros / grupos por departamento (estilo WhatsApp).
   ChurchShellNavEntry(
-      Icons.forum_rounded, 'Chat - Igreja', Color(0xFF25D366)),
+      Icons.chat_rounded, 'Chat - Igreja', Color(0xFF25D366)),
 ];
 
 /// Acentos derivados de [kChurchShellNavEntries] — login, marketing e Torre Master SaaS
@@ -94,6 +95,19 @@ abstract final class ChurchShellAccentTokens {
 /// Inclui ícones dos cards de [DepartmentsPage] (`_iconOptions`) e telas embutidas,
 /// para builds **sem** `--no-tree-shake-icons` não exibirem quadrados vazios.
 const List<IconData> kChurchShellNavMaterialIconExtras = [
+  Icons.insights_rounded,
+  Icons.domain_rounded,
+  Icons.settings_suggest_rounded,
+  Icons.people_alt_rounded,
+  Icons.groups_3_rounded,
+  Icons.person_add_alt_1_rounded,
+  Icons.campaign_rounded,
+  Icons.celebration_rounded,
+  Icons.event_available_rounded,
+  Icons.view_timeline_rounded,
+  Icons.analytics_rounded,
+  Icons.chat_rounded,
+  Icons.account_balance_wallet_rounded,
   Icons.article_rounded,
   Icons.mail_rounded,
   Icons.account_tree_rounded,

@@ -5,7 +5,9 @@ import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
+import 'package:gestao_yahweh/services/feed_media_publish_fast.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_strict.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
@@ -77,8 +79,7 @@ abstract final class FeedMediaPublishService {
     required Map<String, dynamic> payload,
     required bool isNewDoc,
   }) async {
-    return FirebaseBootstrapService.runGuarded(() async {
-    await AppFinalizeBootstrap.ensureSessionForPublish(logLabel: 'feed_publish_now');
+    await ensureFirebaseReadyForPublishUpload();
     final patch = Map<String, dynamic>.from(payload);
     patch['publishState'] = statusPublished;
     FirestoreWriteGuard.applyMuralPublishMetaPatch(
@@ -87,13 +88,13 @@ abstract final class FeedMediaPublishService {
       clearPendingImageCount: true,
       clearPublishError: true,
     );
+    patch['updatedAt'] = FieldValue.serverTimestamp();
     if (isNewDoc) {
       await docRef.set(patch);
     } else {
       await docRef.set(patch, SetOptions(merge: true));
     }
     return docRef.id;
-    }, debugLabel: 'feed_publish_now', requireAuth: true);
   }
 
   /// Rascunho — texto/campos guardados sem publicar no feed.
@@ -171,8 +172,10 @@ abstract final class FeedMediaPublishService {
   }
 
   /// Reenvio manual — delega ao serviço de pending uploads do tenant.
-  static Future<void> resumePendingUploadsForTenant(String tenantId) =>
-      PendingUploadsFirestoreService.resumeAllForTenant(tenantId);
+  static Future<void> resumePendingUploadsForTenant(String tenantId) async {
+    if (!FirebaseUploadPolicy.firestorePendingQueueEnabled) return;
+    await PendingUploadsFirestoreService.resumeAllForTenant(tenantId);
+  }
 
   /// Fotos novas: aguarda upload + URL antes de publicar no Firestore (sem doc vazio).
   static Future<String> saveStubAndSchedulePhotos({
@@ -196,7 +199,7 @@ abstract final class FeedMediaPublishService {
         isNewDoc: isNewDoc,
       );
     }
-    return FeedMediaPublishStrict.publishWithPhotosFirst(
+    return FeedMediaPublishFast.publishWithPhotosInBackground(
       docRef: docRef,
       tenantId: tenantId,
       postType: postType,
@@ -205,6 +208,7 @@ abstract final class FeedMediaPublishService {
       existingUrls: existingUrls,
       startSlotIndex: startSlotIndex,
       hasVideo: hasVideo,
+      pendingPhotoCount: pendingPhotoCount,
       newImagesBytes: newImagesBytes,
       newImagePaths: newImagePaths,
       onPublished: onPublished,

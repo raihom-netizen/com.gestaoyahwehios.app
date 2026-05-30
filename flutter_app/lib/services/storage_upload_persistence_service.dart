@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/upload_bytes_core.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
@@ -47,21 +48,23 @@ abstract final class StorageUploadPersistenceService {
       'contentType': contentType,
     });
     await prefs.setString(_manifestKey, jsonEncode(list));
-    final tenant =
-        PendingUploadsFirestoreService.tenantFromStoragePath(storagePath);
-    if (tenant != null && tenant.isNotEmpty) {
-      unawaited(
-        PendingUploadsFirestoreService.enqueue(
-          tenantId: tenant,
-          module: PendingUploadsFirestoreService.moduleFromStoragePath(
-            storagePath,
-          ).name,
-          storagePath: storagePath,
-          localPath: dest,
-          contentType: contentType,
-          meta: const {'source': 'local_manifest'},
-        ),
-      );
+    if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+      final tenant =
+          PendingUploadsFirestoreService.tenantFromStoragePath(storagePath);
+      if (tenant != null && tenant.isNotEmpty) {
+        unawaited(
+          PendingUploadsFirestoreService.enqueue(
+            tenantId: tenant,
+            module: PendingUploadsFirestoreService.moduleFromStoragePath(
+              storagePath,
+            ).name,
+            storagePath: storagePath,
+            localPath: dest,
+            contentType: contentType,
+            meta: const {'source': 'local_manifest'},
+          ),
+        );
+      }
     }
   }
 
@@ -113,14 +116,16 @@ abstract final class StorageUploadPersistenceService {
             st,
             context: storagePath,
           );
-          unawaited(
-            PendingUploadsFirestoreService.recordFailureForStoragePath(
-              storagePath: storagePath,
-              error: e,
-              localPath: path,
-              contentType: contentType,
-            ),
-          );
+          if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+            unawaited(
+              PendingUploadsFirestoreService.recordFailureForStoragePath(
+                storagePath: storagePath,
+                error: e,
+                localPath: path,
+                contentType: contentType,
+              ),
+            );
+          }
           remaining.add(job);
         }
       }

@@ -47,24 +47,41 @@ class _ChurchChatPendingStatusBannerState
   }
 
   Future<void> _clearStuckQueue() async {
-    final n =
-        await ChurchChatMediaOutboxService.clearAllJobs(tenantId: widget.tenantId);
+    final tid = widget.tenantId.trim();
+    var total = 0;
+    if (tid.isNotEmpty) {
+      total += await PendingUploadsFirestoreService.cancelAllOpenForTenant(tid);
+      total += await PendingUploadsFirestoreService.pruneUnrecoverableOpenForTenant(
+        tid,
+      );
+    }
+    total += await ChurchChatMediaOutboxService.clearAllJobs(tenantId: tid);
+    total += await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
+    StorageUploadQueueService.instance.clearPending();
     await _refreshLocalCounts();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          n > 0
-              ? 'Fila local limpa ($n). Toque em Reenviar só para itens ainda na conversa.'
-              : 'Nada na fila local para limpar.',
+          total > 0
+              ? 'Fila limpa ($total item(ns)). Mensagens antigas com erro foram removidas.'
+              : 'Nada pendente para limpar.',
         ),
       ),
     );
   }
 
   Future<void> _retryAll() async {
-    final pruned = await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
-    await PendingUploadsFirestoreService.resumeAllForTenant(widget.tenantId);
+    final tid = widget.tenantId.trim();
+    var pruned = await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
+    if (tid.isNotEmpty) {
+      pruned += await PendingUploadsFirestoreService.pruneUnrecoverableOpenForTenant(
+        tid,
+      );
+    }
+    if (tid.isNotEmpty) {
+      await PendingUploadsFirestoreService.resumeAllForTenant(tid);
+    }
     YahwehMediaUploadPipeline.bindOnAppStart();
     ChurchChatMediaOutboxService.resumePendingOnAppStart();
     MuralPublishOutboxService.resumePendingOnAppStart();

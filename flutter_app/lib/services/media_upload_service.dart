@@ -106,7 +106,7 @@ class MediaUploadService {
     /// Quando true, envia [bytes] sem segunda compressão JPEG em [_prepareBytesForUpload]
     /// (ex.: já passaram por [ImageHelper.compressMemberProfileForUpload]).
     bool skipClientPrepare = false,
-    bool useOfflineQueue = true,
+    bool useOfflineQueue = false,
 
     /// JPEG do chat: preset mais leve (menos CPU + menos bytes → upload mais rápido).
     bool chatJpegFast = false,
@@ -183,7 +183,7 @@ class MediaUploadService {
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
     bool skipClientPrepare = false,
-    bool useOfflineQueue = true,
+    bool useOfflineQueue = false,
     bool chatJpegFast = false,
   }) async {
     final url = await uploadBytesWithRetry(
@@ -215,7 +215,7 @@ class MediaUploadService {
     Iterable<String>? deleteFirebaseDownloadUrlsBefore,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
-    bool useOfflineQueue = true,
+    bool useOfflineQueue = false,
     bool skipRecompress = false,
     bool chatJpegFast = false,
   }) async {
@@ -289,7 +289,7 @@ class MediaUploadService {
     int maxAttempts = 3,
     Iterable<String>? deleteFirebaseDownloadUrlsBefore,
     void Function(double progress)? onProgress,
-    bool useOfflineQueue = true,
+    bool useOfflineQueue = false,
   }) async {
     final url = await uploadFileWithRetry(
       storagePath: storagePath,

@@ -5,8 +5,9 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 /// Configura o Firestore **antes** de qualquer leitura/escrita.
 ///
 /// Equivalente V4 a `enablePersistence` + `PersistenceSettings(synchronizeTabs: true)` na web.
-/// - **Persistência + cache amplo**: leituras repetidas e listas ficam mais rápidas;
-///   escritas feitas offline entram na fila e sincronizam quando a rede voltar.
+/// - **Mobile (igual Controle Total)**: `persistenceEnabled: true` + cache ilimitado —
+///   leituras/escritas locais sincronizam com o servidor mais depressa.
+/// - **Web (igual Controle Total)**: sem IndexedDB; long-polling estável.
 ///   Pré-carga opcional das coleções principais: serviço `church_tenant_offline_warmup_service.dart`.
 /// - **ignoreUndefinedProperties**: merges mais limpos ao atualizar documentos.
 /// - **Web**: deteção de long-polling (redes/proxies instáveis) e cache multi‑aba.

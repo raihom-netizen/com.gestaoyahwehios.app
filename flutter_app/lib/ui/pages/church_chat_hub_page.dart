@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/services/church_chat_threads_list_cache.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
@@ -32,6 +33,8 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_list_preview.dart';
+import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
+import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
 
@@ -130,6 +133,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   void initState() {
     super.initState();
     logYahwehModuleScreen('chat');
+    // Migração CT (web + iOS + Android): limpa fila Firestore antiga na 1.ª abertura do chat.
+    unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
     _localConvListener = () {
       if (mounted) unawaited(_reloadLocalConversations());
     };
@@ -472,6 +477,16 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     setState(() => _localConversations = list);
   }
 
+  Future<void> _pruneStaleChatUploads(String tenantId) async {
+    if (tenantId.isEmpty) return;
+    try {
+      await PendingUploadsFirestoreService.pruneUnrecoverableOpenForTenant(
+        tenantId,
+      );
+      await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
+    } catch (_) {}
+  }
+
   Future<void> _primeConversasListFromFallback(String tenantId) async {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
@@ -511,6 +526,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           : null;
     });
     unawaited(_loadChatNotifPrefs());
+    unawaited(_pruneStaleChatUploads(tid));
     await _primeConversasListFromFallback(tid);
     await _reloadLocalConversations();
     if (!mounted) return;

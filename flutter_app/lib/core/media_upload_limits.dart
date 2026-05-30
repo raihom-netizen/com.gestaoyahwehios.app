@@ -81,6 +81,12 @@ int get mediaChatImageMaxHeight => 1280;
 
 int get mediaChatImageQuality => 70;
 
+/// Chat — vários anexos por envio (como avisos/eventos: até 5 fotos por seleção).
+const int kChatMaxImagesPerPick = 5;
+const int kChatMaxVideosPerPick = 5;
+const int kChatMaxDocumentsPerPick = 10;
+const int kChatMaxAudioFilesPerPick = 5;
+
 int get mediaPickerLogoQuality =>
     kMediaTurboMobilePreset ? 68 : 70;
 

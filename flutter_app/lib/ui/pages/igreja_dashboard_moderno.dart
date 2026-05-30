@@ -334,12 +334,41 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       );
 
   Future<void> _loadStreams() async {
-    // Refresca o token antes dos snapshots — regras Firestore com auth costumam falhar
-    // com token velho (painel “perde” dados até novo login sem isto).
+    var resolved = widget.tenantId.trim();
+    if (resolved.isNotEmpty) {
+      final quick = await Future.wait([
+        PanelDashboardSnapshotService.readOnce(resolved),
+        ChurchDashboardCurrentService.readOnce(resolved),
+      ]);
+      if (mounted) {
+        final tenantRef =
+            FirebaseFirestore.instance.collection('igrejas').doc(resolved);
+        setState(() {
+          _effectiveTenantId = resolved;
+          _panelCache = quick[0] as PanelDashboardSnapshot;
+          _dashboardKpis = quick[1] as ChurchDashboardCurrent;
+          _avisosStream = FirestoreStreamUtils.resilientQuery(
+            tenantRef
+                .collection(ChurchTenantPostsCollections.avisos)
+                .orderBy('createdAt', descending: true)
+                .limit(10)
+                .snapshots(),
+          );
+          _noticiasPainelStream = FirestoreStreamUtils.resilientQuery(
+            tenantRef
+                .collection(ChurchTenantPostsCollections.noticias)
+                .orderBy('startAt', descending: true)
+                .limit(32)
+                .snapshots(),
+          );
+        });
+      }
+    }
+
     final forceToken = !_initialAuthTokenForced;
     if (forceToken) _initialAuthTokenForced = true;
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: forceToken);
-    final resolved = await _resolveEffectiveTenantId();
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: forceToken));
+    resolved = await _resolveEffectiveTenantId();
     if (!mounted) return;
     final tenantRef = FirebaseFirestore.instance.collection('igrejas').doc(resolved);
     var churchSlug = '';
@@ -416,8 +445,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     });
     final panelSnap = results[0] as PanelDashboardSnapshot;
     if (panelSnap.isFreshForInstantPanel) {
-      // Controle Total: UI instantânea via cache; streams pesados só em background.
-      Future<void>.delayed(const Duration(seconds: 50), () {
+      Future<void>.delayed(const Duration(seconds: 6), () {
         if (!mounted) return;
         _scheduleHeavyDashboardStreams(allIds);
       });
@@ -3377,6 +3405,13 @@ class _LideresGaleria extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (panelCache.hasHomeLeaders) {
+      return _CleanCard(
+        title: 'Líderes de departamento',
+        icon: Icons.leaderboard_rounded,
+        child: _buildFromCacheLeaders(context),
+      );
+    }
     if (membersSnap.hasError) {
       return _CleanCard(
         title: 'Líderes de departamento',
@@ -3783,10 +3818,7 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (dashboardPreferPanelCacheMembers(
-      panelCache.hasHomeCorpo,
-      membersSnap,
-    )) {
+    if (panelCache.hasHomeCorpo) {
       return _CleanCard(
         title: 'Corpo Administrativo',
         icon: Icons.badge_rounded,
@@ -5046,6 +5078,183 @@ int? _dashboardBucketIndexForDate(
   return null;
 }
 
+List<double> _dashboardSaidasFromFinanceDocs({
+  required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  required _DashFinanceBuckets buckets,
+  required bool Function(Map<String, dynamic>) isDespesa,
+  required double Function(Map<String, dynamic>) valorAbs,
+  required DateTime? Function(Map<String, dynamic>) dataDoc,
+}) {
+  final out = List<double>.filled(buckets.labels.length, 0);
+  for (final doc in docs) {
+    final data = doc.data();
+    if (!isDespesa(data)) continue;
+    final dt = dataDoc(data);
+    if (dt == null) continue;
+    final idx = _dashboardBucketIndexForDate(dt, buckets);
+    if (idx == null) continue;
+    out[idx] += valorAbs(data);
+  }
+  return out;
+}
+
+/// Barras horizontais — legível no telemóvel (sem sobrepor eixos do fl_chart).
+class _HorizontalDespesasBarChart extends StatelessWidget {
+  const _HorizontalDespesasBarChart({
+    required this.labels,
+    required this.values,
+    this.maxHeight = 240,
+  });
+
+  final List<String> labels;
+  final List<double> values;
+  final double maxHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final nf = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
+    final nfCompact = NumberFormat.compactCurrency(
+      locale: 'pt_BR',
+      symbol: r'R$',
+      decimalDigits: 0,
+    );
+    final entries = <({String label, double value})>[];
+    for (var i = 0; i < labels.length; i++) {
+      final v = i < values.length ? values[i] : 0.0;
+      if (v > 0) entries.add((label: labels[i], value: v));
+    }
+    if (entries.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Text(
+          'Sem despesas no período selecionado.',
+          style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+    entries.sort((a, b) => b.value.compareTo(a.value));
+    final maxVal = entries.fold<double>(0, (a, e) => e.value > a ? e.value : a);
+    final barMax = maxVal <= 0 ? 1.0 : maxVal;
+    const rowH = 34.0;
+    final listH = (entries.length * rowH).clamp(80.0, maxHeight);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Text(
+              'Total',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              nf.format(entries.fold<double>(0, (s, e) => s + e.value)),
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFFDC2626),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: listH,
+          child: ListView.separated(
+            physics: entries.length > 6
+                ? const BouncingScrollPhysics()
+                : const NeverScrollableScrollPhysics(),
+            itemCount: entries.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 6),
+            itemBuilder: (context, i) {
+              final e = entries[i];
+              final frac = (e.value / barMax).clamp(0.06, 1.0);
+              final money = e.value >= 1000
+                  ? nfCompact.format(e.value)
+                  : nf.format(e.value);
+              return Row(
+                children: [
+                  SizedBox(
+                    width: 44,
+                    child: Text(
+                      e.label,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, c) {
+                        return Stack(
+                          alignment: Alignment.centerLeft,
+                          children: [
+                            Container(
+                              height: 22,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                            ),
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 380),
+                              curve: Curves.easeOutCubic,
+                              width: c.maxWidth * frac,
+                              height: 22,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(6),
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xFFF87171),
+                                    Color(0xFFDC2626),
+                                  ],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFDC2626)
+                                        .withValues(alpha: 0.18),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 72,
+                    child: Text(
+                      money,
+                      textAlign: TextAlign.end,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFB91C1C),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 /// Gráfico fluxo financeiro — cache `finance_summary` (sem stream de 2500).
 class _GraficoFinanceiro extends StatelessWidget {
   final String tenantId;
@@ -5316,7 +5525,7 @@ class _PainelDespesasDashboard extends StatefulWidget {
 }
 
 class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
-  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _recentDespesasFuture;
+  Future<QuerySnapshot<Map<String, dynamic>>>? _recentDespesasFuture;
 
   @override
   void initState() {
@@ -5340,7 +5549,7 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
   void _reloadRecentDespesas() {
     final tid = widget.tenantId.trim();
     if (tid.isEmpty) {
-      _recentDespesasFuture = Future.value(const []);
+      _recentDespesasFuture = null;
       return;
     }
     _recentDespesasFuture = FirebaseFirestore.instance
@@ -5348,11 +5557,8 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
         .doc(tid)
         .collection('finance')
         .orderBy('createdAt', descending: true)
-        .limit(60)
-        .get()
-        .then((snap) => snap.docs
-            .where((d) => _PainelDespesasDashboardState._ehDespesa(d.data()))
-            .toList());
+        .limit(180)
+        .get();
   }
 
   static bool _ehDespesa(Map<String, dynamic> data) {
@@ -5395,20 +5601,7 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
         }
         final buckets =
             _dashboardFinanceBuckets(widget.range, widget.preset);
-        final byBucket = PanelFinanceSnapshotService.saidasByBuckets(
-          snapshot: finSnap.data ?? const PanelFinanceSnapshot(),
-          bucketStarts: buckets.bucketStarts,
-          monthlyMode: buckets.monthlyMode,
-        );
-        final chartHasData = byBucket.any((v) => v > 0);
-        if (!chartHasData && finSnap.hasError) {
-          return const SizedBox.shrink();
-        }
-
-        final ord = List<int>.generate(buckets.labels.length, (i) => i);
-        final maxY = byBucket.fold<double>(0, (a, b) => a > b ? a : b);
-        final capY = maxY <= 0 ? 1.0 : maxY * 1.15;
-
+        final snapshot = finSnap.data ?? const PanelFinanceSnapshot();
         void openFinanceiro({String? openId, int? tab}) {
           Navigator.push(
             context,
@@ -5426,14 +5619,37 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
           );
         }
 
-        return FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+        if (_recentDespesasFuture == null) {
+          return const SizedBox.shrink();
+        }
+        return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
           future: _recentDespesasFuture,
           builder: (context, recentSnap) {
-            var despesasDocs = recentSnap.data ?? const [];
+            final allDocs = recentSnap.data?.docs ?? const [];
+            var despesasDocs = allDocs
+                .where((d) => _ehDespesa(d.data()))
+                .toList();
             despesasDocs = despesasDocs.where((d) {
               final dt = _dataDoc(d.data());
               return _dashboardDateInRange(dt, widget.range);
             }).toList();
+            final byBucket = buckets.monthlyMode
+                ? PanelFinanceSnapshotService.saidasByBuckets(
+                    snapshot: snapshot,
+                    bucketStarts: buckets.bucketStarts,
+                    monthlyMode: true,
+                  )
+                : _dashboardSaidasFromFinanceDocs(
+                    docs: allDocs,
+                    buckets: buckets,
+                    isDespesa: _ehDespesa,
+                    valorAbs: _valorAbs,
+                    dataDoc: _dataDoc,
+                  );
+            final chartHasData = byBucket.any((v) => v > 0);
+            if (!chartHasData && finSnap.hasError) {
+              return const SizedBox.shrink();
+            }
             despesasDocs.sort((a, b) {
               final da = _dataDoc(a.data());
               final db = _dataDoc(b.data());
@@ -5458,80 +5674,11 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
               ),
               const SizedBox(height: 8),
               if (chartHasData)
-              SizedBox(
-                height: widget.isNarrow ? 200 : 220,
-                child: BarChart(
-                  BarChartData(
-                    alignment: BarChartAlignment.spaceAround,
-                    maxY: capY,
-                    gridData: FlGridData(
-                      show: true,
-                      drawVerticalLine: false,
-                      getDrawingHorizontalLine: (_) => FlLine(
-                        color: Colors.grey.shade200,
-                        strokeWidth: 1,
-                      ),
-                    ),
-                    titlesData: FlTitlesData(
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 36,
-                          getTitlesWidget: (v, _) => Text(
-                            'R\$${v.toInt()}',
-                            style: TextStyle(
-                              fontSize: 9,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ),
-                      ),
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          getTitlesWidget: (v, _) {
-                            final i = v.toInt();
-                            if (i >= 0 && i < buckets.labels.length) {
-                              return Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Text(
-                                  buckets.labels[i],
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                              );
-                            }
-                            return const SizedBox();
-                          },
-                        ),
-                      ),
-                      topTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false)),
-                      rightTitles: const AxisTitles(
-                          sideTitles: SideTitles(showTitles: false)),
-                    ),
-                    borderData: FlBorderData(show: false),
-                    barGroups: ord.map((e) {
-                      final val = byBucket[e];
-                      return BarChartGroupData(
-                        x: e,
-                        barRods: [
-                          BarChartRodData(
-                            toY: val,
-                            color: const Color(0xFFDC2626),
-                            width: 14,
-                            borderRadius: const BorderRadius.vertical(
-                              top: Radius.circular(4),
-                            ),
-                          ),
-                        ],
-                      );
-                    }).toList(),
-                  ),
+                _HorizontalDespesasBarChart(
+                  labels: buckets.labels,
+                  values: byBucket,
+                  maxHeight: widget.isNarrow ? 220 : 260,
                 ),
-              ),
               if (chartHasData) const SizedBox(height: 12),
               if (recent.isNotEmpty) ...[
               Text(

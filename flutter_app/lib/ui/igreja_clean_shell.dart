@@ -65,6 +65,7 @@ import 'widgets/church_panel_ui_helpers.dart';
 import 'widgets/gestor_welcome_dialog.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:gestao_yahweh/ui/widgets/church_shell_nav_icon.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart';
@@ -219,17 +220,17 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _ChurchShellFooterShortcut(
         shellIndex: ChurchShellIndices.membros,
         shortLabel: 'Membros',
-        accent: kChurchShellNavEntries[2].accent,
+        accent: kChurchShellNavEntries[ChurchShellIndices.membros].accent,
       ),
       _ChurchShellFooterShortcut(
         shellIndex: ChurchShellIndices.muralEventos,
         shortLabel: 'Eventos',
-        accent: kChurchShellNavEntries[7].accent,
+        accent: kChurchShellNavEntries[ChurchShellIndices.muralEventos].accent,
       ),
       _ChurchShellFooterShortcut(
         shellIndex: ChurchShellIndices.muralAvisos,
         shortLabel: 'Avisos',
-        accent: kChurchShellNavEntries[6].accent,
+        accent: kChurchShellNavEntries[ChurchShellIndices.muralAvisos].accent,
       ),
       _ChurchShellFooterShortcut(
         shellIndex: ChurchShellIndices.chatIgreja,
@@ -262,9 +263,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.07),
-                  blurRadius: 18,
-                  offset: const Offset(0, -5),
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.1),
+                  blurRadius: 22,
+                  offset: const Offset(0, -8),
+                ),
+                BoxShadow(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+                  blurRadius: 12,
+                  offset: const Offset(0, -2),
                 ),
               ],
             ),
@@ -272,7 +278,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               top: false,
               child: Padding(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
                 child: Row(
                   children: [
                     for (var s = 0; s < shortcuts.length; s++)
@@ -680,49 +686,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     }
   }
 
-  /// Ícone em chip com gradiente da cor do módulo (desktop + drawer).
+  /// Ícone 3D colorido (desktop + drawer).
   Widget _navMenuIconChip(int i, bool selected, {bool compact = false}) {
-    final s = compact ? 20.0 : 22.0;
-    final box = compact ? 36.0 : 40.0;
-    final ac = _items[i].accent;
-    final deep = Color.lerp(ac, const Color(0xFF0F172A), 0.38)!;
-    return Container(
-      width: box,
-      height: box,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: selected
-              ? [
-                  Color.lerp(ac, Colors.white, 0.22)!,
-                  deep,
-                ]
-              : [
-                  ac.withValues(alpha: 0.42),
-                  ac.withValues(alpha: 0.18),
-                ],
-        ),
-        border: Border.all(
-          color: selected
-              ? Colors.white.withValues(alpha: 0.45)
-              : ac.withValues(alpha: 0.55),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: ac.withValues(alpha: selected ? 0.45 : 0.28),
-            blurRadius: selected ? 12 : 6,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Icon(
-        _items[i].icon,
-        size: s,
-        color: Colors.white.withValues(alpha: 0.96),
-      ),
+    final box = compact ? 38.0 : 42.0;
+    return ChurchShellNavIcon3D(
+      icon: _items[i].icon,
+      accent: _items[i].accent,
+      selected: selected,
+      size: box,
+      iconSize: compact ? 20 : 22,
     );
   }
 
@@ -789,22 +761,27 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        Colors.white.withValues(alpha: 0.14),
-                        Colors.white.withValues(alpha: 0.06),
+                        item.accent.withValues(alpha: 0.22),
+                        Colors.white.withValues(alpha: 0.08),
                       ],
                     )
                   : null,
               border: Border.all(
                 color: selected
-                    ? Colors.white.withValues(alpha: 0.22)
+                    ? item.accent.withValues(alpha: 0.45)
                     : Colors.transparent,
               ),
               boxShadow: selected
                   ? [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.18),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
+                        color: item.accent.withValues(alpha: 0.35),
+                        blurRadius: 14,
+                        offset: const Offset(0, 5),
+                      ),
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.16),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
                       ),
                     ]
                   : null,
@@ -1209,12 +1186,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                       : 'Planos',
                 ),
               IconButton(
-                icon: const Icon(Icons.logout_rounded,
+                icon: const Icon(Icons.settings_rounded,
                     color: Colors.white, size: 22),
-                onPressed: () =>
-                    ChurchSignOutNavigation.signOutFromChurchPanel(),
+                onPressed: () {
+                  setState(() => _selectedIndex = ChurchShellIndices.configuracoes);
+                },
                 style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                tooltip: 'Sair',
+                tooltip: 'Configurações (trocar conta)',
               ),
             ],
           ),
@@ -2116,7 +2094,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         churchName: churchName,
         logoUrl: logoUrl,
         onRenew: () => unawaited(_openUpgradePlans()),
-        onLogout: ChurchSignOutNavigation.signOutFromChurchPanel,
+        onLogout: ChurchSignOutNavigation.signOutForAccountSwitch,
       ),
     );
   }
@@ -2574,45 +2552,13 @@ class _PremiumShellFooterShortcut extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: selected
-                        ? LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              c,
-                              Color.lerp(c, const Color(0xFF0F172A), 0.22)!,
-                            ],
-                          )
-                        : null,
-                    color: selected ? null : c.withValues(alpha: 0.14),
-                    boxShadow: selected
-                        ? [
-                            BoxShadow(
-                              color: c.withValues(alpha: 0.42),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
-                            ),
-                          ]
-                        : [
-                            BoxShadow(
-                              color: c.withValues(alpha: 0.12),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                  ),
-                  child: Icon(
-                    icon,
-                    size: 24,
-                    color: selected ? Colors.white : c.withValues(alpha: 0.92),
-                  ),
+                ChurchShellNavIcon3D(
+                  icon: icon,
+                  accent: c,
+                  selected: selected,
+                  shape: ChurchShellIconShape.circle,
+                  size: 50,
+                  iconSize: 26,
                 ),
                 const SizedBox(height: 5),
                 Text(
@@ -2625,7 +2571,9 @@ class _PremiumShellFooterShortcut extends StatelessWidget {
                     height: 1.05,
                     fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
                     letterSpacing: -0.25,
-                    color: selected ? c : const Color(0xFF64748B),
+                    color: selected
+                        ? Color.lerp(c, const Color(0xFF0F172A), 0.25)!
+                        : const Color(0xFF64748B),
                   ),
                 ),
               ],

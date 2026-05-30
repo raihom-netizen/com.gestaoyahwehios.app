@@ -1,0 +1,39 @@
+# Firebase — padrão Controle Total (Gestão YAHWEH)
+
+## Princípio
+
+1. **Ficheiros (Storage):** `putData` / `putFile` com utilizador autenticado → URL → gravar URL no documento de negócio.
+2. **Dados (Firestore):** `set` / `update` com `FieldValue.serverTimestamp()` nas coleções da igreja (`avisos`, `eventos`, `membros`, `chat_threads/.../messages`).
+3. **Sem fila Firestore** de upload (`pending_uploads` descontinuada no cliente; limpeza por migração + função agendada).
+4. **Offline (só app mobile):** fila em disco `ApplicationDocuments/pending_uploads/` + SharedPreferences (`yahweh_pending_uploads_v1`), como o CT (`pending_storage_uploads_v1`).
+5. **Web:** persistência Firestore desligada; long-polling; uploads imediatos (sem IndexedDB de fila).
+
+## Cliente (Flutter)
+
+| Ficheiro | Função |
+|----------|--------|
+| `lib/core/firebase_upload_policy.dart` | Liga/desliga fila Firestore |
+| `lib/core/firestore_app_config.dart` | Settings Firestore (CT web/mobile) |
+| `lib/services/firestore_simple_write.dart` | Merge + timestamps servidor |
+| `lib/services/yahweh_media_upload_pipeline.dart` | Compressão + `putData` + retry |
+| `lib/services/storage_upload_persistence_service.dart` | Fila disco (mobile) |
+| `lib/services/pending_uploads_migration.dart` | Limpeza única da fila antiga |
+
+## Regras
+
+- **Storage:** paths `igrejas/{id}/…` — write = auth + limite de tamanho (`authMediaWriteMax`), MIME flexível (`octet-stream` aceite).
+- **Firestore:** multi-tenant mantido; `pending_uploads` — cliente **não cria** novos docs (só `delete` para limpar).
+
+## Functions
+
+- `scheduledPurgeStalePendingUploads` — apaga jobs `pending_uploads` com mais de 7 dias (manutenção).
+
+## Deploy
+
+```powershell
+.\scripts\deploy_firebase_rules.ps1
+# Se alterou functions:
+cd functions; npm run build; cd ..
+firebase deploy --only functions:scheduledPurgeStalePendingUploads
+.\scripts\deploy_web_hosting.ps1
+```

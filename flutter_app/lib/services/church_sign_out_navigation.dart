@@ -73,8 +73,18 @@ abstract final class ChurchSignOutNavigation {
     nav.pushNamedAndRemoveUntil(dest, (_) => false);
   }
 
-  /// Botão «Sair» no painel (web, PWA e app).
+  /// Configurações → «Trocar e-mail de login»: limpa Firebase + Google no aparelho.
+  static Future<void> signOutForAccountSwitch() async {
+    await LoginPreferences.prepareChurchAccountSwitch();
+    await signOutFromChurchPanel();
+  }
+
+  /// Só desloga de facto após [prepareChurchAccountSwitch] (igual Controle Total).
+  /// Outros botões «Sair» não devem chamar isto sem a flag — a sessão permanece.
   static Future<void> signOutFromChurchPanel() async {
+    if (!await LoginPreferences.isAccountSwitchPending()) {
+      return;
+    }
     final pendingOverride =
         await LoginPreferences.peekPostSignOutRouteOverride();
     final preNav = (pendingOverride != null && pendingOverride.isNotEmpty)

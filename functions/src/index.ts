@@ -7065,3 +7065,5 @@ export { resolveStorageDisplayUrls } from "./storageDisplayUrls";
 
 export { backfillMemberCodigos } from "./memberCodigo";
 
+export { scheduledPurgeStalePendingUploads } from "./purgeStalePendingUploads";
+

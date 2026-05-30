@@ -6730,10 +6730,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final postId = docRef.id;
     final isNewDoc = widget.doc == null;
     try {
-      await AppFinalizeBootstrap.ensureSessionForPublish(logLabel: 'eventos_save');
+      await ensureFirebaseReadyForPublishUpload();
       await _waitEventPhotoUploadQueue();
-      await runFirebaseBackgroundTask(() async {
-        final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+      final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
         final hasPendingLocal = _newPhotoCount > 0;
         double? aspectRatio;
         if (!hasPendingLocal && existingUrls.isNotEmpty) {
@@ -6801,7 +6800,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           );
           Navigator.pop(context, true);
         }
-      }, debugLabel: 'event_publish');
     } catch (e, st) {
       unawaited(CrashlyticsService.record(e, st, reason: 'eventos_publish'));
       unawaited(

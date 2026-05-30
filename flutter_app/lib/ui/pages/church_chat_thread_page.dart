@@ -1254,7 +1254,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
                       child: Text(
-                        'Enviar foto, vídeo ou ficheiro',
+                        'Vários ficheiros de cada vez',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.98),
@@ -1280,15 +1280,39 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        _WhatsStyleAttachTile(
-                          icon: Icons.collections_rounded,
-                          label: 'Galeria',
-                          color: const Color(0xFF169D5B),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            unawaited(_pickImage(ImageSource.gallery));
-                          },
-                        ),
+                        if (!kIsWeb)
+                          _WhatsStyleAttachTile(
+                            icon: Icons.perm_media_rounded,
+                            label: 'Galeria',
+                            subtitle: 'fotos e vídeos',
+                            color: const Color(0xFF169D5B),
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              unawaited(_pickMixedMediaFromGallery());
+                            },
+                          ),
+                        if (kIsWeb) ...[
+                          _WhatsStyleAttachTile(
+                            icon: Icons.collections_rounded,
+                            label: 'Fotos',
+                            subtitle: 'várias',
+                            color: const Color(0xFF169D5B),
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              unawaited(_pickImagesFromGallery());
+                            },
+                          ),
+                          _WhatsStyleAttachTile(
+                            icon: Icons.video_library_rounded,
+                            label: 'Vídeos',
+                            subtitle: 'vários',
+                            color: const Color(0xFF7C3AED),
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              unawaited(_pickVideosFromGallery());
+                            },
+                          ),
+                        ],
                         _WhatsStyleAttachTile(
                           icon: Icons.photo_camera_rounded,
                           label: 'Câmara',
@@ -1298,15 +1322,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             unawaited(_pickImage(ImageSource.camera));
                           },
                         ),
-                        _WhatsStyleAttachTile(
-                          icon: Icons.video_library_rounded,
-                          label: 'Vídeo',
-                          color: const Color(0xFF7C3AED),
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            unawaited(_pickVideo(ImageSource.gallery));
-                          },
-                        ),
+                        if (!kIsWeb)
+                          _WhatsStyleAttachTile(
+                            icon: Icons.video_library_rounded,
+                            label: 'Vídeos',
+                            subtitle: 'vários',
+                            color: const Color(0xFF7C3AED),
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              unawaited(_pickVideosFromGallery());
+                            },
+                          ),
                         _WhatsStyleAttachTile(
                           icon: Icons.videocam_rounded,
                           label: 'Gravar',
@@ -1319,6 +1345,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         _WhatsStyleAttachTile(
                           icon: Icons.description_rounded,
                           label: 'Doc.',
+                          subtitle: 'vários',
                           color: const Color(0xFFEA580C),
                           onTap: () {
                             Navigator.pop(ctx);
@@ -1328,6 +1355,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         _WhatsStyleAttachTile(
                           icon: Icons.audio_file_rounded,
                           label: 'Áudio',
+                          subtitle: 'vários',
                           color: const Color(0xFF4F46E5),
                           onTap: () {
                             Navigator.pop(ctx);
@@ -1355,6 +1383,97 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       maxHeight: mediaChatImageMaxHeight.toDouble(),
     );
     if (x == null) return;
+    await _sendPickedImageFile(x, previewOnWeb: kIsWeb);
+  }
+
+  /// Android/iOS: uma seleção com fotos e vídeos (como galeria de avisos/eventos).
+  Future<void> _pickMixedMediaFromGallery() async {
+    final r = await FilePicker.platform.pickFiles(
+      type: FileType.media,
+      allowMultiple: true,
+    );
+    if (r == null || r.files.isEmpty) return;
+    var imgCount = 0;
+    var vidCount = 0;
+    final toSend = <PlatformFile>[];
+    for (final f in r.files) {
+      final name = f.name.isNotEmpty ? f.name : 'ficheiro';
+      final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
+      final kind = ChurchChatAttachmentUtils.messageKindForAttachment(
+        fileName: name,
+        mime: mime,
+      );
+      if (kind == 'image') {
+        if (imgCount >= kChatMaxImagesPerPick) continue;
+        imgCount++;
+        toSend.add(f);
+      } else if (kind == 'video') {
+        if (vidCount >= kChatMaxVideosPerPick) continue;
+        vidCount++;
+        toSend.add(f);
+      }
+    }
+    if (toSend.isEmpty) {
+      if (mounted) {
+        _showChatAttachmentError(
+          'Nenhuma foto ou vídeo válido na seleção.',
+        );
+      }
+      return;
+    }
+    if (r.files.length > toSend.length && mounted) {
+      _showChatAttachmentError(
+        'Limite: até $kChatMaxImagesPerPick fotos e $kChatMaxVideosPerPick vídeos por envio.',
+      );
+    }
+    if (!mounted) return;
+    if (toSend.length > 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('A enviar ${toSend.length} ficheiro(s)…'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+    for (var i = 0; i < toSend.length; i++) {
+      if (!mounted) return;
+      await _sendPickedPlatformFile(toSend[i]);
+      if (i < toSend.length - 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    }
+  }
+
+  Future<void> _pickImagesFromGallery() async {
+    final picker = ImagePicker();
+    final list = await picker.pickMultiImage(
+      imageQuality: mediaChatImageQuality,
+      maxWidth: mediaChatImageMaxWidth.toDouble(),
+      maxHeight: mediaChatImageMaxHeight.toDouble(),
+      limit: kChatMaxImagesPerPick,
+    );
+    if (list.isEmpty) return;
+    if (!mounted) return;
+    if (list.length > 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('A enviar ${list.length} foto(s)…'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+    for (var i = 0; i < list.length; i++) {
+      if (!mounted) return;
+      await _sendPickedImageFile(list[i], previewOnWeb: kIsWeb && list.length == 1);
+      if (i < list.length - 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+      }
+    }
+  }
+
+  Future<void> _sendPickedImageFile(XFile x, {required bool previewOnWeb}) async {
     if (!mounted) return;
     final name = x.name.isNotEmpty ? x.name : 'foto.jpg';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
@@ -1363,13 +1482,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       mime: mime,
     );
     if (!kIsWeb && (x.path ?? '').isNotEmpty) {
-      // WhatsApp: envia logo após escolher (sem folha de confirmação).
       unawaited(_uploadAndSendFromPath(x.path!, name, mime, kind));
       return;
     }
     final bytes = await x.readAsBytes();
     if (!mounted) return;
-    if (kIsWeb) {
+    if (previewOnWeb) {
       final ok = await showChurchChatMediaPreviewSheet(
         context,
         previewBytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
@@ -1381,6 +1499,37 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     unawaited(_uploadAndSend(bytes, name, mime, kind));
   }
 
+  Future<void> _pickVideosFromGallery() async {
+    final r = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+      allowMultiple: true,
+      withData: kIsWeb,
+    );
+    if (r == null || r.files.isEmpty) return;
+    final files = r.files.take(kChatMaxVideosPerPick).toList();
+    if (r.files.length > files.length && mounted) {
+      _showChatAttachmentError(
+        'Só os primeiros $kChatMaxVideosPerPick vídeos serão enviados.',
+      );
+    }
+    if (files.length > 1 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('A enviar ${files.length} vídeo(s)…'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+    for (var i = 0; i < files.length; i++) {
+      if (!mounted) return;
+      await _sendPickedPlatformFile(files[i], defaultVideoName: 'video_$i.mp4');
+      if (i < files.length - 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      }
+    }
+  }
+
   Future<void> _pickVideo(ImageSource source) async {
     final picker = ImagePicker();
     final x = await picker.pickVideo(
@@ -1388,6 +1537,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       maxDuration: mediaVideoMaxDurationEffective,
     );
     if (x == null) return;
+    if (!mounted) return;
+    await _sendPickedVideoXFile(x, previewOnWeb: kIsWeb);
+  }
+
+  Future<void> _sendPickedVideoXFile(XFile x, {required bool previewOnWeb}) async {
     var name = x.name.isNotEmpty ? x.name : 'video.mp4';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
     final kind = ChurchChatAttachmentUtils.messageKindForAttachment(
@@ -1407,7 +1561,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
       return;
     }
-    if (kIsWeb) {
+    if (previewOnWeb) {
       final previewBytes = bytes.length <= 6 * 1024 * 1024
           ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
           : null;
@@ -1423,6 +1577,38 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       if (!ok || !mounted) return;
     }
     unawaited(_uploadAndSend(bytes, name, mime, kind));
+  }
+
+  Future<void> _sendPickedPlatformFile(
+    PlatformFile f, {
+    String? defaultVideoName,
+  }) async {
+    final name = f.name.isNotEmpty
+        ? f.name
+        : (defaultVideoName ?? 'ficheiro');
+    final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
+    final kind = ChurchChatAttachmentUtils.messageKindForAttachment(
+      fileName: name,
+      mime: mime,
+    );
+    if (!kIsWeb && (f.path ?? '').isNotEmpty) {
+      unawaited(_uploadAndSendFromPath(f.path!, name, mime, kind));
+      return;
+    }
+    if (f.bytes == null || f.bytes!.isEmpty) {
+      _showChatAttachmentError(
+        'Não foi possível ler «$name». Tente outro ficheiro.',
+      );
+      return;
+    }
+    if (kind == 'video' && f.bytes!.length > mediaChatVideoHardMaxBytesEffective) {
+      _showChatAttachmentError(
+        '«$name» é demasiado grande (máx. '
+        '${(mediaChatVideoHardMaxBytesEffective / (1024 * 1024)).round()} MB).',
+      );
+      return;
+    }
+    unawaited(_uploadAndSend(f.bytes!, name, mime, kind));
   }
 
   void _onMemberProfilePhotoSynced() {
@@ -1690,6 +1876,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Future<void> _pickDocument() async {
     final r = await FilePicker.platform.pickFiles(
       type: FileType.custom,
+      allowMultiple: true,
       allowedExtensions: const [
         'pdf',
         'doc',
@@ -1707,30 +1894,35 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       ],
       withData: kIsWeb,
     );
-    final f = r?.files.single;
-    if (f == null) return;
-    final name = f.name;
-    final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
-    final kind = ChurchChatAttachmentUtils.messageKindForAttachment(
-      fileName: name,
-      mime: mime,
-    );
-    if (!kIsWeb && (f.path ?? '').isNotEmpty) {
-      unawaited(_uploadAndSendFromPath(f.path!, name, mime, kind));
-      return;
-    }
-    if (f.bytes == null || f.bytes!.isEmpty) {
+    if (r == null || r.files.isEmpty) return;
+    final files = r.files.take(kChatMaxDocumentsPerPick).toList();
+    if (r.files.length > files.length && mounted) {
       _showChatAttachmentError(
-        'Não foi possível ler o ficheiro. Tente outro ou um ficheiro menor.',
+        'Só os primeiros $kChatMaxDocumentsPerPick documentos serão enviados.',
       );
-      return;
     }
-    unawaited(_uploadAndSend(f.bytes!, name, mime, kind));
+    if (files.length > 1 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('A enviar ${files.length} ficheiro(s)…'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+    for (var i = 0; i < files.length; i++) {
+      if (!mounted) return;
+      await _sendPickedPlatformFile(files[i]);
+      if (i < files.length - 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+      }
+    }
   }
 
   Future<void> _pickAudioFile() async {
     final r = await FilePicker.platform.pickFiles(
       type: FileType.custom,
+      allowMultiple: true,
       allowedExtensions: const [
         'm4a',
         'aac',
@@ -1742,25 +1934,20 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       ],
       withData: kIsWeb,
     );
-    final f = r?.files.single;
-    if (f == null) return;
-    final name = f.name;
-    final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
-    final kind = ChurchChatAttachmentUtils.messageKindForAttachment(
-      fileName: name,
-      mime: mime,
-    );
-    if (!kIsWeb && (f.path ?? '').isNotEmpty) {
-      unawaited(_uploadAndSendFromPath(f.path!, name, mime, kind));
-      return;
-    }
-    if (f.bytes == null || f.bytes!.isEmpty) {
+    if (r == null || r.files.isEmpty) return;
+    final files = r.files.take(kChatMaxAudioFilesPerPick).toList();
+    if (r.files.length > files.length && mounted) {
       _showChatAttachmentError(
-        'Não foi possível ler o áudio. Tente outro ficheiro.',
+        'Só os primeiros $kChatMaxAudioFilesPerPick áudios serão enviados.',
       );
-      return;
     }
-    unawaited(_uploadAndSend(f.bytes!, name, mime, kind));
+    for (var i = 0; i < files.length; i++) {
+      if (!mounted) return;
+      await _sendPickedPlatformFile(files[i], defaultVideoName: 'audio_$i.m4a');
+      if (i < files.length - 1) {
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+      }
+    }
   }
 
   Future<void> _uploadAndSend(
@@ -3786,12 +3973,14 @@ class _MessageBody extends StatelessWidget {
 class _WhatsStyleAttachTile extends StatelessWidget {
   final IconData icon;
   final String label;
+  final String? subtitle;
   final Color color;
   final VoidCallback onTap;
 
   const _WhatsStyleAttachTile({
     required this.icon,
     required this.label,
+    this.subtitle,
     required this.color,
     required this.onTap,
   });
@@ -3835,7 +4024,7 @@ class _WhatsStyleAttachTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  label,
+                  subtitle == null ? label : '$label\n$subtitle',
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,

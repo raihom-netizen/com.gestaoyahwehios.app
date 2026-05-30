@@ -162,10 +162,31 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
     try {
       final u = FirebaseAuth.instance.currentUser;
       if (u == null) return false;
-      final token = await u.getIdTokenResult(true).timeout(
-            const Duration(seconds: 12),
-            onTimeout: () => throw TimeoutException('Verificação de admin'),
-          );
+      IdTokenResult token;
+      try {
+        token = await u.getIdTokenResult(false).timeout(
+              const Duration(seconds: 6),
+              onTimeout: () => throw TimeoutException('Verificação de admin'),
+            );
+      } on TimeoutException {
+        rethrow;
+      } catch (_) {
+        token = await u.getIdTokenResult(true).timeout(
+              const Duration(seconds: 12),
+              onTimeout: () => throw TimeoutException('Verificação de admin'),
+            );
+      }
+      final roleStale = (token.claims?['role'] ?? token.claims?['nivel'] ?? '')
+          .toString()
+          .toUpperCase();
+      if (roleStale != 'ADMIN' &&
+          roleStale != 'ADM' &&
+          roleStale != 'MASTER') {
+        token = await u.getIdTokenResult(true).timeout(
+              const Duration(seconds: 12),
+              onTimeout: () => throw TimeoutException('Verificação de admin'),
+            );
+      }
       final role = (token.claims?['role'] ?? token.claims?['nivel'] ?? '')
           .toString()
           .toUpperCase();

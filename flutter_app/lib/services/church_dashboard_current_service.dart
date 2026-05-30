@@ -54,6 +54,13 @@ abstract final class ChurchDashboardCurrentService {
 
   static Future<ChurchDashboardCurrent> readOnce(String tenantId) async {
     try {
+      final cached = await ref(tenantId).get(
+        const GetOptions(source: Source.cache),
+      );
+      final fromCache = ChurchDashboardCurrent.fromMap(cached.data());
+      if (fromCache.updatedAt != null) return fromCache;
+    } catch (_) {}
+    try {
       final snap = await ref(tenantId).get();
       return ChurchDashboardCurrent.fromMap(snap.data());
     } catch (_) {

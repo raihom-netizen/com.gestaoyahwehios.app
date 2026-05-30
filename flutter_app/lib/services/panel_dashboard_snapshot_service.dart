@@ -241,22 +241,35 @@ class PanelDashboardSnapshotService {
     );
   }
 
-  /// Leitura única (1 doc) — pintura instantânea antes dos streams pesados.
+  static PanelDashboardSnapshot _fromCacheDoc(
+    DocumentSnapshot<Map<String, dynamic>> snap,
+  ) {
+    final data = snap.data();
+    if (data == null) return const PanelDashboardSnapshot();
+    final summary = data['summary'];
+    final base = summary is Map
+        ? Map<String, dynamic>.from(summary)
+        : Map<String, dynamic>.from(data);
+    if (data['updatedAt'] is Timestamp) {
+      base['updatedAt'] = data['updatedAt'];
+    }
+    return PanelDashboardSnapshot.fromMap(base);
+  }
+
+  /// Leitura única — cache local primeiro (padrão Controle Total), depois servidor.
   static Future<PanelDashboardSnapshot> readOnce(String tenantId) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const PanelDashboardSnapshot();
     try {
+      final cached = await cacheRef(tid).get(
+        const GetOptions(source: Source.cache),
+      );
+      final fromCache = _fromCacheDoc(cached);
+      if (fromCache.isFreshForInstantPanel) return fromCache;
+    } catch (_) {}
+    try {
       final snap = await cacheRef(tid).get();
-      final data = snap.data();
-      if (data == null) return const PanelDashboardSnapshot();
-      final summary = data['summary'];
-      final base = summary is Map
-          ? Map<String, dynamic>.from(summary)
-          : Map<String, dynamic>.from(data);
-      if (data['updatedAt'] is Timestamp) {
-        base['updatedAt'] = data['updatedAt'];
-      }
-      return PanelDashboardSnapshot.fromMap(base);
+      return _fromCacheDoc(snap);
     } catch (_) {
       return const PanelDashboardSnapshot();
     }

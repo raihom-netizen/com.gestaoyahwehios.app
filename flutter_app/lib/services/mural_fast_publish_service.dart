@@ -228,7 +228,7 @@ abstract final class MuralFastPublishService {
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForPublishUpload();
     try {
       await FeedPostMediaUpload.warmAuthToken().timeout(const Duration(seconds: 25));
       Map<String, dynamic>? firstVariants;
@@ -307,7 +307,7 @@ abstract final class MuralFastPublishService {
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForPublishUpload();
     if (kIsWeb) {
       throw StateError('uploadImagesAndFinalizePostFromPaths só no mobile.');
     }
@@ -419,7 +419,7 @@ abstract final class MuralFastPublishService {
     Object? lastFinalize;
     for (var attempt = 1; attempt <= 5; attempt++) {
       try {
-        await ensureFirebaseReadyForMediaUpload();
+        await ensureFirebaseReadyForPublishUpload();
         await docRef.set(patch, SetOptions(merge: true));
         lastFinalize = null;
         break;
@@ -463,7 +463,7 @@ abstract final class MuralFastPublishService {
     if (url.trim().isEmpty) return;
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
-        await ensureFirebaseReadyForMediaUpload();
+        await ensureFirebaseReadyForPublishUpload();
         await docRef.update({
           'imageUrls': FieldValue.arrayUnion([url]),
           'updatedAt': FieldValue.serverTimestamp(),
@@ -489,7 +489,7 @@ abstract final class MuralFastPublishService {
     );
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
-        await ensureFirebaseReadyForMediaUpload();
+        await ensureFirebaseReadyForPublishUpload();
         await docRef.set(
           {
             'publishState': stateFailed,

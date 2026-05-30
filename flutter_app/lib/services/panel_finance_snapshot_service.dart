@@ -98,8 +98,7 @@ class PanelFinanceSnapshotService {
       if (monthlyMode) {
         out[i] = net;
       } else {
-        final daysInMonth = DateTime(start.year, start.month + 1, 0).day;
-        out[i] = daysInMonth > 0 ? net / daysInMonth : 0;
+        out[i] = 0;
       }
     }
     return out;
@@ -119,8 +118,8 @@ class PanelFinanceSnapshotService {
       if (monthlyMode) {
         out[i] = m.saidas;
       } else {
-        final daysInMonth = DateTime(start.year, start.month + 1, 0).day;
-        out[i] = daysInMonth > 0 ? m.saidas / daysInMonth : 0;
+        // Cache só tem totais mensais — não repetir o mesmo valor em cada dia.
+        out[i] = 0;
       }
     }
     return out;

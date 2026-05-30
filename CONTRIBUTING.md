@@ -42,7 +42,12 @@ Use `ThemeCleanPremium.premiumErrorState` e `ThemeCleanPremium.showErrorSnackBar
 O projeto já inclui `firebase_crashlytics` no Dart e os plugins Gradle (`com.google.gms.google-services`, `com.google.firebase.crashlytics`).
 
 1. Coloque **`google-services.json`** em `flutter_app/android/app/` (baixar na Firebase Console → configurações do projeto Android). Sem este ficheiro o **build Android falha**.
-2. iOS: `GoogleService-Info.plist` no Xcode, se quiser Crashlytics também no iPhone.
+2. **iOS — dSYM (obrigatório para stack traces legíveis):**
+   - Xcode: fase **Firebase Crashlytics dSYM** (`Pods/FirebaseCrashlytics/run`) no target Runner (só archive/release).
+   - **Codemagic:** passo `Upload dSYM para Firebase Crashlytics` (`scripts/codemagic_ios_upload_crashlytics_dsyms.sh`) após `flutter build ipa`.
+   - E-mail «Missing dSYM» para uma build **antiga**: só some após enviar o `.dSYM` dessa build (artefacto `Runner.xcarchive/dSYMs` no CI) ou ignorar e aguardar **nova** build iOS com o script activo.
+   - Upload manual (Mac, com o `.dSYM` guardado):  
+     `flutter_app/ios/Pods/FirebaseCrashlytics/upload-symbols -gsp flutter_app/ios/Runner/GoogleService-Info.plist -p ios /caminho/Runner.app.dSYM`
 3. Relatórios: [Firebase Console → Crashlytics](https://console.firebase.google.com/project/gestaoyahweh-21e23/crashlytics). Em **debug** a recolha fica desligada (`kReleaseMode`); use um build **release** para ver crashes reais.
 
 ## Backup e dados

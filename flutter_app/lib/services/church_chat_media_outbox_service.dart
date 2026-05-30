@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_pending_media_cache.dart';
@@ -97,7 +98,9 @@ abstract final class ChurchChatMediaOutboxService {
       ),
     );
     final sp = storagePath?.trim() ?? '';
-    if (sp.isNotEmpty) {
+    if (sp.isNotEmpty &&
+        !kIsWeb &&
+        FirebaseUploadPolicy.firestorePendingQueueEnabled) {
       unawaited(
         PendingUploadsFirestoreService.enqueue(
           tenantId: tenantId,
@@ -186,6 +189,7 @@ abstract final class ChurchChatMediaOutboxService {
         tenantId: tenantId,
         uploadId: idToDelete,
       );
+      await PendingUploadsFirestoreService.cancelJob(tenantId, idToDelete);
     }
   }
 
