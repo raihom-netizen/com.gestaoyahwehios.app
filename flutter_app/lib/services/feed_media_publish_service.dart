@@ -1,18 +1,19 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
-import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
+import 'package:gestao_yahweh/services/feed_media_publish_strict.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
-import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
+import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 
-/// Publicação instantânea unificada — avisos (`avisos`) e eventos (`noticias`).
+/// Publicação unificada — avisos (`avisos`) e eventos (`noticias`).
 ///
-/// Fluxo: Firestore primeiro (`publishState: uploading`) → UI fecha → mídia em background
-/// → `publishState: published`. Não usa `tenants/posts` (modelo canónico: `igrejas/{id}/…`).
+/// **Canónico:** upload Storage → `getDownloadURL` → Firestore `published`
+/// ([FeedMediaPublishStrict.publishWithPhotosFirst]).
+/// O caminho «stub uploading + background» só para reenvio via [MuralPublishOutboxService].
 abstract final class FeedMediaPublishService {
   FeedMediaPublishService._();
 
@@ -41,7 +42,9 @@ abstract final class FeedMediaPublishService {
     return postId == null ? ref.doc() : ref.doc(postId);
   }
 
-  /// Grava documento com `publishState: uploading` (publicação instantânea).
+  /// **Legado / rascunho** — não usar para publicar fotos novas no mural.
+  /// Fotos novas: [publish] ou [saveStubAndSchedulePhotos] (delegam a [FeedMediaPublishStrict]).
+  @Deprecated('Use publish() ou saveStubAndSchedulePhotos — evita uploading antes do Storage')
   static Future<String> createPost({
     required DocumentReference<Map<String, dynamic>> docRef,
     required Map<String, dynamic> payload,
@@ -73,7 +76,7 @@ abstract final class FeedMediaPublishService {
     required Map<String, dynamic> payload,
     required bool isNewDoc,
   }) async {
-    await ensureFirebaseInitialized();
+    await AppFinalizeBootstrap.ensureSessionForPublish(logLabel: 'feed_publish_now');
     final patch = Map<String, dynamic>.from(payload);
     patch['publishState'] = statusPublished;
     FirestoreWriteGuard.applyMuralPublishMetaPatch(
@@ -115,117 +118,55 @@ abstract final class FeedMediaPublishService {
     return docRef.id;
   }
 
-  static Future<String> Function(
-    Uint8List bytes,
-    int slotIndex,
-    void Function(double progress) report,
-  ) _uploadSlotBuilder({
-    required String tenantId,
-    required String postType,
-    required String postId,
-  }) =>
-      (bytes, slotIndex, report) => MuralPostMediaPayload.uploadPhotoSlot(
-            tenantId: tenantId,
-            postType: postType,
-            postId: postId,
-            bytes: bytes,
-            slotIndex: slotIndex,
-            onProgress: report,
-          );
-
-  static Map<String, dynamic> Function({
-    required List<String> allUrls,
-    required double aspectRatio,
-    required bool hasVideo,
-  }) _buildMediaFieldsFn() =>
-      ({
-        required allUrls,
-        required aspectRatio,
-        required hasVideo,
-      }) =>
-          MuralPostMediaPayload.buildMediaFields(
-            allUrls: allUrls,
-            aspectRatio: aspectRatio,
-            hasVideo: hasVideo,
-          );
-
-  /// Agenda upload de imagens em background (JPEG comprimido no [MuralFastPublishService]).
-  static void publish({
+  /// Storage + URL antes de Firestore (sem stub `uploading` no feed/site).
+  static Future<String> publish({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String tenantId,
     required String postId,
     required String postType,
+    required Map<String, dynamic> corePayload,
+    required bool isNewDoc,
     required List<String> existingUrls,
     required int startSlotIndex,
     required bool hasVideo,
     List<Uint8List>? newImagesBytes,
     List<String>? newImagePaths,
     Future<void> Function()? onPublished,
-  }) {
-    final uploadSlot = _uploadSlotBuilder(
-      tenantId: tenantId,
-      postType: postType,
-      postId: postId,
-    );
-    final buildMedia = _buildMediaFieldsFn();
-
-    if (kIsWeb) {
-      final images = newImagesBytes ?? const <Uint8List>[];
-      if (images.isEmpty) return;
-      MuralFastPublishService.scheduleBackgroundImageFinalize(
+  }) =>
+      FeedMediaPublishStrict.publishWithPhotosFirst(
         docRef: docRef,
         tenantId: tenantId,
-        postId: postId,
         postType: postType,
-        newImages: images,
+        corePayload: corePayload,
+        isNewDoc: isNewDoc,
         existingUrls: existingUrls,
         startSlotIndex: startSlotIndex,
         hasVideo: hasVideo,
-        uploadSlot: uploadSlot,
-        buildMediaFields: buildMedia,
+        newImagesBytes: newImagesBytes,
+        newImagePaths: newImagePaths,
         onPublished: onPublished,
       );
-      return;
-    }
 
-    final paths = newImagePaths != null
-        ? FeedEditorMediaService.existingValidPaths(newImagePaths)
-        : <String>[];
-    if (paths.isNotEmpty) {
-      MuralFastPublishService.scheduleBackgroundImageFinalizeFromPaths(
-        docRef: docRef,
-        tenantId: tenantId,
-        postId: postId,
-        postType: postType,
-        localPaths: paths,
-        existingUrls: existingUrls,
-        startSlotIndex: startSlotIndex,
-        hasVideo: hasVideo,
-        uploadSlot: uploadSlot,
-        buildMediaFields: buildMedia,
-        onPublished: onPublished,
-      );
-      return;
-    }
-
-    final images = newImagesBytes ?? const <Uint8List>[];
-    if (images.isEmpty) return;
-    MuralFastPublishService.scheduleBackgroundImageFinalize(
-      docRef: docRef,
-      tenantId: tenantId,
-      postId: postId,
-      postType: postType,
-      newImages: images,
-      existingUrls: existingUrls,
-      startSlotIndex: startSlotIndex,
-      hasVideo: hasVideo,
-      uploadSlot: uploadSlot,
-      buildMediaFields: buildMedia,
-      onPublished: onPublished,
+  /// Marca post como falhou (mural) após erro de upload.
+  static Future<void> markPublishFailed({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required Object error,
+  }) async {
+    await docRef.set(
+      {
+        'publishState': statusFailed,
+        'publishError': error.toString(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
     );
   }
 
-  /// Stub Firestore + upload em background (editores aviso/evento).
+  /// Reenvio manual — delega ao serviço de pending uploads do tenant.
+  static Future<void> resumePendingUploadsForTenant(String tenantId) =>
+      PendingUploadsFirestoreService.resumeAllForTenant(tenantId);
+
+  /// Fotos novas: aguarda upload + URL antes de publicar no Firestore (sem doc vazio).
   static Future<String> saveStubAndSchedulePhotos({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String tenantId,
@@ -240,17 +181,19 @@ abstract final class FeedMediaPublishService {
     List<String>? newImagePaths,
     Future<void> Function()? onPublished,
   }) async {
-    final postId = await createPost(
-      docRef: docRef,
-      payload: stubPayload,
-      isNewDoc: isNewDoc,
-      pendingPhotoCount: pendingPhotoCount,
-    );
-    publish(
+    if (pendingPhotoCount <= 0) {
+      return publishNow(
+        docRef: docRef,
+        payload: stubPayload,
+        isNewDoc: isNewDoc,
+      );
+    }
+    return FeedMediaPublishStrict.publishWithPhotosFirst(
       docRef: docRef,
       tenantId: tenantId,
-      postId: postId,
       postType: postType,
+      corePayload: stubPayload,
+      isNewDoc: isNewDoc,
       existingUrls: existingUrls,
       startSlotIndex: startSlotIndex,
       hasVideo: hasVideo,
@@ -258,6 +201,5 @@ abstract final class FeedMediaPublishService {
       newImagePaths: newImagePaths,
       onPublished: onPublished,
     );
-    return postId;
   }
 }

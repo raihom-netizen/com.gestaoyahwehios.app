@@ -13,6 +13,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/ui/pages/firebase_bootstrap_recovery_page.dart';
+import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/url_strategy.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -58,9 +62,6 @@ import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_alert_notification_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'ui/widgets/ios_payment_unavailable_view.dart';
-import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
-import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
-import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
@@ -460,7 +461,24 @@ void main() async {
   }
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  await ensureFirebaseInitialized();
+  final firebaseBoot = await FirebaseBootstrapService.initialize();
+  if (!firebaseBoot.isReady) {
+    runApp(
+      MaterialApp(
+        title: 'Gestão Yahweh',
+        home: FirebaseBootstrapRecoveryPage(
+          result: firebaseBoot,
+          onRecovered: runGestaoYahwehAfterFirebaseBootstrap,
+        ),
+      ),
+    );
+    return;
+  }
+  await runGestaoYahwehAfterFirebaseBootstrap();
+}
+
+/// Continuação do arranque após Firebase OK (ou após ecrã de recuperação).
+Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS)) {
@@ -556,10 +574,7 @@ void main() async {
   } catch (_) {}
   try {
     await AppConnectivityService.instance.start();
-    StorageUploadQueueService.instance.start();
-    MuralPublishOutboxService.resumePendingOnAppStart();
-    ChurchChatMediaOutboxService.resumePendingOnAppStart();
-    unawaited(StorageUploadPersistenceService.resumePendingOnAppStart());
+    AppFinalizeBootstrap.bindOnColdStart();
   } catch (_) {}
   String initialRoute =
       kIsWeb && Uri.base.path.isNotEmpty ? Uri.base.path : '/';
@@ -755,8 +770,9 @@ class _AppWithThemeState extends State<_AppWithTheme>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (kIsWeb && state == AppLifecycleState.resumed) {
-      _repaintAfterWebResume();
+    if (state == AppLifecycleState.resumed) {
+      unawaited(AppFinalizeBootstrap.onAppResume());
+      if (kIsWeb) _repaintAfterWebResume();
     }
   }
 
@@ -1000,6 +1016,9 @@ class _AppWithThemeState extends State<_AppWithTheme>
                   break;
                 case '/admin':
                   pagina = const _MasterPanelGuard();
+                  break;
+                case '/admin/firebase-saude':
+                  pagina = const SystemFirebaseHealthPage();
                   break;
                 case '/login_admin':
                   pagina = const LoginPage(

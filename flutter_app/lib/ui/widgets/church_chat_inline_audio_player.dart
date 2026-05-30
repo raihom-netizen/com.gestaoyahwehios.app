@@ -6,6 +6,8 @@ import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show firebaseStorageDownloadUrlLooksTokenized, sanitizeImageUrl;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:audio_waveforms/audio_waveforms.dart' show PlayerController;
+import 'package:gestao_yahweh/ui/widgets/church_chat_audio_waveform_player.dart';
 import 'package:just_audio/just_audio.dart';
 
 /// Garante que só um áudio do chat toca de cada vez (estilo WhatsApp).
@@ -15,9 +17,16 @@ class ChurchChatAudioPlaybackCoordinator {
       ChurchChatAudioPlaybackCoordinator._();
 
   AudioPlayer? _active;
+  PlayerController? _activeWaveform;
   String? _activeMessageId;
 
   Future<void> beforePlay(AudioPlayer player, String messageId) async {
+    if (_activeWaveform != null) {
+      try {
+        await _activeWaveform!.pausePlayer();
+      } catch (_) {}
+      _activeWaveform = null;
+    }
     if (_active != null && !identical(_active, player)) {
       try {
         await _active!.stop();
@@ -27,9 +36,29 @@ class ChurchChatAudioPlaybackCoordinator {
     _activeMessageId = messageId;
   }
 
+  Future<void> beforePlayWaveform(
+    PlayerController controller,
+    String messageId,
+  ) async {
+    if (_active != null) {
+      try {
+        await _active!.stop();
+      } catch (_) {}
+      _active = null;
+    }
+    if (_activeWaveform != null && !identical(_activeWaveform, controller)) {
+      try {
+        await _activeWaveform!.pausePlayer();
+      } catch (_) {}
+    }
+    _activeWaveform = controller;
+    _activeMessageId = messageId;
+  }
+
   void unregister(String messageId) {
     if (_activeMessageId == messageId) {
       _active = null;
+      _activeWaveform = null;
       _activeMessageId = null;
     }
   }
@@ -59,6 +88,8 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
   final AudioPlayer _player = AudioPlayer();
   bool _loading = true;
   String? _error;
+  String? _localPath;
+  bool _useWaveform = false;
   bool _disposed = false;
 
   static const Color _accent = Color(0xFF128C7E);
@@ -107,12 +138,30 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
         }
         return;
       }
+      if (!kIsWeb) {
+        final path = await downloadChatAudioToTempFile(
+          url: resolved,
+          messageId: widget.messageId,
+        );
+        if (path != null && path.isNotEmpty) {
+          _localPath = path;
+          _useWaveform = true;
+          if (mounted) {
+            setState(() {
+              _loading = false;
+              _error = null;
+            });
+          }
+          return;
+        }
+      }
       await _player.setUrl(resolved);
       if (_disposed) return;
       if (mounted) {
         setState(() {
           _loading = false;
           _error = null;
+          _useWaveform = false;
         });
       }
     } catch (_) {
@@ -157,6 +206,13 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
 
   @override
   Widget build(BuildContext context) {
+    if (_useWaveform && _localPath != null && _error == null) {
+      return ChurchChatAudioWaveformPlayer(
+        playablePath: _localPath!,
+        messageId: widget.messageId,
+        mine: widget.mine,
+      );
+    }
     if (_loading) {
       return Row(
         mainAxisSize: MainAxisSize.min,

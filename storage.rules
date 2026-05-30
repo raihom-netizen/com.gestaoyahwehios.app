@@ -187,11 +187,22 @@ service firebase.storage {
       allow write: if authMediaWriteMax(120 * 1024 * 1024);
     }
 
+    // Novos uploads de mural (spec física) — tenants/{id}/media/avisos|eventos/…
+    match /tenants/{tenantId}/media/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 120 * 1024 * 1024
+        && (
+          mediaImageVideoOrBlob()
+          || chatMediaOrBlob()
+        );
+    }
+
     // Chat interno — áudio/vídeo/foto; MIME explícito evita rejeição lenta + retries no cliente.
     match /igrejas/{igrejaId}/chat_media/{path=**} {
       allow read: if request.auth != null;
       allow write: if request.auth != null
-        && request.resource.size < 120 * 1024 * 1024
+        && request.resource.size < 200 * 1024 * 1024
         && chatMediaOrBlob();
     }
 

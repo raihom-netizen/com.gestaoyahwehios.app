@@ -8,6 +8,9 @@ import 'package:flutter/foundation.dart'
 /// - Force ativo em debug: `--dart-define=GY_MEDIA_TURBO=true`
 const int kMediaImagePreferredMaxBytes = 1024 * 1024; // 1MB (padrão)
 const int kMediaVideoHardMaxBytes = 120 * 1024 * 1024; // 120MB (padrão)
+
+/// Chat Igreja — vídeo até 200 MB (spec WhatsApp-like).
+const int kMediaChatVideoHardMaxBytes = 200 * 1024 * 1024;
 const Duration kMediaVideoMaxDuration = Duration(seconds: 60); // legado / outros módulos
 
 /// Chat igreja — vídeo até 90 s (estilo WhatsApp).
@@ -49,14 +52,18 @@ int get mediaImagePreferredMaxBytesEffective =>
 int get mediaVideoHardMaxBytesEffective =>
     kMediaTurboMobilePreset ? (100 * 1024 * 1024) : kMediaVideoHardMaxBytes;
 
+int get mediaChatVideoHardMaxBytesEffective => kMediaChatVideoHardMaxBytes;
+
 Duration get mediaVideoMaxDurationEffective => kMediaChatVideoMaxDuration;
 
 int get mediaVideoSkipTranscodeMaxBytes =>
     kMediaTurboMobilePreset ? (64 * 1024 * 1024) : (32 * 1024 * 1024);
 
-/// Uploads em lote (avisos/eventos): até 4 em paralelo com turbo (1 WebP/foto no nativo).
-int get mediaFeedUploadMaxConcurrent =>
-    kMediaTurboMobilePreset ? 4 : 4;
+/// Uploads em lote (avisos/eventos): web até 4; mobile 2 (evita OOM + falso «Firebase não iniciou»).
+int get mediaFeedUploadMaxConcurrent {
+  if (kIsWeb) return 4;
+  return kMediaTurboMobilePreset ? 2 : 2;
+}
 
 int get mediaPickerImageQuality =>
     kMediaTurboMobilePreset ? 62 : 70;

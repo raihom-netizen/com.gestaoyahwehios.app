@@ -272,7 +272,10 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    if (!kIsWeb && _nativeChurchLogin) {
+    final bioOn =
+        !kIsWeb && _nativeChurchLogin && await BiometricService().isEnabled();
+
+    if (!kIsWeb && _nativeChurchLogin && !bioOn) {
       final restored =
           await ChurchAutoSessionService.restoreOAuthSessionForQuickUnlock();
       if (!mounted) return;
@@ -285,9 +288,6 @@ class _LoginPageState extends State<LoginPage> {
         }
         return;
       }
-    }
-
-    if (!kIsWeb && _nativeChurchLogin) {
       Future<void>.delayed(const Duration(milliseconds: 480), () {
         if (mounted) unawaited(_tryExpressOAuthReconnect());
       });
@@ -412,14 +412,27 @@ class _LoginPageState extends State<LoginPage> {
     _scheduleMaybeAutoWebCredentialLogin();
   }
 
+  /// Utilizador já entrou no painel neste aparelho (Google/Apple ou auto-login).
+  Future<bool> _nativeChurchHasPainelUnlockHints() async {
+    if (!_nativeChurchLogin) return false;
+    final lastId = (await LoginPreferences.getLastLoginIdentifier()).trim();
+    if (!lastId.contains('@')) return false;
+    final lastProv = await LoginPreferences.getLastOAuthProvider();
+    if (lastProv == 'google' || lastProv == 'apple') return true;
+    if (await ChurchAutoSessionService.isAutoPainelEnabled()) return true;
+    final prefs = await SharedPreferences.getInstance();
+    final lr = (prefs.getString('last_route') ?? '').trim();
+    return lr == '/painel' || lr.startsWith('/painel/');
+  }
+
   /// Apos carregar prefs: no painel nativo, tenta Face ID/digital automaticamente
-  /// (com atraso para nao competir com reconexao Google silenciosa).
+  /// (com atraso curto para o ecrã montar).
   void _scheduleMaybeAutoBiometricLogin({Duration? delay}) {
     if (kIsWeb || !_nativeChurchLogin) return;
     final effectiveDelay = delay ??
         (defaultTargetPlatform == TargetPlatform.iOS
-            ? const Duration(milliseconds: 650)
-            : const Duration(milliseconds: 1000));
+            ? const Duration(milliseconds: 400)
+            : const Duration(milliseconds: 450));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future<void>.delayed(effectiveDelay, () {
         if (!mounted) return;
@@ -490,7 +503,8 @@ class _LoginPageState extends State<LoginPage> {
     if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
     if (FirebaseAuth.instance.currentUser != null) return;
     if (_showManualCredentialFields) return;
-    if (await BiometricService().canUseQuickBiometricLogin()) return;
+    // Biometria+OAuth corre antes; se o utilizador cancelou a digital, tenta Google silencioso.
+    if (_oauthQuickUnlockReady && !_autoBiometricSessionAttempted) return;
 
     _autoOAuthSilentAttempted = true;
     setState(() => _loading = true);
@@ -519,7 +533,11 @@ class _LoginPageState extends State<LoginPage> {
     if (FirebaseAuth.instance.currentUser != null) return;
     if (!_hasSavedCredentials) return;
     if (_showManualCredentialFields) return;
-    if (await BiometricService().canUseQuickBiometricLogin()) return;
+    if (_quickBiometricReady) return;
+    if (await BiometricService().isEnabled() &&
+        await _nativeChurchHasPainelUnlockHints()) {
+      return;
+    }
 
     _autoCredentialLoginAttempted = true;
     setState(() => _loading = true);
@@ -554,11 +572,13 @@ class _LoginPageState extends State<LoginPage> {
     if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
     if (FirebaseAuth.instance.currentUser != null) return;
     if (_showManualCredentialFields) return;
-    if (!_quickBiometricReady && !_oauthQuickUnlockReady) return;
 
-    final bio = await BiometricService().canUseQuickBiometricLogin();
+    final bioOn = await BiometricService().isEnabled();
     if (!mounted) return;
-    if (!bio) return;
+    if (!bioOn) return;
+    if (!_quickBiometricReady && !_oauthQuickUnlockReady) {
+      if (!await _nativeChurchHasPainelUnlockHints()) return;
+    }
     if (_showManualCredentialFields) return;
     if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
 
@@ -611,11 +631,7 @@ class _LoginPageState extends State<LoginPage> {
     final credReady = _hasSavedCredentials && bioOn;
     var oauthReady = false;
     if (_nativeChurchLogin && bioOn && !_hasSavedCredentials) {
-      final lastId = (await LoginPreferences.getLastLoginIdentifier()).trim();
-      final lastProv = await LoginPreferences.getLastOAuthProvider();
-      final autoPainel = await ChurchAutoSessionService.isAutoPainelEnabled();
-      oauthReady = lastId.contains('@') &&
-          ((lastProv == 'google' || lastProv == 'apple') || autoPainel);
+      oauthReady = await _nativeChurchHasPainelUnlockHints();
     }
     if (mounted) {
       setState(() {
@@ -757,8 +773,13 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _onEntrarComBiometria() async {
     if (kIsWeb) return;
-    final oauthOnly = _oauthQuickUnlockReady &&
+    var oauthOnly = _oauthQuickUnlockReady &&
         (_emailController.text.trim().isEmpty || _senhaController.text.isEmpty);
+    if (!oauthOnly &&
+        !_hasSavedCredentials &&
+        await BiometricService().isEnabled()) {
+      oauthOnly = await _nativeChurchHasPainelUnlockHints();
+    }
     if (!oauthOnly &&
         (_emailController.text.trim().isEmpty || _senhaController.text.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(

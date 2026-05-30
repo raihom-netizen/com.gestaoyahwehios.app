@@ -2,11 +2,15 @@ import 'dart:async' show unawaited;
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
+import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -15,6 +19,19 @@ abstract final class MuralPublishOutboxService {
   MuralPublishOutboxService._();
 
   static const _prefsKey = 'mural_publish_outbox_v1';
+  static bool _connectivityBound = false;
+
+  /// Jobs no manifesto local (SharedPreferences).
+  static Future<int> pendingJobCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsKey);
+    if (raw == null || raw.isEmpty) return 0;
+    try {
+      return (jsonDecode(raw) as List).length;
+    } catch (_) {
+      return 0;
+    }
+  }
 
   static DocumentReference<Map<String, dynamic>> _docRef(
     String tenantId,
@@ -85,6 +102,7 @@ abstract final class MuralPublishOutboxService {
 
   /// Arranque da app — conclui uploads com ficheiros ainda em cache.
   static void resumePendingOnAppStart() {
+    bindConnectivityResume();
     unawaited(
       runFirebaseBackgroundTask<void>(
         () async {
@@ -102,6 +120,14 @@ abstract final class MuralPublishOutboxService {
         debugLabel: 'mural_outbox_resume',
       ).catchError((_) {}),
     );
+  }
+
+  static void bindConnectivityResume() {
+    if (_connectivityBound) return;
+    _connectivityBound = true;
+    AppConnectivityService.instance.onlineStream.listen((online) {
+      if (online) resumePendingOnAppStart();
+    });
   }
 
   static Future<void> retryFromCard({
@@ -126,11 +152,59 @@ abstract final class MuralPublishOutboxService {
     Map<String, dynamic> json, {
     int attemptCount = 1,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyToPublish(logLabel: 'mural_outbox_retry');
     final tenantId = (json['tenantId'] ?? '').toString();
     final postId = (json['postId'] ?? '').toString();
     final postType = (json['postType'] ?? 'aviso').toString();
     if (tenantId.isEmpty || postId.isEmpty) return;
+
+    try {
+      await _retryFromJsonInner(json, attemptCount: attemptCount);
+    } catch (e, st) {
+      final paths = (json['localPaths'] as List?)
+              ?.map((x) => x.toString().trim())
+              .where((p) => p.isNotEmpty)
+              .toList() ??
+          const <String>[];
+      final slotHint = json['startSlotIndex'] is int
+          ? json['startSlotIndex'] as int
+          : int.tryParse('${json['startSlotIndex']}') ?? 0;
+      final storagePathGuess = paths.isNotEmpty
+          ? FeedTenantStorageMap.feedPhotoPath(
+              postType: postType,
+              tenantId: tenantId,
+              postDocId: postId,
+              slotIndex: slotHint,
+            )
+          : 'igrejas/$tenantId/${postType == 'aviso' ? 'avisos' : 'eventos'}/$postId';
+      unawaited(
+        PendingUploadsFirestoreService.recordFailedBytesUpload(
+          tenantId: tenantId,
+          module: postType == 'aviso' ? 'aviso' : 'evento',
+          storagePath: storagePathGuess,
+          error: e,
+          localPath: paths.isEmpty ? null : paths.first,
+          meta: {
+            'postId': postId,
+            'postType': postType,
+            'source': 'mural_outbox',
+          },
+        ),
+      );
+      if (kDebugMode) {
+        debugPrint('MuralPublishOutbox fail $postId: $e\n$st');
+      }
+      rethrow;
+    }
+  }
+
+  static Future<void> _retryFromJsonInner(
+    Map<String, dynamic> json, {
+    int attemptCount = 1,
+  }) async {
+    final tenantId = (json['tenantId'] ?? '').toString();
+    final postId = (json['postId'] ?? '').toString();
+    final postType = (json['postType'] ?? 'aviso').toString();
 
     final images = await MuralPostPendingMediaCache.get(
       tenantId: tenantId,
@@ -186,14 +260,7 @@ abstract final class MuralPublishOutboxService {
         : int.tryParse('${json['startSlotIndex']}') ?? 0;
     final hasVideo = json['hasVideo'] == true;
 
-    await docRef.set(
-      {
-        'publishState': MuralFastPublishService.stateUploading,
-        'publishError': FieldValue.delete(),
-      },
-      SetOptions(merge: true),
-    );
-
+    // Não gravar Firestore «uploading» antes do Storage — só upload + finalize.
     final buildMedia =
         ({required allUrls, required aspectRatio, required hasVideo}) =>
             MuralPostMediaPayload.buildMediaFields(

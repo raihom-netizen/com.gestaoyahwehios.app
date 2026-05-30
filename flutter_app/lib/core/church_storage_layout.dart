@@ -208,6 +208,46 @@ abstract final class ChurchStorageLayout {
   ) =>
       '${churchRoot(tenantId)}/chat_media/${threadId.trim()}/${fileNameStem}_${tier.trim()}.webp';
 
+  /// Subpasta por tipo: `images` | `videos` | `audio` | `documents`.
+  static String chatMediaFolderForKind(String kind) => switch (kind) {
+        'image' => 'images',
+        'video' => 'videos',
+        'audio' => 'audio',
+        _ => 'documents',
+      };
+
+  /// `igrejas/{tenant}/chat_media/{threadId}/images/{uid}_{ts}_{name}.webp`
+  static String buildChatMediaObjectPath({
+    required String tenantId,
+    required String threadId,
+    required String kind,
+    required String uid,
+    required int timestampMs,
+    required String fileName,
+  }) {
+    final folder = chatMediaFolderForKind(kind);
+    final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+    return '${churchRoot(tenantId)}/chat_media/${threadId.trim()}/$folder/${uid}_${timestampMs}_$safeName';
+  }
+
+  /// Miniatura de vídeo no mesmo diretório `videos/`.
+  static String buildChatVideoThumbPath({
+    required String tenantId,
+    required String threadId,
+    required String uid,
+    required int timestampMs,
+  }) =>
+      '${churchRoot(tenantId)}/chat_media/${threadId.trim()}/videos/${uid}_${timestampMs}_thumb.webp';
+
+  /// Miniatura de foto: `{uid}_{ts}_thumb.webp` em `images/`.
+  static String buildChatImageThumbPath({
+    required String tenantId,
+    required String threadId,
+    required String uid,
+    required int timestampMs,
+  }) =>
+      '${churchRoot(tenantId)}/chat_media/${threadId.trim()}/images/${uid}_${timestampMs}_thumb.webp';
+
   /// Caminhos tentados para assinatura institucional (`assinatura.png` / `.jpg`).
   static List<String> pastorSignatureConfigPaths(String tenantId) {
     final r = churchRoot(tenantId);

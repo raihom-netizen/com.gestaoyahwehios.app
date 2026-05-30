@@ -444,6 +444,14 @@
       ]
     },
     {
+      "collectionGroup": "chat_uploads",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "ownerUid", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "membros",
       "queryScope": "COLLECTION",
       "fields": [

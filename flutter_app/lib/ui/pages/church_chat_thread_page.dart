@@ -9,6 +9,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -41,6 +42,9 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_thread_foreground_notif_she
 import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_department_chat_members_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_inline_audio_player.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_upload_progress.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_starred_messages_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_sender_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
@@ -261,6 +265,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(AppFinalizeBootstrap.onAppResume());
       unawaited(
         ChurchChatService.markThreadLastSeen(
           tenantId: widget.tenantId,
@@ -965,6 +970,56 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 _showEmojiReactionPicker(messageId, m);
               },
             ),
+            ListTile(
+              leading: Icon(
+                _prefs.isMessageStarred(widget.threadId, messageId)
+                    ? Icons.star_rounded
+                    : Icons.star_outline_rounded,
+                color: const Color(0xFFF59E0B),
+              ),
+              title: Text(
+                _prefs.isMessageStarred(widget.threadId, messageId)
+                    ? 'Remover dos favoritos'
+                    : 'Favoritar mensagem',
+              ),
+              subtitle: const Text(
+                'Marcar como importante (só para si, nesta conversa).',
+              ),
+              onTap: () async {
+                Navigator.pop(ctx);
+                final starred =
+                    _prefs.isMessageStarred(widget.threadId, messageId);
+                final ok = await ChurchChatMemberPrefs.setMessageStarred(
+                  tenantId: widget.tenantId,
+                  threadId: widget.threadId,
+                  messageId: messageId,
+                  value: !starred,
+                );
+                if (!mounted) return;
+                if (!ok && !starred) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Limite de ${ChurchChatMemberPrefs.maxStarredMessagesPerThread} '
+                        'favoritas nesta conversa (máx. '
+                        '${ChurchChatMemberPrefs.maxStarredMessagesTotal} no total).',
+                      ),
+                    ),
+                  );
+                  return;
+                }
+                setState(() {});
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      starred
+                          ? 'Removida dos favoritos.'
+                          : 'Mensagem favorita.',
+                    ),
+                  ),
+                );
+              },
+            ),
             if (mine)
               ListTile(
                 leading: Icon(Icons.help_outline_rounded,
@@ -1345,10 +1400,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     final bytes = await x.readAsBytes();
     if (!mounted) return;
-    if (bytes.length > mediaVideoHardMaxBytesEffective) {
+    if (bytes.length > mediaChatVideoHardMaxBytesEffective) {
       _showChatAttachmentError(
         'Vídeo demasiado grande. Escolha um ficheiro até '
-        '${(mediaVideoHardMaxBytesEffective / (1024 * 1024)).round()} MB.',
+        '${(mediaChatVideoHardMaxBytesEffective / (1024 * 1024)).round()} MB.',
       );
       return;
     }
@@ -1463,9 +1518,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final p = _pendingOutbound[i];
     final clamped = progress.clamp(0.0, 1.0);
     p.progress = clamped;
-    if ((p.progressListenable.value - clamped).abs() > 0.02 ||
+    if ((p.progressListenable.value - clamped).abs() > 0.01 ||
         clamped >= 1 ||
-        clamped <= 0) {
+        clamped <= 0.01) {
       p.progressListenable.value = clamped;
     }
   }
@@ -1473,7 +1528,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   /// Stub Firestore imediato (padrão Controle Total: BD primeiro, ficheiro depois).
   Future<void> _startPendingFirestoreStub(ChurchChatOutboundPending pending) async {
     if ((pending.firestoreMessageId ?? '').trim().isNotEmpty) return;
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseInitialized();
     final begun = await ChurchChatService.beginMediaUploadMessage(
       tenantId: widget.tenantId,
       threadId: widget.threadId,
@@ -1484,6 +1539,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     ).timeout(const Duration(seconds: 20));
     pending.firestoreMessageId = begun.messageId;
     pending.storagePath = begun.storagePath;
+    _setPendingProgress(pending.localId, 0);
+    unawaited(
+      ChurchChatService.patchMediaUploadProgress(
+        tenantId: widget.tenantId,
+        threadId: widget.threadId,
+        messageId: begun.messageId,
+        progress: 0,
+        force: true,
+      ),
+    );
     unawaited(ChurchChatMediaOutboxService.updateStub(
       tenantId: widget.tenantId,
       threadId: widget.threadId,
@@ -1524,6 +1589,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           if (mounted) setState(() {});
         }
       },
+      onWaitingForNetwork: () {
+        final i =
+            _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+        if (i >= 0) {
+          _pendingOutbound[i].failed = false;
+          _pendingOutbound[i].errorMessage = 'Aguardando conexão…';
+          if (mounted) setState(() {});
+        }
+      },
     );
   }
 
@@ -1534,17 +1608,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }) async {
     _enqueuePending(pending);
     _setPendingProgress(pending.localId, 0.02);
-    try {
-      await ensureFirebaseReadyForMediaUpload();
-    } catch (e) {
-      final i = _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
-      if (i >= 0) {
-        _pendingOutbound[i].failed = true;
-        _pendingOutbound[i].errorMessage = formatUploadErrorForUser(e);
-        if (mounted) setState(() {});
-      }
-      return;
-    }
     final bytesCopy = bytes != null && bytes.isNotEmpty
         ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
         : pending.previewBytes;
@@ -1826,27 +1889,35 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           ],
         ),
       );
+    } else if (p.kind == 'audio') {
+      body = ValueListenableBuilder<double>(
+        valueListenable: p.progressListenable,
+        builder: (context, progress, _) {
+          return ChurchChatUploadProgressIndicator(
+            progress: p.failed ? null : progress,
+            label: p.failed
+                ? (p.errorMessage ?? 'Falha no envio')
+                : 'A enviar áudio',
+            icon: p.failed ? Icons.error_outline_rounded : Icons.mic_rounded,
+            compact: true,
+          );
+        },
+      );
     } else {
-      body = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            p.failed ? Icons.error_outline_rounded : Icons.upload_rounded,
-            size: 18,
-            color: p.failed
-                ? ThemeCleanPremium.error
-                : ThemeCleanPremium.onSurfaceVariant,
-          ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              p.failed
-                  ? (p.errorMessage ?? 'Falha no envio')
-                  : 'A enviar ${p.fileName}…',
-              style: const TextStyle(fontSize: 14),
-            ),
-          ),
-        ],
+      body = ValueListenableBuilder<double>(
+        valueListenable: p.progressListenable,
+        builder: (context, progress, _) {
+          return ChurchChatUploadProgressIndicator(
+            progress: p.failed ? null : progress,
+            label: p.failed
+                ? (p.errorMessage ?? 'Falha no envio')
+                : 'A enviar ${p.fileName}',
+            icon: p.failed
+                ? Icons.error_outline_rounded
+                : Icons.insert_drive_file_outlined,
+            compact: true,
+          );
+        },
       );
     }
     return Align(
@@ -2025,20 +2096,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       return;
     }
 
-    try {
-      await ensureFirebaseReadyForMediaUpload();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(formatUploadErrorForUser(e)),
-            backgroundColor: ThemeCleanPremium.error,
-          ),
-        );
-      }
-      return;
-    }
-
     final voicePath = await _chatAudio.stopRecording(send: true);
     if (kIsWeb) {
       final bytes = _chatAudio.takeWebRecordingBytes();
@@ -2165,6 +2222,26 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     ),
                   );
                 }
+              } else if (v == 'starred_msgs') {
+                final ids =
+                    _prefs.starredMessagesInThread(widget.threadId);
+                if (!context.mounted) return;
+                await ChurchChatStarredMessagesSheet.show(
+                  context,
+                  tenantId: widget.tenantId,
+                  threadId: widget.threadId,
+                  messageIds: ids,
+                  onOpenMessage: (_) {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Deslize no histórico para encontrar a mensagem favorita.',
+                        ),
+                      ),
+                    );
+                  },
+                );
               } else if (v == 'mute') {
                 await ChurchChatMemberPrefs.setMutedThread(
                   tenantId: widget.tenantId,
@@ -2335,6 +2412,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     _prefs.isFavorite(widget.threadId)
                         ? 'Remover dos favoritos'
                         : 'Favoritar conversa',
+                  ),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'starred_msgs',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.star_purple500_rounded,
+                      color: Color(0xFFF59E0B)),
+                  title: const Text('Mensagens favoritas'),
+                  subtitle: Text(
+                    _prefs.starredMessagesInThread(widget.threadId).isEmpty
+                        ? 'Nenhuma nesta conversa'
+                        : '${_prefs.starredMessagesInThread(widget.threadId).length} '
+                            'mensagem(ns)',
+                    style: const TextStyle(fontSize: 11),
                   ),
                 ),
               ),
@@ -2528,7 +2621,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           ],
         ),
       ),
-      body: ColoredBox(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ChurchChatPendingStatusBanner(
+            tenantId: widget.tenantId,
+            compact: true,
+          ),
+          Expanded(
+            child: ColoredBox(
         color: const Color(0xFFF4F6F8),
         child: Column(
           children: [
@@ -2843,6 +2944,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
+                                      if (_prefs.isMessageStarred(
+                                          widget.threadId, messageId))
+                                        const Padding(
+                                          padding: EdgeInsets.only(right: 4),
+                                          child: Icon(
+                                            Icons.star_rounded,
+                                            size: 14,
+                                            color: Color(0xFFF59E0B),
+                                          ),
+                                        ),
                                       if (ct != null)
                                         Text(
                                           _fmtMsgTime(ct),
@@ -3147,9 +3258,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               ),
             ),
           ),
-          ),
+        ),
         ],
       ),
+    ),
+          ),
+        ],
       ),
     );
   }
@@ -3322,45 +3436,34 @@ class _MessageBody extends StatelessWidget {
     final delivery = (data['deliveryStatus'] ?? '').toString();
     if (url.isEmpty) {
       if (delivery == ChurchChatService.deliveryUploading ||
-          delivery == ChurchChatService.deliverySending) {
+          delivery == ChurchChatService.deliverySending ||
+          delivery == ChurchChatService.deliveryQueued) {
         final progress = (data['uploadProgress'] is num)
             ? (data['uploadProgress'] as num).toDouble().clamp(0.0, 1.0)
             : null;
+        final uploadIcon = type == 'video'
+            ? Icons.videocam_rounded
+            : type == 'audio'
+                ? Icons.mic_rounded
+                : type == 'image'
+                    ? Icons.image_rounded
+                    : Icons.cloud_upload_rounded;
+        final uploadLabel = type == 'video'
+            ? 'A enviar vídeo'
+            : type == 'audio'
+                ? 'A enviar áudio'
+                : 'A enviar ficheiro';
         return Column(
           crossAxisAlignment:
               mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             ..._quotePrefix(context),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                const SizedBox(width: 10),
-                Flexible(
-                  child: Text(
-                    type == 'video'
-                        ? 'A enviar vídeo…'
-                        : type == 'audio'
-                            ? 'A enviar áudio…'
-                            : 'A enviar…',
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                ),
-              ],
+            ChurchChatUploadProgressIndicator(
+              progress: progress,
+              label: uploadLabel,
+              icon: uploadIcon,
             ),
-            if (progress != null && progress > 0 && progress < 1) ...[
-              const SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: progress,
-                minHeight: 3,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ],
           ],
         );
       }

@@ -242,7 +242,7 @@ abstract final class MediaService {
     );
   }
 
-  /// Chat: envio rápido — evita transcode longo; sem miniatura (não usada no upload).
+  /// Chat: compressão leve + miniatura (preview antes de abrir o vídeo).
   static Future<MediaVideoPrepareResult?> prepareVideoForChatUpload(
     String inputPath, {
     void Function(double progress)? onCompressProgress,
@@ -255,14 +255,14 @@ abstract final class MediaService {
 
     final lower = inputPath.toLowerCase();
     final byteLen = await file.length();
-    if (byteLen > mediaVideoHardMaxBytesEffective) {
-      final limitMb = (mediaVideoHardMaxBytesEffective / (1024 * 1024)).round();
+    if (byteLen > mediaChatVideoHardMaxBytesEffective) {
+      final limitMb =
+          (mediaChatVideoHardMaxBytesEffective / (1024 * 1024)).round();
       throw StateError(
         'Vídeo muito grande. Reduza para até ${limitMb}MB ou grave mais curto.',
       );
     }
 
-    // Chat: MP4/M4V até o limite turbo → upload directo (sem transcode de minutos).
     final skipTranscode = byteLen <= mediaVideoSkipTranscodeMaxBytes &&
         (lower.endsWith('.mp4') ||
             lower.endsWith('.m4v') ||
@@ -280,8 +280,20 @@ abstract final class MediaService {
         resolved = info.file!;
       }
     }
-    onCompressProgress?.call(0.6);
-    return MediaVideoPrepareResult(outputPath: resolved.path);
+    onCompressProgress?.call(0.58);
+    File? thumbFile;
+    thumbFile = await getVideoThumbnail(resolved)
+        .timeout(const Duration(seconds: 25), onTimeout: () => null);
+    Uint8List? thumbBytes;
+    if (thumbFile != null && thumbFile.existsSync()) {
+      thumbBytes = await thumbFile.readAsBytes();
+    }
+    onCompressProgress?.call(0.62);
+    return MediaVideoPrepareResult(
+      outputPath: resolved.path,
+      thumbnailBytes: thumbBytes,
+      thumbnailFile: thumbFile,
+    );
   }
 
   /// Config recomendada para gravação de voz no chat (AAC/M4A compacto).

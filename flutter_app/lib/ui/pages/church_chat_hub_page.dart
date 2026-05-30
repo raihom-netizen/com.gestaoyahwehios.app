@@ -10,9 +10,11 @@ import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
+import 'package:gestao_yahweh/services/church_chat_local_conversations.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
@@ -29,6 +31,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_list_preview.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
 
 enum _HubConversasFilter { all, unread, favorites, archived }
@@ -117,11 +120,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   late final VoidCallback _photoSyncListener;
   bool _dmSelectMode = false;
   final Set<String> _selectedDmThreadIds = <String>{};
+  List<ChurchChatLocalConversationEntry> _localConversations = [];
+  late final VoidCallback _localConvListener;
 
   @override
   void initState() {
     super.initState();
     logYahwehModuleScreen('chat');
+    _localConvListener = () {
+      if (mounted) unawaited(_reloadLocalConversations());
+    };
+    ChurchChatLocalConversations.revision.addListener(_localConvListener);
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
@@ -149,6 +158,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   @override
   void dispose() {
+    ChurchChatLocalConversations.revision.removeListener(_localConvListener);
     MemberProfilePhotoSyncNotifier.instance.removeListener(_photoSyncListener);
     WidgetsBinding.instance.removeObserver(this);
     _gruposResyncDebounce?.cancel();
@@ -167,6 +177,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(AppFinalizeBootstrap.onAppResume());
       final t = _resolvedTenantId;
       if (t != null) unawaited(_syncMemberDepartments(t));
       unawaited(_pullRefreshConversas());
@@ -445,6 +456,18 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   /// Lista imediata a partir de `chat_peer_profiles` + ids `dm_*` (não espera reparo CF).
+  Future<void> _reloadLocalConversations() async {
+    final tid = _resolvedTenantId;
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (tid == null || uid.isEmpty) return;
+    final list = await ChurchChatLocalConversations.listForUser(
+      tenantId: tid,
+      uid: uid,
+    );
+    if (!mounted) return;
+    setState(() => _localConversations = list);
+  }
+
   Future<void> _primeConversasListFromFallback(String tenantId) async {
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
@@ -478,6 +501,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     });
     unawaited(_loadChatNotifPrefs());
     await _primeConversasListFromFallback(tid);
+    await _reloadLocalConversations();
     if (!mounted) return;
     unawaited(_syncMemberDepartments(tid));
     unawaited(_repairChatThreadsIndex(tid));
@@ -857,6 +881,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       threadId: threadId,
       hide: true,
     );
+    if (ok) {
+      await ChurchChatLocalConversations.remove(
+        tenantId: tenantId,
+        threadId: threadId,
+      );
+    }
     if (!mounted) return;
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1327,6 +1357,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               unawaited(_refreshPeerProfilesForAuthUids(tid, {uidMe}));
             },
           ),
+          ChurchChatPendingStatusBanner(tenantId: tid, compact: true),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: _PremiumHubTabBar(controller: _hubTabController),
@@ -1621,14 +1652,32 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     break;
                 }
                 final displayed = sel.toList();
+                final displayedIds = displayed.map((d) => d.id).toSet();
+                final localOnly = <ChurchChatLocalConversationEntry>[];
+                final mergeLocalCache = q.isEmpty &&
+                    (_conversasFilter == _HubConversasFilter.all ||
+                        streamError != null);
+                if (mergeLocalCache) {
+                  for (final loc in _localConversations) {
+                    if (displayedIds.contains(loc.threadId)) continue;
+                    if (prefs.isHiddenDmThread(loc.threadId)) continue;
+                    if (loc.peerUid.isNotEmpty &&
+                        prefs.isBlockedPeer(loc.peerUid)) {
+                      continue;
+                    }
+                    localOnly.add(loc);
+                  }
+                }
                 final displayedDmThreadIds = displayed
                     .where((d) => !_docIsDepartmentThread(d))
                     .map((d) => d.id)
                     .toList();
 
-                threads.add(_buildDmSelectionToolbar(displayed.length));
+                threads.add(_buildDmSelectionToolbar(
+                  displayed.length + localOnly.length,
+                ));
 
-                if (displayed.isEmpty) {
+                if (displayed.isEmpty && localOnly.isEmpty) {
                   threads.add(
                     Padding(
                       padding: const EdgeInsets.symmetric(
@@ -1662,15 +1711,28 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   );
                 } else {
                   threads.add(_sectionHeader('Conversas'));
-                  threads.add(_unifiedConversationListRows(
-                    context,
-                    tid,
-                    uid,
-                    displayed,
-                    prefs,
-                    photoByPeer,
-                    memberByPeer,
-                  ));
+                  if (displayed.isNotEmpty) {
+                    threads.add(_unifiedConversationListRows(
+                      context,
+                      tid,
+                      uid,
+                      displayed,
+                      prefs,
+                      photoByPeer,
+                      memberByPeer,
+                    ));
+                  }
+                  if (localOnly.isNotEmpty) {
+                    threads.add(_localConversationListRows(
+                      context,
+                      tid,
+                      uid,
+                      localOnly,
+                      prefs,
+                      photoByPeer,
+                      memberByPeer,
+                    ));
+                  }
                 }
 
                 final listView = RefreshIndicator(
@@ -2003,6 +2065,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         ),
       ),
     );
+    if (mounted) {
+      unawaited(_primeConversasListFromFallback(tid));
+      unawaited(_reloadLocalConversations());
+      _requestConversasResync();
+    }
   }
 
   Future<void> _showDepartmentMembersSheet(
@@ -2042,6 +2109,96 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         ),
       ),
     );
+  }
+
+  Widget _localConversationListRows(
+    BuildContext context,
+    String tid,
+    String uid,
+    List<ChurchChatLocalConversationEntry> entries,
+    ChurchChatMemberPrefsModel prefs,
+    Map<String, String> photoByPeerUid,
+    Map<String, ChurchChatMemberRef> memberByPeerUid,
+  ) {
+    return Column(
+      children: [
+        for (var i = 0; i < entries.length; i++) ...[
+          if (i > 0)
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: Colors.grey.shade200,
+              indent: 72,
+            ),
+          _dmChatRowFromLocal(
+            context,
+            tid,
+            uid,
+            entries[i],
+            prefs,
+            photoByPeerUid,
+            memberByPeerUid,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _dmChatRowFromLocal(
+    BuildContext context,
+    String tid,
+    String uid,
+    ChurchChatLocalConversationEntry loc,
+    ChurchChatMemberPrefsModel prefs,
+    Map<String, String> photoByPeerUid,
+    Map<String, ChurchChatMemberRef> memberByPeerUid,
+  ) {
+    final peer = loc.peerUid;
+    if (peer.isEmpty) return const SizedBox.shrink();
+    final fullTitle = loc.displayName.isNotEmpty ? loc.displayName : peer;
+    final rowTitle = _firstNameForChatRow(fullTitle);
+    final preview = loc.lastMessage;
+    final memberRef = memberByPeerUid[peer];
+    final online = _peerOnlineByUid[peer] ?? false;
+    return _chatTile(
+      title: rowTitle,
+      subtitle: preview,
+      subtitleMaxLines: 2,
+      timeLabel: _fmtTimeMs(loc.lastMessageAtMs),
+      photo: ChurchChatPeerAvatar(
+        tenantId: tid,
+        peerAuthUid: peer,
+        memberRef: memberRef,
+        radius: 24,
+      ),
+      showPresence: true,
+      online: online,
+      isUnread: false,
+      isFavorite: prefs.isFavorite(loc.threadId),
+      isPinned: prefs.isPinned(loc.threadId),
+      isMuted: prefs.isMutedThread(loc.threadId),
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            fullscreenDialog: true,
+            builder: (_) => ChurchChatThreadPage(
+              tenantId: tid,
+              threadId: loc.threadId,
+              title: fullTitle,
+              isDepartment: false,
+              peerUid: peer,
+              memberRole: widget.role,
+              memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  String _fmtTimeMs(int ms) {
+    if (ms <= 0) return '';
+    return _fmtTime(Timestamp.fromMillisecondsSinceEpoch(ms));
   }
 
   /// Lista unificada estilo WhatsApp — DM + grupos de departamento.

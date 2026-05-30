@@ -15,13 +15,16 @@ abstract final class FeedPostMediaUpload {
 
   /// Um refresh de token antes do lote — evita N× `getIdToken(true)` por foto.
   static Future<void> warmAuthToken() async {
-    await ensureFirebaseReadyForMediaUpload();
     try {
       await firebaseDefaultAuth.currentUser
-          ?.getIdToken(true)
-          .timeout(const Duration(seconds: 20));
+          ?.getIdToken(false)
+          .timeout(const Duration(seconds: 12));
     } catch (_) {
-      await firebaseDefaultAuth.currentUser?.getIdToken();
+      try {
+        await firebaseDefaultAuth.currentUser
+            ?.getIdToken(true)
+            .timeout(const Duration(seconds: 20));
+      } catch (_) {}
     }
   }
 

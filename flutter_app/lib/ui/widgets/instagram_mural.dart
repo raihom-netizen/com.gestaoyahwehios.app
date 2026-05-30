@@ -10,7 +10,10 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
@@ -27,6 +30,7 @@ import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
+import 'package:gestao_yahweh/services/feed_media_publish_strict.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
@@ -481,9 +485,16 @@ class InstagramMuralState extends State<InstagramMural> {
 
   bool _docVisibleInFeed(Map<String, dynamic> data) {
     final ps = (data['publishState'] ?? '').toString();
-    if (ps != MuralFastPublishService.stateDraft) return true;
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    return uid.isNotEmpty && (data['createdByUid'] ?? '').toString() == uid;
+    final author = (data['createdByUid'] ?? '').toString();
+    final isAuthor = uid.isNotEmpty && author == uid;
+    if (ps.isEmpty || ps == MuralFastPublishService.statePublished) return true;
+    if (ps == MuralFastPublishService.stateDraft ||
+        ps == MuralFastPublishService.stateUploading ||
+        ps == MuralFastPublishService.stateFailed) {
+      return isAuthor;
+    }
+    return true;
   }
 
   void _maybeLoadMoreFromScroll(ScrollMetrics metrics) {
@@ -3767,7 +3778,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await runFirebaseBackgroundTask(() async {
+      await AppFinalizeBootstrap.ensureSessionForPublish(logLabel: 'avisos_publish');
+      await FirebaseBootstrapService.runGuarded(() async {
         final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
         final isNewDoc = widget.doc == null;
         final hasNewImages = _newPhotoCount > 0;
@@ -3783,60 +3795,38 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
         if (hasNewImages) {
           final startSlot = existingUrls.length;
-          final postId = docRef.id;
-          List<String> uploadedUrls;
+          List<Uint8List>? bytes;
+          List<String>? paths;
           if (kIsWeb) {
-            final imagesCopy = await _copyNewImagesForPublish();
-            if (imagesCopy.isEmpty) {
+            bytes = await _copyNewImagesForPublish();
+            if (bytes.isEmpty) {
               throw StateError('Não foi possível ler as fotos para enviar.');
             }
-            uploadedUrls =
-                await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
-              tenantId: widget.tenantId,
-              postType: widget.type,
-              postId: postId,
-              newImages: imagesCopy,
-              startSlotIndex: startSlot,
-            );
-            final ar = await imageAspectRatioFromBytes(imagesCopy.first);
-            if (ar != null) aspectRatio = ar.clamp(0.4, 2.3);
           } else {
-            final paths =
-                FeedEditorMediaService.existingValidPaths(_newImagePaths);
+            paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
             if (paths.isEmpty) {
               throw StateError('Não foi possível ler as fotos para enviar.');
             }
-            uploadedUrls =
-                await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
-              tenantId: widget.tenantId,
-              postType: widget.type,
-              postId: postId,
-              localPaths: paths,
-              startSlotIndex: startSlot,
-            );
-            try {
-              final firstBytes = await File(paths.first).readAsBytes();
-              final ar = await imageAspectRatioFromBytes(firstBytes);
-              if (ar != null) aspectRatio = ar.clamp(0.4, 2.3);
-            } catch (_) {}
           }
-          final allUrls = dedupeImageRefsByStorageIdentity([
-            ...existingUrls,
-            ...uploadedUrls,
-          ]);
-          final payload = _buildCorePayload(
-            allUrls: allUrls,
+          final corePayload = _buildCorePayload(
+            allUrls: existingUrls,
             aspectRatio: aspectRatio,
             isNewDoc: isNewDoc,
           );
-          await FeedMediaPublishService.publishNow(
+          await FeedMediaPublishStrict.publishWithPhotosFirst(
             docRef: docRef,
-            payload: payload,
+            tenantId: widget.tenantId,
+            postType: widget.type,
+            corePayload: corePayload,
             isNewDoc: isNewDoc,
+            existingUrls: existingUrls,
+            startSlotIndex: startSlot,
+            hasVideo: _videoUrl.text.trim().isNotEmpty,
+            newImagesBytes: bytes,
+            newImagePaths: paths,
+            onPublished: () async => _schedulePostPublishCacheWarmup(),
           );
           if (mounted) {
-            setState(() => _saving = false);
-            _schedulePostPublishCacheWarmup();
             unawaited(IosPublishMemory.releaseAfterHeavyWork());
             ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.successSnackBar(
@@ -3864,9 +3854,16 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           );
           Navigator.pop(context, true);
         }
-      }, debugLabel: 'avisos_publish');
+      }, debugLabel: 'avisos_publish', requireAuth: true);
     } catch (e, st) {
       await CrashlyticsService.record(e, st, reason: 'avisos_publish');
+      try {
+        final failRef = widget.doc?.reference ?? widget.postsCollection.doc();
+        await FeedMediaPublishService.markPublishFailed(
+          docRef: failRef,
+          error: e,
+        );
+      } catch (_) {}
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(

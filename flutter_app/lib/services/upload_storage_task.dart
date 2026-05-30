@@ -1,45 +1,33 @@
 import 'dart:async';
 
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show formatFirebaseErrorForUser;
 
-/// Mensagem amigável para SnackBar / «Tentar de novo» (evita «Bad state: …» cru).
-String formatUploadErrorForUser(Object error) {
-  if (error is TimeoutException) {
-    final m = error.message?.trim();
-    if (m != null && m.isNotEmpty) return m;
-    return 'Tempo esgotado no envio. Use Wi‑Fi ou tente de novo.';
-  }
-  final raw = '$error';
-  if (raw.contains('Sessão expirada')) {
-    return raw;
-  }
-  if (raw.contains('No Firebase App') ||
-      raw.contains('firebase.initializeapp') ||
-      raw.contains('Serviços Firebase não iniciaram')) {
-    return 'Serviços Firebase não iniciaram. Feche o app por completo (não só minimizar) e abra de novo. Se persistir, reinstale a versão mais recente.';
-  }
+/// Mensagem amigável para SnackBar / «Tentar de novo» — mostra erro real.
+String formatUploadErrorForUser(Object error) =>
+    formatFirebaseErrorForUser(error);
+
+/// Erros de rede/timeout — manter stub Firestore e reenviar depois.
+bool isRetryableUploadError(Object error) {
+  if (error is TimeoutException) return true;
   if (error is FirebaseException) {
-    final m = error.message?.trim();
-    if (m != null && m.isNotEmpty) {
-      final ml = m.toLowerCase();
-      if (ml.contains('no firebase app') ||
-          ml.contains('firebase.initializeapp')) {
-        return 'Serviços Firebase não iniciaram. Feche o app por completo (não só minimizar) e abra de novo. Se persistir, reinstale a versão mais recente.';
-      }
-      return m;
+    switch (error.code) {
+      case 'unavailable':
+      case 'network-request-failed':
+      case 'retry-limit-exceeded':
+      case 'deadline-exceeded':
+      case 'cancelled':
+        return true;
     }
-    return 'Falha no envio (${error.code}). Tente de novo.';
   }
-  if (raw.contains('Tempo esgotado')) {
-    return 'Tempo esgotado no envio. Reduza o tamanho da foto ou use Wi‑Fi.';
-  }
-  if (raw.contains('network') || raw.contains('Network')) {
-    return 'Sem conexão estável. Verifique a internet e tente de novo.';
-  }
-  if (raw.length > 160) {
-    return 'Não foi possível enviar o ficheiro. Tente de novo.';
-  }
-  return raw.replaceFirst(RegExp(r'^Bad state:\s*'), '').trim();
+  final raw = error.toString().toLowerCase();
+  return raw.contains('network') ||
+      raw.contains('timeout') ||
+      raw.contains('tempo esgotado') ||
+      raw.contains('connection') ||
+      raw.contains('offline') ||
+      raw.contains('sem conexão');
 }
 
 Duration uploadMaxDurationForPayloadBytes(int bytes) {

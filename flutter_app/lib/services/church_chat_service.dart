@@ -9,8 +9,10 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'church_chat_attachment_utils.dart';
+import 'church_chat_local_conversations.dart';
 import 'church_chat_member_prefs.dart';
 import 'firestore_stream_utils.dart';
 import 'analytics_service.dart';
@@ -27,7 +29,11 @@ class ChurchChatService {
   /// Estados de entrega (estilo WhatsApp).
   static const String deliverySending = 'sending';
   static const String deliveryUploading = 'uploading';
+  /// Aguardando rede / fila de reenvio (stub mantém-se; não apagar mensagem).
+  static const String deliveryQueued = 'queued';
   static const String deliverySent = 'sent';
+  static const String deliveryDelivered = 'delivered';
+  static const String deliveryRead = 'read';
 
   static String formatInstantSendError(Object e) => formatUploadErrorForUser(e);
 
@@ -171,6 +177,8 @@ class ChurchChatService {
   }
 
   /// DM só entra na lista «Conversas» depois da primeira mensagem real (evita «Toque para conversar» de quem nunca falou).
+  ///
+  /// Equivalente Firestore ao spec `conversations/{id}`: doc em `chat_threads/{id}`.
   static bool threadHasListableConversation(
     Map<String, dynamic> data, {
     String? threadId,
@@ -180,7 +188,10 @@ class ChurchChatService {
         (data['type'] ?? '').toString() == 'department') {
       return true;
     }
-    final preview = (data['lastMessagePreview'] ?? '').toString().trim();
+    if (data['hasConversation'] == true) return true;
+    final preview = (data['lastMessagePreview'] ?? data['lastMessage'] ?? '')
+        .toString()
+        .trim();
     if (preview.isNotEmpty) return true;
     final sender = (data['lastSenderUid'] ?? '').toString().trim();
     if (sender.isNotEmpty) return true;
@@ -212,6 +223,78 @@ class ChurchChatService {
     if (data['type'] != 'dm') patch['type'] = 'dm';
     // lastMessageAt só a partir de mensagem real — não usar createdAt (senão DM vazio ocupa o top-220).
     return patch.isEmpty ? null : patch;
+  }
+
+  /// Índice DM (`participantUids`, `type`) — escrita separada (regras Firestore).
+  static Future<void> mergeDmThreadIndexIfNeeded(
+    String tenantId,
+    String threadId,
+  ) async {
+    if (!threadId.startsWith('dm_')) return;
+    try {
+      final snap = await threadRef(tenantId, threadId).get();
+      final patch = dmThreadIndexPatch(threadId, snap.data() ?? {});
+      if (patch == null || patch.isEmpty) return;
+      await threadRef(tenantId, threadId).set(patch, SetOptions(merge: true));
+    } catch (_) {}
+  }
+
+  /// Atualiza `chat_threads` (= conversations no spec) — ordenação por `lastMessageAt`.
+  static Map<String, dynamic> threadLastMessageIndexPatch({
+    required String preview,
+    required String senderUid,
+    required String messageType,
+  }) {
+    final p = preview.trim();
+    final short = p.length > 120 ? '${p.substring(0, 117)}…' : p;
+    return {
+      'lastMessageAt': FieldValue.serverTimestamp(),
+      'lastMessage': short,
+      'lastMessagePreview': short,
+      'lastMessageType': messageType,
+      'lastSenderUid': senderUid,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'hasConversation': true,
+      'messageCount': FieldValue.increment(1),
+    };
+  }
+
+  /// Mensagem + índice do thread no mesmo commit (evita conversa invisível na lista).
+  static Future<void> _commitMessageAndThreadIndex({
+    required String tenantId,
+    required String threadId,
+    required DocumentReference<Map<String, dynamic>> msgRef,
+    required Map<String, dynamic> messageData,
+    required String preview,
+    required String senderUid,
+    required String messageType,
+    String? peerUid,
+    String? peerDisplayName,
+  }) async {
+    await mergeDmThreadIndexIfNeeded(tenantId, threadId);
+    final batch = _db.batch();
+    batch.set(msgRef, messageData);
+    batch.set(
+      threadRef(tenantId, threadId),
+      threadLastMessageIndexPatch(
+        preview: preview,
+        senderUid: senderUid,
+        messageType: messageType,
+      ),
+      SetOptions(merge: true),
+    );
+    await batch.commit();
+    unawaited(
+      ChurchChatLocalConversations.recordFromOutbound(
+        tenantId: tenantId,
+        myUid: senderUid,
+        threadId: threadId,
+        preview: preview,
+        messageType: messageType,
+        peerUid: peerUid,
+        displayName: peerDisplayName,
+      ),
+    );
   }
 
   /// Reparo no dispositivo + callable (threads antigos sem `participantUids` / `lastMessageAt`).
@@ -252,30 +335,36 @@ class ChurchChatService {
       final created = msg['createdAt'];
       if (created is! Timestamp) return null;
       final t = (msg['type'] ?? 'text').toString();
-      var preview = (msg['text'] ?? '').toString().trim();
-      if (t == 'image') {
-        preview = '📷 Foto';
-      } else if (t == 'video') {
-        preview = '🎬 Vídeo';
-      } else if (t == 'audio') {
-        preview = '🎤 Áudio';
-      } else if (t == 'sticker') {
-        preview = '🎨 Figurinha';
+      var preview = ChurchChatAttachmentUtils.previewForThreadLastMessage(
+        kind: t,
+        fileName: (msg['fileName'] ?? '').toString(),
+      );
+      if (t == 'text') {
+        preview = (msg['text'] ?? '').toString().trim();
       }
       if (preview.length > 120) preview = '${preview.substring(0, 117)}…';
 
-      final patch = <String, dynamic>{};
+      final patch = <String, dynamic>{
+        'hasConversation': true,
+      };
       if (data['lastMessageAt'] == null) patch['lastMessageAt'] = created;
-      if ((data['lastMessagePreview'] ?? '').toString().trim().isEmpty &&
+      if ((data['lastMessagePreview'] ?? data['lastMessage'] ?? '')
+          .toString()
+          .trim()
+          .isEmpty &&
           preview.isNotEmpty) {
         patch['lastMessagePreview'] = preview;
+        patch['lastMessage'] = preview;
+      }
+      if ((data['lastMessageType'] ?? '').toString().trim().isEmpty) {
+        patch['lastMessageType'] = t;
       }
       final sender = (msg['senderUid'] ?? '').toString().trim();
       if ((data['lastSenderUid'] ?? '').toString().trim().isEmpty &&
           sender.isNotEmpty) {
         patch['lastSenderUid'] = sender;
       }
-      return patch.isEmpty ? null : patch;
+      return patch;
     } catch (_) {
       return null;
     }
@@ -324,11 +413,28 @@ class ChurchChatService {
         patch ??= <String, dynamic>{};
         patch.addAll(msgPatch);
       }
-      if (!threadHasListableConversation({...data, ...?patch}, threadId: doc.id) &&
+      // Só remove índice de ordenação se o thread não tem mensagens (evita sumir da lista).
+      final hasMessages = await doc.reference
+          .collection('messages')
+          .limit(1)
+          .get()
+          .then((s) => s.docs.isNotEmpty);
+      final merged = {...data, ...?patch};
+      final listable = threadHasListableConversation(merged, threadId: doc.id);
+      final hadConversation = data['hasConversation'] == true ||
+          merged['hasConversation'] == true;
+      if (!hasMessages &&
+          !hadConversation &&
+          !listable &&
           data['lastMessageAt'] != null) {
         patch ??= <String, dynamic>{};
         patch['lastMessageAt'] = FieldValue.delete();
         patch['lastMessagePreview'] = FieldValue.delete();
+        patch['lastMessage'] = FieldValue.delete();
+      } else if ((hasMessages || hadConversation || listable) &&
+          data['hasConversation'] != true) {
+        patch ??= <String, dynamic>{};
+        patch['hasConversation'] = true;
       }
       if (patch == null) continue;
       batch!.set(doc.reference, patch, SetOptions(merge: true));
@@ -1109,6 +1215,40 @@ class ChurchChatService {
         'lastSeenAtByUid.$uid': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+      unawaited(
+        markInboundMessagesDelivered(
+          tenantId: tid,
+          threadId: threadId,
+        ),
+      );
+    } catch (_) {}
+  }
+
+  /// Marca mensagens do outro participante como `delivered` (✓✓ cinza) ao abrir a conversa.
+  static Future<void> markInboundMessagesDelivered({
+    required String tenantId,
+    required String threadId,
+    int limit = 40,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || !threadId.startsWith('dm_')) return;
+    try {
+      final snap = await messagesCol(tenantId, threadId)
+          .orderBy('createdAt', descending: true)
+          .limit(limit)
+          .get();
+      final batch = _db.batch();
+      var n = 0;
+      for (final doc in snap.docs) {
+        final d = doc.data();
+        if ((d['senderUid'] ?? '').toString() == uid) continue;
+        final ds = (d['deliveryStatus'] ?? '').toString();
+        if (ds != deliverySent) continue;
+        batch.update(doc.reference, {'deliveryStatus': deliveryDelivered});
+        n++;
+        if (n >= 25) break;
+      }
+      if (n > 0) await batch.commit();
     } catch (_) {}
   }
 
@@ -1196,13 +1336,17 @@ class ChurchChatService {
     String? senderDisplayName,
     List<String>? mentionedUids,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseInitialized();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
       threadId: threadId,
     )) {
       return (messageId: '', allowed: false);
     }
+    await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
+      tenantId: tenantId,
+      threadId: threadId,
+    );
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final expiresAt =
         Timestamp.fromDate(DateTime.now().add(textRetention));
@@ -1216,36 +1360,30 @@ class ChurchChatService {
         .toSet()
         .take(24)
         .toList();
-    await msgRef.set({
-      'senderUid': uid,
-      'type': 'text',
-      'text': text,
-      'deliveryStatus': deliverySending,
-      'createdAt': FieldValue.serverTimestamp(),
-      'expiresAt': expiresAt,
-      if (nr != null) 'replyTo': nr,
-      if (nf != null) 'forwardedFrom': nf,
-      if (label.isNotEmpty)
-        'senderDisplayName':
-            label.length > 100 ? label.substring(0, 100) : label,
-      if (mentions.isNotEmpty) 'mentionedUids': mentions,
-    });
     final preview = nf != null
         ? '↪ ${nf['preview']}'
         : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
-    final threadPatch = <String, dynamic>{
-      'lastMessageAt': FieldValue.serverTimestamp(),
-      'lastMessagePreview': preview.length > 120
-          ? '${preview.substring(0, 117)}…'
-          : preview,
-      'lastSenderUid': uid,
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-    final indexPatch = dmThreadIndexPatch(threadId, const {});
-    if (indexPatch != null) threadPatch.addAll(indexPatch);
-    await threadRef(tenantId, threadId).set(
-      threadPatch,
-      SetOptions(merge: true),
+    await _commitMessageAndThreadIndex(
+      tenantId: tenantId,
+      threadId: threadId,
+      msgRef: msgRef,
+      messageData: {
+        'senderUid': uid,
+        'type': 'text',
+        'text': text,
+        'deliveryStatus': deliverySending,
+        'createdAt': FieldValue.serverTimestamp(),
+        'expiresAt': expiresAt,
+        if (nr != null) 'replyTo': nr,
+        if (nf != null) 'forwardedFrom': nf,
+        if (label.isNotEmpty)
+          'senderDisplayName':
+              label.length > 100 ? label.substring(0, 100) : label,
+        if (mentions.isNotEmpty) 'mentionedUids': mentions,
+      },
+      preview: preview,
+      senderUid: uid,
+      messageType: 'text',
     );
     return (messageId: msgRef.id, allowed: true);
   }
@@ -1258,7 +1396,7 @@ class ChurchChatService {
     Map<String, dynamic>? replyTo,
     Map<String, dynamic>? forwardedFrom,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseInitialized();
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final nf = normalizeForwardedFrom(forwardedFrom);
     final preview = nf != null
@@ -1271,15 +1409,21 @@ class ChurchChatService {
           'deliveryStatus': deliverySent,
         });
         await threadRef(tenantId, threadId).set(
-          {
-            'lastMessageAt': FieldValue.serverTimestamp(),
-            'lastMessagePreview': preview.length > 120
-                ? '${preview.substring(0, 117)}…'
-                : preview,
-            'lastSenderUid': uid,
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
+          threadLastMessageIndexPatch(
+            preview: preview,
+            senderUid: uid,
+            messageType: 'text',
+          ),
           SetOptions(merge: true),
+        );
+        unawaited(
+          ChurchChatLocalConversations.recordFromOutbound(
+            tenantId: tenantId,
+            myUid: uid,
+            threadId: threadId,
+            preview: preview,
+            messageType: 'text',
+          ),
         );
         return;
       } catch (e) {
@@ -1552,12 +1696,56 @@ class ChurchChatService {
   static String buildChatMediaStoragePath({
     required String tenantId,
     required String threadId,
+    required String kind,
     required String fileName,
   }) {
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final ts = DateTime.now().millisecondsSinceEpoch;
-    final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-    return 'igrejas/$tenantId/chat_media/$threadId/${uid}_${ts}_$safeName';
+    return ChurchStorageLayout.buildChatMediaObjectPath(
+      tenantId: tenantId,
+      threadId: threadId,
+      kind: kind,
+      uid: uid,
+      timestampMs: ts,
+      fileName: fileName,
+    );
+  }
+
+  static String buildChatVideoThumbStoragePath({
+    required String tenantId,
+    required String threadId,
+    int? timestampMs,
+  }) {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final ts = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
+    return ChurchStorageLayout.buildChatVideoThumbPath(
+      tenantId: tenantId,
+      threadId: threadId,
+      uid: uid,
+      timestampMs: ts,
+    );
+  }
+
+  static String buildChatImageThumbStoragePath({
+    required String tenantId,
+    required String threadId,
+    int? timestampMs,
+  }) {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final ts = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
+    return ChurchStorageLayout.buildChatImageThumbPath(
+      tenantId: tenantId,
+      threadId: threadId,
+      uid: uid,
+      timestampMs: ts,
+    );
+  }
+
+  /// Extrai `timestampMs` do path `…/{uid}_{ts}_…`.
+  static int? timestampMsFromChatMediaPath(String path) {
+    final m = RegExp(r'/(\d+)_').firstMatch(path);
+    if (m == null) return null;
+    return int.tryParse(m.group(1)!);
   }
 
   /// Cria mensagem no thread sem `mediaUrl` (lista e thread atualizam na hora).
@@ -1570,18 +1758,23 @@ class ChurchChatService {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseInitialized();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
       threadId: threadId,
     )) {
       throw StateError('Envio bloqueado para este contacto.');
     }
+    await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
+      tenantId: tenantId,
+      threadId: threadId,
+    );
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final storagePath = buildChatMediaStoragePath(
       tenantId: tenantId,
       threadId: threadId,
-      fileName: fileName ?? 'media',
+      kind: kind,
+      fileName: fileName ?? _defaultFileNameForKind(kind),
     );
     final expiresAt =
         Timestamp.fromDate(DateTime.now().add(mediaRetention));
@@ -1596,32 +1789,28 @@ class ChurchChatService {
       preview = '↪ ${nf['preview']}';
     }
     final label = (senderDisplayName ?? '').trim();
-    await msgRef.set({
-      'senderUid': uid,
-      'type': kind,
-      'deliveryStatus': deliveryUploading,
-      'uploadProgress': 0,
-      'createdAt': FieldValue.serverTimestamp(),
-      'expiresAt': expiresAt,
-      if (fileName != null && fileName.trim().isNotEmpty)
-        'fileName': fileName.trim(),
-      if (nr != null) 'replyTo': nr,
-      if (nf != null) 'forwardedFrom': nf,
-      if (label.isNotEmpty)
-        'senderDisplayName':
-            label.length > 100 ? label.substring(0, 100) : label,
-    });
-    await threadRef(tenantId, threadId).set(
-      {
-        'lastMessageAt': FieldValue.serverTimestamp(),
-        'lastMessagePreview': preview.length > 120
-            ? '${preview.substring(0, 117)}…'
-            : preview,
-        'lastSenderUid': uid,
-        'updatedAt': FieldValue.serverTimestamp(),
-        ...?dmThreadIndexPatch(threadId, const {}),
+    await _commitMessageAndThreadIndex(
+      tenantId: tenantId,
+      threadId: threadId,
+      msgRef: msgRef,
+      messageData: {
+        'senderUid': uid,
+        'type': kind,
+        'deliveryStatus': deliveryUploading,
+        'uploadProgress': 0,
+        'createdAt': FieldValue.serverTimestamp(),
+        'expiresAt': expiresAt,
+        if (fileName != null && fileName.trim().isNotEmpty)
+          'fileName': fileName.trim(),
+        if (nr != null) 'replyTo': nr,
+        if (nf != null) 'forwardedFrom': nf,
+        if (label.isNotEmpty)
+          'senderDisplayName':
+              label.length > 100 ? label.substring(0, 100) : label,
       },
-      SetOptions(merge: true),
+      preview: preview,
+      senderUid: uid,
+      messageType: kind,
     );
     return (messageId: msgRef.id, storagePath: storagePath);
   }
@@ -1661,6 +1850,33 @@ class ChurchChatService {
         rethrow;
       }
     }
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    if (uid.isNotEmpty) {
+      final kind = (await ref.get()).data()?['type']?.toString() ?? 'image';
+      final preview = ChurchChatAttachmentUtils.previewForThreadLastMessage(
+        kind: kind,
+        fileName: fileName,
+      );
+      try {
+        await threadRef(tenantId, threadId).set(
+          threadLastMessageIndexPatch(
+            preview: preview,
+            senderUid: uid,
+            messageType: kind,
+          ),
+          SetOptions(merge: true),
+        );
+        unawaited(
+          ChurchChatLocalConversations.recordFromOutbound(
+            tenantId: tenantId,
+            myUid: uid,
+            threadId: threadId,
+            preview: preview,
+            messageType: kind,
+          ),
+        );
+      } catch (_) {}
+    }
     return true;
   }
 
@@ -1675,14 +1891,14 @@ class ChurchChatService {
     String? thumbUrl,
     int maxAttempts = 5,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseInitialized();
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     Object? last;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         if (attempt > 1) {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-          await ensureFirebaseReadyForMediaUpload();
+          await ensureFirebaseInitialized();
         }
         return await completeMediaUploadMessage(
           tenantId: tenantId,
@@ -1704,16 +1920,67 @@ class ChurchChatService {
     throw last ?? StateError('Não foi possível concluir o envio no servidor.');
   }
 
-  /// Atualiza progresso no stub (regras: só `uploadProgress` enquanto `uploading`).
+  static String _defaultFileNameForKind(String kind) => switch (kind) {
+        'image' => 'foto.webp',
+        'video' => 'video.mp4',
+        'audio' => 'audio.m4a',
+        _ => 'media',
+      };
+
+  /// Marca stub como aguardando rede (reenvio automático).
+  static Future<void> markMediaUploadQueued({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+  }) async {
+    try {
+      await messagesCol(tenantId, threadId).doc(messageId).update({
+        'deliveryStatus': deliveryQueued,
+        'uploadProgress': 0,
+      });
+    } catch (_) {}
+  }
+
+  static Future<void> markMediaUploadActive({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+  }) async {
+    try {
+      await messagesCol(tenantId, threadId).doc(messageId).update({
+        'deliveryStatus': deliveryUploading,
+        'uploadProgress': 0,
+      });
+    } catch (_) {}
+  }
+
+  static final Map<String, double> _uploadProgressPatchCache = {};
+
+  /// Atualiza progresso no stub (0–1; regras: só `uploadProgress` enquanto `uploading`).
   static Future<void> patchMediaUploadProgress({
     required String tenantId,
     required String threadId,
     required String messageId,
     required double progress,
+    bool force = false,
   }) async {
+    final clamped = progress.clamp(0.0, 1.0);
+    final key = '$tenantId/$threadId/$messageId';
+    final last = _uploadProgressPatchCache[key];
+    if (!force &&
+        last != null &&
+        clamped < 1 &&
+        (clamped - last).abs() < 0.04) {
+      return;
+    }
+    _uploadProgressPatchCache[key] = clamped;
+    if (clamped >= 1) {
+      _uploadProgressPatchCache.remove(key);
+    }
     try {
       await messagesCol(tenantId, threadId).doc(messageId).update({
-        'uploadProgress': progress.clamp(0.0, 1.0),
+        'uploadProgress': clamped,
+        'deliveryStatus': deliveryUploading,
       });
     } catch (_) {}
   }
@@ -1742,11 +2009,12 @@ class ChurchChatService {
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseInitialized();
     final path = storagePathOverride ??
         buildChatMediaStoragePath(
           tenantId: tenantId,
           threadId: threadId,
+          kind: _kindFromContentType(contentType),
           fileName: fileName,
         );
     final ubytes =
@@ -1783,11 +2051,12 @@ class ChurchChatService {
     if (kIsWeb) {
       throw UnsupportedError('uploadChatFile não suportado na web.');
     }
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseInitialized();
     final path = storagePathOverride ??
         buildChatMediaStoragePath(
           tenantId: tenantId,
           threadId: threadId,
+          kind: _kindFromContentType(contentType),
           fileName: fileName,
         );
     final ct = contentType.toLowerCase();
@@ -1807,6 +2076,14 @@ class ChurchChatService {
       onUploadTaskCreated: onUploadTaskCreated,
     );
     return (url: url, path: path);
+  }
+
+  static String _kindFromContentType(String contentType) {
+    final ct = contentType.toLowerCase();
+    if (ct.startsWith('image/')) return 'image';
+    if (ct.startsWith('video/')) return 'video';
+    if (ct.startsWith('audio/')) return 'audio';
+    return 'document';
   }
 
   static Future<void> hideThreadForMe({

@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:image_picker/image_picker.dart';
 
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 import 'firebase_storage_cleanup_service.dart';
@@ -47,10 +47,16 @@ class VideoHandlerService implements IVideoHandlerService {
       videoSlot: slot,
     );
 
-    final videoPath =
-        ChurchStorageLayout.eventHostedVideoMp4Path(tenantId, eventPostDocId, slot);
-    final thumbPath =
-        ChurchStorageLayout.eventHostedVideoThumbPath(tenantId, eventPostDocId, slot);
+    final videoPath = FeedTenantStorageMap.feedEventoHostedVideoMp4Path(
+      tenantId,
+      eventPostDocId,
+      slot,
+    );
+    final thumbPath = FeedTenantStorageMap.feedEventoHostedVideoThumbPath(
+      tenantId,
+      eventPostDocId,
+      slot,
+    );
 
     final videoFuture = MediaUploadService.uploadBytesWithRetry(
       storagePath: videoPath,

@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
@@ -35,8 +36,10 @@ abstract final class MuralPostMediaPayload {
     await ensureFirebaseReadyForMediaUpload();
     await FeedPostMediaUpload.warmAuthToken()
         .timeout(const Duration(seconds: 25));
+    final maxConc = mediaFeedUploadMaxConcurrent.clamp(1, newImages.length);
     final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
       count: newImages.length,
+      maxConcurrent: maxConc,
       progressLabel: 'A enviar imagens…',
       uploadOne: (i, report) => uploadPhotoSlot(
         tenantId: tenantId,
@@ -69,8 +72,10 @@ abstract final class MuralPostMediaPayload {
     await ensureFirebaseReadyForMediaUpload();
     await FeedPostMediaUpload.warmAuthToken()
         .timeout(const Duration(seconds: 25));
+    final maxConc = mediaFeedUploadMaxConcurrent.clamp(1, paths.length);
     final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
       count: paths.length,
+      maxConcurrent: maxConc,
       progressLabel: 'A enviar imagens…',
       uploadOne: (i, report) async {
         final path = paths[i];
@@ -135,7 +140,6 @@ abstract final class MuralPostMediaPayload {
     void Function(double progress)? onProgress,
     String? localPath,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
     // v1555: 1 WebP por foto (web + mobile) — CF `optimizeImage` gera variantes.
     try {
       return await IosPublishImagePipeline.uploadFeedPhotoSlot(

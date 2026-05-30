@@ -47,6 +47,9 @@ class ChurchChatMemberPrefsModel {
   /// Ordem preferida dos grupos (ids de `departamentos/{id}`). Vazio = ordem alfabética.
   final List<String> departmentGroupOrderIds;
 
+  /// Mensagens favoritas por conversa (`threadId` → ids de mensagem).
+  final Map<String, List<String>> starredMessageIdsByThread;
+
   const ChurchChatMemberPrefsModel({
     this.favoriteThreadIds = const [],
     this.mutedThreadIds = const [],
@@ -60,9 +63,18 @@ class ChurchChatMemberPrefsModel {
     this.pinnedThreadIds = const [],
     this.archivedThreadIds = const [],
     this.departmentGroupOrderIds = const [],
+    this.starredMessageIdsByThread = const {},
   });
 
   bool isFavorite(String threadId) => favoriteThreadIds.contains(threadId);
+
+  bool isMessageStarred(String threadId, String messageId) {
+    final ids = starredMessageIdsByThread[threadId];
+    return ids != null && ids.contains(messageId);
+  }
+
+  List<String> starredMessagesInThread(String threadId) =>
+      List<String>.from(starredMessageIdsByThread[threadId] ?? const []);
   bool isPinned(String threadId) => pinnedThreadIds.contains(threadId);
   bool isArchived(String threadId) => archivedThreadIds.contains(threadId);
   bool isMutedThread(String threadId) => mutedThreadIds.contains(threadId);
@@ -106,6 +118,11 @@ class ChurchChatMemberPrefs {
   /// Ordem personalizada dos grupos na aba Chat (ids de departamento).
   static const int maxDepartmentGroupOrderIds = 80;
 
+  /// Mensagens favoritas por conversa (estilo WhatsApp «mensagem importante»).
+  static const int maxStarredMessagesPerThread = 30;
+
+  static const int maxStarredMessagesTotal = 120;
+
   static DocumentReference<Map<String, dynamic>> docRef(
     String tenantId,
     String uid,
@@ -144,7 +161,19 @@ class ChurchChatMemberPrefs {
       pinnedThreadIds: _stringList(d?['pinnedThreadIds']),
       archivedThreadIds: _stringList(d?['archivedThreadIds']),
       departmentGroupOrderIds: _stringList(d?['departmentGroupOrderIds']),
+      starredMessageIdsByThread: _starredMessagesMap(d?['starredMessageIdsByThread']),
     );
+  }
+
+  static Map<String, List<String>> _starredMessagesMap(dynamic raw) {
+    if (raw is! Map) return {};
+    final out = <String, List<String>>{};
+    for (final e in raw.entries) {
+      final tid = e.key.toString().trim();
+      if (tid.isEmpty) continue;
+      out[tid] = _stringList(e.value);
+    }
+    return out;
   }
 
   static String? _optionalAlertMode(dynamic raw) {
@@ -178,6 +207,55 @@ class ChurchChatMemberPrefs {
   }
 
   /// Remove favorito: sempre `true`. Adicionar: `false` se já existirem [maxFavoriteThreads] favoritos.
+  /// Favoritar mensagem nesta conversa (só visível para si).
+  static Future<bool> setMessageStarred({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+    required bool value,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return false;
+    final tid = threadId.trim();
+    final mid = messageId.trim();
+    if (tid.isEmpty || mid.isEmpty) return false;
+
+    final cur = await load(tenantId);
+    final map = cur.starredMessageIdsByThread.map(
+      (k, v) => MapEntry(k, List<String>.from(v)),
+    );
+    final next = Map<String, List<String>>.from(map);
+    var list = List<String>.from(next[tid] ?? const []);
+
+    if (value) {
+      if (list.contains(mid)) return true;
+      var total = 0;
+      for (final l in next.values) {
+        total += l.length;
+      }
+      if (total >= maxStarredMessagesTotal) return false;
+      if (list.length >= maxStarredMessagesPerThread) return false;
+      list = [...list, mid];
+      next[tid] = list;
+    } else {
+      list.remove(mid);
+      if (list.isEmpty) {
+        next.remove(tid);
+      } else {
+        next[tid] = list;
+      }
+    }
+
+    await docRef(tenantId, uid).set(
+      {
+        'starredMessageIdsByThread': next,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    return true;
+  }
+
   static Future<bool> setFavorite({
     required String tenantId,
     required String threadId,
@@ -303,6 +381,21 @@ class ChurchChatMemberPrefs {
   static bool _canHideDmThreadId(String threadId) {
     if (threadId.startsWith('dept_')) return false;
     return threadId.startsWith('dm_') || !threadId.contains('/');
+  }
+
+  /// Nova mensagem num DM oculto — volta a aparecer em «Conversas».
+  static Future<void> revealDmThreadOnOutbound({
+    required String tenantId,
+    required String threadId,
+  }) async {
+    if (!threadId.startsWith('dm_')) return;
+    final cur = await load(tenantId);
+    if (!cur.isHiddenDmThread(threadId)) return;
+    await setHiddenDmThread(
+      tenantId: tenantId,
+      threadId: threadId,
+      hide: false,
+    );
   }
 
   static Future<bool> setPinnedThread({

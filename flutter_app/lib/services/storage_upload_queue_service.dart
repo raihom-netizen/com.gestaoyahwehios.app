@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart';
-
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'app_connectivity_service.dart';
+import 'pending_uploads_firestore_service.dart';
 import 'upload_bytes_core.dart';
 import 'yahweh_telemetry.dart';
 
@@ -69,8 +72,27 @@ class StorageUploadQueueService {
     required String contentType,
     String cacheControl = 'public, max-age=31536000',
     void Function(double progress)? onProgress,
+    String? tenantId,
+    String? module,
+    String? localPathForRetry,
   }) async {
     final c = Completer<String>();
+    final localPath = localPathForRetry ??
+        await _persistBytesForRetry(bytes, storagePath);
+    final tid = tenantId ??
+        PendingUploadsFirestoreService.tenantFromStoragePath(storagePath);
+    String? pendingId;
+    if (tid != null && tid.isNotEmpty) {
+      pendingId = await PendingUploadsFirestoreService.recordQueuedBytesUpload(
+        tenantId: tid,
+        module: module ??
+            PendingUploadsFirestoreService.moduleFromStoragePath(storagePath)
+                .name,
+        storagePath: storagePath,
+        localPath: localPath,
+        contentType: contentType,
+      );
+    }
     _queue.add(
       _QueuedPutData(
         storagePath: storagePath,
@@ -79,6 +101,9 @@ class StorageUploadQueueService {
         cacheControl: cacheControl,
         onProgress: onProgress,
         completer: c,
+        tenantId: tid,
+        pendingUploadId: pendingId,
+        localPath: localPath,
       ),
     );
     debugPrint(
@@ -87,6 +112,24 @@ class StorageUploadQueueService {
       unawaited(_drain());
     }
     return c.future;
+  }
+
+  static Future<String?> _persistBytesForRetry(
+    Uint8List bytes,
+    String storagePath,
+  ) async {
+    if (kIsWeb) return null;
+    try {
+      final dir = await getTemporaryDirectory();
+      final safe = storagePath.replaceAll(RegExp(r'[^\w]'), '_');
+      final f = File(
+        '${dir.path}/queue_${DateTime.now().millisecondsSinceEpoch}_$safe.bin',
+      );
+      await f.writeAsBytes(bytes, flush: true);
+      return f.path;
+    } catch (_) {
+      return null;
+    }
   }
 
   String _storagePathShort(String p) =>
@@ -108,6 +151,21 @@ class StorageUploadQueueService {
               .start('A enviar ficheiros em fila (${_queue.length})…');
           GlobalUploadProgress.instance.update(0);
         }
+        final tid = item.tenantId;
+        final pendingId = item.pendingUploadId;
+        if (tid != null &&
+            tid.isNotEmpty &&
+            pendingId != null &&
+            pendingId.isNotEmpty) {
+          unawaited(
+            PendingUploadsFirestoreService.markProgress(
+              tid,
+              pendingId,
+              progress: 0.1,
+              status: 'uploading',
+            ),
+          );
+        }
         try {
           final url = await uploadStoragePutDataWithRetry(
             storagePath: item.storagePath,
@@ -116,9 +174,19 @@ class StorageUploadQueueService {
             cacheControl: item.cacheControl,
             maxAttempts: 3,
             onProgress: item.onProgress,
+            useOfflineQueue: false,
+            localFilePathForRetry: item.localPath,
           );
           if (!item.completer.isCompleted) {
             item.completer.complete(url);
+          }
+          if (tid != null &&
+              tid.isNotEmpty &&
+              pendingId != null &&
+              pendingId.isNotEmpty) {
+            unawaited(
+              PendingUploadsFirestoreService.markCompleted(tid, pendingId),
+            );
           }
           _queue.removeAt(0);
           _networkFailStreak = 0;
@@ -140,6 +208,26 @@ class StorageUploadQueueService {
             StackTrace.current,
             context: item.storagePath,
           ));
+          if (tid != null && tid.isNotEmpty) {
+            if (pendingId != null && pendingId.isNotEmpty) {
+              unawaited(
+                PendingUploadsFirestoreService.markFailed(tid, pendingId, e),
+              );
+            } else {
+              unawaited(
+                PendingUploadsFirestoreService.recordFailedBytesUpload(
+                  tenantId: tid,
+                  module: PendingUploadsFirestoreService.moduleFromStoragePath(
+                    item.storagePath,
+                  ).name,
+                  storagePath: item.storagePath,
+                  error: e,
+                  localPath: item.localPath,
+                  contentType: item.contentType,
+                ),
+              );
+            }
+          }
           _queue.removeAt(0);
           _networkFailStreak = 0;
         }
@@ -163,6 +251,9 @@ class _QueuedPutData {
     required this.cacheControl,
     this.onProgress,
     required this.completer,
+    this.tenantId,
+    this.pendingUploadId,
+    this.localPath,
   });
 
   final String storagePath;
@@ -171,4 +262,7 @@ class _QueuedPutData {
   final String cacheControl;
   final void Function(double progress)? onProgress;
   final Completer<String> completer;
+  final String? tenantId;
+  final String? pendingUploadId;
+  final String? localPath;
 }

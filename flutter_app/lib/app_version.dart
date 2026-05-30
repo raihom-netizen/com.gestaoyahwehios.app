@@ -1,4 +1,21 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1653: Deploy completo produção — web, AAB Play, ZIP iOS Codemagic (pilares finalização).
+/// 11.2.295+1652: Pilares finalização — AppFinalizeBootstrap, checklist, sessão+filas no resume.
+/// 11.2.295+1651: Saúde do Sistema (uploads global), feed strict + chat outbox → pending_uploads.
+/// 11.2.295+1650: Fase 2 — pending_uploads automático, paths tenants/… (avisos/eventos), fila offline.
+/// 11.2.295+1649: Chat — audio_waveforms (mobile) + favoritar mensagem + lista de favoritas.
+/// 11.2.295+1648: Chat — uploadProgress 0–1 no stub Firestore + bolha local (áudio com barra).
+/// 11.2.295+1647: Pipeline uploads unificado; FirebaseBootstrap.instance; analytics upload.
+/// 11.2.295+1646: Chat/conversas estáveis; avisos/eventos upload-before-Firestore; logs reais.
+/// 11.2.295+1645: Firebase — health Functions/FCM, pending_uploads Firestore, guarda publicação.
+/// 11.2.295+1644: Firebase — bootstrap único antes do runApp, health check, reconexão, erros reais.
+/// 11.2.295+1643: Avisos — fix publicar 3 fotos (Firebase cache, upload 2 paralelo, sem falso no-app).
+/// 11.2.295+1642: Avisos/Eventos — upload Storage antes do Firestore; feed sem posts vazios; 1920px/80%.
+/// 11.2.295+1641: Chat Igreja — conversas estáveis (índice nunca apaga com mensagens), entregue ✓✓, mapa Firestore.
+/// 11.2.295+1640: Chat Igreja — mídia definitiva (compress 1920, thumb, chat_uploads, retry offline, paths Storage).
+/// 11.2.295+1639: Chat — cache local conversas + índice lastMessage + upload foto direto Storage.
+/// 11.2.295+1638: Chat — conversas estáveis na lista + mídia (batch Firestore, hasConversation).
+/// 11.2.295+1637: Login fixo — biometria ao abrir (Google/Apple), OAuth silencioso se cancelar digital.
 /// 11.2.295+1636: Eventos — fotos ao escolher (Storage+Fila), publicar instantâneo, vídeo em background.
 /// 11.2.295+1635: Chat/avisos/eventos — regras memberLinked+chatTenantMemberFast, Firebase bootstrap, login OAuth, upload mídia.
 /// 11.2.295+1606: iOS «Alterar plano» — Safari abre `/atualizar-plano` (login Google/Apple/e-mail + PIX/cartão).
@@ -159,7 +176,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1636';
+const String appBuildNumber = '1653';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

@@ -37,6 +37,37 @@ abstract final class AnalyticsService {
     } catch (_) {}
   }
 
+  /// Chat / avisos / eventos — fases do pipeline (compress, upload, fail).
+  static Future<void> logUploadPipeline({
+    required String module,
+    required String phase,
+    String? error,
+  }) async {
+    try {
+      await analytics.logEvent(
+        name: 'upload_pipeline',
+        parameters: {
+          'module': module.length > 24 ? module.substring(0, 24) : module,
+          'phase': phase.length > 32 ? phase.substring(0, 32) : phase,
+          if (error != null)
+            'error': error.length > 100 ? error.substring(0, 100) : error,
+        },
+      );
+    } catch (_) {}
+  }
+
+  static Future<void> logPublish({
+    required String module,
+    required bool success,
+  }) async {
+    try {
+      await analytics.logEvent(
+        name: success ? 'publish_ok' : 'publish_fail',
+        parameters: {'module': module},
+      );
+    } catch (_) {}
+  }
+
   static Future<void> logMessage() async {
     try {
       await analytics.logEvent(name: 'message_sent');

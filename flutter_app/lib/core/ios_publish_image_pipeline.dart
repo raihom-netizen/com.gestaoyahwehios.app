@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, compute, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
@@ -143,16 +143,18 @@ abstract final class IosPublishImagePipeline {
       throw StateError('Falha ao preparar imagem para envio.');
     }
 
-    final storagePath = postType == 'evento'
-        ? ChurchStorageLayout.eventPostPhotoPath(tenantId, postId, slotIndex)
-        : ChurchStorageLayout.avisoPostPhotoPath(tenantId, postId, slotIndex);
+    final storagePath = FeedTenantStorageMap.feedPhotoPath(
+      postType: postType,
+      tenantId: tenantId,
+      postDocId: postId,
+      slotIndex: slotIndex,
+    );
 
     final url = await FeedPostMediaUpload.uploadFeedPhotoBytes(
       storagePath: storagePath,
       bytes: prepared,
       onProgress: onProgress,
     );
-    await IosPublishMemory.releaseAfterHeavyWork();
     return (primaryUrl: url, imageVariants: const <String, dynamic>{});
   }
 }

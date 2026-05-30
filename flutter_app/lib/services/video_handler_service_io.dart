@@ -7,7 +7,7 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
 
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 
@@ -108,9 +108,16 @@ class VideoHandlerService implements IVideoHandlerService {
       );
 
       final videoPath =
-          ChurchStorageLayout.eventHostedVideoMp4Path(tenantId, eventPostDocId, slot);
-      final thumbPath = ChurchStorageLayout.eventHostedVideoThumbPath(
-          tenantId, eventPostDocId, slot);
+          FeedTenantStorageMap.feedEventoHostedVideoMp4Path(
+            tenantId,
+            eventPostDocId,
+            slot,
+          );
+      final thumbPath = FeedTenantStorageMap.feedEventoHostedVideoThumbPath(
+        tenantId,
+        eventPostDocId,
+        slot,
+      );
 
       onUploadProgress?.call(0.0);
       final videoUrl = await MediaUploadService.uploadFileWithRetry(

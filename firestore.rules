@@ -757,6 +757,21 @@ service cloud.firestore {
           allow update: if false;
         }
       }
+      // Publicações interrompidas (reenvio aviso/evento) — só o autor.
+      match /pending_uploads/{uploadId} {
+        allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && resource.data.ownerUid == request.auth.uid;
+        allow create: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.type is string
+          && request.resource.data.status is string;
+        allow update, delete: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && resource.data.ownerUid == request.auth.uid;
+      }
+
       // Mural de avisos (Firestore): separado de `noticias` (eventos).
       match /avisos/{docId} {
         allow read: if isMaster() || canAccessTenant(id)
@@ -1110,7 +1125,8 @@ service cloud.firestore {
       /// Após enviar mensagem o app faz merge só nestes campos do thread.
       function chatThreadLastMessagePatchAllowed() {
         return request.resource.data.diff(resource.data).changedKeys().hasOnly([
-          'lastMessageAt', 'lastMessagePreview', 'lastSenderUid', 'updatedAt'
+          'lastMessageAt', 'lastMessagePreview', 'lastMessage', 'lastMessageType',
+          'lastSenderUid', 'updatedAt', 'hasConversation'
         ]);
       }
 
@@ -1212,7 +1228,7 @@ service cloud.firestore {
       function chatMessageMediaDeliveryPatchAllowed(tenantId, threadId) {
         return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
           && resource.data.senderUid == request.auth.uid
-          && resource.data.deliveryStatus == 'uploading'
+          && resource.data.deliveryStatus in ['uploading', 'queued']
           && request.resource.data.deliveryStatus == 'sent'
           && request.resource.data.mediaUrl is string
           && request.resource.data.mediaUrl.size() > 8
@@ -1224,10 +1240,29 @@ service cloud.firestore {
       function chatMessageUploadProgressOnly(tenantId, threadId) {
         return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
           && resource.data.senderUid == request.auth.uid
-          && resource.data.deliveryStatus == 'uploading'
-          && request.resource.data.deliveryStatus == 'uploading'
+          && resource.data.deliveryStatus in ['uploading', 'queued']
+          && request.resource.data.deliveryStatus in ['uploading', 'queued']
           && request.resource.data.uploadProgress is number
-          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['uploadProgress']);
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['uploadProgress', 'deliveryStatus']);
+      }
+
+      function chatMessageUploadQueuedOnly(tenantId, threadId) {
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+          && resource.data.senderUid == request.auth.uid
+          && resource.data.deliveryStatus in ['uploading', 'queued']
+          && request.resource.data.deliveryStatus == 'queued'
+          && request.resource.data.uploadProgress is number
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['deliveryStatus', 'uploadProgress']);
+      }
+
+      /// Destinatário marca mensagens do remetente como entregues (✓✓).
+      function chatMessageDeliveredByRecipient(tenantId, threadId) {
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+          && canReadChatThreadDoc(tenantId, threadId)
+          && resource.data.senderUid != request.auth.uid
+          && resource.data.deliveryStatus == 'sent'
+          && request.resource.data.deliveryStatus == 'delivered'
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['deliveryStatus']);
       }
 
       match /users_profile_chat/{uid} {
@@ -1255,6 +1290,33 @@ service cloud.firestore {
         allow read: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
         allow create, update: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
         allow delete: if false;
+      }
+
+      // Uploads de mídia do chat em curso (retoma após fechar o app).
+      match /chat_uploads/{uploadId} {
+        allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && resource.data.ownerUid == request.auth.uid;
+        allow create: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.threadId is string
+          && request.resource.data.localId is string
+          && request.resource.data.kind is string
+          && request.resource.data.status is string
+          && request.resource.data.progress is number
+          && request.resource.data.keys().size() <= 18;
+        allow update: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'status', 'progress', 'messageId', 'storagePath', 'localPath',
+            'updatedAt', 'lastError', 'fileName', 'mime'
+          ]);
+        allow delete: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && resource.data.ownerUid == request.auth.uid;
       }
 
       // Figurinhas do chat — biblioteca partilhada por igreja (importação de imagens).
@@ -1351,6 +1413,8 @@ service cloud.firestore {
           allow update: if chatMessageMediaDeliveryPatchAllowed(id, threadId)
             || chatMessageSendingFinalizeAllowed(id, threadId)
             || chatMessageUploadProgressOnly(id, threadId)
+            || chatMessageUploadQueuedOnly(id, threadId)
+            || chatMessageDeliveredByRecipient(id, threadId)
             || chatMessageHideForMeOnly(id, threadId)
             || chatMessageReactionsByUidOnly(id, threadId);
           allow delete: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId)
@@ -1626,6 +1690,19 @@ service cloud.firestore {
         && canAccessTenant(request.resource.data.tenantId)
         && canWriteTenant(request.resource.data.tenantId);
       allow update, delete: if false;
+    }
+
+    // Índice global de uploads interrompidos (espelho de igrejas/{tenant}/pending_uploads).
+    match /pendingUploads/{docId} {
+      allow read: if isMaster()
+        || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isSignedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.tenantId is string
+        && request.resource.data.storagePath is string
+        && request.resource.data.status is string;
+      allow update, delete: if isMaster()
+        || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
     }
 
     match /{document=**} {

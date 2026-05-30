@@ -1055,6 +1055,7 @@ class _MasterPanelModulesSection extends StatelessWidget {
     _MasterModDef(AdminMenuItem.sistemaDivulgacao, Icons.perm_media_rounded, 'Mídias Divulgação'),
     _MasterModDef(AdminMenuItem.sistemaAcessos, Icons.show_chart_rounded, 'Acessos ao domínio'),
     _MasterModDef(AdminMenuItem.sistemaArmazenamento, Icons.storage_rounded, 'Armazenamento'),
+    _MasterModDef(AdminMenuItem.sistemaFirebaseSaude, Icons.cloud_done_rounded, 'Saúde do Sistema'),
     _MasterModDef(AdminMenuItem.sistemaAvisoGlobal, Icons.campaign_rounded, 'Aviso global / Manutenção'),
     _MasterModDef(AdminMenuItem.sistemaVersaoMinima, Icons.system_update_rounded, 'Forçar atualização'),
     _MasterModDef(AdminMenuItem.sistemaMigrarMembros, Icons.people_alt_rounded, 'Migrar membros'),

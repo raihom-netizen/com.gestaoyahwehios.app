@@ -35,6 +35,7 @@ import 'admin_sugestoes_page.dart';
 import 'admin_divulgacao_media_page.dart';
 import 'master_command_center_page.dart';
 import 'master_feature_flags_page.dart';
+import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
 import 'master_saas_command_center_page.dart';
 import 'master_usuarios_controle_360_page.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_detail_sheet.dart';
@@ -96,6 +97,8 @@ String _masterMenuTitle(AdminMenuItem item) {
       return 'Acessos ao domínio';
     case AdminMenuItem.sistemaArmazenamento:
       return 'Armazenamento';
+    case AdminMenuItem.sistemaFirebaseSaude:
+      return 'Saúde do Sistema';
     case AdminMenuItem.sistemaAvisoGlobal:
       return 'Avisos e promoções';
     case AdminMenuItem.sistemaVersaoMinima:
@@ -557,6 +560,9 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
         break;
       case AdminMenuItem.sistemaFeatureFlags:
         content = const MasterFeatureFlagsPage();
+        break;
+      case AdminMenuItem.sistemaFirebaseSaude:
+        content = const SystemFirebaseHealthPage();
         break;
       case AdminMenuItem.sistemaHome:
         content = const Center(child: Text('Voltar ao Início'));

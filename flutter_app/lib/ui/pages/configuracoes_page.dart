@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
+import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
@@ -243,11 +244,14 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     setState(() => _bioToggling = false);
     if (ok) {
       setState(() => _bioEnabled = true);
+      if (FirebaseAuth.instance.currentUser != null) {
+        await ChurchAutoSessionService.persistAfterSuccessfulPainelLogin();
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Digital/Face ID ativado. Nas próximas aberturas o app pede só a biometria '
-            '(sem digitar o e-mail). Para outra conta: «Trocar e-mail de login».',
+            'Digital/Face ID ativado. Ao abrir o app pede só a biometria e reabre a sua conta '
+            '(Google/Apple ou e-mail já usados). Outra conta: «Trocar e-mail de login».',
           ),
           duration: Duration(seconds: 5),
         ),
@@ -644,7 +648,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                             ),
                             title: const Text('Desbloquear com digital / Face ID', style: TextStyle(fontWeight: FontWeight.w700)),
                             subtitle: const Text(
-                              'Ao abrir o app, pede digital ou rosto antes do painel — igual à opção da tela Entrar. Para login rápido com um toque, use também «Lembrar usuário e senha» no login.',
+                              'Ao abrir o app, pede digital ou rosto e reabre a sessão (sem escolher e-mail de novo). '
+                              'Com login Google/Apple basta ter entrado uma vez neste aparelho. '
+                              'Só volta a pedir conta em «Trocar e-mail de login».',
                               style: TextStyle(fontSize: 12.5),
                             ),
                             value: _bioEnabled,

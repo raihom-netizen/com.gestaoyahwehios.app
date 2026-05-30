@@ -27,7 +27,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
@@ -39,6 +41,7 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
     show noticiaDocEhEventoSpecialFeed, noticiaEventoEhRotinaOuGeradoAutomatico;
@@ -5312,6 +5315,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     try {
       await runFirebaseBackgroundTask(() async {
         final urls = dedupeImageRefsByStorageIdentity(_existingUrls);
+        if (urls.isEmpty &&
+            _eventVideos.isEmpty &&
+            _videoUrl.text.trim().isEmpty) {
+          return;
+        }
         final firstVideoUrl = _eventVideos.isNotEmpty
             ? (_eventVideos.first['videoUrl'] ?? '').toString().trim()
             : _videoUrl.text.trim();
@@ -6197,7 +6205,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<MediaUploadResult> _upload(
       Uint8List bytes, String postDocId, int slotIndex) async {
     await FeedPostMediaUpload.warmAuthToken();
-    final storagePath = ChurchStorageLayout.eventPostPhotoPath(
+    final storagePath = FeedTenantStorageMap.feedEventoPhotoPath(
       widget.tenantId,
       postDocId,
       slotIndex,
@@ -6730,6 +6738,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final postId = docRef.id;
     final isNewDoc = widget.doc == null;
     try {
+      await AppFinalizeBootstrap.ensureSessionForPublish(logLabel: 'eventos_save');
       await _waitEventPhotoUploadQueue();
       await runFirebaseBackgroundTask(() async {
         final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
@@ -6762,6 +6771,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           if (n == 0) {
             throw StateError('Não foi possível ler as fotos para enviar.');
           }
+          // Upload Storage + getDownloadURL antes do Firestore publicado.
           await FeedMediaPublishService.saveStubAndSchedulePhotos(
             docRef: docRef,
             tenantId: widget.tenantId,
@@ -6802,6 +6812,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }, debugLabel: 'event_publish');
     } catch (e, st) {
       unawaited(CrashlyticsService.record(e, st, reason: 'eventos_publish'));
+      unawaited(
+        FeedMediaPublishService.markPublishFailed(
+          docRef: _eventDocRef,
+          error: e,
+        ),
+      );
       final msg = e.toString();
       final isAssertionOrPerm = msg.contains('INTERNAL ASSERTION') ||
           msg.contains('permission-denied');

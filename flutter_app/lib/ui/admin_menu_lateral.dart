@@ -36,6 +36,7 @@ enum AdminMenuItem {
   sistemaVersaoMinima,
   sistemaMigrarMembros,
   sistemaFeatureFlags,
+  sistemaFirebaseSaude,
   sistemaHome,
 }
 
@@ -201,6 +202,9 @@ class AdminMenuLateral extends StatelessWidget {
       if (itemVisible?.call(AdminMenuItem.sistemaAcessos) ?? true)
         _tile(AdminMenuItem.sistemaAcessos, Icons.show_chart_rounded,
             'Acessos domínio', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.sistemaFirebaseSaude) ?? true)
+        _tile(AdminMenuItem.sistemaFirebaseSaude, Icons.cloud_done_rounded,
+            'Saúde do Sistema', isCollapsed),
       if (itemVisible?.call(AdminMenuItem.sistemaArmazenamento) ?? true)
         _tile(AdminMenuItem.sistemaArmazenamento, Icons.storage_rounded,
             'Armazenamento', isCollapsed),
@@ -271,6 +275,7 @@ class AdminMenuLateral extends StatelessWidget {
       case AdminMenuItem.sistemaSuporte:
       case AdminMenuItem.sistemaCustomizacao:
       case AdminMenuItem.sistemaArmazenamento:
+      case AdminMenuItem.sistemaFirebaseSaude:
       case AdminMenuItem.sistemaSugestoes:
       case AdminMenuItem.sistemaDivulgacao:
       case AdminMenuItem.sistemaFeatureFlags:
