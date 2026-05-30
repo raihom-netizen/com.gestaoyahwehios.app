@@ -34,7 +34,7 @@ class _CadastroUsuarioPageState extends State<CadastroUsuarioPage> {
     });
     try {
       await FirebaseAuth.instance
-          .signInWithPopup(firebaseWebGoogleAuthProvider());
+          .signInWithPopup(firebaseWebGoogleAuthProvider(forceAccountPicker: true));
       if (!mounted) return;
       setState(() {
         _loading = false;

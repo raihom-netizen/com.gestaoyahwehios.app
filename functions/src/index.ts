@@ -7009,6 +7009,7 @@ export {
 } from "./churchMercadoPago";
 
 export { pruneExpiredChurchChatMessages } from "./churchChatRetention";
+export { purgeChurchChatMessagesAdmin } from "./churchChatAdminPurge";
 export { onChurchChatMessageCreated } from "./churchChatNotify";
 export { onIgrejaMembroWriteChatPeerProfile } from "./churchChatPeerProfileSync";
 

@@ -1,6 +1,7 @@
 import 'dart:async' show unawaited;
 
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
+import 'package:gestao_yahweh/services/church_chat_stuck_cleanup_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -21,6 +22,7 @@ abstract final class PendingUploadsMigration {
       unawaited(
         PendingUploadsFirestoreService.pruneUnrecoverableOpenForTenant(tenant),
       );
+      unawaited(ChurchChatStuckCleanupService.purgeAllForTenant(tenant));
     }
     await prefs.setBool(_prefsKey, true);
   }

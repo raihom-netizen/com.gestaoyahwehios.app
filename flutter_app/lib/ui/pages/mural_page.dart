@@ -1,11 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_theme.dart' show SaaSContentViewport;
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_insights_dashboard.dart';
+import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import '../widgets/instagram_mural.dart';
 
@@ -15,12 +17,14 @@ class MuralPage extends StatefulWidget {
   final List<String>? permissions;
   /// Evita AppBar duplicada quando aberto dentro de [IgrejaCleanShell].
   final bool embeddedInShell;
+  final VoidCallback? onShellBack;
   const MuralPage({
     super.key,
     required this.tenantId,
     required this.role,
     this.permissions,
     this.embeddedInShell = false,
+    this.onShellBack,
   });
 
   @override
@@ -96,6 +100,13 @@ class _MuralPageState extends State<MuralPage>
   Future<void> _onRefresh() async {
     await _muralFeedKey.currentState?.refreshFeed();
     setState(() => _slugRetryKey++);
+  }
+
+  String? _muralModuleBarSubtitle() {
+    final dn = (FirebaseAuth.instance.currentUser?.displayName ?? '').trim();
+    if (dn.isNotEmpty) return dn;
+    final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+    return email.isNotEmpty ? email : null;
   }
 
   static const _muralTabs = [
@@ -178,6 +189,7 @@ class _MuralPageState extends State<MuralPage>
               ),
             ),
       body: SafeArea(
+        top: widget.onShellBack == null,
         child: FutureBuilder<
             ({
               String firestoreTenantId,
@@ -202,6 +214,14 @@ class _MuralPageState extends State<MuralPage>
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (widget.onShellBack != null)
+                  ChurchEmbeddedModuleBar(
+                    title: 'Mural de Avisos',
+                    icon: kChurchShellNavEntries[7].icon,
+                    accent: kChurchShellNavEntries[7].accent,
+                    onBack: widget.onShellBack!,
+                    subtitle: _muralModuleBarSubtitle(),
+                  ),
                 if (!showAppBar)
                   Material(
                     color: Colors.white,

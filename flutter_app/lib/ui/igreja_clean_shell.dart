@@ -185,6 +185,21 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   bool get _isMobile => MediaQuery.sizeOf(context).width < _breakpointDesktop;
   bool get _isPhone => MediaQuery.sizeOf(context).width < _breakpointPhone;
 
+  /// Módulos em ecrã completo no telemóvel (sem rodapé azul; barra própria com Voltar).
+  bool _isMobileFullscreenModule(int index) {
+    if (!_isMobile || index == ChurchShellIndices.painel) return false;
+    return index == ChurchShellIndices.membros ||
+        index == ChurchShellIndices.muralAvisos ||
+        index == ChurchShellIndices.muralEventos ||
+        index == ChurchShellIndices.chatIgreja ||
+        index == ChurchShellIndices.cartaoMembro;
+  }
+
+  VoidCallback? get _shellBackToPainel =>
+      _isMobile && _selectedIndex != ChurchShellIndices.painel
+          ? () => setState(() => _selectedIndex = ChurchShellIndices.painel)
+          : null;
+
   Future<void> _openUpgradePlans() async {
     if (!mounted) return;
     // iPhone: fluxo in-app (expresso) — evita cold start do Safari.
@@ -209,6 +224,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
+    if (_isMobileFullscreenModule(_selectedIndex)) return null;
     // Rodapé + atalhos coloridos Super Premium (cores alinhadas a [kChurchShellNavEntries]).
     // Painel, Membros, Eventos, Avisos, Chat — o drawer continua acessível pelo menu no topo.
     final shortcuts = <_ChurchShellFooterShortcut>[
@@ -1818,6 +1834,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           linkedCpf: widget.cpf.trim().isEmpty ? null : widget.cpf,
           permissions: widget.permissions,
           embeddedInShell: true,
+          onShellBack: _shellBackToPainel,
           initialSearchQuery: bootMember,
           initialOpenMemberDocId: bootOpenId,
         );
@@ -1852,7 +1869,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             tenantId: widget.tenantId,
             role: widget.role,
             permissions: widget.permissions,
-            embeddedInShell: true);
+            embeddedInShell: true,
+            onShellBack: _shellBackToPainel);
       case 8:
         final bootEvent = _shellBootstrapEventSearch;
         if (bootEvent != null) {
@@ -1868,6 +1886,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             role: widget.role,
             permissions: widget.permissions,
             embeddedInShell: true,
+            onShellBack: _shellBackToPainel,
             initialFeedSearchQuery: bootEvent);
       case 9:
         return PrayerRequestsPage(
@@ -1905,6 +1924,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           embeddedInShell: true,
           cnhFullscreenOnly:
               AppPermissions.isRestrictedMember(widget.role),
+          onShellBack: _shellBackToPainel,
           onNavigateToMembers: AppPermissions.isRestrictedMember(widget.role)
               ? null
               : () => setState(
@@ -2014,6 +2034,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           cpf: widget.cpf,
           role: widget.role,
           embeddedInShell: true,
+          onShellBack: _shellBackToPainel,
           permissions: widget.permissions,
         );
       default:
@@ -2320,7 +2341,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                 if (_selectedIndex != 0 &&
                                     _selectedIndex != 21 &&
                                     _selectedIndex != 20 &&
-                                    _selectedIndex != 24)
+                                    !_isMobileFullscreenModule(_selectedIndex))
                                   ModuleHeaderPremium(
                                     title: _items[_selectedIndex].label,
                                     icon: _items[_selectedIndex].icon,

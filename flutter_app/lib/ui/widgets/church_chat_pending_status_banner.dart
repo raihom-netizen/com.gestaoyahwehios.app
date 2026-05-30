@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/church_chat_stuck_cleanup_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
@@ -12,10 +14,18 @@ class ChurchChatPendingStatusBanner extends StatefulWidget {
     super.key,
     required this.tenantId,
     this.compact = false,
+    this.alwaysOfferClear = false,
+    this.role = '',
+    this.permissions,
   });
 
   final String tenantId;
   final bool compact;
+  final String role;
+  final List<String>? permissions;
+
+  /// Mostra «Limpar» mesmo sem fila visível (mensagens presas só no Firestore).
+  final bool alwaysOfferClear;
 
   @override
   State<ChurchChatPendingStatusBanner> createState() =>
@@ -48,24 +58,98 @@ class _ChurchChatPendingStatusBannerState
 
   Future<void> _clearStuckQueue() async {
     final tid = widget.tenantId.trim();
-    var total = 0;
-    if (tid.isNotEmpty) {
-      total += await PendingUploadsFirestoreService.cancelAllOpenForTenant(tid);
-      total += await PendingUploadsFirestoreService.pruneUnrecoverableOpenForTenant(
-        tid,
+    if (tid.isEmpty) {
+      StorageUploadQueueService.instance.clearPending();
+      await _refreshLocalCounts();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nada pendente para limpar.')),
       );
+      return;
     }
-    total += await ChurchChatMediaOutboxService.clearAllJobs(tenantId: tid);
-    total += await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
-    StorageUploadQueueService.instance.clearPending();
+
+    final canWipeAll = AppPermissions.canManageChurchMuralEventsAgenda(
+      widget.role,
+      permissions: widget.permissions,
+    );
+    var wipeAllDb = false;
+    if (canWipeAll) {
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Limpar chat'),
+          content: const Text(
+            'Escolha o que apagar no banco de dados:\n\n'
+            '• Envios presos — só mensagens em upload/fila antigas (suas e stubs).\n\n'
+            '• Todo o histórico — apaga todas as mensagens do chat da igreja '
+            '(conversas ficam vazias; irreversível).',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'stuck'),
+              child: const Text('Só envios presos'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.error,
+              ),
+              onPressed: () => Navigator.pop(ctx, 'all'),
+              child: const Text('Todo o histórico'),
+            ),
+          ],
+        ),
+      );
+      if (choice == null || !mounted) return;
+      wipeAllDb = choice == 'all';
+      if (wipeAllDb) {
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Apagar todo o chat?'),
+            content: const Text(
+              'Esta ação remove todas as mensagens de todas as conversas '
+              'da igreja no Firestore. Não há como recuperar.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.error,
+                ),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Apagar tudo'),
+              ),
+            ],
+          ),
+        );
+        if (ok != true || !mounted) return;
+      }
+    }
+
+    final result = await ChurchChatStuckCleanupService.purgeAllForTenant(
+      tid,
+      includeEntireDatabase: wipeAllDb,
+      role: widget.role,
+      permissions: widget.permissions,
+    );
+    await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
     await _refreshLocalCounts();
     if (!mounted) return;
+    final total = result.messages + result.queueDocs;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           total > 0
-              ? 'Fila limpa ($total item(ns)). Mensagens antigas com erro foram removidas.'
-              : 'Nada pendente para limpar.',
+              ? 'Limpeza concluída: ${result.messages} mensagem(ns) removida(s) do Firestore '
+                  '· ${result.queueDocs} fila(s)/upload(s) apagado(s).'
+              : 'Nada pendente para limpar no banco.',
         ),
       ),
     );
@@ -106,12 +190,18 @@ class _ChurchChatPendingStatusBannerState
         final firestoreCount = snap.data?.docs.length ?? 0;
         final localExtra = _chatOutbox + _muralOutbox + _memoryQueue;
         final total = firestoreCount + localExtra;
-        if (total <= 0) return const SizedBox.shrink();
+        if (total <= 0 && !widget.alwaysOfferClear) {
+          return const SizedBox.shrink();
+        }
 
-        final label = widget.compact
-            ? '$total envio(s) pendente(s)'
-            : 'Há $total upload(s) por concluir (Firestore: $firestoreCount · '
-                'chat: $_chatOutbox · mural: $_muralOutbox · fila: $_memoryQueue)';
+        final label = total <= 0
+            ? (widget.compact
+                ? 'Limpar envios antigos presos no banco'
+                : 'Remover mensagens de upload antigas (stubs) e filas no Firestore')
+            : (widget.compact
+                ? '$total envio(s) pendente(s)'
+                : 'Há $total upload(s) por concluir (Firestore: $firestoreCount · '
+                    'chat: $_chatOutbox · mural: $_muralOutbox · fila: $_memoryQueue)');
 
         return Material(
           color: const Color(0xFFFFF7ED),

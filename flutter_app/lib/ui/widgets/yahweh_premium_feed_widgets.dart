@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -26,6 +27,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaHostedVideoPlayUrl,
         eventNoticiaPhotoUrls,
         looksLikeHostedVideoFileUrl;
+import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/firebase_storage_video_playback.dart';
@@ -587,16 +589,24 @@ Future<void> scheduleFeedMediaWarmup(
     }
     docIndex++;
   }
+  final leadDeduped = dedupeImageRefsByStorageIdentity(leadImageUrls);
+  final allDeduped = dedupeImageRefsByStorageIdentity(imageUrls);
+  unawaited(
+    ChurchGalleryPhotoWarmup.warmBytesForUrls(leadDeduped, maxItems: 20),
+  );
+  unawaited(
+    ChurchGalleryPhotoWarmup.warmBytesForUrls(allDeduped, maxItems: 40),
+  );
   await preloadNetworkImages(
     context,
-    dedupeImageRefsByStorageIdentity(leadImageUrls),
-    maxItems: 16,
+    leadDeduped,
+    maxItems: 20,
   );
   if (!context.mounted) return;
   await preloadNetworkImages(
     context,
-    dedupeImageRefsByStorageIdentity(imageUrls),
-    maxItems: 32,
+    allDeduped,
+    maxItems: 40,
   );
   await precacheHostedVideosFromFeed(videoUrls, maxItems: 8);
   if (kIsWeb) {

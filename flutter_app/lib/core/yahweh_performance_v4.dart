@@ -36,7 +36,7 @@ abstract final class YahwehPerformanceV4 {
   // ——— Pré-carregamento ———
   static const int preloadFeedLeadItems = 16;
   static const int preloadFeedItems = 32;
-  static const int preloadScreenMaxUrls = 12;
+  static const int preloadScreenMaxUrls = 32;
 
   // ——— Publicação instantânea (avisos / eventos) ———
   /// Alias Firestore: `publishState: uploading` ≡ `status: processing`.

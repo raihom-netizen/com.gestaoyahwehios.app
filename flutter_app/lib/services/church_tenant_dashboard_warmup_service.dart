@@ -9,6 +9,8 @@ import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
+import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
+import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_preload_service.dart';
 import 'package:gestao_yahweh/core/progressive_media_resolver.dart';
 
@@ -64,16 +66,40 @@ abstract final class ChurchTenantDashboardWarmupService {
 
     final panel = await PanelDashboardSnapshotService.readOnce(tenantId);
     if (!context.mounted) return;
+
+    final prefetch = await PanelMediaPrefetchService.readOnce(tenantId);
+    unawaited(
+      ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(tenantId, prefetch),
+    );
+    unawaited(
+      ChurchGalleryPhotoWarmup.warmBytesForPanel(
+        tenantId: tenantId,
+        panel: panel,
+      ),
+    );
+    if (context.mounted) {
+      ChurchGalleryPhotoWarmup.schedulePanelHome(
+        context: context,
+        tenantId: tenantId,
+        panel: panel,
+        force: true,
+      );
+    }
+
     final urls = <String>[];
-    for (final m in panel.birthdaysToday.take(12)) {
+    for (final m in panel.birthdaysToday.take(16)) {
       final u = ProgressiveMediaResolver.memberListUrl(m.toMemberDataMap());
       if (u.isNotEmpty) urls.add(u);
     }
-    for (final a in panel.homeAvisos.take(6)) {
+    for (final a in panel.homeAvisos.take(8)) {
       final u = a.coverPhotoUrl ?? '';
       if (u.isNotEmpty) urls.add(u);
     }
-    await YahwehMediaPreloadService.preloadForScreen(context, urls);
+    await YahwehMediaPreloadService.preloadForScreen(
+      context,
+      urls,
+      maxItems: 28,
+    );
   }
 
   static Future<void> _warmPerformanceCaches(String tenantId) async {

@@ -212,27 +212,53 @@ abstract final class ChurchChatMediaOutboxService {
   static const int _maxJobsPerResumeWave = 6;
   static const int _maxAttemptsPerJob = 4;
 
-  /// Remove fila local do chat (ex.: 25 envios presos após falha de bootstrap).
+  /// Remove fila local do chat e apaga stubs no Firestore (botão Limpar).
   static Future<int> clearAllJobs({String? tenantId}) async {
+    return clearAllJobsWithFirestore(tenantId: tenantId);
+  }
+
+  /// Igual [clearAllJobs] + `abandonMediaUploadMessage` / `chat_uploads` por job.
+  static Future<int> clearAllJobsWithFirestore({String? tenantId}) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_prefsKey);
     if (raw == null || raw.isEmpty) return 0;
     final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
     final tid = tenantId?.trim() ?? '';
+
+    final toRemove = tid.isEmpty
+        ? List<Map<String, dynamic>>.from(list)
+        : list
+            .where((e) => (e['tenantId'] ?? '').toString() == tid)
+            .toList();
+
+    for (final m in toRemove) {
+      final t = (m['tenantId'] ?? '').toString();
+      final threadId = (m['threadId'] ?? '').toString();
+      final localId = (m['localId'] ?? '').toString();
+      if (t.isEmpty || threadId.isEmpty || localId.isEmpty) continue;
+      await clearJob(
+        tenantId: t,
+        threadId: threadId,
+        localId: localId,
+        uploadDocId: (m['uploadDocId'] ?? '').toString().isEmpty
+            ? null
+            : (m['uploadDocId'] ?? '').toString(),
+      );
+    }
+
     if (tid.isEmpty) {
       await prefs.remove(_prefsKey);
-      return list.length;
+      return toRemove.length;
     }
     final kept = list
         .where((e) => (e['tenantId'] ?? '').toString() != tid)
         .toList();
-    final removed = list.length - kept.length;
     if (kept.isEmpty) {
       await prefs.remove(_prefsKey);
     } else {
       await prefs.setString(_prefsKey, jsonEncode(kept));
     }
-    return removed;
+    return toRemove.length;
   }
 
   static Future<void> _resumeAll() async {

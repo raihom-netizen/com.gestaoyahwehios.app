@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show eventNoticiaPhotoUrls, looksLikeHostedVideoFileUrl;
+import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -122,18 +123,18 @@ Future<void> scheduleYahwehPanelImageWarmup(
   final base = FirebaseFirestore.instance.collection('igrejas').doc(resolved);
   try {
     final snaps = await Future.wait([
-      base.collection('membros').limit(10).get(),
+      base.collection('membros').limit(24).get(),
       base
           .collection(ChurchTenantPostsCollections.noticias)
           .orderBy('createdAt', descending: true)
-          .limit(10)
+          .limit(16)
           .get(),
       base
           .collection(ChurchTenantPostsCollections.avisos)
           .orderBy('createdAt', descending: true)
-          .limit(10)
+          .limit(16)
           .get(),
-      base.collection('patrimonio').orderBy('nome').limit(10).get(),
+      base.collection('patrimonio').orderBy('nome').limit(12).get(),
     ]);
     if (!context.mounted) return;
     final urls = <String>[];
@@ -159,10 +160,15 @@ Future<void> scheduleYahwehPanelImageWarmup(
     for (final d in snaps[3].docs) {
       urls.addAll(_patrimonioPhotoUrls(d.data()));
     }
+    final deduped = dedupeImageRefsByStorageIdentity(urls);
+    unawaited(
+      ChurchGalleryPhotoWarmup.warmBytesForUrls(deduped, maxItems: 72),
+    );
+    if (!context.mounted) return;
     await preloadNetworkImages(
       context,
-      dedupeImageRefsByStorageIdentity(urls),
-      maxItems: 42,
+      deduped,
+      maxItems: 72,
     );
   } catch (_) {}
 }

@@ -19,13 +19,19 @@ const String kFirebaseGoogleOAuthWebClientId =
 const String kFirebaseIosGoogleClientId =
     '157235497908-m9fdpqeb6rj8gj6e1fsi9mfjpja2s5bg.apps.googleusercontent.com';
 
-/// [FirebaseAuth] na web (`signInWithPopup` / `signInWithRedirect`): escopos e
-/// `prompt=select_account` para evitar conta errada em cache do navegador.
-GoogleAuthProvider firebaseWebGoogleAuthProvider() {
+/// [FirebaseAuth] na web (`signInWithPopup` / `signInWithRedirect`).
+///
+/// [forceAccountPicker] só após Configurações → «Trocar conta»; caso contrário o
+/// navegador reutiliza a conta já autorizada (sem `select_account` em todo login).
+GoogleAuthProvider firebaseWebGoogleAuthProvider({
+  bool forceAccountPicker = false,
+}) {
   final p = GoogleAuthProvider();
   p.addScope('email');
   p.addScope('profile');
-  p.setCustomParameters(<String, String>{'prompt': 'select_account'});
+  if (forceAccountPicker) {
+    p.setCustomParameters(<String, String>{'prompt': 'select_account'});
+  }
   return p;
 }
 

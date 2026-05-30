@@ -10,6 +10,8 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart'
     show appGoogleSignIn, appGoogleSignOutForAccountPicker;
+import 'package:gestao_yahweh/services/express_login_service.dart';
+import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
@@ -81,13 +83,24 @@ class GestorOAuthOnboardingService {
     }
   }
 
-  static Future<UserCredential> signInWithGoogleNative() async {
+  /// [forceAccountPicker] — cadastro / troca de conta; senão tenta silencioso primeiro.
+  static Future<UserCredential> signInWithGoogleNative({
+    bool forceAccountPicker = false,
+  }) async {
     if (kIsWeb) {
       throw StateError('Use signInWithPopup na web.');
     }
-    // Sempre abrir seletor de conta — só signOut local (rápido). Evitar `disconnect()`
-    // (revoga no servidor e demora; parecia tela escura até responder).
-    await appGoogleSignOutForAccountPicker();
+    final forcePicker = forceAccountPicker ||
+        await LoginPreferences.shouldForceGoogleAccountPicker();
+
+    if (!forcePicker) {
+      final silent = await ExpressLoginService.tryGoogleSilentOnly();
+      if (silent != null) return silent;
+    } else {
+      // Só após «Trocar conta»: limpa sessão local para o Play Services abrir o seletor.
+      await appGoogleSignOutForAccountPicker();
+    }
+
     final googleUser = await appGoogleSignIn().signIn();
     if (googleUser == null) {
       throw FirebaseAuthException(

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
+import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
@@ -33,9 +34,11 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_list_preview.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
+import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
 
 enum _HubConversasFilter { all, unread, favorites, archived }
@@ -84,6 +87,7 @@ class ChurchChatHubPage extends StatefulWidget {
   final String cpf;
   final String role;
   final bool embeddedInShell;
+  final VoidCallback? onShellBack;
   /// Permissões granulares do painel (ex.: módulo `departamentos`), alinhadas a [AppPermissions.canEditDepartments].
   final List<String>? permissions;
 
@@ -93,6 +97,7 @@ class ChurchChatHubPage extends StatefulWidget {
     required this.cpf,
     required this.role,
     this.embeddedInShell = false,
+    this.onShellBack,
     this.permissions,
   });
 
@@ -110,6 +115,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   QuerySnapshot<Map<String, dynamic>>? _lastGoodChatThreadsSnap;
   bool _chatPushEnabled = true;
   _HubConversasFilter _conversasFilter = _HubConversasFilter.all;
+  bool _conversasFiltersExpanded = false;
   final _searchCtrl = TextEditingController();
   final _membersFilterCtrl = TextEditingController();
   final _deptFilterCtrl = TextEditingController();
@@ -295,6 +301,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
     if (!mounted || _resolvedTenantId != tenantId) return;
     if (loaded.isEmpty) return;
+    ChurchGalleryPhotoWarmup.warmBytesForChatRefs(tenantId, loaded.values);
     setState(() => _peerMemberByUid = {..._peerMemberByUid, ...loaded});
   }
 
@@ -310,6 +317,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       );
       if (!mounted || _resolvedTenantId != tenantId) return;
       if (loaded.isEmpty) return;
+      ChurchGalleryPhotoWarmup.warmBytesForChatRefs(tenantId, loaded.values);
       setState(() => _peerMemberByUid = {..._peerMemberByUid, ...loaded});
     }());
   }
@@ -1345,6 +1353,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
   }
 
+  String? _chatHubModuleBarSubtitle() {
+    final dn = (FirebaseAuth.instance.currentUser?.displayName ?? '').trim();
+    if (dn.isNotEmpty) return dn;
+    final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+    return email.isNotEmpty ? email : null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final tid = _resolvedTenantId;
@@ -1356,38 +1371,81 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       );
     }
 
+    final shellFullscreen = widget.onShellBack != null;
     return ColoredBox(
       color: Colors.white,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _PremiumChatHeader(
-            chatPushEnabled: _chatPushEnabled,
-            onMuteTap: () async {
-              final next = !_chatPushEnabled;
-              await ChurchChatNotificationPrefs.setChatPushEnabled(
-                enabled: next,
-                tenantId: tid,
-              );
-              if (mounted) setState(() => _chatPushEnabled = next);
-            },
-            onNewDm: () => _openPickPeer(context, tid, uid),
-            onAlertModeTap: _openChatAlertModeSheet,
-            onProfilePhotoTap: () async {
-              final uidMe = uid;
-              await showChurchChatProfilePhotoSheet(
-                context,
-                tenantId: tid,
-                cpfDigits: widget.cpf,
-              );
-              if (!mounted || uidMe.isEmpty) return;
-              unawaited(_refreshPeerProfilesForAuthUids(tid, {uidMe}));
-            },
+          if (shellFullscreen)
+            ChurchEmbeddedModuleBar(
+              title: 'Chat da igreja',
+              icon: kChurchShellNavEntries[24].icon,
+              accent: kChurchShellNavEntries[24].accent,
+              onBack: widget.onShellBack!,
+              subtitle: _chatHubModuleBarSubtitle(),
+            ),
+          if (shellFullscreen)
+            _CompactChatHubToolbar(
+              chatPushEnabled: _chatPushEnabled,
+              onMuteTap: () async {
+                final next = !_chatPushEnabled;
+                await ChurchChatNotificationPrefs.setChatPushEnabled(
+                  enabled: next,
+                  tenantId: tid,
+                );
+                if (mounted) setState(() => _chatPushEnabled = next);
+              },
+              onNewDm: () => _openPickPeer(context, tid, uid),
+              onAlertModeTap: _openChatAlertModeSheet,
+              onProfilePhotoTap: () async {
+                final uidMe = uid;
+                await showChurchChatProfilePhotoSheet(
+                  context,
+                  tenantId: tid,
+                  cpfDigits: widget.cpf,
+                );
+                if (!mounted || uidMe.isEmpty) return;
+                unawaited(_refreshPeerProfilesForAuthUids(tid, {uidMe}));
+              },
+            )
+          else
+            _PremiumChatHeader(
+              chatPushEnabled: _chatPushEnabled,
+              onMuteTap: () async {
+                final next = !_chatPushEnabled;
+                await ChurchChatNotificationPrefs.setChatPushEnabled(
+                  enabled: next,
+                  tenantId: tid,
+                );
+                if (mounted) setState(() => _chatPushEnabled = next);
+              },
+              onNewDm: () => _openPickPeer(context, tid, uid),
+              onAlertModeTap: _openChatAlertModeSheet,
+              onProfilePhotoTap: () async {
+                final uidMe = uid;
+                await showChurchChatProfilePhotoSheet(
+                  context,
+                  tenantId: tid,
+                  cpfDigits: widget.cpf,
+                );
+                if (!mounted || uidMe.isEmpty) return;
+                unawaited(_refreshPeerProfilesForAuthUids(tid, {uidMe}));
+              },
+            ),
+          ChurchChatPendingStatusBanner(
+            tenantId: tid,
+            compact: true,
+            alwaysOfferClear: true,
+            role: widget.role,
+            permissions: widget.permissions,
           ),
-          ChurchChatPendingStatusBanner(tenantId: tid, compact: true),
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-            child: _PremiumHubTabBar(controller: _hubTabController),
+            padding: EdgeInsets.fromLTRB(12, shellFullscreen ? 4 : 8, 12, 0),
+            child: _PremiumHubTabBar(
+              controller: _hubTabController,
+              dense: shellFullscreen,
+            ),
           ),
           AnimatedBuilder(
             animation: _hubTabController,
@@ -1572,37 +1630,16 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 }
 
                 threads.add(
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
-                    child: SegmentedButton<_HubConversasFilter>(
-                      segments: const [
-                        ButtonSegment(
-                          value: _HubConversasFilter.all,
-                          label: Text('Todas'),
-                          icon: Icon(Icons.chat_rounded, size: 18),
-                        ),
-                        ButtonSegment(
-                          value: _HubConversasFilter.unread,
-                          label: Text('Não lidas'),
-                          icon: Icon(Icons.mark_chat_unread_rounded, size: 18),
-                        ),
-                        ButtonSegment(
-                          value: _HubConversasFilter.favorites,
-                          label: Text('Favoritas'),
-                          icon: Icon(Icons.star_rounded, size: 18),
-                        ),
-                        ButtonSegment(
-                          value: _HubConversasFilter.archived,
-                          label: Text('Arquivadas'),
-                          icon: Icon(Icons.inventory_2_outlined, size: 18),
-                        ),
-                      ],
-                      selected: {_conversasFilter},
-                      onSelectionChanged: (s) {
-                        if (s.isEmpty) return;
-                        setState(() => _conversasFilter = s.first);
-                      },
+                  _CollapsibleConversasFilters(
+                    expanded: _conversasFiltersExpanded,
+                    selected: _conversasFilter,
+                    onToggleExpand: () => setState(
+                      () => _conversasFiltersExpanded = !_conversasFiltersExpanded,
                     ),
+                    onSelected: (f) => setState(() {
+                      _conversasFilter = f;
+                      _conversasFiltersExpanded = false;
+                    }),
                   ),
                 );
 
@@ -2835,15 +2872,25 @@ class _ChatSearchBarState extends State<_ChatSearchBar> {
 
 class _PremiumHubTabBar extends StatelessWidget {
   final TabController controller;
+  final bool dense;
 
-  const _PremiumHubTabBar({required this.controller});
+  const _PremiumHubTabBar({
+    required this.controller,
+    this.dense = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final narrow = MediaQuery.sizeOf(context).width < 380;
-    final labelSize = narrow ? 10.5 : 11.5;
-    final iconSize = narrow ? 16.0 : 17.0;
-    final tabH = narrow ? 42.0 : 46.0;
+    final labelSize = dense
+        ? (narrow ? 10.0 : 10.5)
+        : (narrow ? 10.5 : 11.5);
+    final iconSize = dense
+        ? (narrow ? 15.0 : 16.0)
+        : (narrow ? 16.0 : 17.0);
+    final tabH = dense
+        ? (narrow ? 34.0 : 36.0)
+        : (narrow ? 42.0 : 46.0);
 
     Widget tabContent(IconData icon, String label) {
       return FittedBox(
@@ -2860,23 +2907,33 @@ class _PremiumHubTabBar extends StatelessWidget {
       );
     }
 
+    final outerPad = dense ? 1.0 : 1.5;
+    final outerRadius = dense ? 14.0 : 17.5;
     return Container(
-      padding: const EdgeInsets.all(1.5),
+      padding: EdgeInsets.all(outerPad),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(17.5),
+        borderRadius: BorderRadius.circular(outerRadius),
         gradient: churchChatWhatsPremiumLinearGradient,
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF2563EB).withValues(alpha: 0.28),
-            blurRadius: 18,
-            offset: const Offset(0, 7),
-          ),
-          BoxShadow(
-            color: const Color(0xFF7C3AED).withValues(alpha: 0.12),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        boxShadow: dense
+            ? [
+                BoxShadow(
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.18),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ]
+            : [
+                BoxShadow(
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.28),
+                  blurRadius: 18,
+                  offset: const Offset(0, 7),
+                ),
+                BoxShadow(
+                  color: const Color(0xFF7C3AED).withValues(alpha: 0.12),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
       ),
       child: Container(
         padding: const EdgeInsets.all(4),
@@ -3564,6 +3621,200 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// Barra de ações fina (shell full screen) — abaixo de [ChurchEmbeddedModuleBar].
+class _CompactChatHubToolbar extends StatelessWidget {
+  final bool chatPushEnabled;
+  final VoidCallback onMuteTap;
+  final VoidCallback onNewDm;
+  final VoidCallback onAlertModeTap;
+  final VoidCallback onProfilePhotoTap;
+
+  const _CompactChatHubToolbar({
+    required this.chatPushEnabled,
+    required this.onMuteTap,
+    required this.onNewDm,
+    required this.onAlertModeTap,
+    required this.onProfilePhotoTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: churchChatWhatsPremiumLinearGradient,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF25D366).withValues(alpha: 0.18),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
+        child: Row(
+          children: [
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Minha foto de perfil',
+              onPressed: onProfilePhotoTap,
+              icon: const Icon(Icons.account_circle_outlined,
+                  color: Colors.white, size: 22),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Modo de alerta',
+              onPressed: onAlertModeTap,
+              icon: const Icon(Icons.tune_rounded, color: Colors.white, size: 22),
+            ),
+            IconButton(
+              visualDensity: VisualDensity.compact,
+              tooltip: chatPushEnabled
+                  ? 'Silenciar notificações'
+                  : 'Ativar notificações',
+              onPressed: onMuteTap,
+              icon: Icon(
+                chatPushEnabled
+                    ? Icons.notifications_active_rounded
+                    : Icons.notifications_off_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+            ),
+            const Spacer(),
+            Material(
+              color: Colors.white.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(20),
+              child: InkWell(
+                onTap: onNewDm,
+                borderRadius: BorderRadius.circular(20),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add_comment_rounded,
+                          color: Colors.white, size: 20),
+                      SizedBox(width: 6),
+                      Text(
+                        'Nova',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CollapsibleConversasFilters extends StatelessWidget {
+  const _CollapsibleConversasFilters({
+    required this.expanded,
+    required this.selected,
+    required this.onToggleExpand,
+    required this.onSelected,
+  });
+
+  final bool expanded;
+  final _HubConversasFilter selected;
+  final VoidCallback onToggleExpand;
+  final ValueChanged<_HubConversasFilter> onSelected;
+
+  static String _label(_HubConversasFilter f) => switch (f) {
+        _HubConversasFilter.all => 'Todas',
+        _HubConversasFilter.unread => 'Não lidas',
+        _HubConversasFilter.favorites => 'Favoritas',
+        _HubConversasFilter.archived => 'Arquivadas',
+      };
+
+  static IconData _icon(_HubConversasFilter f) => switch (f) {
+        _HubConversasFilter.all => Icons.chat_rounded,
+        _HubConversasFilter.unread => Icons.mark_chat_unread_rounded,
+        _HubConversasFilter.favorites => Icons.star_rounded,
+        _HubConversasFilter.archived => Icons.inventory_2_outlined,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: const Color(0xFFF0FDF4),
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              onTap: onToggleExpand,
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                child: Row(
+                  children: [
+                    Icon(_icon(selected),
+                        size: 18, color: const Color(0xFF059669)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _label(selected),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                          color: Color(0xFF065F46),
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      expanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      size: 22,
+                      color: const Color(0xFF059669),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (expanded) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: _HubConversasFilter.values.map((f) {
+                final on = f == selected;
+                return FilterChip(
+                  visualDensity: VisualDensity.compact,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  selected: on,
+                  showCheckmark: false,
+                  avatar: Icon(_icon(f), size: 16),
+                  label: Text(_label(f),
+                      style: const TextStyle(fontSize: 12.5)),
+                  onSelected: (_) => onSelected(f),
+                  selectedColor: const Color(0xFF25D366).withValues(alpha: 0.22),
+                  backgroundColor: Colors.grey.shade100,
+                );
+              }).toList(),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

@@ -34,6 +34,7 @@ import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/panel_programacao_loader.dart';
 import 'package:gestao_yahweh/services/church_dashboard_current_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
@@ -444,6 +445,20 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       );
     });
     final panelSnap = results[0] as PanelDashboardSnapshot;
+    unawaited(
+      ChurchGalleryPhotoWarmup.warmBytesForPanel(
+        tenantId: resolved,
+        panel: panelSnap,
+      ),
+    );
+    if (prefetchRaw != null) {
+      unawaited(
+        ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(
+          resolved,
+          prefetchRaw,
+        ),
+      );
+    }
     if (panelSnap.isFreshForInstantPanel) {
       Future<void>.delayed(const Duration(seconds: 6), () {
         if (!mounted) return;
@@ -452,6 +467,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     } else {
       _scheduleHeavyDashboardStreams(allIds);
     }
+    _prewarmPanelProgramacao(resolved);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ChurchGalleryPhotoWarmup.schedulePanelHome(
@@ -6464,10 +6480,16 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   DateTime rangeEnd, {
   bool apenasRotinaGerada = false,
 }) async {
-  final tid = await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
-    tenantId,
-    userUid: FirebaseAuth.instance.currentUser?.uid,
-  );
+  var tid = tenantId.trim();
+  try {
+    tid = await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+      tenantId,
+      userUid: FirebaseAuth.instance.currentUser?.uid,
+    );
+  } catch (_) {}
+  if (tid.isEmpty) tid = tenantId.trim();
+  if (tid.isEmpty) return const [];
+
   final noticiasRef =
       FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('noticias');
   final templatesRef =
@@ -6475,16 +6497,19 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> realDocs;
   try {
-    final snap = await noticiasRef
-        .where('type', isEqualTo: 'evento')
-        .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
-        .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
-        .orderBy('startAt')
-        .limit(80)
-        .get();
+    final snap = await PanelProgramacaoLoader.queryCacheFirst(
+      noticiasRef
+          .where('type', isEqualTo: 'evento')
+          .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
+          .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
+          .orderBy('startAt')
+          .limit(80),
+    );
     realDocs = snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
   } catch (_) {
-    final snap = await noticiasRef.limit(150).get();
+    final snap = await PanelProgramacaoLoader.queryCacheFirst(
+      noticiasRef.limit(150),
+    );
     realDocs = snap.docs
         .where((d) => (d.data()['type'] ?? '').toString() == 'evento')
         .where((d) {
@@ -6545,9 +6570,15 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
 
   QuerySnapshot<Map<String, dynamic>> templatesSnap;
   try {
-    templatesSnap = await templatesRef.where('active', isEqualTo: true).get();
+    templatesSnap = await PanelProgramacaoLoader.queryCacheFirst(
+      templatesRef.where('active', isEqualTo: true),
+    );
   } catch (_) {
-    templatesSnap = await templatesRef.get();
+    try {
+      templatesSnap = await PanelProgramacaoLoader.queryCacheFirst(templatesRef);
+    } catch (_) {
+      templatesSnap = const MergedFirestoreQuerySnapshot([]);
+    }
   }
   final templates = templatesSnap.docs.where((d) => d.data()['active'] != false).toList();
 
@@ -6582,14 +6613,15 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   final merged = <Map<String, dynamic>>[...realMaps, ...virtual];
 
   try {
-    final agSnap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tid)
-        .collection('agenda')
-        .where('startTime',
-            isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
-        .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
-        .get();
+    final agSnap = await PanelProgramacaoLoader.queryCacheFirst(
+      FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .collection('agenda')
+          .where('startTime',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
+          .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd)),
+    );
     for (final d in agSnap.docs) {
       final m = d.data();
       final ts = m['startTime'];
@@ -6635,6 +6667,27 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
     });
   }
   return deduped;
+}
+
+/// Pré-aquece programação no painel (RAM + Firestore cache) — menos cartão de erro na web.
+void _prewarmPanelProgramacao(String tenantId) {
+  final tid = tenantId.trim();
+  if (tid.isEmpty) return;
+  final now = DateTime.now();
+  for (final days in const [7, 15]) {
+    unawaited(
+      PanelProgramacaoLoader.loadResilient(
+        tenantId: tid,
+        rangeDays: days,
+        loader: () => _loadEventosComFixos(
+          tid,
+          now,
+          now.add(Duration(days: days)),
+          apenasRotinaGerada: true,
+        ),
+      ),
+    );
+  }
 }
 
 void _showPainelProgramacaoEventoPreview(
@@ -6818,10 +6871,21 @@ class _EventosSemanalCard extends StatefulWidget {
 class _EventosSemanalCardState extends State<_EventosSemanalCard> {
   bool _expanded = false;
 
-  Future<List<Map<String, dynamic>>> _load(BuildContext context) async {
-    final now = DateTime.now();
-    final end = now.add(const Duration(days: 7));
-    return _loadEventosComFixos(widget.tenantId, now, end, apenasRotinaGerada: true);
+  Future<PanelProgramacaoLoadOutcome> _loadOutcome() {
+    return PanelProgramacaoLoader.loadResilient(
+      tenantId: widget.tenantId,
+      rangeDays: 7,
+      loader: () async {
+        final now = DateTime.now();
+        final end = now.add(const Duration(days: 7));
+        return _loadEventosComFixos(
+          widget.tenantId,
+          now,
+          end,
+          apenasRotinaGerada: true,
+        );
+      },
+    );
   }
 
   @override
@@ -6829,70 +6893,133 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
     return _CleanCard(
       title: 'Eventos',
       icon: Icons.date_range_rounded,
-      child: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _load(context),
+      child: FutureBuilder<PanelProgramacaoLoadOutcome>(
+        future: _loadOutcome(),
         builder: (context, snap) {
-          if (snap.hasError) {
-            return ChurchPanelErrorBody(
-              title: 'Não foi possível carregar a programação da semana',
-              error: snap.error,
-              onRetry: () => setState(() {}),
-            );
-          }
           if (snap.connectionState != ConnectionState.done || !snap.hasData) {
+            final warm = PanelProgramacaoLoader.peekRam(widget.tenantId, 7);
+            if (warm != null && warm.isNotEmpty) {
+              return _buildEventosSemanalList(
+                warm,
+                staleHint: true,
+                onRetry: () => setState(() {}),
+              );
+            }
             return const SizedBox(
               height: 120,
               child: ChurchPanelLoadingBody(),
             );
           }
-          final items = snap.data!;
+          final outcome = snap.data!;
+          if (outcome.showHardError) {
+            return ChurchPanelErrorBody(
+              title: 'Não foi possível carregar a programação da semana',
+              error: outcome.error,
+              onRetry: () => setState(() {}),
+            );
+          }
+          final items = outcome.items;
           if (items.isEmpty) {
             return Padding(
               padding: const EdgeInsets.all(20),
               child: Text('Nenhum evento nos próximos 7 dias.', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
             );
           }
-          const int maxMostrar = 4;
-          final temMais = items.length > maxMostrar;
-          final mostrar = (_expanded || !temMais) ? items : items.take(maxMostrar).toList();
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ...mostrar.map((data) {
-                final title = (data['title'] ?? '').toString();
-                DateTime? dt;
-                try { dt = (data['startAt'] as Timestamp).toDate(); } catch (_) {}
-                final dateStr = dt != null ? '${_EventosSemanalCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}' : '';
-                return _PainelAgendaEventoRow(
-                  title: title.isEmpty ? 'Evento' : title,
-                  dateStr: dateStr,
-                  leading: ColoredBox(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                    child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
-                  ),
-                  onTap: () => _showPainelProgramacaoEventoPreview(context, data),
-                );
-              }),
-              if (temMais) ...[
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () => setState(() => _expanded = !_expanded),
-                    icon: Icon(_expanded ? Icons.unfold_less_rounded : Icons.expand_more_rounded, size: 20),
-                    label: Text(_expanded ? 'Recolher' : 'Ver mais (${items.length} eventos)'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: ThemeCleanPremium.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                    ),
-                  ),
-                ),
-              ],
-            ],
+          return _buildEventosSemanalList(
+            items,
+            staleHint: outcome.showSoftStaleHint,
+            onRetry: () => setState(() {}),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildEventosSemanalList(
+    List<Map<String, dynamic>> items, {
+    required bool staleHint,
+    required VoidCallback onRetry,
+  }) {
+    const int maxMostrar = 4;
+    final temMais = items.length > maxMostrar;
+    final mostrar = (_expanded || !temMais) ? items : items.take(maxMostrar).toList();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (staleHint) _ProgramacaoStaleHint(onRetry: onRetry),
+        ...mostrar.map((data) {
+          final title = (data['title'] ?? '').toString();
+          DateTime? dt;
+          try {
+            dt = (data['startAt'] as Timestamp).toDate();
+          } catch (_) {}
+          final dateStr = dt != null
+              ? '${_EventosSemanalCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+              : '';
+          return _PainelAgendaEventoRow(
+            title: title.isEmpty ? 'Evento' : title,
+            dateStr: dateStr,
+            leading: ColoredBox(
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+              child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
+            ),
+            onTap: () => _showPainelProgramacaoEventoPreview(context, data),
+          );
+        }),
+        if (temMais) ...[
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => setState(() => _expanded = !_expanded),
+              icon: Icon(_expanded ? Icons.unfold_less_rounded : Icons.expand_more_rounded, size: 20),
+              label: Text(_expanded ? 'Recolher' : 'Ver mais (${items.length} eventos)'),
+              style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Lista em cache enquanto a rede atualiza — evita cartão vermelho no painel (estilo CT).
+class _ProgramacaoStaleHint extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _ProgramacaoStaleHint({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onRetry,
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                Icon(Icons.cloud_off_rounded, size: 18, color: Colors.blue.shade800),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Sem rede agora — mostrando a última programação salva. Toque para atualizar.',
+                    style: TextStyle(fontSize: 12, color: Colors.blue.shade900, height: 1.25),
+                  ),
+                ),
+                Icon(Icons.refresh_rounded, size: 18, color: Colors.blue.shade700),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -7300,10 +7427,21 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
   bool _expanded = false;
   int _selectedDays = 7;
 
-  Future<List<Map<String, dynamic>>> _load(BuildContext context) async {
-    final now = DateTime.now();
-    final end = now.add(Duration(days: _selectedDays));
-    return _loadEventosComFixos(widget.tenantId, now, end, apenasRotinaGerada: true);
+  Future<PanelProgramacaoLoadOutcome> _loadOutcome() {
+    return PanelProgramacaoLoader.loadResilient(
+      tenantId: widget.tenantId,
+      rangeDays: _selectedDays,
+      loader: () async {
+        final now = DateTime.now();
+        final end = now.add(Duration(days: _selectedDays));
+        return _loadEventosComFixos(
+          widget.tenantId,
+          now,
+          end,
+          apenasRotinaGerada: true,
+        );
+      },
+    );
   }
 
   @override
@@ -7311,23 +7449,33 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
     return _CleanCard(
       title: 'Próximos dias (agenda + cultos)',
       icon: Icons.calendar_month_rounded,
-      child: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _load(context),
+      child: FutureBuilder<PanelProgramacaoLoadOutcome>(
+        future: _loadOutcome(),
         builder: (context, snap) {
-          if (snap.hasError) {
-            return ChurchPanelErrorBody(
-              title: 'Não foi possível carregar a programação',
-              error: snap.error,
-              onRetry: () => setState(() {}),
-            );
-          }
           if (snap.connectionState != ConnectionState.done || !snap.hasData) {
+            final warm =
+                PanelProgramacaoLoader.peekRam(widget.tenantId, _selectedDays);
+            if (warm != null && warm.isNotEmpty) {
+              return _buildProgramacaoDiasBody(
+                warm,
+                staleHint: true,
+                onRetry: () => setState(() {}),
+              );
+            }
             return const SizedBox(
               height: 120,
               child: ChurchPanelLoadingBody(),
             );
           }
-          final items = snap.data!;
+          final outcome = snap.data!;
+          if (outcome.showHardError) {
+            return ChurchPanelErrorBody(
+              title: 'Não foi possível carregar a programação',
+              error: outcome.error,
+              onRetry: () => setState(() {}),
+            );
+          }
+          final items = outcome.items;
           if (items.isEmpty) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -7351,100 +7499,117 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
               ],
             );
           }
-          const int maxMostrar = 4;
-          final temMais = items.length > maxMostrar;
-          final mostrar = (_expanded || !temMais) ? items : items.take(maxMostrar).toList();
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [7, 15, 30].map((days) {
-                    final selected = _selectedDays == days;
-                    return ChurchPanelPeriodDaysChip(
-                      days: days,
-                      selected: selected,
-                      onTap: () => setState(() => _selectedDays = days),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              ...mostrar.map((data) {
-                final title = (data['title'] ?? '').toString();
-                final evUrls = eventNoticiaPhotoUrls(data);
-                var imageUrl = evUrls.isNotEmpty ? evUrls.first : '';
-                if (imageUrl.isEmpty) {
-                  final u = (data['imageUrl'] ?? '').toString().trim();
-                  if (u.isNotEmpty) imageUrl = sanitizeImageUrl(u);
-                }
-                final path0 = eventNoticiaPhotoStoragePathAt(data, 0);
-                final hasPhoto =
-                    imageUrl.isNotEmpty || (path0 != null && path0.isNotEmpty);
-                DateTime? dt;
-                try { dt = (data['startAt'] as Timestamp).toDate(); } catch (_) {}
-                final dateStr = dt != null ? '${_ProgramacaoDiasCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}' : '';
-                final leadingWidget = hasPhoto
-                    ? StableStorageImage(
-                        storagePath: path0,
-                        imageUrl: imageUrl.isNotEmpty ? imageUrl : null,
-                        width: 48,
-                        height: 48,
-                        fit: BoxFit.cover,
-                        memCacheWidth: 96,
-                        memCacheHeight: 96,
-                        placeholder: ColoredBox(
-                          color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                          child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
-                        ),
-                        errorWidget: ColoredBox(
-                          color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                          child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
-                        ),
-                      )
-                    : ColoredBox(
-                        color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                        child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
-                      );
-                return _PainelAgendaEventoRow(
-                  title: title.isEmpty ? 'Evento' : title,
-                  dateStr: dateStr,
-                  leading: leadingWidget,
-                  onTap: () => _showPainelProgramacaoEventoPreview(context, data),
-                );
-              }),
-              if (temMais) ...[
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: () => setState(() => _expanded = !_expanded),
-                    icon: Icon(_expanded ? Icons.unfold_less_rounded : Icons.expand_more_rounded, size: 20),
-                    label: Text(_expanded ? 'Recolher' : 'Veja mais (${items.length} eventos)'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: ThemeCleanPremium.primary,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shadowColor: ThemeCleanPremium.primary.withValues(alpha: 0.35),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      textStyle: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ],
+          return _buildProgramacaoDiasBody(
+            items,
+            staleHint: outcome.showSoftStaleHint,
+            onRetry: () => setState(() {}),
           );
         },
       ),
+    );
+  }
+
+  Widget _buildProgramacaoDiasBody(
+    List<Map<String, dynamic>> items, {
+    required bool staleHint,
+    required VoidCallback onRetry,
+  }) {
+    const int maxMostrar = 4;
+    final temMais = items.length > maxMostrar;
+    final mostrar = (_expanded || !temMais) ? items : items.take(maxMostrar).toList();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [7, 15, 30].map((days) {
+              final selected = _selectedDays == days;
+              return ChurchPanelPeriodDaysChip(
+                days: days,
+                selected: selected,
+                onTap: () => setState(() => _selectedDays = days),
+              );
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (staleHint) _ProgramacaoStaleHint(onRetry: onRetry),
+        ...mostrar.map((data) {
+          final title = (data['title'] ?? '').toString();
+          final evUrls = eventNoticiaPhotoUrls(data);
+          var imageUrl = evUrls.isNotEmpty ? evUrls.first : '';
+          if (imageUrl.isEmpty) {
+            final u = (data['imageUrl'] ?? '').toString().trim();
+            if (u.isNotEmpty) imageUrl = sanitizeImageUrl(u);
+          }
+          final path0 = eventNoticiaPhotoStoragePathAt(data, 0);
+          final hasPhoto =
+              imageUrl.isNotEmpty || (path0 != null && path0.isNotEmpty);
+          DateTime? dt;
+          try {
+            dt = (data['startAt'] as Timestamp).toDate();
+          } catch (_) {}
+          final dateStr = dt != null
+              ? '${_ProgramacaoDiasCard._wd(dt.weekday)} ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+              : '';
+          final leadingWidget = hasPhoto
+              ? StableStorageImage(
+                  storagePath: path0,
+                  imageUrl: imageUrl.isNotEmpty ? imageUrl : null,
+                  width: 48,
+                  height: 48,
+                  fit: BoxFit.cover,
+                  memCacheWidth: 96,
+                  memCacheHeight: 96,
+                  placeholder: ColoredBox(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                    child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
+                  ),
+                  errorWidget: ColoredBox(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                    child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
+                  ),
+                )
+              : ColoredBox(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                  child: Icon(Icons.event_rounded, color: ThemeCleanPremium.primary, size: 22),
+                );
+          return _PainelAgendaEventoRow(
+            title: title.isEmpty ? 'Evento' : title,
+            dateStr: dateStr,
+            leading: leadingWidget,
+            onTap: () => _showPainelProgramacaoEventoPreview(context, data),
+          );
+        }),
+        if (temMais) ...[
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => setState(() => _expanded = !_expanded),
+              icon: Icon(_expanded ? Icons.unfold_less_rounded : Icons.expand_more_rounded, size: 20),
+              label: Text(_expanded ? 'Recolher' : 'Veja mais (${items.length} eventos)'),
+              style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shadowColor: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

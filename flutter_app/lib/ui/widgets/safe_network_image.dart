@@ -49,7 +49,7 @@ class _AsyncLimiter {
 }
 
 final _mediaDownloadLimiter = _AsyncLimiter(26);
-final _mediaPreloadLimiter = _AsyncLimiter(10);
+final _mediaPreloadLimiter = _AsyncLimiter(18);
 final Set<String> _preloadedMediaUrls = <String>{};
 
 /// Corrige URLs do Firebase Storage gravadas no Firestore **sem** `https://` e sem o prefixo

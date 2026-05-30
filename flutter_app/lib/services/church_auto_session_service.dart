@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/session_restore_service.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -85,13 +86,20 @@ class ChurchAutoSessionService {
     unawaited(
       ChurchTenantOfflineWarmupService.instance.scheduleWarmupAfterLogin(tid),
     );
-    await Future.wait<void>([
-      PanelDashboardSnapshotService.warmFromCallableIfStale(tid).then((_) {}),
-      MembersDirectorySnapshotService.warmFromCallableIfStale(tid).then((_) {}),
-      PanelMediaPrefetchService.readOnce(tid).then((raw) {
-        return PanelMediaPrefetchService.applyToUrlCaches(tid, raw: raw);
-      }),
+    final results = await Future.wait<dynamic>([
+      PanelDashboardSnapshotService.warmFromCallableIfStale(tid),
+      MembersDirectorySnapshotService.warmFromCallableIfStale(tid),
+      PanelMediaPrefetchService.readOnce(tid),
     ]);
+    final panel = results[0] as PanelDashboardSnapshot;
+    final prefetchRaw = results[2] as Map<String, dynamic>?;
+    await PanelMediaPrefetchService.applyToUrlCaches(tid, raw: prefetchRaw);
+    unawaited(
+      ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(tid, prefetchRaw),
+    );
+    unawaited(
+      ChurchGalleryPhotoWarmup.warmBytesForPanel(tenantId: tid, panel: panel),
+    );
   }
 
   /// Delega ao coordenador — uma onda de callable por tenant/sessão.

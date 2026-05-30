@@ -13,8 +13,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart'
     show
-        appGoogleSignIn,
-        appGoogleSignOutForAccountPicker,
         firebaseWebGoogleAuthProvider,
         googleAuthErrorMessagePt,
         isGoogleSignInAndroidConfigError,
@@ -330,6 +328,36 @@ class _LoginPageState extends State<LoginPage> {
       await _afterGoogleSignInSuccess();
     } finally {
       if (mounted) setState(() => _sessionFinalizing = false);
+    }
+  }
+
+  /// Seletor Google/Apple — só 1.ª vez no aparelho ou após «Trocar conta».
+  Future<bool> _restoreOAuthSessionInteractiveAfterBiometric() async {
+    if (kIsWeb || !_nativeChurchLogin) return false;
+
+    final forcePicker = await LoginPreferences.shouldForceGoogleAccountPicker();
+    final firstBind = await LoginPreferences.isFirstGoogleBindOnDevice();
+    if (!forcePicker && !firstBind) return false;
+
+    final last = await LoginPreferences.getLastOAuthProvider();
+    if (last == 'apple' && defaultTargetPlatform == TargetPlatform.iOS) {
+      final apple =
+          await GestorOAuthOnboardingService.signInWithAppleIfAvailable();
+      return apple?.user != null;
+    }
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    WidgetsBinding.instance.scheduleFrame();
+    await Future<void>.delayed(const Duration(milliseconds: 48));
+    if (!mounted) return false;
+
+    try {
+      final cred = await GestorOAuthOnboardingService.signInWithGoogleNative(
+        forceAccountPicker: forcePicker,
+      );
+      return cred.user != null;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -808,7 +836,15 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _onEntrarComBiometria() async {
     if (kIsWeb) return;
+    if (_hasSavedCredentials && _senhaController.text.isEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      final savedSenha = prefs.getString(_prefSavedSenha) ?? '';
+      if (savedSenha.isNotEmpty) {
+        _senhaController.text = savedSenha;
+      }
+    }
     var oauthOnly = _oauthQuickUnlockReady &&
+        !_hasSavedCredentials &&
         (_emailController.text.trim().isEmpty || _senhaController.text.isEmpty);
     if (!oauthOnly &&
         !_hasSavedCredentials &&
@@ -853,17 +889,46 @@ class _LoginPageState extends State<LoginPage> {
           return;
         }
         if (!mounted) return;
+        final forcePicker =
+            await LoginPreferences.shouldForceGoogleAccountPicker();
+        final firstBind = await LoginPreferences.isFirstGoogleBindOnDevice();
+        if (!forcePicker && !firstBind) {
+          setState(() => _showManualCredentialFields = true);
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.feedbackSnackBar(
+              'Não foi possível restaurar a sessão Google automaticamente. '
+              'Verifique a internet ou toque em «Continuar com Google».',
+            ),
+          );
+          return;
+        }
+        setState(() => _oauthGoogleInFlight = true);
+        try {
+          final interactiveOk =
+              await _restoreOAuthSessionInteractiveAfterBiometric();
+          if (interactiveOk && mounted) {
+            await _enterPainelAfterRestoredSession();
+            return;
+          }
+        } on FirebaseAuthException catch (e) {
+          if (!mounted) return;
+          if (_firebaseAuthErrorShouldClearSession(e)) {
+            await _signOutFirebaseIfLoggedIn();
+          }
+          if (!mounted) return;
+          _showFirebaseAuthErrorSnack(e);
+          return;
+        } finally {
+          if (mounted) setState(() => _oauthGoogleInFlight = false);
+        }
+        if (!mounted) return;
         setState(() => _showManualCredentialFields = true);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Sem ligação ou sessão Google indisponível. Toque em «Continuar com Google» '
-              'uma vez com internet.',
-            ),
-            duration: Duration(seconds: 5),
+          ThemeCleanPremium.feedbackSnackBar(
+            'Não foi possível restaurar a sessão Google. Verifique a internet '
+            'ou toque em «Continuar com Google».',
           ),
         );
-        unawaited(_tryExpressGoogleReconnectAndEnterPainel());
         return;
       }
 
@@ -1108,7 +1173,11 @@ class _LoginPageState extends State<LoginPage> {
     try {
       UserCredential cred;
       if (kIsWeb) {
-        final provider = firebaseWebGoogleAuthProvider();
+        final forcePicker =
+            await LoginPreferences.shouldForceGoogleAccountPicker();
+        final provider = firebaseWebGoogleAuthProvider(
+          forceAccountPicker: forcePicker,
+        );
         try {
           cred =
               await FirebaseAuth.instance.signInWithPopup(provider);
@@ -1132,35 +1201,11 @@ class _LoginPageState extends State<LoginPage> {
         // Liberta o indicador **antes** do seletor nativo de conta (evita barrier +
         // ícone de loading por cima da UI do Google).
         setState(() => _oauthGoogleInFlight = false);
-        // Só signOut local — rápido e abre o seletor. `disconnect()` era mais lento e
-        // parecia «tela escura» até o Play Services responder.
-        final silentCred = await ExpressLoginService.tryGoogleSilentOnly();
-        if (silentCred?.user != null) {
-          cred = silentCred!;
-        } else {
-          final googleUser = await appGoogleSignIn().signIn();
-          if (googleUser == null) {
-            return;
-          }
-          final ga = await googleUser.authentication;
-          final idTok = ga.idToken;
-          if (idTok == null || idTok.isEmpty) {
-            const msg =
-                'Google não retornou o token de identificação. Atualize o Google Play Services (Android), '
-                'verifique data e hora do aparelho e tente de novo. Se persistir, use e-mail e senha.';
-            if (mounted) {
-              setState(() => _errorMessage = msg);
-              ScaffoldMessenger.of(context)
-                  .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
-            }
-            return;
-          }
-          final oauth = GoogleAuthProvider.credential(
-            accessToken: ga.accessToken,
-            idToken: idTok,
-          );
-          cred = await FirebaseAuth.instance.signInWithCredential(oauth);
-        }
+        final forcePicker =
+            await LoginPreferences.shouldForceGoogleAccountPicker();
+        cred = await GestorOAuthOnboardingService.signInWithGoogleNative(
+          forceAccountPicker: forcePicker,
+        );
       }
 
       if (cred.user == null || !mounted) return;

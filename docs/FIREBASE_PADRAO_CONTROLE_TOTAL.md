@@ -18,6 +18,7 @@
 | `lib/services/yahweh_media_upload_pipeline.dart` | Compressão + `putData` + retry |
 | `lib/services/storage_upload_persistence_service.dart` | Fila disco (mobile) |
 | `lib/services/pending_uploads_migration.dart` | Limpeza única da fila antiga |
+| `lib/services/church_chat_stuck_cleanup_service.dart` | Botão **Limpar** no chat — apaga stubs/filas no Firestore |
 
 ## Regras
 

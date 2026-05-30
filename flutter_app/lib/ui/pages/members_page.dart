@@ -69,6 +69,8 @@ import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -106,6 +108,9 @@ class MembersPage extends StatefulWidget {
   /// Dentro de [IgrejaCleanShell]: sem AppBar duplicada; ações em barra compacta.
   final bool embeddedInShell;
 
+  /// Voltar ao Painel no telemóvel (módulo full screen no shell).
+  final VoidCallback? onShellBack;
+
   /// Pré-preenche o campo de busca (ex.: busca global Ctrl+K).
   final String? initialSearchQuery;
 
@@ -124,6 +129,7 @@ class MembersPage extends StatefulWidget {
     this.initialFiltroGenero,
     this.initialFiltroFaixaEtaria,
     this.embeddedInShell = false,
+    this.onShellBack,
     this.initialSearchQuery,
     this.initialOpenMemberDocId,
     this.permissions,
@@ -1657,6 +1663,13 @@ class _MembersPageState extends State<MembersPage> {
   bool get _canManage =>
       AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
 
+  String? _membersModuleBarSubtitle() {
+    final dn = (FirebaseAuth.instance.currentUser?.displayName ?? '').trim();
+    if (dn.isNotEmpty) return dn;
+    final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+    return email.isNotEmpty ? email : null;
+  }
+
   bool _isSelfMember(_MemberDoc member) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return false;
@@ -2331,25 +2344,13 @@ class _MembersPageState extends State<MembersPage> {
                         color: const Color(0xFF7C3AED),
                         onTap: () {
                           Navigator.pop(ctx);
-                          if (_isSelfMember(member)) {
-                            openMemberCardCnhFullscreen(
-                              context,
-                              tenantId: _effectiveTenantId,
-                              role: widget.role,
-                              memberId: member.id,
-                            );
-                          } else {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => MemberCardPage(
-                                  tenantId: _effectiveTenantId,
-                                  role: widget.role,
-                                  memberId: member.id,
-                                ),
-                              ),
-                            );
-                          }
+                          openMemberCardCnhFullscreen(
+                            context,
+                            tenantId: _effectiveTenantId,
+                            role: widget.role,
+                            memberId: member.id,
+                            cpf: widget.linkedCpf,
+                          );
                         }),
                   if (_isSelfMember(member) && _memberHasLogin(member))
                     _ActionChip(
@@ -5526,14 +5527,13 @@ class _MembersPageState extends State<MembersPage> {
                                       if (v == 'approve')
                                         _aprovarMembrosPorIds({docs[i].id});
                                       if (v == 'card') {
-                                        Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                                builder: (_) => MemberCardPage(
-                                                    tenantId:
-                                                        _effectiveTenantId,
-                                                    role: widget.role,
-                                                    memberId: docs[i].id)));
+                                        openMemberCardCnhFullscreen(
+                                          context,
+                                          tenantId: _effectiveTenantId,
+                                          role: widget.role,
+                                          memberId: docs[i].id,
+                                          cpf: widget.linkedCpf,
+                                        );
                                       }
                                       if (v == 'password_self') {
                                         unawaited(_abrirAtualizarSenhaProprio(
@@ -5838,13 +5838,13 @@ class _MembersPageState extends State<MembersPage> {
                                   _aprovarMembrosPorIds({member.id});
                                 }
                                 if (v == 'card') {
-                                  Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                          builder: (_) => MemberCardPage(
-                                              tenantId: _effectiveTenantId,
-                                              role: widget.role,
-                                              memberId: member.id)));
+                                  openMemberCardCnhFullscreen(
+                                    context,
+                                    tenantId: _effectiveTenantId,
+                                    role: widget.role,
+                                    memberId: member.id,
+                                    cpf: widget.linkedCpf,
+                                  );
                                 }
                                 if (v == 'password_self') {
                                   unawaited(_abrirAtualizarSenhaProprio(
@@ -6756,10 +6756,47 @@ class _MembersPageState extends State<MembersPage> {
                   ],
                 ),
           body: SafeArea(
-            top: !widget.embeddedInShell,
+            top: widget.onShellBack == null && !widget.embeddedInShell,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (widget.onShellBack != null)
+                  ChurchEmbeddedModuleBar(
+                    title: 'Membros',
+                    icon: kChurchShellNavEntries[3].icon,
+                    accent: kChurchShellNavEntries[3].accent,
+                    onBack: widget.onShellBack!,
+                    subtitle: _membersModuleBarSubtitle(),
+                    actions: [
+                      if (_canManage)
+                        IconButton(
+                          icon: const Icon(Icons.picture_as_pdf_rounded,
+                              color: Colors.white, size: 22),
+                          tooltip: 'Exportar PDF',
+                          onPressed: () => _exportPdf(context),
+                        ),
+                      if (_canManage)
+                        IconButton(
+                          icon: const Icon(Icons.download_rounded,
+                              color: Colors.white, size: 22),
+                          tooltip: 'Exportar CSV',
+                          onPressed: () => _exportCsv(context),
+                        ),
+                      if (_canManage)
+                        IconButton(
+                          icon: Icon(Icons.person_add_rounded,
+                              color: addBlocked
+                                  ? Colors.white54
+                                  : Colors.white,
+                              size: 22),
+                          tooltip:
+                              addBlocked ? 'Limite atingido' : 'Novo membro',
+                          onPressed: addBlocked
+                              ? null
+                              : () => _onAddMember(context),
+                        ),
+                    ],
+                  ),
                 if (limitResult != null && limitResult.planLimit > 0)
                   _MembersLimitBanner(result: limitResult),
                 if (widget.embeddedInShell &&

@@ -5,6 +5,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 
 import 'app_google_sign_in.dart' show appGoogleSignIn;
 import 'gestor_oauth_onboarding_service.dart';
+import 'login_preferences.dart';
 
 /// Login expresso (mesmo padrão do app Controle Total):
 ///
@@ -85,7 +86,10 @@ class ExpressLoginService {
 
     onBeforeNativeOAuthUi?.call();
     try {
-      final google = await GestorOAuthOnboardingService.signInWithGoogleNative();
+      final forcePicker = await LoginPreferences.shouldForceGoogleAccountPicker();
+      final google = await GestorOAuthOnboardingService.signInWithGoogleNative(
+        forceAccountPicker: forcePicker,
+      );
       return ExpressLoginResult._(
         kind: ExpressLoginKind.googleInteractive,
         userCredential: google,

@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
+import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
@@ -44,6 +45,7 @@ import 'package:gestao_yahweh/ui/widgets/church_department_chat_members_sheet.da
 import 'package:gestao_yahweh/ui/widgets/church_chat_inline_audio_player.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_upload_progress.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_starred_messages_sheet.dart';
+import 'package:gestao_yahweh/services/church_chat_stuck_cleanup_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_sender_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
@@ -1629,6 +1631,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       refetchAuthUids: authUids,
     );
     if (!mounted || loaded.isEmpty) return;
+    ChurchGalleryPhotoWarmup.warmBytesForChatRefs(widget.tenantId, loaded.values);
     setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
   }
 
@@ -1644,6 +1647,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       authUids: uids,
     );
     if (!mounted || loaded.isEmpty) return;
+    ChurchGalleryPhotoWarmup.warmBytesForChatRefs(widget.tenantId, loaded.values);
     setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
   }
 
@@ -1659,6 +1663,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         authUids: missing,
       );
       if (!mounted || loaded.isEmpty) return;
+      ChurchGalleryPhotoWarmup.warmBytesForChatRefs(
+        widget.tenantId,
+        loaded.values,
+      );
       setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
     }());
   }
@@ -2359,6 +2367,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
+        toolbarHeight: 48,
         elevation: 0,
         flexibleSpace: Container(
           decoration: const BoxDecoration(
@@ -2392,7 +2401,43 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
             color: ThemeCleanPremium.surface,
             onSelected: (v) async {
-              if (v == 'fav') {
+              if (v == 'clear_stuck') {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Limpar envios presos?'),
+                    content: const Text(
+                      'Remove do Firestore mensagens suas ainda em envio/upload '
+                      'e filas antigas. Mensagens já entregues (✓) não são apagadas.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancelar'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Limpar'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirm != true || !context.mounted) return;
+                final r = await ChurchChatStuckCleanupService.purgeAllForTenant(
+                  widget.tenantId,
+                );
+                if (!context.mounted) return;
+                final n = r.messages + r.queueDocs;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      n > 0
+                          ? 'Removido(s) $n item(ns) do banco (${r.messages} mensagem(ns)).'
+                          : 'Nenhum envio preso encontrado no banco.',
+                    ),
+                  ),
+                );
+              } else if (v == 'fav') {
                 final ok = await ChurchChatMemberPrefs.setFavorite(
                   tenantId: widget.tenantId,
                   threadId: widget.threadId,
@@ -2580,6 +2625,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   title: const Text('Minha foto de perfil'),
                   subtitle: const Text(
                     'Actualiza no chat e no cadastro de membro',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'clear_stuck',
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    Icons.cleaning_services_rounded,
+                    color: Colors.orange.shade800,
+                  ),
+                  title: const Text('Limpar envios presos'),
+                  subtitle: const Text(
+                    'Apaga do banco mensagens antigas em upload/fila '
+                    '(mantém as já enviadas).',
                     style: TextStyle(fontSize: 11),
                   ),
                 ),
@@ -2780,7 +2841,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontWeight: FontWeight.w700,
-                      fontSize: 17,
+                      fontSize: 15.5,
                     ),
                   ),
                   if (widget.isDepartment)
@@ -2814,6 +2875,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           ChurchChatPendingStatusBanner(
             tenantId: widget.tenantId,
             compact: true,
+            alwaysOfferClear: true,
+            role: widget.memberRole,
           ),
           Expanded(
             child: ColoredBox(

@@ -50,6 +50,18 @@ class LoginPreferences {
     return prefs.getBool(_kAccountSwitchPending) ?? false;
   }
 
+  /// Google já foi confirmado neste aparelho — não abrir seletor de conta de novo.
+  static Future<bool> shouldForceGoogleAccountPicker() async {
+    return isAccountSwitchPending();
+  }
+
+  /// Primeiro vínculo Google no aparelho (ainda sem `last_oauth_provider` gravado).
+  static Future<bool> isFirstGoogleBindOnDevice() async {
+    if (await isAccountSwitchPending()) return true;
+    final last = await getLastOAuthProvider();
+    return last == null || last.isEmpty;
+  }
+
   /// Após login bem-sucedido — sessão permanente neste aparelho até trocar conta.
   static Future<void> markSuccessfulLogin() async {
     final prefs = await SharedPreferences.getInstance();

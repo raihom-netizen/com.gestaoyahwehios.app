@@ -1,4 +1,6 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1681: Deploy completo — Google 1x conta, fotos instantâneas, carteirinha gestor, web/AAB/iOS.
+/// 11.2.295+1680: Deploy completo — módulos full screen, chat compacto, purge histórico admin, web/AAB/iOS.
 /// 11.2.295+1679: Deploy completo — chat bootstrap leve, painel 6s streams, master token cache, web/AAB/iOS.
 /// 11.2.295+1678: iOS — upload automático dSYM Firebase Crashlytics (Xcode + Codemagic).
 /// 11.2.295+1673: Firebase padrão CT — putData directo, fila só disco, sem pending_uploads Firestore.
@@ -198,7 +200,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1679';
+const String appBuildNumber = '1681';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

@@ -93,6 +93,8 @@ import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
         showChurchHostedVideoDialog,
         openChurchHostedVideoImmersive;
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
@@ -115,6 +117,7 @@ class EventsManagerPage extends StatefulWidget {
   final List<String>? permissions;
   /// Dentro do shell: sem AppBar azul duplicada; abas compactas no corpo.
   final bool embeddedInShell;
+  final VoidCallback? onShellBack;
 
   /// Pré-preenche a busca do feed (ex.: busca global).
   final String? initialFeedSearchQuery;
@@ -127,6 +130,7 @@ class EventsManagerPage extends StatefulWidget {
     required this.role,
     this.permissions,
     this.embeddedInShell = false,
+    this.onShellBack,
     this.initialFeedSearchQuery,
     this.initialTabIndex = 0,
   });
@@ -150,6 +154,13 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         widget.role,
         permissions: widget.permissions,
       );
+
+  String? _eventsModuleBarSubtitle() {
+    final dn = (FirebaseAuth.instance.currentUser?.displayName ?? '').trim();
+    if (dn.isNotEmpty) return dn;
+    final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+    return email.isNotEmpty ? email : null;
+  }
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
       firebaseDefaultFirestore
@@ -1029,7 +1040,16 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                   : null,
             ),
       body: SafeArea(
+          top: widget.onShellBack == null,
           child: Column(children: [
+        if (widget.onShellBack != null)
+          ChurchEmbeddedModuleBar(
+            title: 'Mural de Eventos',
+            icon: kChurchShellNavEntries[8].icon,
+            accent: kChurchShellNavEntries[8].accent,
+            onBack: widget.onShellBack!,
+            subtitle: _eventsModuleBarSubtitle(),
+          ),
         if (_tab.length > 1 && !showAppBar)
           Material(
             color: Colors.white,
