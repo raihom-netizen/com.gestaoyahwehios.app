@@ -33,8 +33,7 @@ abstract final class MuralPostMediaPayload {
     required int startSlotIndex,
   }) async {
     if (newImages.isEmpty) return const [];
-    await FirebaseBootstrap.ensureInitialized();
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForPublishUpload();
     await FeedPostMediaUpload.warmAuthToken()
         .timeout(const Duration(seconds: 25));
     final maxConc = mediaFeedUploadMaxConcurrent.clamp(1, newImages.length);
@@ -70,8 +69,7 @@ abstract final class MuralPostMediaPayload {
         .where((p) => p.isNotEmpty)
         .toList();
     if (paths.isEmpty) return const [];
-    await FirebaseBootstrap.ensureInitialized();
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForPublishUpload();
     await FeedPostMediaUpload.warmAuthToken()
         .timeout(const Duration(seconds: 25));
     final maxConc = mediaFeedUploadMaxConcurrent.clamp(1, paths.length);

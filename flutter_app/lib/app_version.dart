@@ -1,4 +1,11 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1671: Sessão permanente (Controle Total) — restore disco + OAuth silencioso; só limpa em Trocar conta.
+/// 11.2.295+1670: Velocidade Controle Total — shell otimista, preheat único, painel cache-first, web Firestore estável.
+/// 11.2.295+1669: Upload avisos/eventos/chat — init Firebase fiável (padrão Controle Total); sem health FCM lento.
+/// 11.2.295+1668: Chat nativo — áudio/foto upload direto; fila pendente com Limpar/Reenviar.
+/// 11.2.295+1667: Cadastro igreja — pré-carrega doc Firestore (não pede de novo).
+/// 11.2.295+1666: Chat web — envio leve (sem reconexão longa); limpa fila pendente inválida.
+/// 11.2.295+1665: Membros — cache offline + queries resilientes (menos erro de rede).
 /// 11.2.295+1664: Fix build web (índices shell main + dashboard parallel).
 /// 11.2.295+1663: Configurações — links MP/InitPay; menu Config abaixo Cadastro; membro só notif/conta/bio.
 /// 11.2.295+1662: Chat Igreja — lista Conversas estável (cache disco + stream único, sem piscar).
@@ -187,7 +194,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1664';
+const String appBuildNumber = '1671';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

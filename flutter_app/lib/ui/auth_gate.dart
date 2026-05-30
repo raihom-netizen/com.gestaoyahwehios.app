@@ -26,6 +26,7 @@ import '../services/church_binding_repair_coordinator.dart';
 import '../services/church_chat_alert_notification_service.dart';
 import '../services/church_chat_notification_prefs.dart';
 import '../services/church_auto_session_service.dart';
+import '../services/session_restore_service.dart';
 import '../services/church_sign_out_navigation.dart';
 import '../core/roles_permissions.dart';
 
@@ -350,10 +351,7 @@ class _AuthGateState extends State<AuthGate> {
   bool _scheduledLoginRedirect = false;
 
   Future<Map<String, dynamic>?> _loadProfile(User user, {int repairDepth = 0}) async {
-    Map<String, dynamic>? cached;
-    if (!kIsWeb) {
-      cached = await AuthProfileCacheService.instance.load(user.uid);
-    }
+    final cached = await AuthProfileCacheService.instance.load(user.uid);
     try {
       final db = FirebaseFirestore.instance;
       const loadTimeout = Duration(seconds: 14);
@@ -363,8 +361,7 @@ class _AuthGateState extends State<AuthGate> {
       try {
         token = await user.getIdTokenResult(false).timeout(loadTimeout);
       } catch (_) {
-        if (!kIsWeb &&
-            cached != null &&
+        if (cached != null &&
             (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
           return cached;
         }
@@ -810,7 +807,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
         (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
       unawaited(_silentRefreshProfileCache());
       unawaited(
-        ChurchAutoSessionService.preheatPanelCaches(
+        ChurchAutoSessionService.preheatPanelCachesCoordinated(
           tenantIdHint: (cached['igrejaId'] ?? '').toString(),
         ),
       );
@@ -831,6 +828,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
   @override
   void initState() {
     super.initState();
+    unawaited(SessionRestoreService.tryRestoreIfNeeded());
     _profileFuture = _profileFutureCacheFirst();
     // Biometric em paralelo ao perfil para não somar tempo de espera no mobile
     _biometricFuture = kIsWeb

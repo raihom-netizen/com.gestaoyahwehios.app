@@ -10,17 +10,39 @@ abstract final class FirebaseBootstrap {
 
   static Future<void>? _future;
 
-  /// Garante `Firebase.initializeApp` uma vez — idempotente em hot restart.
+  /// Garante `Firebase.initializeApp` — reexecuta se o app `[DEFAULT]` sumiu
+  /// (reconexão, `restart()`, hot restart parcial).
   static Future<void> ensureInitialized() {
+    if (_hasDefaultApp()) {
+      return Future.value();
+    }
+    _future = null;
     _future ??= _initialize();
     return _future!;
   }
 
+  /// Chamado por [FirebaseBootstrapService] ao reconectar/reiniciar o núcleo.
+  static void reset() {
+    _future = null;
+  }
+
+  static bool _hasDefaultApp() {
+    try {
+      return Firebase.apps.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<void> _initialize() async {
-    if (Firebase.apps.isEmpty) {
+    if (_hasDefaultApp()) return;
+    try {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+    } on FirebaseException catch (e) {
+      if (e.code == 'duplicate-app' && _hasDefaultApp()) return;
+      rethrow;
     }
   }
 }

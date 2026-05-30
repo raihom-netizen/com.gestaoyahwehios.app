@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const String _kLastLoginIdentifier = 'last_login_identifier';
@@ -9,9 +10,61 @@ const String _kPostSignOutRouteOverride = 'gv_post_signout_route_override';
 /// Login automático do painel nas próximas aberturas (web + Android).
 const String kAutoPainelLogin = 'auto_painel_login_v1';
 
+/// Após «Trocar conta» — não refazer OAuth silencioso até novo login manual.
+const String _kAccountSwitchPending = 'gv_account_switch_pending_v1';
+
 /// Preferências locais para login expresso / reconexão Google silenciosa (alinhado ao Controle Total).
 class LoginPreferences {
   LoginPreferences._();
+
+  static String? _memoryLastOAuth;
+  static bool _memoryAutoPainel = false;
+  static bool _memoryAccountSwitchPending = false;
+  static bool? _memoryReturningUser;
+
+  /// Prefs críticas em RAM antes do 1º frame (Controle Total).
+  static Future<void> warmUpForStartup() async {
+    final prefs = await SharedPreferences.getInstance();
+    _memoryLastOAuth =
+        (prefs.getString(_kLastOAuthProvider) ?? '').trim().isEmpty
+            ? null
+            : prefs.getString(_kLastOAuthProvider);
+    _memoryAutoPainel = prefs.getBool(kAutoPainelLogin) == true;
+    _memoryAccountSwitchPending =
+        prefs.getBool(_kAccountSwitchPending) ?? false;
+    if (_memoryAccountSwitchPending) {
+      _memoryReturningUser = false;
+      return;
+    }
+    final id = (prefs.getString(_kLastLoginIdentifier) ?? '').trim();
+    _memoryReturningUser = id.isNotEmpty || _memoryAutoPainel;
+  }
+
+  static bool? get startupReturningUser => _memoryReturningUser;
+
+  static bool? get startupAccountSwitchPending => _memoryAccountSwitchPending;
+
+  static Future<bool> isAccountSwitchPending() async {
+    if (_memoryAccountSwitchPending) return true;
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kAccountSwitchPending) ?? false;
+  }
+
+  /// Após login bem-sucedido — sessão permanente neste aparelho até trocar conta.
+  static Future<void> markSuccessfulLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAccountSwitchPending, false);
+    _memoryAccountSwitchPending = false;
+    _memoryReturningUser = true;
+  }
+
+  static String? get lastOAuthProviderSync {
+    final s = _memoryLastOAuth?.trim().toLowerCase() ?? '';
+    if (s.isEmpty) return null;
+    return s;
+  }
+
+  static bool get autoPainelLoginSync => _memoryAutoPainel;
 
   static Future<String> getLastLoginIdentifier() async {
     final prefs = await SharedPreferences.getInstance();
@@ -70,7 +123,12 @@ class LoginPreferences {
 
   /// Configurações → «Trocar e-mail de login»: limpa credenciais locais para novo utilizador.
   static Future<void> prepareChurchAccountSwitch() async {
+    _memoryLastOAuth = null;
+    _memoryAutoPainel = false;
+    _memoryReturningUser = false;
+    _memoryAccountSwitchPending = true;
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAccountSwitchPending, true);
     await prefs.setString(_kPostSignOutRouteOverride, '/igreja/login');
     await prefs.remove(_kLastLoginIdentifier);
     await prefs.remove(_kLastOAuthProvider);
@@ -91,5 +149,6 @@ class LoginPreferences {
     await prefs.remove('web_saved_login');
     await prefs.remove('web_saved_cpf');
     await prefs.remove('web_saved_senha');
+    await AppShellSessionCache.clear();
   }
 }

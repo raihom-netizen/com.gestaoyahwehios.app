@@ -20,11 +20,11 @@ void configureFirestoreForOfflineAndSpeed() {
   final db = firebaseDefaultFirestore;
   try {
     if (kIsWeb) {
-      db.settings = Settings(
-        persistenceEnabled: true,
-        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      // Controle Total: sem IndexedDB na web — login Google/Apple mais estável; long-polling fixo.
+      db.settings = const Settings(
+        persistenceEnabled: false,
         ignoreUndefinedProperties: true,
-        webExperimentalAutoDetectLongPolling: true,
+        webExperimentalForceLongPolling: true,
       );
     } else {
       db.settings = Settings(

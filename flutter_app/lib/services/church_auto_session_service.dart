@@ -6,8 +6,9 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, debugPrint, defaultTargetPlatform, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
-import 'package:gestao_yahweh/services/express_login_service.dart';
-import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
+import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
+import 'package:gestao_yahweh/services/session_restore_service.dart';
+import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
@@ -29,6 +30,7 @@ class ChurchAutoSessionService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(kAutoPainelPrefsKey, true);
     await prefs.setString('last_route', '/painel');
+    await AppShellSessionCache.markShellReady(user.uid);
 
     final email = (user.email ?? '').trim();
     if (email.isNotEmpty) {
@@ -42,6 +44,7 @@ class ChurchAutoSessionService {
     } else if (email.isNotEmpty) {
       await LoginPreferences.setLastOAuthProvider('email');
     }
+    await LoginPreferences.markSuccessfulLogin();
   }
 
   static Future<bool> isAutoPainelEnabled() async {
@@ -65,6 +68,8 @@ class ChurchAutoSessionService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(kAutoPainelPrefsKey);
     await LoginPreferences.clearOAuthHints();
+    await AppShellSessionCache.clear();
+    PanelPreheatCoordinator.resetForAccountSwitch();
   }
 
   /// Resolve `igrejaId` do utilizador e aquece caches (painel, membros, Firestore).
@@ -77,7 +82,6 @@ class ChurchAutoSessionService {
     }
     if (tid.isEmpty) return;
 
-    ChurchTenantOfflineWarmupService.instance.resetForNewSession();
     unawaited(
       ChurchTenantOfflineWarmupService.instance.scheduleWarmupAfterLogin(tid),
     );
@@ -89,6 +93,10 @@ class ChurchAutoSessionService {
       }),
     ]);
   }
+
+  /// Delega ao coordenador — uma onda de callable por tenant/sessão.
+  static Future<void> preheatPanelCachesCoordinated({String? tenantIdHint}) =>
+      PanelPreheatCoordinator.preheatOnce(tenantIdHint: tenantIdHint);
 
   /// Tenant da sessão atual — usado no pré-aquecimento do splash.
   static Future<String> resolveTenantIdForSession() =>
@@ -117,37 +125,11 @@ class ChurchAutoSessionService {
   /// ou após Configurações → Trocar conta).
   static Future<bool> restoreOAuthSessionForQuickUnlock() async {
     if (kIsWeb) return false;
-    final existing = FirebaseAuth.instance.currentUser;
-    if (existing != null && !existing.isAnonymous) return true;
-
+    if (await LoginPreferences.isAccountSwitchPending()) return false;
     if (!await _shouldAttemptOAuthRestore()) return false;
 
-    final last = await LoginPreferences.getLastOAuthProvider();
-    if (last != 'google' && last != 'apple') return false;
-
-    try {
-      if (last == 'google') {
-        final cred = await ExpressLoginService.tryGoogleSilentOnly();
-        if (cred?.user != null) return true;
-      }
-
-      if (last == 'apple' && defaultTargetPlatform == TargetPlatform.iOS) {
-        try {
-          final apple =
-              await GestorOAuthOnboardingService.signInWithAppleIfAvailable();
-          if (apple?.user != null) return true;
-        } catch (_) {}
-      }
-
-      return false;
-    } catch (e, st) {
-      if (kDebugMode) {
-        debugPrint(
-          'ChurchAutoSessionService.restoreOAuthSessionForQuickUnlock: $e\n$st',
-        );
-      }
-      return false;
-    }
+    final user = await SessionRestoreService.restoreAfterBiometricUnlock();
+    return user != null;
   }
 
   static Future<bool> _shouldAttemptOAuthRestore() async {
@@ -160,15 +142,21 @@ class ChurchAutoSessionService {
   /// `main.dart`: antes de escolher rota inicial — evita ecrã Entrar com sessão Google/Apple no telemóvel.
   static Future<bool> tryRestoreSessionOnColdStart() async {
     if (kIsWeb) return false;
+    if (await LoginPreferences.isAccountSwitchPending()) return false;
     await ensureFirebaseInitialized();
     if (firebaseDefaultAuth.currentUser != null) return true;
     if (!await _shouldAttemptOAuthRestore()) return false;
-    return restoreOAuthSessionForQuickUnlock();
+    final user = await SessionRestoreService.tryRestoreIfNeeded();
+    return user != null;
   }
 
   /// `main.dart`: abrir direto o painel se já houve login com sucesso.
   static Future<String?> painelRouteIfSessionRestored(String currentRoute) async {
-    final user = FirebaseAuth.instance.currentUser;
+    if (await LoginPreferences.isAccountSwitchPending()) return null;
+    var user = firebaseDefaultAuth.currentUser;
+    if (user == null || user.isAnonymous) {
+      user = await SessionRestoreService.tryRestoreIfNeeded();
+    }
     if (user == null || user.isAnonymous) return null;
     await ensureAutoPainelFlagForPersistedSession();
 

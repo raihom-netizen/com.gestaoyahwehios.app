@@ -52,7 +52,7 @@ abstract final class FeedMediaPublishService {
     required bool isNewDoc,
     int pendingPhotoCount = 0,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForPublishUpload();
     final patch = FirestoreWriteGuard.stripHeavyFields(
       Map<String, dynamic>.from(payload),
     );
@@ -102,7 +102,7 @@ abstract final class FeedMediaPublishService {
     required Map<String, dynamic> payload,
     required bool isNewDoc,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForPublishUpload();
     final patch = FirestoreWriteGuard.stripHeavyFields(
       Map<String, dynamic>.from(payload),
     );
@@ -156,7 +156,7 @@ abstract final class FeedMediaPublishService {
     required Object error,
   }) async {
     try {
-      await ensureFirebaseReadyForMediaUpload();
+      await FirebaseBootstrap.ensureInitialized();
     } catch (_) {
       return;
     }

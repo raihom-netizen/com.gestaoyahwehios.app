@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart'
@@ -204,6 +205,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   bool _loadingCep = false;
   bool _formHydrated = false;
+  String? _hydratedTenantId;
   /// Doc `igrejas/{id}` ainda não existia — não devemos marcar [_formHydrated] só por isso,
   /// senão quando o doc for criado deixamos de correr [_applyData] e a pré-visualização da logo fica em branco.
   bool _notedNonexistentIgrejaDoc = false;
@@ -282,23 +284,78 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
   }
 
+  Future<String> _resolveTenantIdForCadastro() =>
+      TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+        widget.tenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
+
+  /// Nome legível quando o doc antigo não tem `nome`/`name` (só id tipo `igreja_o_brasil_…`).
+  static String _displayNameFromDocId(String docId) {
+    var s = docId.trim();
+    if (s.isEmpty) return '';
+    for (final suf in ['_sistema', '_bpc']) {
+      if (s.endsWith(suf)) s = s.substring(0, s.length - suf.length);
+    }
+    if (s.startsWith('igreja_')) s = s.substring(7);
+    if (s.isEmpty) return '';
+    return s
+        .split('_')
+        .where((p) => p.trim().isNotEmpty)
+        .map((p) => p.length == 1
+            ? p.toUpperCase()
+            : '${p[0].toUpperCase()}${p.substring(1).toLowerCase()}')
+        .join(' ');
+  }
+
+  Future<void> _primeChurchDocFromFirestore() async {
+    try {
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
+      final resolved = await _resolveTenantIdForCadastro();
+      if (!mounted) return;
+      final snap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(resolved)
+          .get(const GetOptions(source: Source.serverAndCache));
+      if (!mounted || !snap.exists) return;
+      final data = snap.data();
+      if (data == null) return;
+      _hydrateFormFromFirestoreDoc(resolved, data);
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
     _nameCtrl.addListener(_onNameChanged);
-    _resolvedIdFuture =
-        TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+    _resolvedIdFuture = _resolveTenantIdForCadastro();
+    unawaited(_primeChurchDocFromFirestore());
+  }
+
+  @override
+  void didUpdateWidget(IgrejaCadastroPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId.trim() != widget.tenantId.trim()) {
+      _formHydrated = false;
+      _hydratedTenantId = null;
+      _notedNonexistentIgrejaDoc = false;
+      _logoTokenRefreshAttempted = false;
+      _logoStorageHydrationTenantId = null;
+      _resolvedIdFuture = _resolveTenantIdForCadastro();
+      unawaited(_primeChurchDocFromFirestore());
+    }
   }
 
   void _retryResolveTenant() {
     setState(() {
       _formHydrated = false;
+      _hydratedTenantId = null;
       _notedNonexistentIgrejaDoc = false;
       _logoTokenRefreshAttempted = false;
       _logoStorageHydrationTenantId = null;
-      _resolvedIdFuture =
-          TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+      _resolvedIdFuture = _resolveTenantIdForCadastro();
     });
+    unawaited(_primeChurchDocFromFirestore());
   }
 
   void _copyAndSnack(BuildContext context, String text) {
@@ -448,11 +505,32 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     );
   }
 
-  void _applyData(Map<String, dynamic>? data) {
+  void _applyData(Map<String, dynamic>? data, {String? docIdFallback}) {
     if (data == null) return;
-    _nameCtrl.text = (data['name'] ?? data['nome'] ?? '').toString();
+    var nome = (data['name'] ??
+            data['nome'] ??
+            data['NOME'] ??
+            data['NOME_IGREJA'] ??
+            data['razaoSocial'] ??
+            data['displayName'] ??
+            '')
+        .toString()
+        .trim();
+    if (nome.isEmpty) {
+      final slug = (data['slug'] ?? data['slugId'] ?? data['alias'] ?? '')
+          .toString()
+          .trim();
+      if (slug.isNotEmpty) {
+        nome = slug.replaceAll('-', ' ').replaceAll('_', ' ');
+      }
+    }
+    if (nome.isEmpty && docIdFallback != null) {
+      nome = _displayNameFromDocId(docIdFallback);
+    }
+    _nameCtrl.text = nome;
     _cnpjIgrejaCtrl.text =
-        (data['cnpj'] ?? data['CNPJ'] ?? data['cnpjCpf'] ?? '').toString();
+        (data['cnpj'] ?? data['CNPJ'] ?? data['cnpjCpf'] ?? data['cpf'] ?? '')
+            .toString();
     // Logo: URL do Storage (vários campos) ou, se vazio, Base64 gravado no doc (legado / export).
     final url = churchTenantLogoUrl(data);
     _logoUrl = url.isEmpty ? null : url;
@@ -506,9 +584,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _gestorTelefoneCtrl.text =
         (data['gestorTelefone'] ?? data['gestor_telefone'] ?? '').toString();
     final savedSlug = (data['slug'] ?? data['slugId'] ?? '').toString().trim();
-    final nome = (data['name'] ?? data['nome'] ?? '').toString().trim();
-    _slugCtrl.text =
-        savedSlug.isNotEmpty ? savedSlug : _slugFromChurchName(nome);
+    _slugCtrl.text = savedSlug.isNotEmpty
+        ? savedSlug
+        : _slugFromChurchName(_nameCtrl.text.trim());
     _metaMinisterialTituloCtrl.text =
         (data['metaMinisterialTitulo'] ?? '').toString().trim();
     _metaMinisterialValorCtrl.text =
@@ -2062,6 +2140,83 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     );
   }
 
+  void _hydrateFormFromFirestoreDoc(
+    String resolvedId,
+    Map<String, dynamic> live,
+  ) {
+    if (_hydratedTenantId == resolvedId &&
+        _formHydrated &&
+        _nameCtrl.text.trim().isNotEmpty) {
+      return;
+    }
+    _applyData(live, docIdFallback: resolvedId);
+    _formHydrated = true;
+    _hydratedTenantId = resolvedId;
+    _notedNonexistentIgrejaDoc = false;
+    if (mounted) setState(() {});
+    unawaited(_afterFormHydrated(resolvedId, live));
+  }
+
+  Future<void> _afterFormHydrated(
+    String resolvedId,
+    Map<String, dynamic> live,
+  ) async {
+    if (!_logoTokenRefreshAttempted) {
+      _logoTokenRefreshAttempted = true;
+      Future<void>.delayed(const Duration(seconds: 4), () {
+        if (!mounted) return;
+        unawaited(_maybeRefreshStorageLogoUrl());
+      });
+    }
+    if (_canEdit) {
+      await FirebaseStorageService.ensureChurchConfigFolderPlaceholderIfAbsent(
+        resolvedId,
+      );
+    }
+    if (!mounted) return;
+    final logo = churchTenantLogoUrl(live);
+    if (logo.isEmpty && _logoStorageHydrationTenantId != resolvedId) {
+      _logoStorageHydrationTenantId = resolvedId;
+      await _hydrateLogoUrlFromStorageIfNeeded(resolvedId, live);
+      if (mounted) setState(() {});
+    }
+  }
+
+  Widget _buildCadastroJaExisteChip() {
+    if (!_formHydrated || _nameCtrl.text.trim().isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
+      child: Material(
+        color: const Color(0xFFECFDF5),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(Icons.check_circle_rounded,
+                  color: Colors.green.shade700, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Cadastro já existe no sistema — dados carregados abaixo. '
+                  'Revise e toque em Salvar se alterar algo.',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.green.shade900,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// ID canônico = documento em `igrejas/{id}` (membros, mural, eventos, escalas usam este id).
   Widget _buildChurchFirestoreIdBanner(String churchId) {
     final id = churchId.trim();
@@ -2349,11 +2504,22 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           key: ValueKey<String>('igreja_doc_$resolvedId'),
-          stream: FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(resolvedId)
-              .snapshots(),
+          stream: FirestoreStreamUtils.resilientDocument(
+            FirebaseFirestore.instance
+                .collection('igrejas')
+                .doc(resolvedId)
+                .snapshots(),
+          ),
           builder: (context, docSnap) {
+            if (!docSnap.hasData &&
+                docSnap.connectionState == ConnectionState.waiting &&
+                !_formHydrated) {
+              return Scaffold(
+                backgroundColor: ThemeCleanPremium.surface,
+                appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
+                body: const Center(child: CircularProgressIndicator()),
+              );
+            }
             if (docSnap.hasError) {
               return Scaffold(
                 backgroundColor: ThemeCleanPremium.surface,
@@ -2382,32 +2548,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
             final doc = docSnap.data;
             final live = doc?.data();
             if (live != null && doc != null && doc.exists) {
-              if (!_formHydrated) {
-                WidgetsBinding.instance.addPostFrameCallback((_) async {
-                  if (!mounted || _formHydrated) return;
-                  _applyData(live);
-                  final logo = churchTenantLogoUrl(live);
-                  _formHydrated = true;
-                  if (!_logoTokenRefreshAttempted) {
-                    _logoTokenRefreshAttempted = true;
-                    Future<void>.delayed(const Duration(seconds: 4), () {
-                      if (!mounted) return;
-                      unawaited(_maybeRefreshStorageLogoUrl());
-                    });
-                  }
-                  if (_canEdit) {
-                    await FirebaseStorageService
-                        .ensureChurchConfigFolderPlaceholderIfAbsent(
-                            resolvedId);
-                  }
-                  if (!mounted) return;
-                  if (logo.isEmpty &&
-                      _logoStorageHydrationTenantId != resolvedId) {
-                    _logoStorageHydrationTenantId = resolvedId;
-                    await _hydrateLogoUrlFromStorageIfNeeded(resolvedId, live);
-                  }
-                  if (mounted) setState(() {});
-                });
+              if (_hydratedTenantId != resolvedId || !_formHydrated) {
+                _hydrateFormFromFirestoreDoc(resolvedId, live);
               } else if (!_uploadingLogo && !_logoStagedNotUploaded) {
                 final serverLogo = churchTenantLogoUrl(live);
                 final nu = serverLogo.isEmpty ? null : serverLogo;
@@ -2522,6 +2664,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                   const SizedBox(
                                       height: ThemeCleanPremium.spaceLg),
                                   _buildChurchFirestoreIdBanner(resolvedId),
+                                  _buildCadastroJaExisteChip(),
                                   const SizedBox(
                                       height: ThemeCleanPremium.spaceLg),
                                   TextFormField(

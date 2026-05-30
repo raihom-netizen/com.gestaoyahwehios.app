@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart' as fb_core;
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 
 export 'firebase/firebase_bootstrap.dart' show FirebaseBootstrap;
@@ -21,10 +22,28 @@ export 'firebase_publish_guard.dart' show ensureFirebaseReadyToPublish;
 
 /// Compatibilidade — toda a lógica está em [FirebaseBootstrapService].
 Future<void> ensureFirebaseInitialized() =>
-    FirebaseBootstrapService.ensureReady(requireAuthSession: false);
+    fb_core.FirebaseBootstrap.ensureInitialized();
 
 Future<void> ensureFirebaseReadyForMediaUpload({bool force = false}) =>
     FirebaseBootstrapService.ensureReadyForMediaUpload(force: force);
+
+/// Avisos/eventos/mural — init + token (sem FCM nem backoff longo).
+Future<void> ensureFirebaseReadyForPublishUpload() =>
+    FirebaseBootstrapService.ensureReadyForPublishUpload();
+
+/// Chat (texto/mídia): sessão + token — sem health check completo nem backoff de reconexão.
+Future<void> ensureFirebaseReadyForChatSend() =>
+    FirebaseBootstrapService.ensureReadyForChatSend();
+
+/// Upload Storage: chat usa bootstrap leve; resto mantém verificação completa.
+Future<void> ensureUploadBootstrapForStoragePath(String storagePath) async {
+  final p = storagePath.toLowerCase();
+  if (p.contains('chat_media') || p.contains('/chat/')) {
+    await ensureFirebaseReadyForChatSend();
+  } else {
+    await ensureFirebaseReadyForMediaUpload();
+  }
+}
 
 Future<T> runFirebaseBackgroundTask<T>(
   Future<T> Function() fn, {

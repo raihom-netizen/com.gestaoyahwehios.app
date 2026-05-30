@@ -96,7 +96,7 @@ Future<String> uploadStoragePutFileWithRetry({
 
 }) async {
 
-  await ensureFirebaseReadyForMediaUpload();
+  await ensureUploadBootstrapForStoragePath(storagePath);
 
   final byteLen = await file.length();
 

@@ -156,6 +156,20 @@ class PanelDashboardSnapshot {
 
   bool get hasHomeAvisos => homeAvisos.isNotEmpty;
 
+  /// Cache `_panel_cache` recente o suficiente para pintar o painel sem streams de membros.
+  bool get isFreshForInstantPanel {
+    final ts = cacheUpdatedAt;
+    if (ts == null) return false;
+    if (DateTime.now().difference(ts.toDate()) >
+        PanelDashboardSnapshotService.panelCacheFreshMaxAge) {
+      return false;
+    }
+    return membersTotalCount > 0 ||
+        hasBirthdayData ||
+        hasHomeLeaders ||
+        hasHomeCorpo;
+  }
+
   factory PanelDashboardSnapshot.fromMap(Map<String, dynamic>? raw) {
     if (raw == null || raw.isEmpty) return const PanelDashboardSnapshot();
     int n(dynamic v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
@@ -249,6 +263,9 @@ class PanelDashboardSnapshotService {
   }
 
   static const Duration _staleAfter = Duration(minutes: 6);
+
+  /// Idade máxima do snapshot para adiar queries pesadas de `membros` no painel.
+  static const Duration panelCacheFreshMaxAge = _staleAfter;
 
   static bool _isFresh(Timestamp? updatedAt) {
     if (updatedAt == null) return false;

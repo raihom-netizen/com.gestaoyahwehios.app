@@ -8,6 +8,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart'
     show debugPrint, kDebugMode, kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/firebase_options.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 
@@ -286,10 +287,36 @@ abstract final class FirebaseBootstrapService {
     return FirebaseBootstrapResult.failed(fail);
   }
 
+  /// Publicar aviso/evento ou enviar mídia — init + sessão, sem health check FCM.
+  static Future<void> ensureReadyForPublishUpload() async {
+    await FirebaseBootstrap.ensureInitialized();
+    if (!_hasApp()) {
+      final r = await initialize();
+      if (!r.isReady && r.failure != null) throw r.failure!;
+    }
+    final user = auth.currentUser;
+    if (user == null) {
+      throw StateError(
+        'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
+      );
+    }
+    if (user.isAnonymous) {
+      throw StateError(
+        'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
+      );
+    }
+    try {
+      await user.getIdToken(false).timeout(const Duration(seconds: 12));
+    } catch (_) {
+      await user.getIdToken(true).timeout(const Duration(seconds: 15));
+    }
+  }
+
   /// Verificação Auth + Firestore + Storage (+ sessão se [requireAuthSession]).
   static Future<FirebaseHealthReport> healthCheck({
     bool requireAuthSession = false,
     String? logLabel,
+    bool skipFcmProbe = false,
   }) async {
     if (!_hasApp()) {
       throw FirebaseBootstrapException.from(
@@ -376,7 +403,7 @@ abstract final class FirebaseBootstrapService {
       if (_isNoFirebaseApp(e)) rethrow;
     }
 
-    if (FirebaseHealthReport._fcmRelevantOnThisPlatform) {
+    if (!skipFcmProbe && FirebaseHealthReport._fcmRelevantOnThisPlatform) {
       try {
         final messaging = FirebaseMessaging.instance;
         await messaging.setAutoInitEnabled(true);
@@ -413,6 +440,7 @@ abstract final class FirebaseBootstrapService {
 
   /// Reconexão com backoff — sem exigir fechar o app.
   static Future<void> reconnect({bool requireAuthSession = false}) async {
+    FirebaseBootstrap.reset();
     _healthOkAt = null;
     Object? last;
     StackTrace? lastSt;
@@ -437,6 +465,7 @@ abstract final class FirebaseBootstrapService {
 
   /// Reinício completo (último recurso) — pode terminar sessão Auth nativa.
   static Future<void> restart() async {
+    FirebaseBootstrap.reset();
     _initCompleter = null;
     _cachedApp = null;
     _healthOkAt = null;
@@ -480,11 +509,50 @@ abstract final class FirebaseBootstrapService {
 
   static Future<void> ensureReadyForMediaUpload({bool force = false}) async {
     try {
-      await ensureReady(requireAuthSession: true, forceHealthCheck: force);
+      if (force) {
+        await ensureReady(requireAuthSession: true, forceHealthCheck: true);
+      } else {
+        await ensureReadyForPublishUpload();
+      }
     } catch (e, st) {
       if (e is FirebaseBootstrapException) rethrow;
       throw FirebaseBootstrapException.from(e, st);
     }
+  }
+
+  /// Envio de mensagens no chat — evita health check + backoff longo da reconexão.
+  static Future<void> ensureReadyForChatSend() async {
+    await ensureReady(requireAuthSession: true, forceHealthCheck: false);
+    final user = FirebaseAuth.instanceFor(app: defaultApp).currentUser;
+    if (user == null) {
+      throw StateError(
+        'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
+      );
+    }
+    if (user.isAnonymous) {
+      throw StateError(
+        'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
+      );
+    }
+    try {
+      await user.getIdToken(false).timeout(const Duration(seconds: 12));
+    } catch (_) {
+      await user.getIdToken(true).timeout(const Duration(seconds: 15));
+    }
+  }
+
+  static bool _isChatGuardLabel(String? debugLabel) {
+    final l = debugLabel?.toLowerCase() ?? '';
+    return l.contains('chat');
+  }
+
+  static bool _isMediaPublishGuardLabel(String? debugLabel) {
+    final l = debugLabel?.toLowerCase() ?? '';
+    return l.contains('aviso') ||
+        l.contains('evento') ||
+        l.contains('feed') ||
+        l.contains('mural') ||
+        l.contains('publish');
   }
 
   static Future<T> runGuarded<T>(
@@ -492,14 +560,23 @@ abstract final class FirebaseBootstrapService {
     String? debugLabel,
     bool requireAuth = true,
   }) async {
+    final chatOp = _isChatGuardLabel(debugLabel);
+    final mediaPublishOp = !chatOp && _isMediaPublishGuardLabel(debugLabel);
     Object? last;
     StackTrace? lastSt;
-    for (var attempt = 1; attempt <= 3; attempt++) {
+    final maxAttempts = chatOp || mediaPublishOp ? 2 : 3;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await ensureReady(
-          requireAuthSession: requireAuth,
-          forceHealthCheck: attempt > 1,
-        );
+        if (chatOp) {
+          await ensureReadyForChatSend();
+        } else if (mediaPublishOp) {
+          await ensureReadyForPublishUpload();
+        } else {
+          await ensureReady(
+            requireAuthSession: requireAuth,
+            forceHealthCheck: attempt > 1,
+          );
+        }
         return await fn();
       } catch (e, st) {
         last = e;
@@ -511,7 +588,12 @@ abstract final class FirebaseBootstrapService {
             reason: debugLabel ?? 'firebase_guarded',
           ),
         );
-        if (attempt >= 3) break;
+        if (attempt >= maxAttempts) break;
+        if (chatOp || mediaPublishOp) {
+          FirebaseBootstrap.reset();
+          await Future.delayed(Duration(milliseconds: 400 * attempt));
+          continue;
+        }
         try {
           await reconnect(requireAuthSession: requireAuth);
         } catch (_) {}
@@ -533,6 +615,7 @@ abstract final class FirebaseBootstrapService {
   }
 
   static Future<void> _softReinit() async {
+    FirebaseBootstrap.reset();
     _cachedApp = null;
     try {
       await Firebase.initializeApp(

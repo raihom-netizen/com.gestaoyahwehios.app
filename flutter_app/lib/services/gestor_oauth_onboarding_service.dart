@@ -38,7 +38,11 @@ class GestorOAuthOnboardingService {
       );
       if (!context.mounted) return;
       await ChurchAutoSessionService.persistAfterSuccessfulPainelLogin();
-      unawaited(ChurchAutoSessionService.preheatPanelCaches(tenantIdHint: igrejaId));
+      unawaited(
+        ChurchAutoSessionService.preheatPanelCachesCoordinated(
+          tenantIdHint: igrejaId,
+        ),
+      );
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

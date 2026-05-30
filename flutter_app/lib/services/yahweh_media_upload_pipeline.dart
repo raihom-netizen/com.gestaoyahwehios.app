@@ -96,7 +96,7 @@ abstract final class YahwehMediaUploadPipeline {
   }) async {
     final mod = module ?? moduleFromStoragePath(storagePath);
     final tenant = tenantId ?? tenantFromStoragePath(storagePath) ?? '';
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureUploadBootstrapForStoragePath(storagePath);
 
     unawaited(
       AnalyticsService.logUploadPipeline(
@@ -225,7 +225,7 @@ abstract final class YahwehMediaUploadPipeline {
     void Function(UploadTask task)? onTaskStarted,
     String cacheControl = 'public, max-age=31536000',
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureUploadBootstrapForStoragePath(storagePath);
     Object? lastError;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {

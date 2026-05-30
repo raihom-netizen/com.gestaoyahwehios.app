@@ -51,7 +51,10 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
+import 'package:gestao_yahweh/services/login_preferences.dart';
+import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/window_close_handler_stub.dart'
     if (dart.library.io) 'package:gestao_yahweh/window_close_handler_io.dart'
     as window_close_handler;
@@ -423,10 +426,14 @@ String? _extractChurchSlugFromHost(String host) {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await FirebaseBootstrap.ensureInitialized();
-  // Cache de imagem: um pouco acima do padrão — listas com fotos (membros, mural).
-  // Mais fotos em RAM (logos, mural, membros) = menos decode repetido ao navegar.
-  PaintingBinding.instance.imageCache.maximumSizeBytes = 140 << 20;
-  PaintingBinding.instance.imageCache.maximumSize = 280;
+  // Controle Total: cache de imagens conservador (menos GC em listas com fotos).
+  if (kIsWeb) {
+    PaintingBinding.instance.imageCache.maximumSize = 200;
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 50 * 1024 * 1024;
+  } else {
+    PaintingBinding.instance.imageCache.maximumSize = 400;
+    PaintingBinding.instance.imageCache.maximumSizeBytes = 80 * 1024 * 1024;
+  }
   initUrlStrategy();
 
   // Mesmo padrão do Controle Total: iPhone (todas as versões) e Android
@@ -465,6 +472,10 @@ void main() async {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   final firebaseBoot = await FirebaseBootstrapService.initialize();
+  await Future.wait<void>([
+    LoginPreferences.warmUpForStartup(),
+    AppShellSessionCache.warmUp(),
+  ]);
   if (!firebaseBoot.isReady) {
     runApp(
       MaterialApp(
@@ -688,13 +699,35 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
     }
     if (AppStartupRoute.isNativeMobile) {
       initialRoute = await AppStartupRoute.finalizeNativeRoute(initialRoute);
-      if (await AuthSessionService.hasSession() &&
-          (initialRoute == '/painel' || initialRoute.startsWith('/painel/'))) {
-        unawaited(AppStartupPreheat.preheatForDashboard());
-      }
+    }
+    final reopenUid = FirebaseAuth.instance.currentUser?.uid ??
+        AppShellSessionCache.cachedUidSync();
+    final shellFast = reopenUid != null &&
+        reopenUid.isNotEmpty &&
+        AppShellSessionCache.isShellReadyForSync(reopenUid) &&
+        (LoginPreferences.autoPainelLoginSync ||
+            initialRoute == '/painel' ||
+            initialRoute.startsWith('/painel/'));
+    if (shellFast &&
+        (initialRoute == '/painel' || initialRoute.startsWith('/painel/'))) {
+      try {
+        await PanelPreheatCoordinator.preheatOnce().timeout(
+          const Duration(seconds: 2),
+        );
+      } on TimeoutException {
+        // UI abre com cache local; callable continua em background.
+      } catch (_) {}
+    } else if (AppStartupRoute.isNativeMobile &&
+        await AuthSessionService.hasSession() &&
+        (initialRoute == '/painel' || initialRoute.startsWith('/painel/'))) {
+      unawaited(AppStartupPreheat.preheatForDashboard());
     }
   }
-  await initializeDateFormatting('pt_BR', null);
+  unawaited(
+    initializeDateFormatting('pt_BR', null).catchError((Object e, StackTrace st) {
+      debugPrint('initializeDateFormatting(pt_BR): $e\n$st');
+    }),
+  );
   runApp(UpdateChecker(
     child: _AppWithTheme(initialRoute: initialRoute),
   ));

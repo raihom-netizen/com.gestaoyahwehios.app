@@ -12,7 +12,10 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/unified_upload_service.dart';
-import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
+import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart'
+    show YahwehUploadModule;
+import 'package:gestao_yahweh/services/upload_storage_task.dart'
+    show awaitStorageUploadTask;
 import 'church_chat_attachment_utils.dart';
 import 'church_chat_local_conversations.dart';
 import 'church_chat_member_prefs.dart';
@@ -1397,7 +1400,7 @@ class ChurchChatService {
     String? senderDisplayName,
     List<String>? mentionedUids,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForChatSend();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
       threadId: threadId,
@@ -1457,7 +1460,7 @@ class ChurchChatService {
     Map<String, dynamic>? replyTo,
     Map<String, dynamic>? forwardedFrom,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForChatSend();
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final nf = normalizeForwardedFrom(forwardedFrom);
     final preview = nf != null
@@ -1696,7 +1699,7 @@ class ChurchChatService {
     final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
     final path =
         'igrejas/$tenantId/chat_stickers/${uid}_${ts}_$safeName';
-    final ref = FirebaseStorage.instance.ref().child(path);
+    final ref = firebaseStorageRef(path);
     await ref.putData(
       Uint8List.fromList(bytes),
       SettableMetadata(contentType: contentType),
@@ -1742,7 +1745,7 @@ class ChurchChatService {
     final path = (d['storagePath'] ?? '').toString().trim();
     if (path.isNotEmpty) {
       try {
-        await FirebaseStorage.instance.ref(path).delete();
+        await firebaseStorageRef(path).delete();
       } catch (_) {}
     }
     try {
@@ -1819,7 +1822,7 @@ class ChurchChatService {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForChatSend();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
       threadId: threadId,
@@ -1952,14 +1955,14 @@ class ChurchChatService {
     String? thumbUrl,
     int maxAttempts = 5,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForChatSend();
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     Object? last;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         if (attempt > 1) {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-          await ensureFirebaseReadyForMediaUpload();
+          await ensureFirebaseReadyForChatSend();
         }
         return await completeMediaUploadMessage(
           tenantId: tenantId,
@@ -2070,7 +2073,7 @@ class ChurchChatService {
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForChatSend();
     final path = storagePathOverride ??
         buildChatMediaStoragePath(
           tenantId: tenantId,
@@ -2081,18 +2084,34 @@ class ChurchChatService {
     final ubytes =
         bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
     final ct = contentType.toLowerCase();
-    final chatJpegFast =
-        ct.contains('jpeg') || ct == 'image/jpg' || ct == 'image/pjpeg';
-    final url = await UnifiedUploadService.uploadImage(
-      storagePath: path,
-      bytes: ubytes,
-      contentType: contentType,
-      module: YahwehUploadModule.chat,
-      chatJpegFast: chatJpegFast,
-      skipClientPrepare: skipClientPrepare,
-      onProgress: onProgress,
-      onUploadTaskCreated: onUploadTaskCreated,
-    );
+    final String url;
+    if (ct.startsWith('image/')) {
+      final chatJpegFast =
+          ct.contains('jpeg') || ct == 'image/jpg' || ct == 'image/pjpeg';
+      url = await UnifiedUploadService.uploadImage(
+        storagePath: path,
+        bytes: ubytes,
+        contentType: contentType,
+        module: YahwehUploadModule.chat,
+        chatJpegFast: chatJpegFast,
+        skipClientPrepare: skipClientPrepare,
+        onProgress: onProgress,
+        onUploadTaskCreated: onUploadTaskCreated,
+      );
+    } else {
+      final ref = firebaseStorageRef(path);
+      final task = ref.putData(
+        ubytes,
+        SettableMetadata(contentType: contentType),
+      );
+      onUploadTaskCreated?.call(task);
+      final snap = await awaitStorageUploadTask(
+        task,
+        payloadBytes: ubytes.length,
+        onProgress: onProgress,
+      );
+      url = await snap.ref.getDownloadURL();
+    }
     return (url: url, path: path);
   }
 
@@ -2111,7 +2130,7 @@ class ChurchChatService {
     if (kIsWeb) {
       throw UnsupportedError('uploadChatFile não suportado na web.');
     }
-    await ensureFirebaseReadyForMediaUpload();
+    await ensureFirebaseReadyForChatSend();
     final path = storagePathOverride ??
         buildChatMediaStoragePath(
           tenantId: tenantId,
@@ -2123,6 +2142,7 @@ class ChurchChatService {
       storagePath: path,
       localPath: localPath,
       contentType: contentType,
+      module: YahwehUploadModule.chat,
       onProgress: onProgress,
     );
     return (url: url, path: path);

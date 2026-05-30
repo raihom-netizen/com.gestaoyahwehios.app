@@ -36,6 +36,7 @@ import 'package:gestao_yahweh/core/event_template_schedule.dart'
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_dashboard_current_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
+import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
@@ -377,7 +378,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     ]);
     if (!mounted) return;
     unawaited(
-      PanelDashboardSnapshotService.warmFromCallableIfStale(resolved),
+      PanelPreheatCoordinator.preheatOnce(tenantIdHint: resolved),
     );
     final prefetchRaw = results[2] as Map<String, dynamic>?;
     if (igSnap != null) {
@@ -413,7 +414,16 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
             .snapshots(),
       );
     });
-    _scheduleHeavyDashboardStreams(allIds);
+    final panelSnap = results[0] as PanelDashboardSnapshot;
+    if (panelSnap.isFreshForInstantPanel) {
+      // Controle Total: UI instantânea via cache; streams pesados só em background.
+      Future<void>.delayed(const Duration(seconds: 50), () {
+        if (!mounted) return;
+        _scheduleHeavyDashboardStreams(allIds);
+      });
+    } else {
+      _scheduleHeavyDashboardStreams(allIds);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ChurchGalleryPhotoWarmup.schedulePanelHome(

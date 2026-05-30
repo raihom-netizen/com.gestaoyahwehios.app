@@ -46,7 +46,24 @@ class _ChurchChatPendingStatusBannerState
     });
   }
 
+  Future<void> _clearStuckQueue() async {
+    final n =
+        await ChurchChatMediaOutboxService.clearAllJobs(tenantId: widget.tenantId);
+    await _refreshLocalCounts();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          n > 0
+              ? 'Fila local limpa ($n). Toque em Reenviar só para itens ainda na conversa.'
+              : 'Nada na fila local para limpar.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _retryAll() async {
+    final pruned = await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
     await PendingUploadsFirestoreService.resumeAllForTenant(widget.tenantId);
     YahwehMediaUploadPipeline.bindOnAppStart();
     ChurchChatMediaOutboxService.resumePendingOnAppStart();
@@ -54,7 +71,13 @@ class _ChurchChatPendingStatusBannerState
     await _refreshLocalCounts();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Reenvio de uploads pendente iniciado.')),
+      SnackBar(
+        content: Text(
+          pruned > 0
+              ? 'Reenvio iniciado ($pruned inválidos removidos da fila).'
+              : 'Reenvio de uploads pendente iniciado.',
+        ),
+      ),
     );
   }
 
@@ -99,6 +122,14 @@ class _ChurchChatPendingStatusBannerState
                         color: ThemeCleanPremium.onSurface,
                       ),
                     ),
+                  ),
+                  TextButton(
+                    onPressed: _clearStuckQueue,
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      foregroundColor: Colors.grey.shade700,
+                    ),
+                    child: const Text('Limpar'),
                   ),
                   TextButton(
                     onPressed: _retryAll,

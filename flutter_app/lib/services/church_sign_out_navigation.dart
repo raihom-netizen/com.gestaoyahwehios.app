@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/auth_profile_cache_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
+import 'package:gestao_yahweh/services/session_restore_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Logout do painel da igreja — web/PWA vai à [SitePublicPage] (`/`) sem sobrepor o shell.
@@ -93,6 +94,7 @@ abstract final class ChurchSignOutNavigation {
 
     final uid = FirebaseAuth.instance.currentUser?.uid;
     await LoginPreferences.clearOAuthHints();
+    SessionRestoreService.resetAttemptFlag();
     if (!kIsWeb) {
       await appGoogleSignOutForAccountPicker();
     }

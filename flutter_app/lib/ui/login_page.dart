@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/services/app_google_sign_in.dart'
         isGoogleSignInUserCancellation;
 import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
+import 'package:gestao_yahweh/services/session_restore_service.dart';
 import 'package:gestao_yahweh/services/church_binding_repair_coordinator.dart';
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
@@ -257,21 +258,51 @@ class _LoginPageState extends State<LoginPage> {
     });
   }
 
-  /// Reabrir app: sessão Firebase ou Google silencioso → painel com dados já aquecidos.
+  /// Reabrir app (Controle Total): disco Firebase → OAuth silencioso → painel ou biometria.
   Future<void> _restoreSessionOnLoginPageOpen() async {
     if (!mounted) return;
     if (_isMasterAdminLogin) return;
+    if (await LoginPreferences.isAccountSwitchPending()) return;
     final targetPath = _painelLoginRoute;
     if (!loginAfterTargetsPainelOrAtualizarPlano(targetPath)) return;
 
     if (await AuthSessionService.hasSession()) {
-      if (targetPath == '/painel') {
-        unawaited(ChurchAutoSessionService.preheatPanelCaches());
-      }
-      _goToPostLoginTargetIfStillMounted();
+      await _tryReturningUserAutoAccessOnLogin();
       return;
     }
-    // Sem sessão: não chama Google/Apple/biometria automaticamente — só botões na UI.
+
+    final restored = await SessionRestoreService.tryRestoreIfNeeded();
+    if (!mounted) return;
+    if (restored != null) {
+      await _tryReturningUserAutoAccessOnLogin();
+      return;
+    }
+
+    // Sem sessão no disco: Google silencioso automático se último login foi Google.
+    await _tryExpressOAuthReconnect();
+  }
+
+  /// Sessão Firebase já no aparelho — biometria ou entrada directa no painel.
+  Future<void> _tryReturningUserAutoAccessOnLogin() async {
+    if (!mounted || _loading) return;
+    if (!await AuthSessionService.hasSession()) return;
+
+    final bioOn = await BiometricService().isEnabled();
+    if (bioOn && _nativeChurchLogin) {
+      await _onEntrarComBiometria();
+      return;
+    }
+
+    final target = widget.afterLoginRoute.split('?').first;
+    if (target == '/painel') {
+      unawaited(ChurchAutoSessionService.preheatPanelCachesCoordinated());
+    }
+    setState(() => _sessionFinalizing = true);
+    try {
+      await _afterGoogleSignInSuccess();
+    } finally {
+      if (mounted) setState(() => _sessionFinalizing = false);
+    }
   }
 
   void _goToPostLoginTargetIfStillMounted() {
@@ -405,9 +436,16 @@ class _LoginPageState extends State<LoginPage> {
     return lr == '/painel' || lr.startsWith('/painel/');
   }
 
-  /// Biometria automática só no [AuthGate]/[BiometricLockPage] ao abrir `/painel`.
+  /// Reabertura nativa: biometria automática se activa (Controle Total).
   void _scheduleMaybeAutoBiometricLogin({Duration? delay}) {
-    return;
+    if (kIsWeb || !_nativeChurchLogin) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(delay ?? const Duration(milliseconds: 350), () async {
+        if (!mounted) return;
+        if (await LoginPreferences.isAccountSwitchPending()) return;
+        await _tryAutoBiometricLoginOnce();
+      });
+    });
   }
 
   /// Web painel: com «Lembrar» activo, entra directo (sem escolher conta Google).
@@ -773,7 +811,16 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       if (oauthOnly) {
-        // Só renovação silenciosa — nunca `GoogleSignIn.signIn()` após biometria.
+        final user = await SessionRestoreService.restoreAfterBiometricUnlock();
+        if (user != null && mounted) {
+          setState(() => _sessionFinalizing = true);
+          try {
+            await _afterGoogleSignInSuccess();
+          } finally {
+            if (mounted) setState(() => _sessionFinalizing = false);
+          }
+          return;
+        }
         final restored =
             await ChurchAutoSessionService.restoreOAuthSessionForQuickUnlock();
         if (restored && await AuthSessionService.hasSession() && mounted) {
@@ -785,26 +832,18 @@ class _LoginPageState extends State<LoginPage> {
           }
           return;
         }
-        final existing = FirebaseAuth.instance.currentUser;
-        if (existing != null && !existing.isAnonymous && mounted) {
-          try {
-            await existing.getIdToken(true);
-          } catch (_) {}
-          final ok =
-              await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
-          if (ok) return;
-        }
         if (!mounted) return;
         setState(() => _showManualCredentialFields = true);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Biometria confirmada, mas a sessão expirou. Toque em «Continuar com Google» '
-              'ou «Continuar com Apple» para entrar de novo (uma vez).',
+              'A restaurar sessão… Toque em «Continuar com Google» se não entrar '
+              'em alguns segundos (rede lenta).',
             ),
-            duration: Duration(seconds: 6),
+            duration: Duration(seconds: 5),
           ),
         );
+        unawaited(_tryExpressOAuthReconnect());
         return;
       }
 
@@ -900,7 +939,9 @@ class _LoginPageState extends State<LoginPage> {
     final target = widget.afterLoginRoute.split('?').first;
     if (target == '/painel') {
       await ChurchAutoSessionService.persistAfterSuccessfulPainelLogin();
-      unawaited(ChurchAutoSessionService.preheatPanelCaches());
+      await LoginPreferences.markSuccessfulLogin();
+      SessionRestoreService.resetAttemptFlag();
+      unawaited(ChurchAutoSessionService.preheatPanelCachesCoordinated());
     }
 
     // Antes de navegar: evita segunda leitura biométrica no painel (corrida com o navigate).

@@ -27,18 +27,13 @@ abstract final class UnifiedUploadService {
   }
 
   static Future<void> _ensureReady({String? module}) async {
-    await FirebaseBootstrap.ensureInitialized();
-    await ensureFirebaseReadyForMediaUpload();
-    logFirebaseAppsBeforeOperation('ensure_ready', module: module);
-    if (!isFirebaseReady) {
-      final err = StateError(
-        'Firebase não está pronto ($platformLabel). Reinicie o app ou use «Reconectar».',
-      );
-      unawaited(
-        CrashlyticsService.record(err, StackTrace.current, reason: 'firebase_not_ready'),
-      );
-      throw err;
+    final chatModule = module == YahwehUploadModule.chat.name;
+    if (chatModule) {
+      await ensureFirebaseReadyForChatSend();
+    } else {
+      await ensureFirebaseReadyForPublishUpload();
     }
+    logFirebaseAppsBeforeOperation('ensure_ready', module: module);
   }
 
   static Future<String> uploadImage({
@@ -150,10 +145,11 @@ abstract final class UnifiedUploadService {
     required String storagePath,
     required String localPath,
     required String contentType,
+    YahwehUploadModule module = YahwehUploadModule.generic,
     void Function(double progress)? onProgress,
     int maxAttempts = 4,
   }) async {
-    await _ensureReady(module: 'file');
+    await _ensureReady(module: module.name);
     logFirebasePublishPhase('UPLOAD_START', '$platformLabel|$storagePath|file');
     try {
       if (kIsWeb) {

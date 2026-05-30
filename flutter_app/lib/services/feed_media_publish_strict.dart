@@ -6,8 +6,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_retry.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
-import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
@@ -44,8 +42,7 @@ abstract final class FeedMediaPublishStrict {
     List<String>? newImagePaths,
     Future<void> Function()? onPublished,
   }) async {
-    return FirebaseBootstrapService.runGuarded(() async {
-    await FirebaseBootstrap.ensureInitialized();
+    await ensureFirebaseReadyForPublishUpload();
     logFirebasePublishPhase(
       'EVENT_START',
       '${postType == 'aviso' ? 'aviso' : 'evento'}|${docRef.path}',
@@ -210,7 +207,6 @@ abstract final class FeedMediaPublishStrict {
     } finally {
       GlobalUploadProgress.instance.end();
     }
-    }, debugLabel: 'feed_media_strict', requireAuth: true);
   }
 
   /// Sem fotos novas — publica directamente (texto / URLs já no Storage).

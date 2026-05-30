@@ -70,6 +70,7 @@ abstract final class ChurchChatMediaOutboxService {
       'kind': kind,
       'fileName': fileName,
       'mime': mime,
+      'attempts': 0,
       if (firestoreMessageId != null && firestoreMessageId.isNotEmpty)
         'firestoreMessageId': firestoreMessageId,
       if (storagePath != null && storagePath.isNotEmpty)
@@ -189,7 +190,10 @@ abstract final class ChurchChatMediaOutboxService {
   }
 
   static void resumePendingOnAppStart() {
-    unawaited(_resumeAll());
+    unawaited(() async {
+      await pruneUnrecoverableJobs();
+      await _resumeAll();
+    }());
     bindConnectivityResume();
   }
 
@@ -201,6 +205,32 @@ abstract final class ChurchChatMediaOutboxService {
     });
   }
 
+  static const int _maxJobsPerResumeWave = 6;
+  static const int _maxAttemptsPerJob = 4;
+
+  /// Remove fila local do chat (ex.: 25 envios presos após falha de bootstrap).
+  static Future<int> clearAllJobs({String? tenantId}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsKey);
+    if (raw == null || raw.isEmpty) return 0;
+    final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+    final tid = tenantId?.trim() ?? '';
+    if (tid.isEmpty) {
+      await prefs.remove(_prefsKey);
+      return list.length;
+    }
+    final kept = list
+        .where((e) => (e['tenantId'] ?? '').toString() != tid)
+        .toList();
+    final removed = list.length - kept.length;
+    if (kept.isEmpty) {
+      await prefs.remove(_prefsKey);
+    } else {
+      await prefs.setString(_prefsKey, jsonEncode(kept));
+    }
+    return removed;
+  }
+
   static Future<void> _resumeAll() async {
     await runFirebaseBackgroundTask<void>(
       () async {
@@ -208,12 +238,73 @@ abstract final class ChurchChatMediaOutboxService {
         final raw = prefs.getString(_prefsKey);
         if (raw == null || raw.isEmpty) return;
         final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
-        for (final m in list) {
+        final wave = list.take(_maxJobsPerResumeWave).toList();
+        for (final m in wave) {
           await _retryFromJson(m);
         }
       },
       debugLabel: 'chat_outbox_resume',
     ).catchError((_) {});
+  }
+
+  /// Limpa envios sem bytes/path (web) — evita fila infinita de «25 pendentes».
+  static Future<int> pruneUnrecoverableJobs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsKey);
+    if (raw == null || raw.isEmpty) return 0;
+    final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+    var removed = 0;
+    for (final m in List<Map<String, dynamic>>.from(list)) {
+      final tenantId = (m['tenantId'] ?? '').toString();
+      final threadId = (m['threadId'] ?? '').toString();
+      final localId = (m['localId'] ?? '').toString();
+      if (tenantId.isEmpty || threadId.isEmpty || localId.isEmpty) continue;
+      final hasBytes = m['hasBytes'] == true;
+      final localPath = (m['localPath'] ?? '').toString();
+      final pathOk =
+          !kIsWeb && localPath.isNotEmpty && File(localPath).existsSync();
+      if (pathOk) continue;
+      if (hasBytes) {
+        final bytes = await ChurchChatPendingMediaCache.get(
+          tenantId: tenantId,
+          threadId: threadId,
+          localId: localId,
+        );
+        if (bytes != null && bytes.isNotEmpty) continue;
+      }
+      removed++;
+      final uploadDocId = (m['uploadDocId'] ?? '').toString();
+      await clearJob(
+        tenantId: tenantId,
+        threadId: threadId,
+        localId: localId,
+        uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
+      );
+    }
+    return removed;
+  }
+
+  static Future<void> _bumpAttempt(
+    String tenantId,
+    String threadId,
+    String localId,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsKey);
+    if (raw == null || raw.isEmpty) return;
+    final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+    for (final e in list) {
+      if ((e['tenantId'] ?? '').toString() == tenantId &&
+          (e['threadId'] ?? '').toString() == threadId &&
+          (e['localId'] ?? '').toString() == localId) {
+        final n = e['attempts'] is num
+            ? (e['attempts'] as num).toInt()
+            : int.tryParse('${e['attempts']}') ?? 0;
+        e['attempts'] = n + 1;
+        break;
+      }
+    }
+    await prefs.setString(_prefsKey, jsonEncode(list));
   }
 
   static Future<void> _retryFromJson(Map<String, dynamic> json) async {
@@ -222,6 +313,20 @@ abstract final class ChurchChatMediaOutboxService {
     final localId = (json['localId'] ?? '').toString();
     if (tenantId.isEmpty || threadId.isEmpty || localId.isEmpty) return;
 
+    final attempts = json['attempts'] is num
+        ? (json['attempts'] as num).toInt()
+        : int.tryParse('${json['attempts']}') ?? 0;
+    if (attempts >= _maxAttemptsPerJob) {
+      await clearJob(
+        tenantId: tenantId,
+        threadId: threadId,
+        localId: localId,
+        uploadDocId: (json['uploadDocId'] ?? '').toString().isEmpty
+            ? null
+            : (json['uploadDocId'] ?? '').toString(),
+      );
+      return;
+    }
     final kind = (json['kind'] ?? 'image').toString();
     final fileName = (json['fileName'] ?? 'media').toString();
     final mime = (json['mime'] ?? 'application/octet-stream').toString();
@@ -274,6 +379,8 @@ abstract final class ChurchChatMediaOutboxService {
         ? null
         : (json['storagePath'] ?? '').toString();
 
+    await _bumpAttempt(tenantId, threadId, localId);
+
     await OptimisticChatMediaUpload.flush(
       pending: pending,
       tenantId: tenantId,
@@ -290,6 +397,14 @@ abstract final class ChurchChatMediaOutboxService {
         uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
       )),
       onFailed: (msg) {
+        unawaited(
+          clearJob(
+            tenantId: tenantId,
+            threadId: threadId,
+            localId: localId,
+            uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
+          ),
+        );
         final sp = pending.storagePath?.trim() ?? '';
         if (sp.isNotEmpty) {
           unawaited(

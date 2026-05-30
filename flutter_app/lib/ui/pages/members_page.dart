@@ -54,6 +54,7 @@ import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart'
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -806,13 +807,142 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   static const int _membersLoadLimit = 400;
+  static const Duration _membersCoreLoadTimeout = Duration(seconds: 28);
+  static const int _maxRelatedTenantMemberQueries = 3;
+
+  /// Lista a partir do cache `_panel_cache/members_directory` quando o Firestore falha.
+  List<QuerySnapshot<Map<String, dynamic>>> _snapshotsFromDirectoryCache(
+    MembersDirectorySnapshot cache, {
+    required bool selfOnlyMemberList,
+  }) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final cpfDigits =
+        (widget.linkedCpf ?? '').replaceAll(RegExp(r'\D'), '');
+    Iterable<MemberDirectoryEntry> entries = cache.entries;
+    if (selfOnlyMemberList && uid != null) {
+      entries = entries.where((e) {
+        if (e.memberDocId == uid) return true;
+        if (e.authUid != null && e.authUid == uid) return true;
+        if (cpfDigits.length == 11) {
+          final idDigits = e.memberDocId.replaceAll(RegExp(r'\D'), '');
+          if (idDigits == cpfDigits) return true;
+          if (e.cpfDigits != null && e.cpfDigits == cpfDigits) return true;
+        }
+        return false;
+      });
+    }
+    final allDocs = entries
+        .map(
+          (e) => _CachedMemberQueryDoc(
+            id: e.memberDocId,
+            data: e.toMemberDataMap(),
+          ),
+        )
+        .toList();
+    final pendDocs = allDocs
+        .where((d) =>
+            (d.data()['status'] ?? d.data()['STATUS'] ?? '')
+                .toString()
+                .toLowerCase() ==
+            'pendente')
+        .toList();
+    final merged = _MergedQuerySnapshot(allDocs);
+    return [
+      merged,
+      merged,
+      merged,
+      merged,
+      _EmptyQuerySnapshot(),
+      _EmptyQuerySnapshot(),
+      _MergedQuerySnapshot(pendDocs),
+    ];
+  }
+
+  Future<List<QuerySnapshot<Map<String, dynamic>>>> _loadMembersCoreSnapshots(
+    FirebaseFirestore db,
+    String effectiveId,
+    GetOptions getOpts,
+  ) async {
+    Future<QuerySnapshot<Map<String, dynamic>>> membrosOrdered() => db
+        .collection('igrejas')
+        .doc(effectiveId)
+        .collection('membros')
+        .orderBy('updatedAt', descending: true)
+        .limit(_membersLoadLimit)
+        .get(getOpts);
+    Future<QuerySnapshot<Map<String, dynamic>>> membrosPlain() => db
+        .collection('igrejas')
+        .doc(effectiveId)
+        .collection('membros')
+        .limit(_membersLoadLimit)
+        .get(getOpts);
+    Future<QuerySnapshot<Map<String, dynamic>>> membersLegacy() => db
+        .collection('igrejas')
+        .doc(effectiveId)
+        .collection('members')
+        .limit(_membersLoadLimit)
+        .get(getOpts);
+    Future<QuerySnapshot<Map<String, dynamic>>> pendente() => db
+        .collection('igrejas')
+        .doc(effectiveId)
+        .collection('membros')
+        .where('status', isEqualTo: 'pendente')
+        .limit(500)
+        .get(getOpts);
+
+    try {
+      return await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
+        membrosOrdered(),
+        membersLegacy(),
+        pendente(),
+      ]).timeout(_membersCoreLoadTimeout);
+    } catch (_) {
+      return Future.wait<QuerySnapshot<Map<String, dynamic>>>([
+        membrosPlain(),
+        membersLegacy(),
+        pendente(),
+      ]).timeout(_membersCoreLoadTimeout);
+    }
+  }
+
+  Widget _buildMembersOfflineBanner({VoidCallback? onRetry}) {
+    return Material(
+      color: Colors.amber.shade50,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            Icon(Icons.cloud_off_rounded, color: Colors.amber.shade900, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Lista do cache — a sincronizar com o servidor.',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade800,
+                  height: 1.3,
+                ),
+              ),
+            ),
+            if (onRetry != null)
+              TextButton(
+                onPressed: onRetry,
+                child: const Text('Atualizar'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   /// [forceServer] true ao recarregar após salvar/upload — evita cache e garante foto atualizada na lista.
   Future<List<QuerySnapshot<Map<String, dynamic>>>> _loadMembersData(
       {bool forceServer = false}) async {
-    // Evita idToken(true) em cada abertura: força rede e atrasa lista (várias queries já em paralelo).
     if (forceServer) {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    } else {
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
     }
     final resolved = await _resolveEffectiveTenantId();
     if (mounted) setState(() => _resolvedTenantId = resolved);
@@ -827,38 +957,35 @@ class _MembersPageState extends State<MembersPage> {
     final getOpts =
         GetOptions(source: forceServer ? Source.server : Source.serverAndCache);
 
-    // Documentos igrejas/* ligados (slug/alias/_sistema/_bpc) — uma resolução, sem varrer 2× a coleção.
-    final relatedIgrejaDocIds =
-        await TenantResolverService.getAllRelatedIgrejaDocIds(effectiveId);
+    final selfOnlyMemberList = AppPermissions.isRestrictedMember(widget.role) &&
+        !AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
+
+    List<String> relatedIgrejaDocIds = [effectiveId];
+    try {
+      relatedIgrejaDocIds =
+          await TenantResolverService.getAllRelatedIgrejaDocIds(effectiveId);
+    } catch (_) {}
+
     final db = FirebaseFirestore.instance;
 
-    // Padrão: igrejas/{id}/membros; também 'members' (legado). Leituras iniciais em paralelo (sem repetir a mesma query 4×).
-    final membrosFuture = db
-        .collection('igrejas')
-        .doc(effectiveId)
-        .collection('membros')
-        .orderBy('updatedAt', descending: true)
-        .limit(_membersLoadLimit)
-        .get(getOpts);
-    final membersLegacyFuture = db
-        .collection('igrejas')
-        .doc(effectiveId)
-        .collection('members')
-        .limit(_membersLoadLimit)
-        .get(getOpts);
-    final pendenteFuture = db
-        .collection('igrejas')
-        .doc(effectiveId)
-        .collection('membros')
-        .where('status', isEqualTo: 'pendente')
-        .limit(500)
-        .get(getOpts);
-
-    final initialCore = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-      membrosFuture,
-      membersLegacyFuture,
-      pendenteFuture,
-    ]);
+    late final List<QuerySnapshot<Map<String, dynamic>>> initialCore;
+    try {
+      initialCore = await _loadMembersCoreSnapshots(db, effectiveId, getOpts);
+    } catch (e) {
+      var cache = await MembersDirectorySnapshotService.readOnce(effectiveId);
+      if (!cache.hasEntries) {
+        cache = await MembersDirectorySnapshotService.warmFromCallableIfStale(
+          effectiveId,
+        );
+      }
+      if (cache.hasEntries) {
+        return _snapshotsFromDirectoryCache(
+          cache,
+          selfOnlyMemberList: selfOnlyMemberList,
+        );
+      }
+      rethrow;
+    }
 
     final membrosSnap = initialCore[0];
     final legacySnap = initialCore[1];
@@ -916,7 +1043,10 @@ class _MembersPageState extends State<MembersPage> {
     final allIdsToQuery = <String>{...relatedIgrejaDocIds};
     if (originalId.isNotEmpty) allIdsToQuery.add(originalId);
 
-    final otherIds = allIdsToQuery.where((id) => id != effectiveId).toList();
+    final otherIds = allIdsToQuery
+        .where((id) => id != effectiveId)
+        .take(_maxRelatedTenantMemberQueries)
+        .toList();
     if (otherIds.isNotEmpty) {
       final extraPairs = await Future.wait(otherIds.map((id) async {
         try {
@@ -1011,8 +1141,6 @@ class _MembersPageState extends State<MembersPage> {
       }
     }
 
-    final selfOnlyMemberList = AppPermissions.isRestrictedMember(widget.role) &&
-        !AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
     QuerySnapshot<Map<String, dynamic>> pendenteOut = pendenteSnap;
     if (selfOnlyMemberList) {
       bool keepSelf(QueryDocumentSnapshot<Map<String, dynamic>> d) {
@@ -6802,6 +6930,26 @@ class _MembersPageState extends State<MembersPage> {
           return const SkeletonLoader(itemCount: 8);
         }
         if (snap.hasError) {
+          if (_directoryCache.hasEntries) {
+            final cacheDocs = _aplicarFiltros(_memberDocsFromDirectoryCache());
+            if (cacheDocs.isNotEmpty) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildMembersOfflineBanner(onRetry: _refreshMembers),
+                  Expanded(
+                    child: _buildMembersDirectoryCacheList(
+                      padding,
+                      docs: cacheDocs,
+                      addBlocked: addBlocked,
+                      limitResult: limitResult,
+                      includeInlineFilters: includeInlineFilters,
+                    ),
+                  ),
+                ],
+              );
+            }
+          }
           return Padding(
             padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
             child: ChurchPanelErrorBody(
@@ -7262,6 +7410,40 @@ class _MembersPageState extends State<MembersPage> {
           );
         }
         if (snap.hasError) {
+          if (_directoryCache.hasEntries) {
+            final docsForStats = _aplicarFiltros(
+              _memberDocsFromDirectoryCache(),
+              applySearch: false,
+            );
+            if (docsForStats.isNotEmpty) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildMembersOfflineBanner(onRetry: _refreshMembers),
+                  _MembersPremiumStatsPanel(
+                    padding: padding,
+                    allDocs: docsForStats,
+                    searchQuery: _q,
+                    limitResult: limitResult,
+                    canManage: _canManage,
+                    canApprovePending: _canApprovePending,
+                    pendQueryCount: 0,
+                    buildMemberTile: (ctx, m) => _buildMemberDrillListTile(ctx, m),
+                    onExportPdf: () => _exportPdf(context),
+                    onExportCsv: () => _exportCsv(context),
+                    onRelatorioAvancado: _canManage
+                        ? () => openRelatorioMembrosAvancado(
+                              context,
+                              tenantId: _effectiveTenantId,
+                              role: widget.role,
+                            )
+                        : null,
+                    onOpenAprovar: null,
+                  ),
+                ],
+              );
+            }
+          }
           return Padding(
             padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
             child: ChurchPanelErrorBody(
@@ -9534,6 +9716,46 @@ class _MemberAvatar extends StatelessWidget {
       child: memberWidget,
     );
   }
+}
+
+// ignore: subtype_of_sealed_class
+class _CachedMemberQueryDoc
+    implements QueryDocumentSnapshot<Map<String, dynamic>> {
+  _CachedMemberQueryDoc({required this.id, required Map<String, dynamic> data})
+      : _data = data;
+
+  @override
+  final String id;
+  final Map<String, dynamic> _data;
+
+  @override
+  Map<String, dynamic> data() => Map<String, dynamic>.from(_data);
+
+  @override
+  dynamic get(Object field) => _data[field];
+
+  @override
+  dynamic operator [](Object field) => _data[field];
+
+  @override
+  bool get exists => true;
+
+  @override
+  SnapshotMetadata get metadata => const _CachedMemberSnapshotMetadata();
+
+  @override
+  DocumentReference<Map<String, dynamic>> get reference =>
+      throw UnsupportedError('cached member doc has no reference');
+}
+
+class _CachedMemberSnapshotMetadata implements SnapshotMetadata {
+  const _CachedMemberSnapshotMetadata();
+
+  @override
+  bool get hasPendingWrites => false;
+
+  @override
+  bool get isFromCache => true;
 }
 
 /// Snapshot vazio para quando não há tenant (evita queries com path inválido).

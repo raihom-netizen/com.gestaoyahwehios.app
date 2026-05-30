@@ -27,7 +27,6 @@ import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 
-import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
@@ -102,9 +101,6 @@ abstract final class OptimisticChatMediaUpload {
   }) async {
 
     try {
-      await AppFinalizeBootstrap.ensureSessionForPublish(
-        logLabel: 'chat_media_upload',
-      );
       logFirebaseAppsBeforeOperation('chat_media_flush', module: pending.kind);
       await runFirebaseBackgroundTask<void>(
 
@@ -169,6 +165,62 @@ abstract final class OptimisticChatMediaUpload {
         onFailed: onFailed,
 
       );
+
+    } catch (e) {
+
+      if (isRetryableUploadError(e)) {
+
+        await _deferForRetry(
+
+          pending: pending,
+
+          tenantId: tenantId,
+
+          threadId: threadId,
+
+          uploadDocId: uploadDocId,
+
+          error: e,
+
+          onWaitingForNetwork: onWaitingForNetwork,
+
+          onFailed: onFailed,
+
+        );
+
+      } else {
+
+        await _handleFailure(
+
+          error: e,
+
+          pending: pending,
+
+          tenantId: tenantId,
+
+          threadId: threadId,
+
+          uploadDocId: uploadDocId,
+
+          onWaitingForNetwork: onWaitingForNetwork,
+
+          onFailed: onFailed,
+
+        );
+
+        await ChurchChatMediaOutboxService.clearJob(
+
+          tenantId: tenantId,
+
+          threadId: threadId,
+
+          localId: pending.localId,
+
+          uploadDocId: uploadDocId,
+
+        );
+
+      }
 
     }
 
@@ -454,8 +506,6 @@ abstract final class OptimisticChatMediaUpload {
 
     try {
 
-      await ensureFirebaseReadyForMediaUpload();
-
       activeUploadId = await ChurchChatUploadsService.upsert(
 
         tenantId: tenantId,
@@ -569,9 +619,7 @@ abstract final class OptimisticChatMediaUpload {
 
       reportProgress(0.08);
 
-      await FeedPostMediaUpload.warmAuthToken()
-
-          .timeout(const Duration(seconds: 25));
+      unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
 
 
 
