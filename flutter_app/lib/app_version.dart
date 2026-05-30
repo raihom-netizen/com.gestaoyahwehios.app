@@ -1,4 +1,15 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1664: Fix build web (índices shell main + dashboard parallel).
+/// 11.2.295+1663: Configurações — links MP/InitPay; menu Config abaixo Cadastro; membro só notif/conta/bio.
+/// 11.2.295+1662: Chat Igreja — lista Conversas estável (cache disco + stream único, sem piscar).
+/// 11.2.295+1661: Site público — public_feed com URLs resolvidas + prefetch web/iOS/Android.
+/// 11.2.295+1660: Cache media_prefetch (logo + fotos painel) — Functions + RAM instantânea.
+/// 11.2.295+1659: Login persistente — splash sessão→painel; biometria só no AuthGate; preheat paralelo.
+/// 11.2.295+1658: Login — biometria sem seletor Google automático; trocar conta limpa sessão.
+/// 11.2.295+1657: FirebaseBootstrap + FirebaseService — paridade Chat/Avisos/Eventos nativo.
+/// 11.2.295+1656: Diagnóstico Chat vs Avisos/Eventos — remove Firebase.instance na UI eventos + log Firebase.apps.
+/// 11.2.295+1655: Paridade Web/Android/iOS — UnifiedUploadService (chat = feed).
+/// 11.2.295+1654: Fix core_no-app — bootstrap antes de publish/upload nativo (avisos/eventos).
 /// 11.2.295+1653: Deploy completo produção — web, AAB Play, ZIP iOS Codemagic (pilares finalização).
 /// 11.2.295+1652: Pilares finalização — AppFinalizeBootstrap, checklist, sessão+filas no resume.
 /// 11.2.295+1651: Saúde do Sistema (uploads global), feed strict + chat outbox → pending_uploads.
@@ -176,7 +187,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1653';
+const String appBuildNumber = '1664';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

@@ -11,6 +11,8 @@ import 'package:video_compress/video_compress.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
     show kMediaEventVideoMaxSeconds;
 
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase/firebase_service.dart';
 import 'media_upload_service.dart';
 import 'video_duration.dart';
 
@@ -21,7 +23,7 @@ class EventoGalleryService {
   EventoGalleryService._();
   static final EventoGalleryService instance = EventoGalleryService._();
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  Future<FirebaseFirestore> _firestore() => FirebaseService.firestore(requireAuth: true);
   static const int _maxVideosPerEvent = 2;
   static const int _maxVideoSeconds = kMediaEventVideoMaxSeconds;
   static const int _maxPhotosPerEvent = 20;
@@ -33,7 +35,8 @@ class EventoGalleryService {
   /// Vídeo: MP4/M4V ≤26 MB envia direto; senão comprime 720p HD, thumb, upload e salva URL + thumb.
   /// Foto: upload em alta resolução e salva URL (getDownloadURL).
   Future<void> adicionarMidiaAoEvento(String eventoId, File arquivo, bool isVideo) async {
-    final eventoRef = _firestore.collection('eventos').doc(eventoId);
+    final db = await _firestore();
+    final eventoRef = db.collection('eventos').doc(eventoId);
     final storagePrefix = 'eventos/$eventoId';
     await adicionarMidiaAoEventoRef(
       eventoRef,
@@ -53,6 +56,7 @@ class EventoGalleryService {
     bool isVideo, {
     String photoField = 'imageUrls',
   }) async {
+    await ensureFirebaseReadyForMediaUpload();
     if (isVideo) {
       final snap = await eventRef.get();
       final data = snap.data();
@@ -77,7 +81,8 @@ class EventoGalleryService {
       }
     }
 
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    final auth = await FirebaseService.auth();
+    await auth.currentUser?.getIdToken(true);
 
     final fileName = '${DateTime.now().millisecondsSinceEpoch}';
 

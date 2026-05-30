@@ -343,6 +343,8 @@ class ChurchRolePermissions {
       case 1:
         return s.editChurchProfile;
       case 2:
+        return true;
+      case 3:
         // Equipe: diretório completo. Perfil básico (membro/visitante): só o próprio cadastro na UI — [MembersPage] filtra.
         if (_hasGranularModule(permissions, 'membros_ver') ||
             _hasGranularModule(permissions, 'membros_edicao') ||
@@ -352,13 +354,13 @@ class ChurchRolePermissions {
         return (s.viewMemberDirectory && !s.restrictedNav) ||
             (s.restrictedNav &&
                 (r == ChurchRoleKeys.membro || r == ChurchRoleKeys.visitante));
-      case 3:
+      case 4:
         if (_hasGranularModule(permissions, 'departamentos')) return true;
         if (s.editDepartments && !s.restrictedNav) return true;
         // Diácono / músico / evangelista etc.: vê diretório mas não editava departamentos — o módulo sumia do menu.
         if (s.viewMemberDirectory && !s.restrictedNav) return true;
         return false;
-      case 4:
+      case 5:
         // Visitantes: equipe (manageVisitors) ou perfil básico (portaria / coleta de dados).
         if (_hasGranularModule(permissions, 'visitantes')) return true;
         if (s.restrictedNav &&
@@ -366,10 +368,8 @@ class ChurchRolePermissions {
           return true;
         }
         return s.manageVisitors && !s.restrictedNav;
-      case 5:
-        return s.manageCargosCatalog && !s.restrictedNav;
       case 6:
-        return true;
+        return s.manageCargosCatalog && !s.restrictedNav;
       case 7:
         return true;
       case 8:
@@ -379,15 +379,17 @@ class ChurchRolePermissions {
       case 10:
         return true;
       case 11:
+        return true;
+      case 12:
         // Escala geral (igreja inteira) ou módulo Escalas para líderes (só departamentos que lideram).
         if (s.editSchedulesAll) return true;
         if (r == ChurchRoleKeys.liderDepartamento || r == ChurchRoleKeys.lider) {
           return true;
         }
         return false;
-      case 12:
-        return true;
       case 13:
+        return true;
+      case 14:
         // Certificados: bloqueado para perfil básico (membro/visitante).
         // Liberado: ADM/gestor/pastoral (editAnyMember / aprovações), tesoureiro(a), ou permissão granular `certificados`.
         if (_hasGranularModule(permissions, 'certificados')) return true;
@@ -396,7 +398,7 @@ class ChurchRolePermissions {
           return true;
         }
         return s.editAnyMember || s.approvePendingMembers;
-      case 14:
+      case 15:
         // Cartas apresentação/transferência — alinhado a certificados + granular `cartas_transferencias`.
         if (_hasGranularModule(permissions, 'cartas_transferencias')) return true;
         if (_hasGranularModule(permissions, 'certificados')) return true;
@@ -405,10 +407,8 @@ class ChurchRolePermissions {
           return true;
         }
         return s.editAnyMember || s.approvePendingMembers;
-      case 15:
-        return isFinanceCoreTeam(role);
       case 16:
-        return true;
+        return isFinanceCoreTeam(role);
       case 17:
         return true;
       case 18:

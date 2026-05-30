@@ -66,6 +66,8 @@ class VideoHandlerService implements IVideoHandlerService {
     final path = localPath;
     if (path.isEmpty || !File(path).existsSync()) return null;
 
+    await ensureFirebaseReadyForMediaUpload();
+
     try {
       final lower = path.toLowerCase();
       final byteLen = await File(path).length();

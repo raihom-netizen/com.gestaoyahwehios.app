@@ -60,6 +60,8 @@ import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_site_shell.da
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_donation_sheet.dart';
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_proximo_culto.dart';
 import 'package:gestao_yahweh/services/public_site_analytics.dart';
+import 'package:gestao_yahweh/services/public_site_media_prefetch_service.dart';
+import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/ui/web/church_public_seo.dart';
 import 'package:gestao_yahweh/ui/web/open_external_url.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
@@ -282,12 +284,18 @@ class _ChurchPublicMuralStreamSliverState
       widget.igrejaId,
       refreshServerCacheInBackground: true,
     );
-    if (!mounted || cached.isEmpty || _items != null) return;
-    setState(() {
-      _skeletonPlaceholderCount = cached.length.clamp(
-        1,
-        YahwehPublicFeedRepository.pageSize,
-      );
+    if (!mounted || cached.isEmpty) return;
+    if (_items == null) {
+      setState(() {
+        _skeletonPlaceholderCount = cached.length.clamp(
+          1,
+          YahwehPublicFeedRepository.pageSize,
+        );
+      });
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(scheduleFeedMediaWarmup(context, cached, maxDocs: 8));
     });
   }
 
@@ -1587,14 +1595,27 @@ class _ChurchPublicLogoWarmupState extends State<_ChurchPublicLogoWarmup> {
   void _warm() {
     final pref = churchTenantLogoUrl(widget.churchData);
     final path = ChurchImageFields.logoStoragePath(widget.churchData);
-    unawaited(
-      AppStorageImageService.instance.resolveChurchTenantLogoUrl(
+    unawaited(() async {
+      final meta = await PublicSiteMediaPrefetchService.readPrefetchMeta(
+        widget.tenantId,
+      );
+      final cachedLogo = (meta?['churchLogoUrl'] ?? '').toString().trim();
+      if (cachedLogo.startsWith('http')) {
+        FirebaseStorageService.seedChurchLogoDownloadUrl(
+          widget.tenantId,
+          cachedLogo,
+          tenantData: widget.churchData,
+        );
+      }
+      await AppStorageImageService.instance.resolveChurchTenantLogoUrl(
         tenantId: widget.tenantId,
         tenantData: widget.churchData,
-        preferImageUrl: pref.isNotEmpty ? pref : null,
+        preferImageUrl: cachedLogo.isNotEmpty
+            ? cachedLogo
+            : (pref.isNotEmpty ? pref : null),
         preferStoragePath: path,
-      ),
-    );
+      );
+    }());
   }
 
   @override
@@ -1651,10 +1672,15 @@ class _ChurchPublicOpenAnalyticsBinderState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       unawaited(PublicSiteAnalytics.logChurchPublicOpen(
         slug: widget.slug,
         tenantId: widget.tenantId,
       ));
+      PublicSiteMediaPrefetchService.scheduleOnPublicSiteOpen(
+        context,
+        widget.tenantId,
+      );
     });
   }
 

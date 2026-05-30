@@ -11,9 +11,12 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/unified_upload_service.dart';
+import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'church_chat_attachment_utils.dart';
 import 'church_chat_local_conversations.dart';
 import 'church_chat_member_prefs.dart';
+import 'church_chat_threads_list_cache.dart';
 import 'firestore_stream_utils.dart';
 import 'analytics_service.dart';
 import 'media_upload_service.dart';
@@ -561,8 +564,36 @@ class ChurchChatService {
     return threadHasListableConversation(data, threadId: doc.id);
   }
 
-  /// Stream de conversas: queries indexada + participant (válidas nas regras) + fallback por id.
+  static final Map<String, Stream<QuerySnapshot<Map<String, dynamic>>>>
+      _chatThreadsStreamByKey = {};
+
+  /// Invalida stream em cache (troca de igreja / logout).
+  static void invalidateChatThreadsStreamCache({
+    String? tenantId,
+    String? uid,
+  }) {
+    if (tenantId != null && uid != null) {
+      _chatThreadsStreamByKey.remove('${tenantId.trim()}|${uid.trim()}');
+      return;
+    }
+    _chatThreadsStreamByKey.clear();
+  }
+
+  /// Stream de conversas: uma instância por igreja+utilizador (estável como WhatsApp).
   static Stream<QuerySnapshot<Map<String, dynamic>>> chatThreadsSnapshotsForUser(
+    String tenantId,
+    String uid,
+  ) {
+    final key = '${tenantId.trim()}|${uid.trim()}';
+    final cached = _chatThreadsStreamByKey[key];
+    if (cached != null) return cached;
+    final stream = _chatThreadsSnapshotsStreamImpl(tenantId, uid);
+    _chatThreadsStreamByKey[key] = stream;
+    return stream;
+  }
+
+  static Stream<QuerySnapshot<Map<String, dynamic>>>
+      _chatThreadsSnapshotsStreamImpl(
     String tenantId,
     String uid,
   ) {
@@ -576,6 +607,8 @@ class ChurchChatService {
     var wiring = false;
     var fallbackInFlight = false;
     var fallbackAttempts = 0;
+    QuerySnapshot<Map<String, dynamic>>? lastNonEmptyEmitted;
+    Timer? suppressEmptyTimer;
 
     Future<void> runFallbackMerge(
       QuerySnapshot<Map<String, dynamic>> current,
@@ -616,7 +649,34 @@ class ChurchChatService {
         lastFallbackSnap,
         lastParticipant,
       );
-      controller.add(merged);
+      if (merged.docs.isNotEmpty) {
+        suppressEmptyTimer?.cancel();
+        suppressEmptyTimer = null;
+        lastNonEmptyEmitted = merged;
+        controller.add(merged);
+        unawaited(
+          ChurchChatThreadsListCache.saveFromSnapshot(tenantId, merged),
+        );
+      } else if (lastNonEmptyEmitted != null &&
+          lastNonEmptyEmitted!.docs.isNotEmpty) {
+        controller.add(lastNonEmptyEmitted!);
+        suppressEmptyTimer ??= Timer(const Duration(seconds: 3), () {
+          suppressEmptyTimer = null;
+          if (controller.isClosed) return;
+          final again = _mergeThreadSnapshots(
+            uid,
+            lastIndexed,
+            lastFallbackSnap,
+            lastParticipant,
+          );
+          if (again.docs.isEmpty) {
+            lastNonEmptyEmitted = null;
+            controller.add(again);
+          }
+        });
+      } else {
+        controller.add(merged);
+      }
       final hasListableDm =
           merged.docs.any((d) => _docIsDmForUserList(d, uid));
       if (!hasListableDm) {
@@ -701,6 +761,7 @@ class ChurchChatService {
       },
       onCancel: () {
         if (!controller.hasListener) {
+          suppressEmptyTimer?.cancel();
           subIndexed?.cancel();
           subParticipant?.cancel();
           subIndexed = null;
@@ -1336,7 +1397,7 @@ class ChurchChatService {
     String? senderDisplayName,
     List<String>? mentionedUids,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
       threadId: threadId,
@@ -1396,7 +1457,7 @@ class ChurchChatService {
     Map<String, dynamic>? replyTo,
     Map<String, dynamic>? forwardedFrom,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final nf = normalizeForwardedFrom(forwardedFrom);
     final preview = nf != null
@@ -1699,7 +1760,7 @@ class ChurchChatService {
     required String kind,
     required String fileName,
   }) {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final ts = DateTime.now().millisecondsSinceEpoch;
     return ChurchStorageLayout.buildChatMediaObjectPath(
       tenantId: tenantId,
@@ -1716,7 +1777,7 @@ class ChurchChatService {
     required String threadId,
     int? timestampMs,
   }) {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final ts = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
     return ChurchStorageLayout.buildChatVideoThumbPath(
       tenantId: tenantId,
@@ -1758,7 +1819,7 @@ class ChurchChatService {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
       threadId: threadId,
@@ -1891,14 +1952,14 @@ class ChurchChatService {
     String? thumbUrl,
     int maxAttempts = 5,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     Object? last;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         if (attempt > 1) {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-          await ensureFirebaseInitialized();
+          await ensureFirebaseReadyForMediaUpload();
         }
         return await completeMediaUploadMessage(
           tenantId: tenantId,
@@ -2009,7 +2070,7 @@ class ChurchChatService {
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     final path = storagePathOverride ??
         buildChatMediaStoragePath(
           tenantId: tenantId,
@@ -2022,14 +2083,13 @@ class ChurchChatService {
     final ct = contentType.toLowerCase();
     final chatJpegFast =
         ct.contains('jpeg') || ct == 'image/jpg' || ct == 'image/pjpeg';
-    final url = await MediaUploadService.uploadBytesWithRetry(
+    final url = await UnifiedUploadService.uploadImage(
       storagePath: path,
       bytes: ubytes,
       contentType: contentType,
-      useOfflineQueue: false,
-      maxAttempts: 4,
-      skipClientPrepare: skipClientPrepare,
+      module: YahwehUploadModule.chat,
       chatJpegFast: chatJpegFast,
+      skipClientPrepare: skipClientPrepare,
       onProgress: onProgress,
       onUploadTaskCreated: onUploadTaskCreated,
     );
@@ -2051,7 +2111,7 @@ class ChurchChatService {
     if (kIsWeb) {
       throw UnsupportedError('uploadChatFile não suportado na web.');
     }
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     final path = storagePathOverride ??
         buildChatMediaStoragePath(
           tenantId: tenantId,
@@ -2059,21 +2119,11 @@ class ChurchChatService {
           kind: _kindFromContentType(contentType),
           fileName: fileName,
         );
-    final ct = contentType.toLowerCase();
-    final chatJpegFast = skipRecompress ||
-        ct.contains('jpeg') ||
-        ct == 'image/jpg' ||
-        ct == 'image/pjpeg';
-    final url = await MediaUploadService.uploadFileWithRetry(
+    final url = await UnifiedUploadService.uploadFile(
       storagePath: path,
-      file: File(localPath),
+      localPath: localPath,
       contentType: contentType,
-      useOfflineQueue: false,
-      maxAttempts: 4,
-      skipRecompress: skipRecompress,
-      chatJpegFast: chatJpegFast,
       onProgress: onProgress,
-      onUploadTaskCreated: onUploadTaskCreated,
     );
     return (url: url, path: path);
   }

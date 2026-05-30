@@ -6,6 +6,8 @@ import 'package:gestao_yahweh/core/firestore_cursor_pagination.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
 import 'package:gestao_yahweh/services/church_public_feed_service.dart';
+import 'package:gestao_yahweh/services/firebase_storage_service.dart';
+import 'package:gestao_yahweh/services/public_site_media_prefetch_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_warmup_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
@@ -47,12 +49,27 @@ abstract final class YahwehPublicFeedRepository {
           server,
         ),
       );
+      unawaited(_seedPublicFeedMediaCaches(tenantId, server));
       return server;
     }
     if (refreshServerCacheInBackground) {
       unawaited(_refreshServerFeed(tenantId));
+      unawaited(PublicSiteMediaPrefetchService.warmFromCallableIfStale(tenantId));
     }
     return const [];
+  }
+
+  static Future<void> _seedPublicFeedMediaCaches(
+    String tenantId,
+    List<Map<String, dynamic>> rows,
+  ) async {
+    final meta = await ChurchPerformanceCacheService.readPublicFeedMediaMeta(
+      tenantId,
+    );
+    final logo = meta.churchLogoUrl;
+    if (logo != null && logo.isNotEmpty) {
+      FirebaseStorageService.seedChurchLogoDownloadUrl(tenantId, logo);
+    }
   }
 
   static Future<void> _refreshServerFeed(String tenantId) async {

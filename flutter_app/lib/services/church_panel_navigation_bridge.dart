@@ -1,20 +1,4 @@
-import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart'
-    show
-        kChurchShellIndexMySchedules,
-        kChurchShellIndexMural,
-        kChurchShellIndexEvents;
-
-/// Índice do item "Escala Geral" em [IgrejaCleanShell] (`_items`).
-const int kChurchShellIndexEscalaGeral = 11;
-
-/// Índice do item "Fornecedores" em [IgrejaCleanShell] (`_items`).
-const int kChurchShellIndexFornecedores = 22;
-
-/// Índice do item "Cartas e transferências" em [IgrejaCleanShell] (`_items`).
-const int kChurchShellIndexChurchLetters = 14;
-
-/// Índice do item "Chat - Igreja" em [IgrejaCleanShell].
-const int kChurchShellIndexChat = 24;
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
 
 /// Pedido de abrir uma conversa concreta (ex.: toque num push de chat com [threadId]).
 class PendingChatThreadOpen {

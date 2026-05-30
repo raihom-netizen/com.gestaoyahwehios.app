@@ -6,11 +6,7 @@ import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Índices do menu em [IgrejaCleanShell] para navegação a partir da busca.
-const int kChurchShellIndexMembers = 2;
-const int kChurchShellIndexMural = 6;
-const int kChurchShellIndexEvents = 7;
-const int kChurchShellIndexMySchedules = 10;
-const int kChurchShellIndexPatrimonio = 21;
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
 
 /// Resultado da busca global — [avisoDocForDirectEdit] abre o formulário sem passar pelo menu.
 class ChurchGlobalSearchSelection {

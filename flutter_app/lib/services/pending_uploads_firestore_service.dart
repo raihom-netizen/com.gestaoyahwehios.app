@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
@@ -18,14 +17,18 @@ abstract final class PendingUploadsFirestoreService {
 
   static const String globalCollectionId = 'pendingUploads';
 
+  static Future<void> _ensureReady() async {
+    await ensureFirebaseReadyForMediaUpload();
+  }
+
   static CollectionReference<Map<String, dynamic>> _col(String tenantId) =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(tenantId)
           .collection('pending_uploads');
 
   static CollectionReference<Map<String, dynamic>> get _globalCol =>
-      FirebaseFirestore.instance.collection(globalCollectionId);
+      firebaseDefaultFirestore.collection(globalCollectionId);
 
   static String _globalDocId(String tenantId, String uploadId) =>
       '${tenantId.trim()}__$uploadId';
@@ -70,7 +73,8 @@ abstract final class PendingUploadsFirestoreService {
     String status = 'pending',
     Map<String, dynamic>? meta,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    await _ensureReady();
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
       throw StateError('Sessão expirada. Entre de novo no painel.');
     }
@@ -112,7 +116,8 @@ abstract final class PendingUploadsFirestoreService {
     String storagePath,
   ) async {
     if (tenantId.isEmpty || storagePath.isEmpty) return null;
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    await _ensureReady();
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return null;
     try {
       final snap = await _col(tenantId)
@@ -211,7 +216,7 @@ abstract final class PendingUploadsFirestoreService {
   /// Contagem de jobs abertos do utilizador actual (tenant).
   static Future<int> countOpenForTenant(String tenantId) async {
     if (tenantId.isEmpty) return 0;
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return 0;
     try {
       final snap = await _col(tenantId)
@@ -229,7 +234,7 @@ abstract final class PendingUploadsFirestoreService {
   static Stream<QuerySnapshot<Map<String, dynamic>>> watchOpenForTenant(
     String tenantId,
   ) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (tenantId.isEmpty || uid.isEmpty) {
       return const Stream.empty();
     }
@@ -245,7 +250,7 @@ abstract final class PendingUploadsFirestoreService {
     bool masterSeeAll = false,
     int limit = 40,
   }) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return const Stream.empty();
     if (masterSeeAll) {
       return _globalCol.limit(limit).snapshots();
@@ -306,14 +311,16 @@ abstract final class PendingUploadsFirestoreService {
   }
 
   static Future<String?> resolveTenantForCurrentUser() async {
-    final user = FirebaseAuth.instance.currentUser;
+    await _ensureReady();
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null || user.isAnonymous) return null;
     return _resolveTenantId(user.uid);
   }
 
   static Future<void> resumeForCurrentUserTenant() async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
+      await _ensureReady();
+      final user = firebaseDefaultAuth.currentUser;
       if (user == null || user.isAnonymous) return;
       final tenant = await _resolveTenantId(user.uid);
       if (tenant == null || tenant.isEmpty) return;
@@ -327,7 +334,7 @@ abstract final class PendingUploadsFirestoreService {
   }
 
   static Future<String?> _resolveTenantId(String uid) async {
-    final u = await FirebaseFirestore.instance.doc('users/$uid').get();
+    final u = await firebaseDefaultFirestore.doc('users/$uid').get();
     final data = u.data();
     if (data == null) return null;
     final t = data['tenantId'] ?? data['igrejaId'];

@@ -363,6 +363,16 @@ async function refreshPublicFeedCacheForTenant(tenantId) {
         data: feed.slice(0, 50),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+    try {
+        const { recomputePublicSiteMediaPrefetch } = await Promise.resolve().then(() => __importStar(require("./publicSiteMediaPrefetch")));
+        await recomputePublicSiteMediaPrefetch(tenantId);
+    }
+    catch (e) {
+        functions.logger.warn("refreshPublicFeedCache: media prefetch", {
+            tenantId,
+            e,
+        });
+    }
 }
 /**
  * Cache do feed público por igreja (avisos + eventos publicSite) — leitura instantânea no site.

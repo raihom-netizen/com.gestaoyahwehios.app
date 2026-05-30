@@ -20,6 +20,8 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
       Icons.dashboard_rounded, 'Painel', Color(0xFF3B82F6)),
   ChurchShellNavEntry(
       Icons.business_rounded, 'Cadastro da Igreja', Color(0xFF6366F1)),
+  ChurchShellNavEntry(
+      Icons.tune_rounded, 'Configurações', Color(0xFF64748B)),
   ChurchShellNavEntry(Icons.people_rounded, 'Membros', Color(0xFF0D9488)),
   ChurchShellNavEntry(
       Icons.groups_rounded, 'Departamentos', Color(0xFF8B5CF6)),
@@ -46,8 +48,6 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
       Color(0xFFA78BFA)),
   ChurchShellNavEntry(
       Icons.bar_chart_rounded, 'Relatórios', Color(0xFFCA8A04)),
-  ChurchShellNavEntry(
-      Icons.tune_rounded, 'Configurações', Color(0xFF64748B)),
   /// `info_rounded` pode sair vazio na web (subset Material tree-shake); `feedback_rounded` cobre bem “informações / sugestões”.
   ChurchShellNavEntry(
       Icons.feedback_rounded, 'Informações', Color(0xFF38BDF8)),
@@ -75,7 +75,7 @@ abstract final class ChurchShellAccentTokens {
   ChurchShellAccentTokens._();
 
   /// **Membros** — fluxo “Sou membro”.
-  static Color get loginMembro => kChurchShellNavEntries[2].accent;
+  static Color get loginMembro => kChurchShellNavEntries[3].accent;
 
   /// **Cadastro da Igreja** — gestor, nova igreja, callouts de cadastro.
   static Color get loginGestor => kChurchShellNavEntries[1].accent;
@@ -87,7 +87,7 @@ abstract final class ChurchShellAccentTokens {
   static Color get masterSaasClientes => kChurchShellNavEntries[0].accent;
 
   /// **Relatórios** — tab Negócio (métricas e visão executiva).
-  static Color get masterSaasNegocio => kChurchShellNavEntries[15].accent;
+  static Color get masterSaasNegocio => kChurchShellNavEntries[16].accent;
 }
 
 /// Glifos extras usados em módulos (toolbar/banners) além do menu — manter na web.

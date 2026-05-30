@@ -12,7 +12,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:gestao_yahweh/core/app_startup_preheat.dart';
+import 'package:gestao_yahweh/core/app_startup_route.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/auth_session_service.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/ui/pages/firebase_bootstrap_recovery_page.dart';
 import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
@@ -28,8 +31,7 @@ import 'ui/pages/usuarios_permissoes_page.dart';
 import 'ui/pages/aprovar_membros_pendentes_page.dart';
 import 'ui/auth_gate.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
-import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart'
-    show kChurchShellIndexMySchedules;
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'ui/church_public_page.dart';
 import 'ui/pages/public_member_signup_page.dart';
 import 'ui/pages/public_carteirinha_consulta_page.dart';
@@ -420,6 +422,7 @@ String? _extractChurchSlugFromHost(String host) {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await FirebaseBootstrap.ensureInitialized();
   // Cache de imagem: um pouco acima do padrão — listas com fotos (membros, mural).
   // Mais fotos em RAM (logos, mural, membros) = menos decode repetido ao navegar.
   PaintingBinding.instance.imageCache.maximumSizeBytes = 140 << 20;
@@ -558,7 +561,7 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
   // Garante que a sessão não “some” quando o usuário fechar/renovar a aba no web
   // ou ao reabrir pelo ícone (fica até o usuário clicar em Sair).
   try {
-    await FirebaseAuth.instance.setPersistence(Persistence.LOCAL);
+    await firebaseDefaultAuth.setPersistence(Persistence.LOCAL);
   } catch (_) {}
   if (kIsWeb) {
     try {
@@ -683,11 +686,12 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
     if (autoPainelFallback != null) {
       initialRoute = autoPainelFallback;
     }
-    if (!kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.android &&
-        initialRoute == '/painel' &&
-        FirebaseAuth.instance.currentUser != null) {
-      unawaited(ChurchAutoSessionService.preheatPanelCaches());
+    if (AppStartupRoute.isNativeMobile) {
+      initialRoute = await AppStartupRoute.finalizeNativeRoute(initialRoute);
+      if (await AuthSessionService.hasSession() &&
+          (initialRoute == '/painel' || initialRoute.startsWith('/painel/'))) {
+        unawaited(AppStartupPreheat.preheatForDashboard());
+      }
     }
   }
   await initializeDateFormatting('pt_BR', null);
@@ -1198,14 +1202,24 @@ class _StartupSplashGateState extends State<_StartupSplashGate> {
     super.initState();
     final route = widget.targetRoute.trim().isEmpty ? '/' : widget.targetRoute;
     if (route != '/') {
-      _goNext();
+      unawaited(_goNext());
     }
   }
 
   Future<void> _goNext() async {
-    await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
-    final route = widget.targetRoute.trim().isEmpty ? '/' : widget.targetRoute;
+    var route = widget.targetRoute.trim().isEmpty ? '/' : widget.targetRoute;
+
+    if (AppStartupRoute.isNativeMobile) {
+      route = await AppStartupRoute.finalizeNativeRoute(route);
+      if (route == '/painel' || route.startsWith('/painel/')) {
+        if (!await AuthSessionService.hasSession()) {
+          route = AppStartupRoute.nativeLoginRoute;
+        } else {
+          await AppStartupPreheat.preheatForDashboard();
+        }
+      }
+    }
 
     void navigateOffSplash() {
       if (!mounted) return;

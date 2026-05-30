@@ -7036,6 +7036,11 @@ export {
 } from "./churchPerformancePack";
 
 export {
+  warmPublicSiteFeedCache,
+  recomputePublicSiteMediaPrefetch,
+} from "./publicSiteMediaPrefetch";
+
+export {
   onChurchMembroWriteSyncBirthIndex,
   onChurchMembroWritePanelDashboard,
   onChurchAvisoWritePanelDashboard,

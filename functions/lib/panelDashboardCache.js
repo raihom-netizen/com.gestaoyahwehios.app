@@ -38,6 +38,7 @@ exports.recomputePanelDashboardSummary = recomputePanelDashboardSummary;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const membersDirectoryCache_1 = require("./membersDirectoryCache");
+const panelMediaPrefetch_1 = require("./panelMediaPrefetch");
 const tenantCallableResolve_1 = require("./tenantCallableResolve");
 const RECOMPUTE_MIN_INTERVAL_MS = 45000;
 const RECENT_AVISOS = 8;
@@ -558,6 +559,12 @@ async function recomputePanelDashboardSummary(tenantId) {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     await (0, membersDirectoryCache_1.recomputeMembersDirectoryFromDocs)(tid, membrosSnap.docs, membersTotal);
+    try {
+        await (0, panelMediaPrefetch_1.recomputePanelMediaPrefetch)(tid);
+    }
+    catch (e) {
+        functions.logger.warn("panelDashboardCache: media_prefetch", { tenantId: tid, e });
+    }
     functions.logger.info("panelDashboardCache: atualizado", {
         tenantId: tid,
         pendingMembers,
@@ -714,11 +721,35 @@ exports.getChurchPanelSnapshot = functions
     const isStale = !snap.exists ||
         !updated ||
         Date.now() - updated.toMillis() > staleMs;
+    const mediaRef = db
+        .collection("igrejas")
+        .doc(tenantId)
+        .collection("_panel_cache")
+        .doc("media_prefetch");
     if (isStale) {
         await recomputePanelDashboardSummary(tenantId);
         summary = (await summaryRef.get()).data();
     }
-    return { ok: true, tenantId, summary: summary ?? {} };
+    let mediaPrefetch = (await mediaRef.get()).data();
+    const mpUpdated = mediaPrefetch?.updatedAt;
+    const mpStale = !mediaPrefetch ||
+        !mpUpdated ||
+        Date.now() - mpUpdated.toMillis() > staleMs;
+    if (mpStale) {
+        try {
+            await (0, panelMediaPrefetch_1.recomputePanelMediaPrefetch)(tenantId);
+            mediaPrefetch = (await mediaRef.get()).data();
+        }
+        catch (e) {
+            functions.logger.warn("getChurchPanelSnapshot: media_prefetch", { tenantId, e });
+        }
+    }
+    return {
+        ok: true,
+        tenantId,
+        summary: summary ?? {},
+        mediaPrefetch: mediaPrefetch ?? {},
+    };
 });
 /** Pré-aquece caches do painel (mobile: 1 chamada em vez de dezenas de queries). */
 exports.warmChurchTenantCaches = functions

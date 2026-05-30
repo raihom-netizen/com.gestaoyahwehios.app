@@ -171,6 +171,20 @@ abstract final class FirebaseBootstrapService {
   static const _reconnectDelaysSec = [1, 2, 5, 10, 30, 60];
 
   static Completer<void>? _initCompleter;
+  static Future<void>? _ensureOnceFuture;
+
+  /// Inicialização única partilhada (padrão pedido para paridade nativa).
+  static Future<void> ensureInitializedOnce() {
+    _ensureOnceFuture ??= _runEnsureInitializedOnce();
+    return _ensureOnceFuture!;
+  }
+
+  static Future<void> _runEnsureInitializedOnce() async {
+    final r = await initialize();
+    if (!r.isReady && r.failure != null) {
+      throw r.failure!;
+    }
+  }
   static FirebaseApp? _cachedApp;
   static DateTime? _healthOkAt;
   static FirebaseHealthReport? _lastHealth;
@@ -437,6 +451,10 @@ abstract final class FirebaseBootstrapService {
     bool requireAuthSession = false,
     bool forceHealthCheck = false,
   }) async {
+    if (!_hasApp()) {
+      final r = await initialize();
+      if (!r.isReady) throw r.failure!;
+    }
     if (_initCompleter == null || (_initCompleter!.isCompleted == false)) {
       final r = await initialize();
       if (!r.isReady) throw r.failure!;

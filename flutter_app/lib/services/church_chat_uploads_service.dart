@@ -40,7 +40,7 @@ abstract final class ChurchChatUploadsService {
     double progress = 0,
     String status = statusQueued,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     final uid = _uid;
     if (uid == null) return '';
     final ref = uploadId != null && uploadId.isNotEmpty
@@ -149,7 +149,7 @@ abstract final class ChurchChatUploadsService {
   static Future<List<Map<String, dynamic>>> listPendingForCurrentUser({
     int limit = 32,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     final uid = _uid;
     if (uid == null) return [];
     final statuses = [
@@ -180,7 +180,7 @@ abstract final class ChurchChatUploadsService {
 
   static void resumeWhenOnline() {
     unawaited(
-      ensureFirebaseInitialized().then((_) async {
+      ensureFirebaseReadyForMediaUpload().then((_) async {
         final pending = await listPendingForCurrentUser();
         if (pending.isEmpty) return;
         // Retoma via outbox local (ficheiros); Firestore só marca estado.

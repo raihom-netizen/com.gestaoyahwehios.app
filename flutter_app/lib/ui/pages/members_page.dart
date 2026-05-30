@@ -54,6 +54,7 @@ import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart'
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
@@ -786,6 +787,7 @@ class _MembersPageState extends State<MembersPage> {
           ? _effectiveTenantId.trim()
           : widget.tenantId.trim();
       if (tid.isEmpty) return;
+      unawaited(PanelMediaPrefetchService.applyToUrlCaches(tid));
       ChurchGalleryPhotoWarmup.scheduleMembersDirectory(
         context: context,
         tenantId: tid,

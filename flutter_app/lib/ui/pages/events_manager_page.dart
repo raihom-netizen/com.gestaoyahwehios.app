@@ -29,6 +29,7 @@ import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
@@ -151,12 +152,12 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       );
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(_tid)
           .collection('noticias');
   CollectionReference<Map<String, dynamic>> get _templates =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(_tid)
           .collection('event_templates');
@@ -564,9 +565,6 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                       !ctx.mounted) return;
                                                   setSheetState(() {});
                                                   try {
-                                                    await FirebaseAuth
-                                                        .instance.currentUser
-                                                        ?.getIdToken(true);
                                                     final bytes = await file
                                                         .readAsBytes();
                                                     final compressed =
@@ -582,22 +580,18 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                             DateTime.now()
                                                                 .millisecondsSinceEpoch
                                                                 .toString();
-                                                    final ref = FirebaseStorage
-                                                        .instance
-                                                        .ref(
-                                                            ChurchStorageLayout.eventTemplateCoverPath(
-                                                                tenantId,
-                                                                templateStorageId));
-                                                    await ref.putData(
-                                                        compressed,
-                                                        SettableMetadata(
-                                                            contentType:
-                                                                'image/jpeg',
-                                                            cacheControl:
-                                                                'public, max-age=31536000'));
+                                                    final storagePath =
+                                                        ChurchStorageLayout
+                                                            .eventTemplateCoverPath(
+                                                          tenantId,
+                                                          templateStorageId,
+                                                        );
                                                     final downloadUrl =
-                                                        await ref
-                                                            .getDownloadURL();
+                                                        await UnifiedUploadService
+                                                            .uploadJpegBytes(
+                                                      storagePath: storagePath,
+                                                      bytes: compressed,
+                                                    );
                                                     FirebaseStorageCleanupService
                                                         .scheduleCleanupAfterEventTemplateCoverUpload(
                                                       tenantId: tenantId,
@@ -653,8 +647,6 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                             if (file == null || !ctx.mounted) return;
                             setSheetState(() {});
                             try {
-                              await FirebaseAuth.instance.currentUser
-                                  ?.getIdToken(true);
                               final bytes = await file.readAsBytes();
                               final compressed =
                                   await ImageHelper.compressImage(
@@ -667,16 +659,16 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                   DateTime.now()
                                       .millisecondsSinceEpoch
                                       .toString();
-                              final ref = FirebaseStorage.instance.ref(
+                              final storagePath =
                                   ChurchStorageLayout.eventTemplateCoverPath(
-                                      tenantId, templateStorageId));
-                              await ref.putData(
-                                  compressed,
-                                  SettableMetadata(
-                                      contentType: 'image/jpeg',
-                                      cacheControl:
-                                          'public, max-age=31536000'));
-                              final downloadUrl = await ref.getDownloadURL();
+                                tenantId,
+                                templateStorageId,
+                              );
+                              final downloadUrl =
+                                  await UnifiedUploadService.uploadJpegBytes(
+                                storagePath: storagePath,
+                                bytes: compressed,
+                              );
                               FirebaseStorageCleanupService
                                   .scheduleCleanupAfterEventTemplateCoverUpload(
                                 tenantId: tenantId,

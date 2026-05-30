@@ -366,6 +366,26 @@ class AppPermissions {
     return adminLike || gestorLike;
   }
 
+  /// Links de recebimento (Mercado Pago + InitPay/outros) — gestor, pastor, tesoureiro.
+  static bool canManageChurchPaymentReceiving(
+    String role, {
+    List<String>? permissions,
+  }) {
+    if (canViewChurchMercadoPagoSettings(role, permissions: permissions)) {
+      return true;
+    }
+    if (isRestrictedMember(role)) return false;
+    final r = role.toLowerCase().trim();
+    if (r == AppRoles.tesoureiro ||
+        r == AppRoles.tesouraria ||
+        r == ChurchRoleKeys.pastor ||
+        r == ChurchRoleKeys.pastorPresidente ||
+        r == ChurchRoleKeys.pastorAuxiliar) {
+      return true;
+    }
+    return false;
+  }
+
   /// Relatórios PDF completos (membros, aniversariantes, etc.). Perfil restrito: só [Relatório de Eventos], salvo
   /// permissão granular `relatorios` ou `podeEmitirRelatoriosCompletos` no cadastro do membro (gestor).
   static bool canEmitFullChurchReports(

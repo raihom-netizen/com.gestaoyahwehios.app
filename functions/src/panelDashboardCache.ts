@@ -1,6 +1,7 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { recomputeMembersDirectoryFromDocs } from "./membersDirectoryCache";
+import { recomputePanelMediaPrefetch } from "./panelMediaPrefetch";
 import { resolveTenantIdForCallable } from "./tenantCallableResolve";
 
 const RECOMPUTE_MIN_INTERVAL_MS = 45_000;
@@ -575,6 +576,12 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
 
   await recomputeMembersDirectoryFromDocs(tid, membrosSnap.docs, membersTotal);
 
+  try {
+    await recomputePanelMediaPrefetch(tid);
+  } catch (e) {
+    functions.logger.warn("panelDashboardCache: media_prefetch", { tenantId: tid, e });
+  }
+
   functions.logger.info("panelDashboardCache: atualizado", {
     tenantId: tid,
     pendingMembers,
@@ -756,12 +763,38 @@ export const getChurchPanelSnapshot = functions
       !updated ||
       Date.now() - updated.toMillis() > staleMs;
 
+    const mediaRef = db
+      .collection("igrejas")
+      .doc(tenantId)
+      .collection("_panel_cache")
+      .doc("media_prefetch");
+
     if (isStale) {
       await recomputePanelDashboardSummary(tenantId);
       summary = (await summaryRef.get()).data();
     }
 
-    return { ok: true, tenantId, summary: summary ?? {} };
+    let mediaPrefetch = (await mediaRef.get()).data();
+    const mpUpdated = mediaPrefetch?.updatedAt as admin.firestore.Timestamp | undefined;
+    const mpStale =
+      !mediaPrefetch ||
+      !mpUpdated ||
+      Date.now() - mpUpdated.toMillis() > staleMs;
+    if (mpStale) {
+      try {
+        await recomputePanelMediaPrefetch(tenantId);
+        mediaPrefetch = (await mediaRef.get()).data();
+      } catch (e) {
+        functions.logger.warn("getChurchPanelSnapshot: media_prefetch", { tenantId, e });
+      }
+    }
+
+    return {
+      ok: true,
+      tenantId,
+      summary: summary ?? {},
+      mediaPrefetch: mediaPrefetch ?? {},
+    };
   });
 
 /** Pré-aquece caches do painel (mobile: 1 chamada em vez de dezenas de queries). */

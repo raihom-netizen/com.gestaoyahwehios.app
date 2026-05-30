@@ -36,6 +36,7 @@ import 'package:gestao_yahweh/core/event_template_schedule.dart'
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_dashboard_current_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
+import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
@@ -98,6 +99,7 @@ import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_institutional_video.dart';
 import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart'
     show kChurchShellIndexMySchedules;
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
     show
         noticiaEventoEhRotinaOuGeradoAutomatico,
@@ -342,13 +344,14 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     var churchSlug = '';
     var churchNome = '';
     late final List<String> allIds;
+    DocumentSnapshot<Map<String, dynamic>>? igSnap;
     try {
       // Paralelo: metadados da igreja + IDs irmãos (mesmo slug) — menos latência na 1.ª pintura.
       final parallel = await Future.wait([
         tenantRef.get(),
         TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(resolved),
       ]);
-      final igSnap = parallel[0] as DocumentSnapshot<Map<String, dynamic>>;
+      igSnap = parallel[0] as DocumentSnapshot<Map<String, dynamic>>;
       allIds = List<String>.from(parallel[1] as Iterable<dynamic>);
       final id = igSnap.data() ?? {};
       churchSlug = (id['slug'] ?? id['slugId'] ?? '').toString().trim();
@@ -356,7 +359,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
     } catch (_) {
       try {
-        final igSnap = await tenantRef.get();
+        igSnap = await tenantRef.get();
         final id = igSnap.data() ?? {};
         churchSlug = (id['slug'] ?? id['slugId'] ?? '').toString().trim();
         churchNome = (id['name'] ?? id['nome'] ?? '').toString();
@@ -370,11 +373,22 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     final results = await Future.wait([
       PanelDashboardSnapshotService.readOnce(resolved),
       ChurchDashboardCurrentService.readOnce(resolved),
+      PanelMediaPrefetchService.readOnce(resolved),
     ]);
     if (!mounted) return;
     unawaited(
       PanelDashboardSnapshotService.warmFromCallableIfStale(resolved),
     );
+    final prefetchRaw = results[2] as Map<String, dynamic>?;
+    if (igSnap != null) {
+      unawaited(
+        PanelMediaPrefetchService.applyToUrlCaches(
+          resolved,
+          raw: prefetchRaw,
+          tenantData: igSnap.data(),
+        ),
+      );
+    }
     YahwehPerformanceMonitor.markScreenReady('igreja_dashboard');
     setState(() {
       _effectiveTenantId = resolved;
@@ -6871,7 +6885,7 @@ class _DashboardLiderOnboardingBannerState
         premiumStep(
           icon: Icons.people_rounded,
           label: '3. Membros / convites',
-          shellIndex: 2,
+          shellIndex: ChurchShellIndices.membros,
         ),
       );
     }

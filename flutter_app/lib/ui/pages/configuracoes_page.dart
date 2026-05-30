@@ -19,7 +19,7 @@ import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/media_cache_preferences.dart';
-import 'package:gestao_yahweh/ui/widgets/mercado_pago_church_settings_section.dart';
+import 'package:gestao_yahweh/ui/widgets/church_payment_receiving_settings_section.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -291,7 +291,16 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   bool get _restrictedMemberSettings => AppPermissions.isRestrictedMember(widget.role);
 
   bool get _showMercadoPagoChurchSettings =>
-      AppPermissions.canViewChurchMercadoPagoSettings(widget.role, permissions: widget.permissions);
+      AppPermissions.canViewChurchMercadoPagoSettings(
+        widget.role,
+        permissions: widget.permissions,
+      );
+
+  bool get _showPaymentReceivingSettings =>
+      AppPermissions.canManageChurchPaymentReceiving(
+        widget.role,
+        permissions: widget.permissions,
+      );
 
   /// Método de login atual (texto curto para a secção «Conta Google / e-mail»).
   String get _connectedLoginMethodLabel {
@@ -329,6 +338,26 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             : ListView(
                 padding: padding,
                 children: [
+                  if (_restrictedMemberSettings) ...[
+                    _SectionTitle(
+                      icon: Icons.notifications_active_rounded,
+                      title: 'Notificações',
+                    ),
+                    _buildNotificacoesCard(),
+                    const SizedBox(height: 20),
+                    _SectionTitle(
+                      icon: Icons.fingerprint_rounded,
+                      title: 'Acesso ao app',
+                    ),
+                    _buildBiometricCard(),
+                    const SizedBox(height: 20),
+                    _SectionTitle(
+                      icon: Icons.switch_account_rounded,
+                      title: 'Conta',
+                    ),
+                    _buildTrocarContaCard(context),
+                    const SizedBox(height: 32),
+                  ] else ...[
                   _SectionTitle(
                     icon: Icons.switch_account_rounded,
                     title: 'Conta Google / e-mail',
@@ -617,54 +646,14 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                     ),
                     const SizedBox(height: 24),
                   ],
-                  if (_showMercadoPagoChurchSettings) ...[
-                    MercadoPagoChurchSettingsSection(tenantId: widget.tenantId),
+                  if (_showPaymentReceivingSettings) ...[
+                    ChurchPaymentReceivingSettingsSection(
+                      tenantId: widget.tenantId,
+                      showMercadoPagoCredentials: _showMercadoPagoChurchSettings,
+                    ),
                   ],
                   _SectionTitle(icon: Icons.fingerprint_rounded, title: 'Acesso ao app'),
-                  _Card(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (kIsWeb)
-                          Text(
-                            'Desbloqueio por digital ou Face ID está disponível no aplicativo instalado (Android e iOS), na tela de login e aqui em Configurações.',
-                            style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35),
-                          )
-                        else if (!_bioCapable)
-                          Text(
-                            'Este aparelho não tem biometria configurada ou o sensor não está disponível para o app.',
-                            style: TextStyle(fontSize: 13, color: Colors.grey.shade700, height: 1.35),
-                          )
-                        else ...[
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            secondary: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: ThemeCleanPremium.primary.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(Icons.fingerprint_rounded, color: ThemeCleanPremium.primary),
-                            ),
-                            title: const Text('Desbloquear com digital / Face ID', style: TextStyle(fontWeight: FontWeight.w700)),
-                            subtitle: const Text(
-                              'Ao abrir o app, pede digital ou rosto e reabre a sessão (sem escolher e-mail de novo). '
-                              'Com login Google/Apple basta ter entrado uma vez neste aparelho. '
-                              'Só volta a pedir conta em «Trocar e-mail de login».',
-                              style: TextStyle(fontSize: 12.5),
-                            ),
-                            value: _bioEnabled,
-                            onChanged: _bioToggling ? null : _onBiometricSwitch,
-                          ),
-                          if (_bioToggling)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 8),
-                              child: LinearProgressIndicator(minHeight: 3),
-                            ),
-                        ],
-                      ],
-                    ),
-                  ),
+                  _buildBiometricCard(),
                   if (!kIsWeb) ...[
                     const SizedBox(height: 24),
                     _SectionTitle(
@@ -707,106 +696,149 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                   ],
                   const SizedBox(height: 24),
                   _SectionTitle(icon: Icons.notifications_active_rounded, title: 'Notificações e acesso'),
-                  _Card(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Onde receber lembretes e avisos',
-                          style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.grey.shade900),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'Ative por canal: no celular (app Android/iOS), no navegador (painel web / PWA) e por e-mail. O mesmo login em web e mobile usa estas preferências neste aparelho.',
-                          style: TextStyle(
-                              fontSize: 12,
-                              height: 1.35,
-                              color: Colors.grey.shade600),
-                        ),
-                        const SizedBox(height: 14),
-                        _SwitchRow('E-mail', _notifEmail, (v) => setState(() { _notifEmail = v; _saveNotif(_keyNotifEmail, v); })),
-                        _SwitchRow('Celular / app (push no aparelho)', _notifCelular, (v) => setState(() { _notifCelular = v; _saveNotif(_keyNotifCelular, v); })),
-                        _SwitchRow('Navegador / Web (painel e PWA)', _notifWeb, (v) => setState(() { _notifWeb = v; _saveNotif(_keyNotifWeb, v); })),
-                        const Divider(height: 24),
-                        Text('O que notificar:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade800)),
-                        const SizedBox(height: 10),
-                        _SwitchRow('Avisos', _notifAvisos, (v) {
-                          setState(() => _notifAvisos = v);
-                          unawaited(_savePushPref(_keyNotifAvisos, 'pushAvisos', v));
-                        }),
-                        _SwitchRow('Escalas', _notifEscalas, (v) {
-                          setState(() => _notifEscalas = v);
-                          unawaited(_savePushPref(_keyNotifEscalas, 'pushEscalas', v));
-                        }),
-                        _SwitchRow('Eventos', _notifEventos, (v) {
-                          setState(() => _notifEventos = v);
-                          unawaited(_savePushPref(_keyNotifEventos, 'pushEventos', v));
-                        }),
-                        _SwitchRow('Chat da igreja (mensagens)', _notifChat, (v) {
-                          setState(() => _notifChat = v);
-                          unawaited(_savePushPref(
-                            ChurchChatNotificationPrefs.sharedPrefsKey,
-                            'pushChat',
-                            v,
-                          ));
-                        }),
-                        const SizedBox(height: 8),
-                        _ChatAlertModeRow(
-                          value: _notifChatAlertMode,
-                          onChanged: (v) {
-                            if (v == null) return;
-                            setState(() => _notifChatAlertMode = v);
-                            unawaited(
-                              ChurchChatNotificationPrefs.setChatAlertMode(mode: v),
-                            );
-                          },
-                        ),
-                        _SwitchRow('Aniversariantes do dia', _notifAniversariantes, (v) => setState(() { _notifAniversariantes = v; _saveNotif(_keyNotifAniversariantes, v); })),
-                        const Divider(height: 24),
-                        Text('Antecedência:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.grey.shade800)),
-                        const SizedBox(height: 10),
-                        _SwitchRow('1 dia antes', _notif1Dia, (v) => setState(() { _notif1Dia = v; _saveNotif(_keyNotif1Dia, v); })),
-                        _SwitchRow('60 minutos antes', _notif60Min, (v) => setState(() { _notif60Min = v; _saveNotif(_keyNotif60Min, v); })),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            const Text('Personalizado (minutos): ', style: TextStyle(fontSize: 13)),
-                            SizedBox(
-                              width: 70,
-                              child: TextField(
-                                controller: _notifMinutosCtrl,
-                                keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8)),
-                                onChanged: (v) => _saveNotif(_keyNotifMinutos, v.isEmpty ? '60' : v),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          kIsWeb
-                              ? 'Neste navegador, use os interruptores acima. No celular (app), as mesmas preferências de tipo de aviso podem ser ajustadas no app — cada ambiente guarda o que for suportado (push no app, e-mail, etc.).'
-                              : 'No app, avisos/eventos/escalas novos podem gerar push (padrão ligado). No painel web, ative o canal «Navegador / Web» se usar o painel no computador. E-mail segue o interruptor de e-mail.',
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                        ),
-                      ],
-                    ),
-                  ),
+                  _buildNotificacoesCard(),
                   const SizedBox(height: 24),
-                  ...(_restrictedMemberSettings
-                      ? <Widget>[..._buildDicasSection(), ..._buildBackupSection(context)]
-                      : <Widget>[..._buildBackupSection(context), ..._buildDicasSection()]),
+                  ..._buildBackupSection(context),
+                  ..._buildDicasSection(),
                   const SizedBox(height: 32),
+                  ],
                 ],
               ),
       ),
     );
   }
 
+  Widget _buildTrocarContaCard(BuildContext context) {
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SelectableText(
+            _accountEmailDisplay,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: () => _trocarConta(context),
+            icon: const Icon(Icons.logout_rounded, size: 22),
+            label: const Text('Trocar de conta'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF0F766E),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBiometricCard() {
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (kIsWeb)
+            Text(
+              'Digital ou Face ID no app instalado (Android e iOS).',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade700,
+                height: 1.35,
+              ),
+            )
+          else if (!_bioCapable)
+            Text(
+              'Este aparelho não tem biometria disponível.',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade700,
+                height: 1.35,
+              ),
+            )
+          else
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              secondary: Icon(
+                Icons.fingerprint_rounded,
+                color: ThemeCleanPremium.primary,
+              ),
+              title: const Text(
+                'Desbloquear com digital / Face ID',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              subtitle: const Text(
+                'Ao abrir o app, usa biometria em vez de escolher conta de novo.',
+                style: TextStyle(fontSize: 12.5),
+              ),
+              value: _bioEnabled,
+              onChanged: _bioToggling ? null : _onBiometricSwitch,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNotificacoesCard() {
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SwitchRow('Avisos', _notifAvisos, (v) {
+            setState(() => _notifAvisos = v);
+            unawaited(_savePushPref(_keyNotifAvisos, 'pushAvisos', v));
+          }),
+          _SwitchRow('Escalas', _notifEscalas, (v) {
+            setState(() => _notifEscalas = v);
+            unawaited(_savePushPref(_keyNotifEscalas, 'pushEscalas', v));
+          }),
+          _SwitchRow('Eventos', _notifEventos, (v) {
+            setState(() => _notifEventos = v);
+            unawaited(_savePushPref(_keyNotifEventos, 'pushEventos', v));
+          }),
+          _SwitchRow('Chat da igreja', _notifChat, (v) {
+            setState(() => _notifChat = v);
+            unawaited(_savePushPref(
+              ChurchChatNotificationPrefs.sharedPrefsKey,
+              'pushChat',
+              v,
+            ));
+          }),
+          if (!_restrictedMemberSettings) ...[
+            const Divider(height: 20),
+            _SwitchRow('E-mail', _notifEmail, (v) {
+              setState(() => _notifEmail = v);
+              _saveNotif(_keyNotifEmail, v);
+            }),
+            _SwitchRow('Push no celular', _notifCelular, (v) {
+              setState(() => _notifCelular = v);
+              _saveNotif(_keyNotifCelular, v);
+            }),
+            _SwitchRow('Navegador / Web', _notifWeb, (v) {
+              setState(() => _notifWeb = v);
+              _saveNotif(_keyNotifWeb, v);
+            }),
+            _ChatAlertModeRow(
+              value: _notifChatAlertMode,
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() => _notifChatAlertMode = v);
+                unawaited(
+                  ChurchChatNotificationPrefs.setChatAlertMode(mode: v),
+                );
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   List<Widget> _buildBackupSection(BuildContext context) {
+    if (_restrictedMemberSettings) return const [];
     return [
       _SectionTitle(icon: Icons.backup_rounded, title: 'Backup'),
       _Card(
@@ -844,6 +876,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   }
 
   List<Widget> _buildDicasSection() {
+    if (_restrictedMemberSettings) return const [];
     return [
       _SectionTitle(icon: Icons.lightbulb_outline_rounded, title: 'Dicas, sugestões e críticas'),
       _Card(

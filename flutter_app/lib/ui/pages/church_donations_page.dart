@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/widgets/donation_kind_selector_grid.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
+import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
 
 /// Dízimos, ofertas e contribuições via PIX ou cartão (Checkout Pro Mercado Pago da igreja).
 /// Só contas tesouraria **Mercado Pago** (323) entram na conciliação desta tela.
@@ -92,6 +93,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   String? _paymentId;
   String? _checkoutEmbedUrl;
   String? _erro;
+  ChurchPaymentReceivingConfig _paymentCfg =
+      const ChurchPaymentReceivingConfig();
 
   @override
   void initState() {
@@ -102,6 +105,12 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     _emailCtrl.text = u?.email ?? '';
     _loadContas();
     unawaited(_bindMemberForDonation());
+    unawaited(_loadPaymentReceiving());
+  }
+
+  Future<void> _loadPaymentReceiving() async {
+    final cfg = await ChurchPaymentReceivingService.read(widget.tenantId);
+    if (mounted) setState(() => _paymentCfg = cfg);
   }
 
   Future<void> _bindMemberForDonation() async {
@@ -748,6 +757,28 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
                 ],
               ),
             ),
+            if (kIsWeb && _paymentCfg.primaryExternalCheckoutUrl != null) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final url = _paymentCfg.primaryExternalCheckoutUrl!;
+                  await launchUrl(
+                    Uri.parse(url),
+                    mode: LaunchMode.externalApplication,
+                  );
+                },
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: Text(_paymentCfg.externalCheckoutButtonLabel),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Na web, use o link configurado em Configurações. No Android, PIX e cartão Mercado Pago abaixo.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+            ],
             const SizedBox(height: 16),
             Builder(
               builder: (ctx) {

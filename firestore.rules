@@ -548,8 +548,10 @@ service cloud.firestore {
       }
 
       match /config/{docId} {
-        // `mercado_pago`: credenciais da conta da igreja — só gestão; demais `config/*` mantêm leitura ampla na igreja.
-        allow read: if isMaster()
+        // `payment_receiving`: só links públicos (InitPay/outros) — leitura ampla para doação web/iOS.
+        // `mercado_pago`: credenciais — só gestão.
+        allow read: if docId == 'payment_receiving'
+          || isMaster()
           || (canAccessTenant(id) && (
             docId != 'mercado_pago'
             || canManageChurch()
@@ -564,6 +566,14 @@ service cloud.firestore {
       // Resumo do painel (totais por mês) — escrita só Firebase Admin (Cloud Function); leitura gestão.
       match /_panel_cache/{docId} {
         allow read: if isMaster() || canAccessTenant(id) || memberLinkedToTenant(id);
+        allow write: if false;
+      }
+      // Cache de performance — `public_feed` legível no site público (visitante / anónimo).
+      match /_performance_cache/{docId} {
+        allow read: if docId == 'public_feed'
+          || isMaster()
+          || canAccessTenant(id)
+          || memberLinkedToTenant(id);
         allow write: if false;
       }
       match /finance_mp_notifications/{docId} {

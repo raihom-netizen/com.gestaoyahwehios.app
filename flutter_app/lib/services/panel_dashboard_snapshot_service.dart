@@ -1,5 +1,9 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+
+import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 
 import 'firestore_stream_utils.dart';
 
@@ -276,6 +280,18 @@ class PanelDashboardSnapshotService {
       );
       final res = await callable.call<Map<String, dynamic>>({});
       final data = res.data;
+      final mp = data['mediaPrefetch'];
+      if (mp is Map) {
+        final tid = (data['tenantId'] ?? '').toString().trim();
+        if (tid.isNotEmpty) {
+          unawaited(
+            PanelMediaPrefetchService.applyToUrlCaches(
+              tid,
+              raw: Map<String, dynamic>.from(mp),
+            ),
+          );
+        }
+      }
       final summary = data['summary'];
       if (summary is Map) {
         return PanelDashboardSnapshot.fromMap(

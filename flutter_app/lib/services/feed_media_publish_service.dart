@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_strict.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
@@ -31,11 +32,11 @@ abstract final class FeedMediaPublishService {
     required String postType,
     String? postId,
   }) async {
-    await ensureFirebaseInitialized();
+    final db = await FirebaseService.firestore(requireAuth: true);
     final col = postType == 'aviso'
         ? ChurchTenantPostsCollections.avisos
         : ChurchTenantPostsCollections.noticias;
-    final ref = FirebaseFirestore.instance
+    final ref = db
         .collection('igrejas')
         .doc(tenantId)
         .collection(col);
@@ -51,7 +52,7 @@ abstract final class FeedMediaPublishService {
     required bool isNewDoc,
     int pendingPhotoCount = 0,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     final patch = FirestoreWriteGuard.stripHeavyFields(
       Map<String, dynamic>.from(payload),
     );
@@ -76,6 +77,7 @@ abstract final class FeedMediaPublishService {
     required Map<String, dynamic> payload,
     required bool isNewDoc,
   }) async {
+    return FirebaseBootstrapService.runGuarded(() async {
     await AppFinalizeBootstrap.ensureSessionForPublish(logLabel: 'feed_publish_now');
     final patch = Map<String, dynamic>.from(payload);
     patch['publishState'] = statusPublished;
@@ -91,6 +93,7 @@ abstract final class FeedMediaPublishService {
       await docRef.set(patch, SetOptions(merge: true));
     }
     return docRef.id;
+    }, debugLabel: 'feed_publish_now', requireAuth: true);
   }
 
   /// Rascunho — texto/campos guardados sem publicar no feed.
@@ -99,7 +102,7 @@ abstract final class FeedMediaPublishService {
     required Map<String, dynamic> payload,
     required bool isNewDoc,
   }) async {
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForMediaUpload();
     final patch = FirestoreWriteGuard.stripHeavyFields(
       Map<String, dynamic>.from(payload),
     );
@@ -152,6 +155,11 @@ abstract final class FeedMediaPublishService {
     required DocumentReference<Map<String, dynamic>> docRef,
     required Object error,
   }) async {
+    try {
+      await ensureFirebaseReadyForMediaUpload();
+    } catch (_) {
+      return;
+    }
     await docRef.set(
       {
         'publishState': statusFailed,

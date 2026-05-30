@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/church_chat_local_conversations.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
+import 'package:gestao_yahweh/services/church_chat_threads_list_cache.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
@@ -112,6 +113,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   late TabController _hubTabController;
   Timer? _gruposResyncDebounce;
   Timer? _conversasResyncDebounce;
+  DateTime? _lastSilentConversasSync;
+  static const Duration _conversasSilentSyncMinInterval = Duration(minutes: 2);
   /// Avatares no hub — `chat_peer_profiles` (sem stream de 600 `membros`).
   Map<String, ChurchChatMemberRef> _peerMemberByUid = {};
   Map<String, bool> _peerOnlineByUid = {};
@@ -152,6 +155,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (oldWidget.tenantId != widget.tenantId) {
       _lastGoodChatThreadsSnap = null;
       _chatThreadsStream = null;
+      ChurchChatService.invalidateChatThreadsStreamCache();
       unawaited(_bootstrap());
     }
   }
@@ -180,7 +184,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       unawaited(AppFinalizeBootstrap.onAppResume());
       final t = _resolvedTenantId;
       if (t != null) unawaited(_syncMemberDepartments(t));
-      unawaited(_pullRefreshConversas());
+      _requestSilentConversasSyncIfStale();
     }
   }
 
@@ -189,9 +193,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (_hubTabController.index != 0 && _dmSelectMode) {
       setState(_clearDmSelectUi);
     }
-    if (_hubTabController.index == 0) {
-      _requestConversasResync();
-    } else if (_hubTabController.index == 1) {
+    // Lista «Conversas» mantém-se visível ao mudar de aba (sem reparo/sync visível).
+    if (_hubTabController.index == 1) {
       _requestGruposResync();
     }
   }
@@ -205,8 +208,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     });
   }
 
-  /// Reanexa o stream de `chat_threads` (token + nova subscrição), p.ex. após
-  /// voltar do fundo ou pull-to-refresh — sem depender de botão na UI.
+  /// Pull-to-refresh: sincroniza em segundo plano sem substituir o stream nem esvaziar a lista.
   Future<void> _pullRefreshConversas() async {
     final tid = _resolvedTenantId;
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -215,14 +217,16 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       await _bootstrap();
       return;
     }
-    await _repairChatThreadsIndex(tid);
+    await _silentSyncConversasIndex(tid, force: true);
   }
 
-  void _requestConversasResync() {
+  void _requestSilentConversasSyncIfStale() {
     _conversasResyncDebounce?.cancel();
-    _conversasResyncDebounce = Timer(const Duration(milliseconds: 550), () {
+    _conversasResyncDebounce = Timer(const Duration(milliseconds: 800), () {
       if (!mounted) return;
-      unawaited(_pullRefreshConversas());
+      final tid = _resolvedTenantId;
+      if (tid == null) return;
+      unawaited(_silentSyncConversasIndex(tid));
     });
   }
 
@@ -421,37 +425,37 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
   }
 
-  bool _syncingChatThreads = false;
+  bool _silentConversasSyncInFlight = false;
 
-  /// Repara índice DM (cliente + Cloud Function) antes de mostrar lista vazia.
-  Future<void> _repairChatThreadsIndex(String tenantId) async {
-    if (_syncingChatThreads) return;
-    _syncingChatThreads = true;
-    if (mounted) setState(() {});
+  /// Sincroniza índice DM em background — não recria stream nem mostra «a carregar».
+  Future<void> _silentSyncConversasIndex(
+    String tenantId, {
+    bool force = false,
+  }) async {
+    if (_silentConversasSyncInFlight) return;
+    final now = DateTime.now();
+    if (!force &&
+        _lastSilentConversasSync != null &&
+        now.difference(_lastSilentConversasSync!) <
+            _conversasSilentSyncMinInterval) {
+      return;
+    }
+    _silentConversasSyncInFlight = true;
+    _lastSilentConversasSync = now;
     try {
       await _primeConversasListFromFallback(tenantId);
-      if (!mounted) return;
-      setState(() => _syncingChatThreads = false);
       await ChurchChatService.syncDmThreadsIndex(tenantId).timeout(
         const Duration(seconds: 20),
         onTimeout: () => 0,
       );
       await _primeConversasListFromFallback(tenantId);
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      if (mounted && uid.isNotEmpty) {
-        setState(() {
-          _chatThreadsStream =
-              ChurchChatService.chatThreadsSnapshotsForUser(tenantId, uid);
-        });
-      }
     } catch (e, st) {
       if (kDebugMode) {
-        debugPrint('syncDmThreadsIndex: $e\n$st');
+        debugPrint('silentSyncConversasIndex: $e\n$st');
       }
       await _primeConversasListFromFallback(tenantId);
     } finally {
-      _syncingChatThreads = false;
-      if (mounted) setState(() {});
+      _silentConversasSyncInFlight = false;
     }
   }
 
@@ -489,13 +493,20 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       userUid: FirebaseAuth.instance.currentUser?.uid,
     );
     if (!mounted) return;
+    final u = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final cachedList = u.isNotEmpty
+        ? await ChurchChatThreadsListCache.loadSnapshot(tid, uid: u)
+        : null;
+    if (!mounted) return;
     setState(() {
       if (_resolvedTenantId != tid) {
         _lastGoodChatThreadsSnap = null;
       }
       _resolvedTenantId = tid;
-      final u = FirebaseAuth.instance.currentUser?.uid;
-      _chatThreadsStream = (u != null && u.isNotEmpty)
+      if (cachedList != null && cachedList.docs.isNotEmpty) {
+        _lastGoodChatThreadsSnap = cachedList;
+      }
+      _chatThreadsStream = u.isNotEmpty
           ? ChurchChatService.chatThreadsSnapshotsForUser(tid, u)
           : null;
     });
@@ -504,7 +515,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     await _reloadLocalConversations();
     if (!mounted) return;
     unawaited(_syncMemberDepartments(tid));
-    unawaited(_repairChatThreadsIndex(tid));
+    unawaited(_silentSyncConversasIndex(tid, force: true));
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_tryConsumePendingChatThread());
@@ -1432,6 +1443,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           builder: (context, snap) {
             if (snap.hasData) {
               _lastGoodChatThreadsSnap = snap.data;
+              if (snap.data!.docs.isNotEmpty) {
+                unawaited(
+                  ChurchChatThreadsListCache.saveFromSnapshot(tid, snap.data!),
+                );
+              }
             }
             final snapForList =
                 snap.hasData ? snap.data! : _lastGoodChatThreadsSnap;
@@ -1477,8 +1493,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   ),
                 );
                 }
+                final hasInstantList = snapForList != null &&
+                    snapForList.docs.isNotEmpty;
+                final hasLocalFallback = _localConversations.isNotEmpty;
                 if (snap.connectionState == ConnectionState.waiting &&
-                    snapForList == null) {
+                    !hasInstantList &&
+                    !hasLocalFallback) {
                   return RefreshIndicator(
                     onRefresh: _pullRefreshConversas,
                     child: CustomScrollView(
@@ -1691,15 +1711,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                                     ? 'Sem conversas arquivadas.'
                                     : _conversasFilter == _HubConversasFilter.unread
                                     ? 'Sem mensagens não lidas.'
-                                    : _syncingChatThreads &&
+                                    : streamError != null &&
                                             (snapForList?.docs.isEmpty ?? true) &&
-                                            (_lastGoodChatThreadsSnap?.docs.isEmpty ??
-                                                true)
-                                        ? 'A carregar conversas…'
-                                        : streamError != null &&
-                                                (snapForList?.docs.isEmpty ?? true)
-                                            ? 'Não foi possível carregar. Puxe para baixo para atualizar.'
-                                            : 'Sem conversas ainda. Use + para nova mensagem ou Contatos para abrir um grupo de departamento.',
+                                            !hasLocalFallback
+                                        ? 'Não foi possível carregar. Puxe para baixo para atualizar.'
+                                        : 'Sem conversas ainda. Use + para nova mensagem ou Contatos para abrir um grupo de departamento.',
                         style: TextStyle(
                           color: ThemeCleanPremium.onSurfaceVariant,
                           height: 1.45,
@@ -2068,7 +2084,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (mounted) {
       unawaited(_primeConversasListFromFallback(tid));
       unawaited(_reloadLocalConversations());
-      _requestConversasResync();
     }
   }
 

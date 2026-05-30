@@ -16,3 +16,20 @@ void logFirebaseDiagnostic(
   }
   unawaited(CrashlyticsService.record(error, stack, reason: label));
 }
+
+/// Fases de publicação avisos/eventos (upload → Firestore).
+void logFirebasePublishPhase(
+  String phase,
+  String context, {
+  Object? error,
+  StackTrace? stack,
+}) {
+  if (kDebugMode) {
+    debugPrint('[$phase] $context${error != null ? ' | $error' : ''}');
+  }
+  if (error != null) {
+    unawaited(
+      CrashlyticsService.record(error, stack, reason: '${phase}_$context'),
+    );
+  }
+}

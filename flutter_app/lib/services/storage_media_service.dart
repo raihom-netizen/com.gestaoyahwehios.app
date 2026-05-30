@@ -52,9 +52,7 @@ class StorageMediaService {
 
   /// Resolve caminho `igrejas/...` ou URL antiga para URL atual de download.
   static Future<String?> downloadUrlFromPathOrUrl(String? raw) async {
-    if (!kIsWeb) {
-      await ensureFirebaseInitialized();
-    }
+    await ensureFirebaseReadyForMediaUpload();
     if (raw == null) return null;
     final t = raw.trim();
     if (t.isEmpty) return null;
@@ -67,7 +65,7 @@ class StorageMediaService {
         if (kIsWeb) {
           await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
         }
-        return await FirebaseStorage.instance
+        return await firebaseDefaultStorage
             .refFromURL(s)
             .getDownloadURL()
             .timeout(const Duration(seconds: 15));
@@ -79,7 +77,7 @@ class StorageMediaService {
         if (kIsWeb) {
           await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
         }
-        return await FirebaseStorage.instance
+        return await firebaseDefaultStorage
             .ref(s)
             .getDownloadURL()
             .timeout(const Duration(seconds: 15));

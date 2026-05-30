@@ -41,7 +41,7 @@ abstract final class MuralPublishOutboxService {
     final col = postType == 'aviso'
         ? ChurchTenantPostsCollections.avisos
         : ChurchTenantPostsCollections.noticias;
-    return FirebaseFirestore.instance
+    return firebaseDefaultFirestore
         .collection('igrejas')
         .doc(tenantId)
         .collection(col)

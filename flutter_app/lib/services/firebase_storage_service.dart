@@ -143,6 +143,49 @@ class FirebaseStorageService {
     _churchLogoUrlCache.remove(t);
   }
 
+  /// URL vinda de `_panel_cache/media_prefetch` (servidor já resolveu o Storage).
+  static void seedChurchLogoDownloadUrl(
+    String tenantId,
+    String downloadUrl, {
+    Map<String, dynamic>? tenantData,
+  }) {
+    final tid = tenantId.trim();
+    final url = downloadUrl.trim();
+    if (tid.isEmpty || !url.startsWith('http')) return;
+    while (_churchLogoUrlCache.length >= _churchLogoCacheMax) {
+      _churchLogoUrlCache.remove(_churchLogoUrlCache.keys.first);
+    }
+    _churchLogoUrlCache[tid] = url;
+  }
+
+  /// URL vinda de `_panel_cache/media_prefetch` — lista / aniversariantes / líderes.
+  static void seedMemberProfilePhotoDownloadUrl({
+    required String tenantId,
+    required String memberId,
+    required String downloadUrl,
+    String? cpfDigits,
+    String? authUid,
+    String? nomeCompleto,
+    Map<String, dynamic>? memberFirestoreHint,
+    bool preferListThumbnail = true,
+  }) {
+    final url = downloadUrl.trim();
+    if (!url.startsWith('http')) return;
+    final key = _memberProfilePhotoUrlCacheKey(
+      tenantId: tenantId,
+      memberId: memberId,
+      cpfDigits: cpfDigits,
+      authUid: authUid,
+      nomeCompleto: nomeCompleto,
+      memberFirestoreHint: memberFirestoreHint,
+      preferListThumbnail: preferListThumbnail,
+    );
+    while (_memberPhotoUrlCache.length >= _cacheMaxSize) {
+      _memberPhotoUrlCache.remove(_memberPhotoUrlCache.keys.first);
+    }
+    _memberPhotoUrlCache[key] = url;
+  }
+
   /// Materializa `igrejas/{id}/configuracoes/` no bucket com [logo_igreja.png] mínimo **só se** ainda não
   /// existir PNG nem JPG canónicos. O upload pelo cadastro substitui o mesmo path (overwrite).
   /// Não grava Firestore — o painel só fica OK após URL/`logoPath` no doc ou logo real (> [kChurchIdentityLogoMinBytesForFirestoreSync]).

@@ -66,12 +66,21 @@ abstract final class ChurchGalleryPhotoWarmup {
     for (final lite in panel.homeCorpoAdmin) {
       addLite(lite);
     }
+    for (final lite in panel.birthdaysToday) {
+      addLite(lite);
+    }
+    for (final lite in panel.birthdaysWeek.take(12)) {
+      addLite(lite);
+    }
+    for (final lite in panel.birthdaysMonth.take(8)) {
+      addLite(lite);
+    }
     if (refs.isEmpty) return;
     schedule(
       context: context,
       tenantId: tenantId,
       members: refs,
-      maxMembers: 40,
+      maxMembers: 64,
       highPriority: true,
     );
   }
@@ -143,7 +152,7 @@ abstract final class ChurchGalleryPhotoWarmup {
       await ensureFirebaseInitialized();
     } catch (_) {}
 
-    const batchRefs = 8;
+    const batchRefs = 12;
     for (var i = 0; i < list.length; i += batchRefs) {
       if (!context.mounted) return;
       final slice = list.sublist(

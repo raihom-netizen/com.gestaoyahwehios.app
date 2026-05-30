@@ -5,12 +5,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase/firebase_retry.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
+import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
+import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
@@ -42,6 +45,12 @@ abstract final class FeedMediaPublishStrict {
     Future<void> Function()? onPublished,
   }) async {
     return FirebaseBootstrapService.runGuarded(() async {
+    await FirebaseBootstrap.ensureInitialized();
+    logFirebasePublishPhase(
+      'EVENT_START',
+      '${postType == 'aviso' ? 'aviso' : 'evento'}|${docRef.path}',
+    );
+    logFirebaseAppsBeforeOperation('feed_strict_publish', module: postType);
     await AppFinalizeBootstrap.ensureSessionForPublish(
       logLabel: postType == 'aviso' ? 'avisos_strict' : 'eventos_strict',
     );
@@ -94,6 +103,7 @@ abstract final class FeedMediaPublishStrict {
         ...existingUrls,
         ...uploaded,
       ]);
+      logFirebasePublishPhase('UPLOAD_OK', docRef.path);
 
       final patch = Map<String, dynamic>.from(corePayload);
       patch.addAll(
@@ -113,10 +123,32 @@ abstract final class FeedMediaPublishStrict {
       patch['updatedAt'] = FieldValue.serverTimestamp();
 
       final safe = FirestoreWriteGuard.stripHeavyFields(patch);
-      if (isNewDoc) {
-        await docRef.set(safe);
-      } else {
-        await docRef.set(safe, SetOptions(merge: true));
+      logFirebasePublishPhase('INICIO_FIRESTORE', docRef.path);
+      try {
+        await firebaseRetry<void>(
+          () async {
+            if (isNewDoc) {
+              await docRef
+                  .set(safe)
+                  .timeout(const Duration(seconds: 30));
+            } else {
+              await docRef
+                  .set(safe, SetOptions(merge: true))
+                  .timeout(const Duration(seconds: 30));
+            }
+          },
+          reason: 'feed_strict_firestore_${postType}',
+        );
+        logFirebasePublishPhase('FIRESTORE_OK', docRef.path);
+        logFirebasePublishPhase('FIM_FIRESTORE', docRef.path);
+      } catch (e, st) {
+        logFirebasePublishPhase(
+          'ERRO_FIRESTORE',
+          docRef.path,
+          error: e,
+          stack: st,
+        );
+        rethrow;
       }
 
       if (onPublished != null) {
@@ -127,6 +159,12 @@ abstract final class FeedMediaPublishStrict {
       unawaited(AnalyticsService.logPublish(module: postType, success: true));
       return postId;
     } catch (e, st) {
+      logFirebasePublishPhase(
+        'EVENT_ERROR',
+        docRef.path,
+        error: e,
+        stack: st,
+      );
       unawaited(AnalyticsService.logPublish(module: postType, success: false));
       final module = postType == 'aviso' ? 'aviso' : 'evento';
       final path = FeedTenantStorageMap.feedPhotoPath(

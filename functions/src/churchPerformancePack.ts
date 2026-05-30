@@ -392,6 +392,18 @@ export async function refreshPublicFeedCacheForTenant(
     data: feed.slice(0, 50),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
+
+  try {
+    const { recomputePublicSiteMediaPrefetch } = await import(
+      "./publicSiteMediaPrefetch"
+    );
+    await recomputePublicSiteMediaPrefetch(tenantId);
+  } catch (e) {
+    functions.logger.warn("refreshPublicFeedCache: media prefetch", {
+      tenantId,
+      e,
+    });
+  }
 }
 
 /**

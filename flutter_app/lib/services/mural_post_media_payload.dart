@@ -33,6 +33,7 @@ abstract final class MuralPostMediaPayload {
     required int startSlotIndex,
   }) async {
     if (newImages.isEmpty) return const [];
+    await FirebaseBootstrap.ensureInitialized();
     await ensureFirebaseReadyForMediaUpload();
     await FeedPostMediaUpload.warmAuthToken()
         .timeout(const Duration(seconds: 25));
@@ -69,6 +70,7 @@ abstract final class MuralPostMediaPayload {
         .where((p) => p.isNotEmpty)
         .toList();
     if (paths.isEmpty) return const [];
+    await FirebaseBootstrap.ensureInitialized();
     await ensureFirebaseReadyForMediaUpload();
     await FeedPostMediaUpload.warmAuthToken()
         .timeout(const Duration(seconds: 25));
@@ -99,6 +101,7 @@ abstract final class MuralPostMediaPayload {
           postType: postType,
           postId: postId,
           bytes: await f.readAsBytes(),
+          localPath: path,
           slotIndex: startSlotIndex + i,
           onProgress: report,
         ).timeout(_photoSlotTimeout);
@@ -113,6 +116,7 @@ abstract final class MuralPostMediaPayload {
     required String postId,
     required Uint8List bytes,
     required int slotIndex,
+    String? localPath,
     void Function(double progress)? onProgress,
   }) async {
     final r = await uploadPhotoSlotWithVariants(
@@ -121,6 +125,7 @@ abstract final class MuralPostMediaPayload {
       postId: postId,
       bytes: bytes,
       slotIndex: slotIndex,
+      localPath: localPath,
       onProgress: onProgress,
     );
     return r.primaryUrl;

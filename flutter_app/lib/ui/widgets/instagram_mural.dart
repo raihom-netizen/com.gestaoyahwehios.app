@@ -231,13 +231,13 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection(ChurchTenantPostsCollections.noticias);
 
   CollectionReference<Map<String, dynamic>> get _avisos =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection(ChurchTenantPostsCollections.avisos);
@@ -296,7 +296,7 @@ class InstagramMuralState extends State<InstagramMural> {
   Future<void> _loadTenant() async {
     try {
       await ensureFirebaseInitialized();
-      final snap = await FirebaseFirestore.instance
+      final snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .get();
@@ -340,7 +340,7 @@ class InstagramMuralState extends State<InstagramMural> {
       {DocumentSnapshot<Map<String, dynamic>>? doc,
       required String type}) async {
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -926,7 +926,7 @@ class _MuralPostLinksRow extends StatelessWidget {
 
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future:
-          FirebaseFirestore.instance.collection('igrejas').doc(tenantId).get(),
+          firebaseDefaultFirestore.collection('igrejas').doc(tenantId).get(),
       builder: (context, snap) {
         double? lat = eventLat;
         double? lng = eventLng;
@@ -1203,7 +1203,7 @@ class _PostCardState extends State<_PostCard>
     var photo = user.photoURL?.trim() ?? '';
     if (name.isEmpty) {
       try {
-        final uDoc = await FirebaseFirestore.instance
+        final uDoc = await firebaseDefaultFirestore
             .collection('users')
             .doc(user.uid)
             .get();
@@ -3299,7 +3299,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   Future<void> _usarEnderecoIgreja() async {
     try {
       await ensureFirebaseInitialized();
-      final snap = await FirebaseFirestore.instance
+      final snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .get();
@@ -4024,7 +4024,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
     final publishLabel =
         widget.doc != null ? 'Atualizar' : 'Publicar';
-    return Scaffold(
+    return PopScope(
+      canPop: !_saving,
+      child: Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
@@ -4831,6 +4833,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               SizedBox(height: 120 + MediaQuery.paddingOf(context).bottom),
             ]),
       ),
+    ),
     );
   }
 }

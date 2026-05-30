@@ -37,6 +37,32 @@ abstract final class ChurchPerformanceCacheService {
     }
   }
 
+  /// Logo + lista de URLs para pré-carregamento (site público).
+  static Future<({String? churchLogoUrl, List<String> prefetchUrls})>
+      readPublicFeedMediaMeta(String tenantId) async {
+    const empty = (churchLogoUrl: null as String?, prefetchUrls: <String>[]);
+    try {
+      final snap = await _ref(tenantId, 'public_feed').get();
+      final raw = snap.data();
+      if (raw == null) return empty;
+      final logo = (raw['churchLogoUrl'] ?? '').toString().trim();
+      final urls = <String>[];
+      final list = raw['prefetchUrls'];
+      if (list is List) {
+        for (final e in list) {
+          final s = (e ?? '').toString().trim();
+          if (s.startsWith('http')) urls.add(s);
+        }
+      }
+      return (
+        churchLogoUrl: logo.startsWith('http') ? logo : null,
+        prefetchUrls: List<String>.from(urls),
+      );
+    } catch (_) {
+      return empty;
+    }
+  }
+
   /// Aniversariantes do mês (`generateBirthdayCache` — diário).
   static Future<List<Map<String, dynamic>>> readBirthdaysOnce(
     String tenantId,

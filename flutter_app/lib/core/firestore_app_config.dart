@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 /// Configura o Firestore **antes** de qualquer leitura/escrita.
 ///
@@ -10,16 +11,23 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 /// - **ignoreUndefinedProperties**: merges mais limpos ao atualizar documentos.
 /// - **Web**: deteção de long-polling (redes/proxies instáveis) e cache multi‑aba.
 void configureFirestoreForOfflineAndSpeed() {
+  if (!isFirebaseReady) {
+    debugPrint(
+      'configureFirestoreForOfflineAndSpeed: Firebase ainda nao pronto — ignorado.',
+    );
+    return;
+  }
+  final db = firebaseDefaultFirestore;
   try {
     if (kIsWeb) {
-      FirebaseFirestore.instance.settings = Settings(
+      db.settings = Settings(
         persistenceEnabled: true,
         cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
         ignoreUndefinedProperties: true,
         webExperimentalAutoDetectLongPolling: true,
       );
     } else {
-      FirebaseFirestore.instance.settings = Settings(
+      db.settings = Settings(
         persistenceEnabled: true,
         cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
         ignoreUndefinedProperties: true,
@@ -28,7 +36,7 @@ void configureFirestoreForOfflineAndSpeed() {
   } catch (e, st) {
     debugPrint('configureFirestoreForOfflineAndSpeed: $e\n$st');
     try {
-      FirebaseFirestore.instance.settings = Settings(
+      db.settings = Settings(
         persistenceEnabled: true,
         cacheSizeBytes: 200 * 1024 * 1024,
         ignoreUndefinedProperties: true,

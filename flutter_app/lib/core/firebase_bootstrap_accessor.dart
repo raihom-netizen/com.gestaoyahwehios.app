@@ -5,12 +5,12 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 
-/// Ponto único de acesso Firebase no app — use [FirebaseBootstrap.instance].
+/// Gateway legado — preferir [FirebaseBootstrap.ensureInitialized] e [FirebaseService].
 ///
 /// Evita `FirebaseFirestore.instance` / `FirebaseAuth.instance` dispersos.
-final class FirebaseBootstrap {
-  FirebaseBootstrap._();
-  static final FirebaseBootstrap instance = FirebaseBootstrap._();
+final class FirebaseBootstrapGateway {
+  FirebaseBootstrapGateway._();
+  static final FirebaseBootstrapGateway instance = FirebaseBootstrapGateway._();
 
   bool get isReady => FirebaseBootstrapService.isReady();
   FirebaseHealthReport? get lastHealth => FirebaseBootstrapService.lastHealth;

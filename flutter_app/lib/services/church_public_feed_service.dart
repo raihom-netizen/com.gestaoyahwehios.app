@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_cursor_pagination.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 
@@ -13,8 +14,9 @@ abstract final class ChurchPublicFeedService {
       fetchAvisosPage({
     required String tenantId,
     DocumentSnapshot<Map<String, dynamic>>? startAfter,
-  }) {
-    final base = FirebaseFirestore.instance
+  }) async {
+    final db = await FirebaseService.firestore();
+    final base = db
         .collection('igrejas')
         .doc(tenantId.trim())
         .collection(ChurchTenantPostsCollections.avisos)
@@ -31,10 +33,11 @@ abstract final class ChurchPublicFeedService {
       fetchUpcomingEventosPage({
     required String tenantId,
     DocumentSnapshot<Map<String, dynamic>>? startAfter,
-  }) {
+  }) async {
+    final db = await FirebaseService.firestore();
     final today = DateTime.now();
     final startOfDay = DateTime(today.year, today.month, today.day);
-    final base = FirebaseFirestore.instance
+    final base = db
         .collection('igrejas')
         .doc(tenantId.trim())
         .collection(ChurchTenantPostsCollections.noticias)

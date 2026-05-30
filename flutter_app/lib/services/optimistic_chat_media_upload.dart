@@ -28,6 +28,7 @@ import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
@@ -104,6 +105,7 @@ abstract final class OptimisticChatMediaUpload {
       await AppFinalizeBootstrap.ensureSessionForPublish(
         logLabel: 'chat_media_upload',
       );
+      logFirebaseAppsBeforeOperation('chat_media_flush', module: pending.kind);
       await runFirebaseBackgroundTask<void>(
 
         () => _flushCore(
@@ -452,7 +454,7 @@ abstract final class OptimisticChatMediaUpload {
 
     try {
 
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForMediaUpload();
 
       activeUploadId = await ChurchChatUploadsService.upsert(
 

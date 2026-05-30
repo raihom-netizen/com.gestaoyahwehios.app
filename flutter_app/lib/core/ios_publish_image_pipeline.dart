@@ -7,7 +7,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
-import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/services/unified_upload_service.dart';
+import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
 
 /// Feed nativo (iOS/Android) — evita 3× WebP + 3 uploads no telemóvel.
@@ -150,10 +151,16 @@ abstract final class IosPublishImagePipeline {
       slotIndex: slotIndex,
     );
 
-    final url = await FeedPostMediaUpload.uploadFeedPhotoBytes(
+    final url = await UnifiedUploadService.uploadImage(
       storagePath: storagePath,
       bytes: prepared,
+      localPath: localPath,
+      module: postType == 'aviso'
+          ? YahwehUploadModule.aviso
+          : YahwehUploadModule.evento,
+      skipClientPrepare: true,
       onProgress: onProgress,
+      maxAttempts: 3,
     );
     return (primaryUrl: url, imageVariants: const <String, dynamic>{});
   }

@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/pages/site_public_page.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
+import 'package:gestao_yahweh/services/auth_profile_cache_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -90,11 +91,15 @@ abstract final class ChurchSignOutNavigation {
       }
     }
 
+    final uid = FirebaseAuth.instance.currentUser?.uid;
     await LoginPreferences.clearOAuthHints();
     if (!kIsWeb) {
       await appGoogleSignOutForAccountPicker();
     }
     await ChurchAutoSessionService.clearAutoPainel();
+    if (uid != null && uid.isNotEmpty) {
+      await AuthProfileCacheService.instance.clear(uid);
+    }
     await FirebaseAuth.instance.signOut();
 
     if (!kIsWeb) {

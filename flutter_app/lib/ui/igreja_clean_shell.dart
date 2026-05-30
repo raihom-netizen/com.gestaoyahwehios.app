@@ -63,6 +63,7 @@ import 'widgets/module_header_premium.dart';
 import 'widgets/connectivity_offline_strip.dart';
 import 'widgets/church_panel_ui_helpers.dart';
 import 'widgets/gestor_welcome_dialog.dart';
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/app_theme.dart';
@@ -216,22 +217,22 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         accent: kChurchShellNavEntries[0].accent,
       ),
       _ChurchShellFooterShortcut(
-        shellIndex: 2,
+        shellIndex: ChurchShellIndices.membros,
         shortLabel: 'Membros',
         accent: kChurchShellNavEntries[2].accent,
       ),
       _ChurchShellFooterShortcut(
-        shellIndex: 7,
+        shellIndex: ChurchShellIndices.muralEventos,
         shortLabel: 'Eventos',
         accent: kChurchShellNavEntries[7].accent,
       ),
       _ChurchShellFooterShortcut(
-        shellIndex: 6,
+        shellIndex: ChurchShellIndices.muralAvisos,
         shortLabel: 'Avisos',
         accent: kChurchShellNavEntries[6].accent,
       ),
       _ChurchShellFooterShortcut(
-        shellIndex: 24,
+        shellIndex: ChurchShellIndices.chatIgreja,
         shortLabel: 'Chat',
         accent: kChurchShellNavEntries[24].accent,
       ),
@@ -349,7 +350,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       ));
       unawaited(_bootstrapChatPresenceHeartbeat());
       if (_shellBootstrapOpenMemberId != null && mounted) {
-        setState(() => _selectedIndex = 2);
+        setState(() => _selectedIndex = ChurchShellIndices.membros);
       } else if (widget.initialShellIndex != null &&
           mounted &&
           _canAccessItem(widget.initialShellIndex!)) {
@@ -641,21 +642,21 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final base = FirebaseFirestore.instance.collection('igrejas').doc(tid);
     try {
       switch (index) {
-        case 2:
+        case ChurchShellIndices.membros:
           unawaited(base
               .collection('membros')
               .orderBy('updatedAt', descending: true)
               .limit(24)
               .get());
           break;
-        case 6:
+        case ChurchShellIndices.muralAvisos:
           unawaited(base
               .collection('avisos')
               .orderBy('createdAt', descending: true)
               .limit(24)
               .get());
           break;
-        case 7:
+        case ChurchShellIndices.muralEventos:
           unawaited(base
               .collection('noticias')
               .orderBy('startAt', descending: true)
@@ -858,15 +859,30 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   static const List<({String title, List<int> indices})> _menuSections = [
-    (title: 'Geral', indices: [0, 1, 23]),
-    (title: 'Pessoas', indices: [2, 3, 4, 5]),
+    (title: 'Geral', indices: [0, 1, 2, 23]),
+    (title: 'Pessoas', indices: [3, 4, 5, 6]),
     // Pastoral (19) e Chat - Igreja (24) em Comunicação, não em Financeiro.
-    (title: 'Comunicação', indices: [6, 7, 8, 9, 18, 19, 24]),
-    (title: 'Agenda', indices: [10, 11]),
-    (title: 'Documentos', indices: [12, 13, 14]),
-    (title: 'Sistema', indices: [15, 16, 17]),
+    (title: 'Comunicação', indices: [7, 8, 9, 10, 18, 19, 24]),
+    (title: 'Agenda', indices: [11, 12]),
+    (title: 'Documentos', indices: [13, 14, 15]),
+    (title: 'Sistema', indices: [16, 17]),
     (title: 'Financeiro e patrimônio', indices: [20, 21, 22]),
   ];
+
+  List<({String title, List<int> indices})> _menuSectionsForRole(String role) {
+    if (!AppPermissions.isRestrictedMember(role)) return _menuSections;
+    return [
+      (
+        title: 'Minha conta',
+        indices: [ChurchShellIndices.configuracoes],
+      ),
+      (title: 'Geral', indices: [0, 23]),
+      (title: 'Pessoas', indices: [3]),
+      (title: 'Comunicação', indices: [7, 8, 9, 10, 24]),
+      (title: 'Agenda', indices: [11, 12]),
+      (title: 'Documentos', indices: [13]),
+    ];
+  }
 
   /// Entrada visível para a busca global (Ctrl/Cmd+K, tecla /).
   ///
@@ -1465,7 +1481,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   horizontal: compact ? 6 : ThemeCleanPremium.spaceMd,
                   vertical: 10),
               children: [
-                for (final section in _menuSections) ...[
+                for (final section in _menuSectionsForRole(widget.role)) ...[
                   if (section.indices.any(_shouldListNavIndex)) ...[
                     if (!compact) _sidebarSectionLabel(section.title),
                     for (final i in section.indices)
@@ -1637,7 +1653,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   padding: const EdgeInsets.symmetric(
                       horizontal: ThemeCleanPremium.spaceSm, vertical: 10),
                   children: [
-                    for (final section in _menuSections) ...[
+                    for (final section in _menuSectionsForRole(widget.role)) ...[
                       if (section.indices.any(_shouldListNavIndex))
                         Padding(
                           padding: const EdgeInsets.only(right: 8),
@@ -1781,7 +1797,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           podeVerPatrimonio: widget.podeVerPatrimonio,
           podeVerFornecedores: widget.podeVerFornecedores,
           permissions: widget.permissions,
-          onNavigateToMembers: () => setState(() => _selectedIndex = 2),
+          onNavigateToMembers: () =>
+              setState(() => _selectedIndex = ChurchShellIndices.membros),
           onNavigateToShellModule: _navigateToShellModuleFromDashboard,
         );
       case 1:
@@ -1791,6 +1808,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             role: widget.role,
             embeddedInShell: true);
       case 2:
+        return ConfiguracoesPage(
+          key: const ValueKey('page_2'),
+          tenantId: widget.tenantId,
+          role: widget.role,
+          permissions: widget.permissions,
+          subscription: widget.subscription,
+        );
+      case 3:
         final bootMember = _shellBootstrapMemberSearch;
         if (bootMember != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1808,7 +1833,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           });
         }
         return MembersPage(
-          key: const ValueKey('page_2'),
+          key: const ValueKey('page_3'),
           tenantId: widget.tenantId,
           role: widget.role,
           subscription: widget.subscription,
@@ -1818,22 +1843,22 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           initialSearchQuery: bootMember,
           initialOpenMemberDocId: bootOpenId,
         );
-      case 3:
+      case 4:
         return DepartmentsPage(
-            key: const ValueKey('page_3'),
+            key: const ValueKey('page_4'),
             tenantId: widget.tenantId,
             role: widget.role,
             permissions: widget.permissions,
             embeddedInShell: true);
-      case 4:
+      case 5:
         return VisitorsPage(
-            key: const ValueKey('page_4'),
+            key: const ValueKey('page_5'),
             tenantId: widget.tenantId,
             role: widget.role,
             embeddedInShell: true);
-      case 5:
+      case 6:
         return CargosPage(
-            key: const ValueKey('page_5'),
+            key: const ValueKey('page_6'),
             tenantId: widget.tenantId,
             role: widget.role,
             embeddedInShell: true,
@@ -1843,14 +1868,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 PanelScrollBridge.scrollToCorpoAdministrativo?.call();
               });
             });
-      case 6:
+      case 7:
         return MuralPage(
-            key: const ValueKey('page_6'),
+            key: const ValueKey('page_7'),
             tenantId: widget.tenantId,
             role: widget.role,
             permissions: widget.permissions,
             embeddedInShell: true);
-      case 7:
+      case 8:
         final bootEvent = _shellBootstrapEventSearch;
         if (bootEvent != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1860,42 +1885,42 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           });
         }
         return EventsManagerPage(
-            key: const ValueKey('page_7'),
+            key: const ValueKey('page_8'),
             tenantId: widget.tenantId,
             role: widget.role,
             permissions: widget.permissions,
             embeddedInShell: true,
             initialFeedSearchQuery: bootEvent);
-      case 8:
+      case 9:
         return PrayerRequestsPage(
-            key: const ValueKey('page_8'),
+            key: const ValueKey('page_9'),
             tenantId: widget.tenantId,
             role: widget.role,
             embeddedInShell: true);
-      case 9:
+      case 10:
         return CalendarPage(
-            key: const ValueKey('page_9'),
+            key: const ValueKey('page_10'),
             tenantId: widget.tenantId,
             role: widget.role,
             permissions: widget.permissions,
             embeddedInShell: true);
-      case 10:
-        return MySchedulesPage(
-            key: const ValueKey('page_10'),
-            tenantId: widget.tenantId,
-            cpf: widget.cpf,
-            role: widget.role,
-            embeddedInShell: true);
       case 11:
-        return SchedulesPage(
+        return MySchedulesPage(
             key: const ValueKey('page_11'),
             tenantId: widget.tenantId,
+            cpf: widget.cpf,
+            role: widget.role,
+            embeddedInShell: true);
+      case 12:
+        return SchedulesPage(
+            key: const ValueKey('page_12'),
+            tenantId: widget.tenantId,
             role: widget.role,
             cpf: widget.cpf,
             embeddedInShell: true);
-      case 12:
+      case 13:
         return MemberCardPage(
-          key: const ValueKey('page_12'),
+          key: const ValueKey('page_13'),
           tenantId: widget.tenantId,
           role: widget.role,
           cpf: widget.cpf,
@@ -1904,25 +1929,27 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               AppPermissions.isRestrictedMember(widget.role),
           onNavigateToMembers: AppPermissions.isRestrictedMember(widget.role)
               ? null
-              : () => setState(() => _selectedIndex = 2),
+              : () => setState(
+                    () => _selectedIndex = ChurchShellIndices.membros,
+                  ),
         );
-      case 13:
+      case 14:
         return CertificadosPage(
-            key: const ValueKey('page_13'),
+            key: const ValueKey('page_14'),
             tenantId: widget.tenantId,
             role: widget.role);
-      case 14:
+      case 15:
         return ChurchLettersPage(
-          key: const ValueKey('page_14'),
+          key: const ValueKey('page_15'),
           tenantId: widget.tenantId,
           role: widget.role,
           cpf: widget.cpf,
           permissions: widget.permissions,
           embeddedInShell: true,
         );
-      case 15:
+      case 16:
         return RelatoriosPage(
-          key: const ValueKey('page_15'),
+          key: const ValueKey('page_16'),
           tenantId: widget.tenantId,
           role: widget.role,
           podeVerFinanceiro: widget.podeVerFinanceiro,
@@ -1930,14 +1957,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           podeEmitirRelatoriosCompletos: widget.podeEmitirRelatoriosCompletos,
           permissions: widget.permissions,
           embeddedInShell: true,
-        );
-      case 16:
-        return ConfiguracoesPage(
-          key: const ValueKey('page_16'),
-          tenantId: widget.tenantId,
-          role: widget.role,
-          permissions: widget.permissions,
-          subscription: widget.subscription,
         );
       case 17:
         return SistemaInformacoesPage(
@@ -2029,7 +2048,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             podeVerPatrimonio: widget.podeVerPatrimonio,
             podeVerFornecedores: widget.podeVerFornecedores,
             permissions: widget.permissions,
-            onNavigateToMembers: () => setState(() => _selectedIndex = 2),
+            onNavigateToMembers: () =>
+              setState(() => _selectedIndex = ChurchShellIndices.membros),
             onNavigateToShellModule: _navigateToShellModuleFromDashboard);
     }
   }

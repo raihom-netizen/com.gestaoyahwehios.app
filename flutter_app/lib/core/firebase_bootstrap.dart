@@ -4,7 +4,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 
-export 'firebase_bootstrap_accessor.dart' show FirebaseBootstrap;
+export 'firebase/firebase_bootstrap.dart' show FirebaseBootstrap;
+export 'firebase/firebase_service.dart' show FirebaseService;
+export 'firebase/firebase_retry.dart' show firebaseRetry;
+export 'firebase_bootstrap_accessor.dart' show FirebaseBootstrapGateway;
 
 export 'firebase_bootstrap_service.dart' show
     FirebaseBootstrapException,
