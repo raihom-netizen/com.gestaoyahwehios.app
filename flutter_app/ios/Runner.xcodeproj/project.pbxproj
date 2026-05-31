@@ -157,7 +157,6 @@
 				97C146EC1CF9000F007C117D /* Resources */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
-				A1B2C3D41E4923F5004D2609 /* Firebase Crashlytics dSYM */,
 			);
 			buildRules = (
 			);
@@ -278,7 +277,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 1;
 			shellPath = /bin/sh;
-			shellScript = "if [ \"${CONFIGURATION}\" != \"Release\" ] && [ \"${CONFIGURATION}\" != \"Profile\" ]; then exit 0; fi\nif [ -z \"${PODS_ROOT:-}\" ] || [ ! -f \"${PODS_ROOT}/FirebaseCrashlytics/run\" ]; then\n  if [ -n \"${CI:-}\" ] || [ -n \"${CM_BUILD_ID:-}\" ]; then\n    echo \"error: FirebaseCrashlytics/run ausente no CI — execute pod install\"\n    exit 1\n  fi\n  echo \"warning: FirebaseCrashlytics/run ausente — pod install\"\n  exit 0\nfi\n\"${PODS_ROOT}/FirebaseCrashlytics/run\"\n";
+			shellScript = "if [ \"${CONFIGURATION}\" != \"Release\" ] && [ \"${CONFIGURATION}\" != \"Profile\" ]; then exit 0; fi\nif [ -n \"${CI:-}\" ] || [ -n \"${CM_BUILD_ID:-}\" ] || [ -n \"${CM_BUILD_DIR:-}\" ]; then\n  echo \"CI: dSYM Crashlytics apos archive (Codemagic upload-symbols)\"\n  exit 0\nfi\nCR_RUN=\"\"\nif [ -n \"${PODS_ROOT:-}\" ] && [ -f \"${PODS_ROOT}/FirebaseCrashlytics/run\" ]; then CR_RUN=\"${PODS_ROOT}/FirebaseCrashlytics/run\"; elif [ -f \"${SRCROOT}/../Pods/FirebaseCrashlytics/run\" ]; then CR_RUN=\"${SRCROOT}/../Pods/FirebaseCrashlytics/run\"; fi\nif [ -z \"$CR_RUN\" ]; then echo \"warning: FirebaseCrashlytics/run ausente — pod install\"; exit 0; fi\n\"$CR_RUN\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

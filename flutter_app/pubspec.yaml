@@ -92,6 +92,9 @@ dependencies:
   audio_waveforms: ^2.0.2
   package_info_plus: ^8.3.0
 flutter:
+  # Flutter 3.44+ SPM nao instala Pods/FirebaseCrashlytics/run — obrigatorio para Crashlytics no CI.
+  config:
+    enable-swift-package-manager: false
   uses-material-design: true
   assets:
     - assets/icon/app_icon.png

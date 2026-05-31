@@ -189,8 +189,12 @@ workflows:
           bash "$SCRIPT"
       - name: CocoaPods
         script: |
-          cd ios
-          pod install
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          echo root > /tmp/cm_yw_layout
+          SCRIPTS="$ROOT/scripts"
+          [ -d "$SCRIPTS" ] || SCRIPTS="$ROOT/../scripts"
+          bash "$SCRIPTS/codemagic_ios_pod_install.sh"
       - name: Code signing (Xcode)
         script: |
           set -e
@@ -227,6 +231,10 @@ workflows:
           BN="$(tr -d '\r\n' < /tmp/cm_ios_build_number)"
           [ -n "$BUILD_NAME" ] && [ -n "$BN" ] || { echo "ERRO: build-name/number vazio"; exit 1; }
           echo "build-name=$BUILD_NAME build-number=$BN (ASC+offset, evita 90189)"
+          SCRIPTS="$ROOT/scripts"
+          [ -d "$SCRIPTS" ] || SCRIPTS="$ROOT/../scripts"
+          echo root > /tmp/cm_yw_layout
+          bash "$SCRIPTS/codemagic_ios_prepare_build_ipa.sh"
           set +e
           flutter build ipa --release \
             --build-name="$BUILD_NAME" \

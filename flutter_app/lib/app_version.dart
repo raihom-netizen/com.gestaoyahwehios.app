@@ -1,5 +1,5 @@
 ﻿/// Single source of app version used everywhere.
-/// 11.2.295+1688: Chat web — contatos cache-first; mural bootstrap leve; nomes nas conversas.
+/// 11.2.295+1688: iOS CI — SPM off + Crashlytics dSYM no Codemagic; chat/mural web estável.
 /// 11.2.295+1687: Fotos painel/chat/perfil — cache web instantâneo, thumbs, painel não bloqueia prefetch.
 /// 11.2.295+1686: Avisos/eventos — escolher fotos + Publicar grava tudo na hora (padrão Controle Total).
 /// 11.2.295+1685: CI iOS — upload dSYM Crashlytics obrigatório (sem Missing dSYM).

@@ -31,6 +31,9 @@ target 'Runner' do
   use_modular_headers!
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+
+  # dSYM/upload-symbols no CI (Codemagic) — nao depender da fase Xcode nem do SPM.
+  pod 'FirebaseCrashlytics'
 end
 
 post_install do |installer|

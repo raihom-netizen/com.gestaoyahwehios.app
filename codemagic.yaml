@@ -142,6 +142,7 @@ workflows:
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          flutter config --no-enable-swift-package-manager
           cd "$ROOT"
           case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app ;; root) ;; *) echo "ERRO: /tmp/cm_yw_layout ausente"; exit 1 ;; esac
           flutter pub get
@@ -188,9 +189,7 @@ workflows:
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
-          cd "$ROOT"
-          case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app/ios ;; root) cd ios ;; *) echo "ERRO: layout"; exit 1 ;; esac
-          pod install
+          bash "$ROOT/scripts/codemagic_ios_pod_install.sh"
       - name: Forçar iOS deployment target 14.0 (home_widget / Pods)
         script: |
           set -e
@@ -237,6 +236,7 @@ workflows:
           echo "flutter build ipa --build-name=$BUILD_NAME --build-number=$BN"
           echo "  (CFBundleVersion = ASC último + offset — ver passo Versão iOS; sem Retry só em Publishing)"
           grep '^version:' pubspec.yaml || true
+          bash "$ROOT/scripts/codemagic_ios_prepare_build_ipa.sh"
           set +e
           flutter build ipa --release \
             --build-name="$BUILD_NAME" \
