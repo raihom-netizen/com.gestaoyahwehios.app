@@ -670,10 +670,9 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
                 ? '/igreja/login'
                 : '/login');
       }
-      final autoPainel =
-          await ChurchAutoSessionService.painelRouteIfSessionRestored(
-        initialRoute,
-      );
+      final autoPainel = await ChurchAutoSessionService
+          .painelRouteIfSessionRestored(initialRoute)
+          .timeout(const Duration(seconds: 3), onTimeout: () => null);
       if (autoPainel != null) {
         initialRoute = autoPainel;
       }
@@ -690,13 +689,6 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
               ? '/igreja/login'
               : '/login');
     }
-    final autoPainelFallback =
-        await ChurchAutoSessionService.painelRouteIfSessionRestored(
-      initialRoute,
-    );
-    if (autoPainelFallback != null) {
-      initialRoute = autoPainelFallback;
-    }
     if (AppStartupRoute.isNativeMobile) {
       initialRoute = await AppStartupRoute.finalizeNativeRoute(initialRoute);
     }
@@ -708,8 +700,9 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
         (LoginPreferences.autoPainelLoginSync ||
             initialRoute == '/painel' ||
             initialRoute.startsWith('/painel/'));
-    if (shellFast &&
-        (initialRoute == '/painel' || initialRoute.startsWith('/painel/'))) {
+    final painelReopen = initialRoute == '/painel' ||
+        initialRoute.startsWith('/painel/');
+    if (shellFast && painelReopen) {
       try {
         await PanelPreheatCoordinator.preheatOnce().timeout(
           const Duration(seconds: 2),
@@ -717,10 +710,19 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       } on TimeoutException {
         // UI abre com cache local; callable continua em background.
       } catch (_) {}
-    } else if (AppStartupRoute.isNativeMobile &&
-        await AuthSessionService.hasSession() &&
-        (initialRoute == '/painel' || initialRoute.startsWith('/painel/'))) {
-      unawaited(AppStartupPreheat.preheatForDashboard());
+    } else if (painelReopen &&
+        (kIsWeb ||
+            (AppStartupRoute.isNativeMobile &&
+                await AuthSessionService.hasSession()))) {
+      unawaited(
+        PanelPreheatCoordinator.preheatOnce().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {},
+        ),
+      );
+      if (AppStartupRoute.isNativeMobile) {
+        unawaited(AppStartupPreheat.preheatForDashboard());
+      }
     }
   }
   unawaited(
@@ -834,7 +836,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
             GlobalWidgetsLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
           ],
-          home: _StartupSplashGate(targetRoute: widget.initialRoute),
+          home: _initialAppHome(widget.initialRoute),
           debugShowCheckedModeBanner: false,
           navigatorObservers: [
             _LastRouteObserver(),
@@ -1220,6 +1222,79 @@ class _AppWithThemeState extends State<_AppWithTheme>
   }
 }
 
+/// Home inicial: web abre a rota-alvo sem splash (evita spinner infinito no PWA).
+Widget _initialAppHome(String rawRoute) {
+  final r = rawRoute.trim().isEmpty ? '/' : rawRoute.trim();
+  if (r == '/') return const SitePublicPage();
+  if (kIsWeb) {
+    final page = _explicitStartupPage(r);
+    if (page != null) return page;
+  }
+  return _StartupSplashGate(targetRoute: r);
+}
+
+/// Rotas críticas com [MaterialPageRoute] explícita — `pushReplacementNamed` falha
+/// no Flutter Web quando [MaterialApp.home] é o splash.
+Widget? _explicitStartupPage(String rawRoute) {
+  final uri = rawRoute.contains('://')
+      ? (Uri.tryParse(rawRoute) ?? Uri(path: '/'))
+      : Uri.parse('https://gestao.invalid$rawRoute');
+  var path = uri.path.isEmpty ? '/' : uri.path;
+  if (path != '/' && !path.startsWith('/')) path = '/$path';
+  if (path.length > 1 && path.endsWith('/')) {
+    path = path.replaceFirst(RegExp(r'/$'), '');
+  }
+  switch (path) {
+    case '/painel':
+      final openMember = uri.queryParameters['openMemberId']?.trim() ?? '';
+      final openMod =
+          uri.queryParameters['openModule']?.trim().toLowerCase() ?? '';
+      int? shellFromQuery;
+      if (openMod == 'minha_escala' ||
+          openMod == 'my_schedules' ||
+          openMod == 'minhaescala') {
+        shellFromQuery = kChurchShellIndexMySchedules;
+      } else if (openMod == 'escala_geral' ||
+          openMod == 'schedules' ||
+          openMod == 'escalas') {
+        shellFromQuery = kChurchShellIndexEscalaGeral;
+      }
+      return AuthGate(
+        initialOpenMemberDocId: openMember.isEmpty ? null : openMember,
+        initialShellIndex: shellFromQuery,
+      );
+    case '/login':
+      final em = uri.queryParameters['email']?.trim();
+      return LoginPageNovo(
+        prefillEmail: (em != null && em.isNotEmpty) ? em : null,
+      );
+    case '/igreja/login':
+      final em = uri.queryParameters['email']?.trim();
+      return LoginPage(
+        title: IosPaymentsGate.isIosNative
+            ? 'Entrar com conta existente'
+            : 'Entrar — Painel da Igreja',
+        afterLoginRoute: IosPaymentsGate.isIosNative
+            ? '/painel'
+            : _resolveIgrejaLoginAfterRoute(uri),
+        showFleetBranding: false,
+        backRoute: '/',
+        showSmartLoginFlow: false,
+        prefillEmail: (em != null && em.isNotEmpty) ? em : null,
+      );
+    case '/admin':
+      return const _MasterPanelGuard();
+    case '/login_admin':
+      return const LoginPage(
+        title: 'Entrar no Painel Master',
+        afterLoginRoute: '/admin',
+        showFleetBranding: false,
+      );
+    default:
+      return null;
+  }
+}
+
 class _StartupSplashGate extends StatefulWidget {
   final String targetRoute;
   const _StartupSplashGate({required this.targetRoute});
@@ -1229,6 +1304,7 @@ class _StartupSplashGate extends StatefulWidget {
 }
 
 class _StartupSplashGateState extends State<_StartupSplashGate> {
+  Timer? _navFallbackTimer;
 
   @override
   void initState() {
@@ -1236,7 +1312,16 @@ class _StartupSplashGateState extends State<_StartupSplashGate> {
     final route = widget.targetRoute.trim().isEmpty ? '/' : widget.targetRoute;
     if (route != '/') {
       unawaited(_goNext());
+      _navFallbackTimer = Timer(const Duration(seconds: 5), () {
+        if (mounted) _navigateOffSplash(route, force: true);
+      });
     }
+  }
+
+  @override
+  void dispose() {
+    _navFallbackTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _goNext() async {
@@ -1254,28 +1339,51 @@ class _StartupSplashGateState extends State<_StartupSplashGate> {
       }
     }
 
-    void navigateOffSplash() {
-      if (!mounted) return;
-      final nav = Navigator.of(context, rootNavigator: true);
-      final r = route.trim();
-      // Raiz do site de divulgação: rota explícita evita falha silenciosa de
-      // pushReplacementNamed no Flutter Web com MaterialApp(home: splash).
-      if (r.isEmpty || r == '/') {
-        nav.pushReplacement(
-          MaterialPageRoute<void>(
-            settings: const RouteSettings(name: '/'),
-            builder: (_) => const SitePublicPage(),
-          ),
-        );
-        return;
-      }
-      nav.pushReplacementNamed(route);
-    }
-
-    // Dois frames: Navigator do MaterialApp às vezes ainda não aceita replace no primeiro tick (web).
+    if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => navigateOffSplash());
+      if (!mounted) return;
+      _navigateOffSplash(route);
     });
+  }
+
+  void _navigateOffSplash(String route, {bool force = false}) {
+    if (!mounted) return;
+    final nav = Navigator.of(context, rootNavigator: true);
+    final r = route.trim();
+    if (r.isEmpty || r == '/') {
+      nav.pushReplacement(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: '/'),
+          builder: (_) => const SitePublicPage(),
+        ),
+      );
+      _navFallbackTimer?.cancel();
+      return;
+    }
+    final explicit = _explicitStartupPage(r);
+    if (explicit != null) {
+      nav.pushReplacement(
+        MaterialPageRoute<void>(
+          settings: RouteSettings(name: r),
+          builder: (_) => explicit,
+        ),
+      );
+      _navFallbackTimer?.cancel();
+      return;
+    }
+    if (!force) {
+      nav.pushReplacementNamed(r).catchError((Object _) {
+        if (mounted) _navigateOffSplash(r, force: true);
+      });
+      return;
+    }
+    nav.pushReplacement(
+      MaterialPageRoute<void>(
+        settings: RouteSettings(name: r),
+        builder: (_) => const SitePublicPage(),
+      ),
+    );
+    _navFallbackTimer?.cancel();
   }
 
   @override

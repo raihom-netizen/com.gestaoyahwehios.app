@@ -1,4 +1,5 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1692: Web arranque — sem splash preso no painel; AuthGate cache/timeout 22s.
 /// 11.2.295+1691: Mídia rápida global — chat/avisos/eventos/patrimônio upload directo + bootstrap paralelo.
 /// 11.2.295+1690: Patrimônio — upload fotos directo (WebP + putData, sem fila offline dupla).
 /// 11.2.295+1689: Velocidade Controle Total — rodapé mobile em IndexedStack, painel cache-first sem skeleton.
@@ -210,7 +211,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1691';
+const String appBuildNumber = '1692';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

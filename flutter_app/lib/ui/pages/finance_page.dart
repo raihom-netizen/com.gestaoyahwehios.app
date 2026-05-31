@@ -1345,7 +1345,7 @@ class _FinancePageState extends State<FinancePage>
           // Abas + visão por conta sobem com o scroll do conteúdo (web e mobile).
           headerSliverBuilder: (BuildContext context, bool innerBoxIsScrolled) {
             return [
-              if (isMobile && !widget.embeddedInShell)
+              if (isMobile && !widget.embeddedInShell && !shellChrome)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg,
@@ -1395,93 +1395,86 @@ class _FinancePageState extends State<FinancePage>
                     ),
                   ),
                 ),
-              SliverToBoxAdapter(
-                child: isMobile &&
-                        widget.embeddedInShell &&
-                        widget.onShellBack == null
-                    ? DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              moduleAccent,
-                              Color.lerp(moduleAccent, Colors.white, 0.2)!,
-                            ],
-                          ),
-                        ),
-                        child: ChurchPanelPillTabBar(
-                          controller: _tabCtrl,
-                          accentColor: moduleAccent,
-                          tabs: _financeTabs,
-                        ),
-                      )
-                    : Container(
-                        margin: EdgeInsets.symmetric(
-                            horizontal: ThemeCleanPremium.spaceLg,
-                            vertical: ThemeCleanPremium.spaceSm),
-                        decoration: BoxDecoration(
-                          color: ThemeCleanPremium.cardBackground,
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                          boxShadow: [
-                            ...ThemeCleanPremium.softUiCardShadow,
-                            BoxShadow(
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.06),
-                              blurRadius: 24,
-                              offset: const Offset(0, 8),
-                              spreadRadius: -4,
-                            ),
-                          ],
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: TabBar(
-                          controller: _tabCtrl,
-                          isScrollable: true,
-                          tabAlignment: TabAlignment.start,
-                          splashBorderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                          labelColor: ThemeCleanPremium.primary,
-                          unselectedLabelColor:
-                              ThemeCleanPremium.onSurfaceVariant,
-                          labelStyle: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13.5,
-                              letterSpacing: -0.2),
-                          unselectedLabelStyle: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                              letterSpacing: -0.15),
-                          indicatorSize: TabBarIndicatorSize.tab,
-                          indicator: BoxDecoration(
+              if (!shellChrome)
+                SliverToBoxAdapter(
+                  child: isMobile &&
+                          widget.embeddedInShell &&
+                          widget.onShellBack == null
+                      ? DecoratedBox(
+                          decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: [
-                                ThemeCleanPremium.primary
-                                    .withValues(alpha: 0.14),
-                                ThemeCleanPremium.primary
-                                    .withValues(alpha: 0.06),
+                                moduleAccent,
+                                Color.lerp(moduleAccent, Colors.white, 0.2)!,
                               ],
                             ),
-                            borderRadius:
-                                BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                            border: Border.all(
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.22),
-                            ),
                           ),
-                          dividerColor: Colors.transparent,
-                          tabs: const [
-                            Tab(text: 'Resumo'),
-                            Tab(text: 'Lançamentos'),
-                            Tab(text: 'Despesas Fixas'),
-                            Tab(text: 'Receitas Fixas'),
-                            Tab(text: 'Conciliação'),
-                            Tab(text: 'Categorias'),
-                            Tab(text: 'Contas'),
-                            Tab(text: 'Relatórios'),
-                          ],
+                          child: ChurchPanelPillTabBar(
+                            controller: _tabCtrl,
+                            accentColor: moduleAccent,
+                            tabs: _financeTabs,
+                          ),
+                        )
+                      : Container(
+                          margin: EdgeInsets.symmetric(
+                              horizontal: ThemeCleanPremium.spaceLg,
+                              vertical: ThemeCleanPremium.spaceSm),
+                          decoration: BoxDecoration(
+                            color: ThemeCleanPremium.cardBackground,
+                            borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusLg),
+                            boxShadow: [
+                              ...ThemeCleanPremium.softUiCardShadow,
+                              BoxShadow(
+                                color: ThemeCleanPremium.primary
+                                    .withValues(alpha: 0.06),
+                                blurRadius: 24,
+                                offset: const Offset(0, 8),
+                                spreadRadius: -4,
+                              ),
+                            ],
+                            border:
+                                Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: TabBar(
+                            controller: _tabCtrl,
+                            isScrollable: true,
+                            tabAlignment: TabAlignment.start,
+                            splashBorderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusSm),
+                            labelColor: ThemeCleanPremium.primary,
+                            unselectedLabelColor:
+                                ThemeCleanPremium.onSurfaceVariant,
+                            labelStyle: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13.5,
+                                letterSpacing: -0.2),
+                            unselectedLabelStyle: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                                letterSpacing: -0.15),
+                            indicatorSize: TabBarIndicatorSize.tab,
+                            indicator: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.14),
+                                  ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.06),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusSm),
+                              border: Border.all(
+                                color: ThemeCleanPremium.primary
+                                    .withValues(alpha: 0.22),
+                              ),
+                            ),
+                            dividerColor: Colors.transparent,
+                            tabs: _financeTabs,
+                          ),
                         ),
-                      ),
-              ),
+                ),
             ];
           },
           body: TabBarView(

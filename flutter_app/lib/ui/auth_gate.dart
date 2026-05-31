@@ -351,6 +351,13 @@ class _AuthGateState extends State<AuthGate> {
 
   Future<Map<String, dynamic>?> _loadProfile(User user, {int repairDepth = 0}) async {
     final cached = await AuthProfileCacheService.instance.load(user.uid);
+    if (repairDepth == 0 &&
+        cached != null &&
+        (cached['igrejaId'] ?? '').toString().trim().isNotEmpty &&
+        cached['church'] is Map &&
+        (cached['church'] as Map).isNotEmpty) {
+      return cached;
+    }
     try {
       final db = FirebaseFirestore.instance;
       const loadTimeout = Duration(seconds: 14);
@@ -834,7 +841,19 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
         ? Future.value(false)
         : BiometricService().isEnabled().catchError((_, __) => false);
     _readyFuture = Future.wait([_profileFuture, _biometricFuture])
-        .then((list) => (list[0] as Map<String, dynamic>?, list[1] as bool));
+        .then((list) => (list[0] as Map<String, dynamic>?, list[1] as bool))
+        .timeout(
+          const Duration(seconds: 22),
+          onTimeout: () async {
+            final c =
+                await AuthProfileCacheService.instance.load(widget.user.uid);
+            if (c != null &&
+                (c['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+              return (c, false);
+            }
+            throw TimeoutException('profile_load');
+          },
+        );
     _userDocRoleSub = FirebaseFirestore.instance
         .collection('users')
         .doc(widget.user.uid)
