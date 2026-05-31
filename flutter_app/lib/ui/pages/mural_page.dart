@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_theme.dart' show SaaSContentViewport;
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_insights_dashboard.dart';
@@ -69,7 +70,17 @@ class _MuralPageState extends State<MuralPage>
     String churchSlug,
     Map<String, dynamic> tenantData,
   })> _loadTenantAndSlug() async {
-    await ensureFirebaseReadyForPublishUpload();
+    try {
+      await FirebaseBootstrap.ensureInitialized();
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
+    } catch (_) {
+      final fallback = widget.tenantId.trim();
+      return (
+        firestoreTenantId: fallback,
+        churchSlug: fallback,
+        tenantData: <String, dynamic>{},
+      );
+    }
     final uid = firebaseDefaultAuth.currentUser?.uid;
     final tid =
         await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(

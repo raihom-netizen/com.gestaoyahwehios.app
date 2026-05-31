@@ -15,6 +15,9 @@ import 'package:gestao_yahweh/services/church_chat_local_conversations.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_threads_list_cache.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
@@ -778,6 +781,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (peer.isEmpty) {
       peer = ChurchChatService.otherUidInDmThread(doc.id, myUid) ?? '';
     }
+    final memberRef = peer.isNotEmpty ? _peerMemberByUid[peer] : null;
+    if (memberRef != null) {
+      final fromMember = _memberDisplayName(memberRef);
+      if (fromMember.isNotEmpty && fromMember != peer) return fromMember;
+    }
     final titles = data['titlesByUid'];
     var title = peer;
     if (titles is Map && titles[peer] != null) {
@@ -831,7 +839,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   String _memberDisplayName(ChurchChatMemberRef ref) {
     final data = ref.data;
-    final nome = (data['nome'] ?? data['name'] ?? '').toString().trim();
+    final nome = (data['NOME_COMPLETO'] ??
+            data['nome'] ??
+            data['name'] ??
+            data['displayName'] ??
+            '')
+        .toString()
+        .trim();
     if (nome.isNotEmpty) return nome;
     return ref.authUid;
   }
@@ -3078,6 +3092,13 @@ class _HubScopedSearchBarState extends State<_HubScopedSearchBar> {
   }
 }
 
+/// Linha unificada — Firestore `membros` ou cache `_panel_cache/members_directory`.
+class _ChatDirectoryMemberRow {
+  const _ChatDirectoryMemberRow({required this.docId, required this.data});
+  final String docId;
+  final Map<String, dynamic> data;
+}
+
 class _AllMembersDirectoryView extends StatefulWidget {
   final String tenantId;
   final String myUid;
@@ -3103,8 +3124,9 @@ class _AllMembersDirectoryView extends StatefulWidget {
 }
 
 class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _docs;
+  List<_ChatDirectoryMemberRow> _rows = const [];
   bool _loading = true;
+  bool _loadFailed = false;
 
   void _onFilterChanged() => setState(() {});
 
@@ -3121,42 +3143,118 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
     super.dispose();
   }
 
+  static String? _authUidFromMemberData(String docId, Map<String, dynamic> d) {
+    var auth = (d['authUid'] ?? d['firebaseUid'] ?? '').toString().trim();
+    if (auth.isEmpty &&
+        docId.length >= 20 &&
+        docId.length <= 128 &&
+        !RegExp(r'^\d{11}$').hasMatch(docId)) {
+      auth = docId;
+    }
+    return auth.isEmpty ? null : auth;
+  }
+
+  List<_ChatDirectoryMemberRow> _rowsFromDirectory(
+    MembersDirectorySnapshot directory,
+  ) {
+    return directory.entries
+        .where((e) => e.memberDocId.isNotEmpty)
+        .map(
+          (e) => _ChatDirectoryMemberRow(
+            docId: e.memberDocId,
+            data: e.toMemberDataMap(),
+          ),
+        )
+        .toList();
+  }
+
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadFailed = false;
+    });
     try {
-      final q = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('membros')
-          .limit(600)
-          .get();
+      await FirebaseBootstrap.ensureInitialized();
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
+
+      var rows = <_ChatDirectoryMemberRow>[];
+      final directory =
+          await MembersDirectorySnapshotService.readOnce(widget.tenantId);
+      if (directory.hasEntries) {
+        rows = _rowsFromDirectory(directory);
+      }
+
+      if (rows.isEmpty) {
+        final col = FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(widget.tenantId)
+            .collection('membros');
+        QuerySnapshot<Map<String, dynamic>> snap;
+        try {
+          snap = await col
+              .limit(600)
+              .get(const GetOptions(source: Source.serverAndCache));
+        } catch (_) {
+          snap = await col.limit(600).get(const GetOptions(source: Source.cache));
+        }
+        rows = snap.docs
+            .map((d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()))
+            .toList();
+      }
+
       if (!mounted) return;
       setState(() {
-        _docs = q.docs;
+        _rows = rows;
         _loading = false;
+        _loadFailed = false;
       });
+
+      if (rows.isNotEmpty) {
+        final refs = rows
+            .map((r) {
+              final auth = _authUidFromMemberData(r.docId, r.data);
+              if (auth == null) return null;
+              return churchChatMemberRefFromMemberDoc(r.docId, r.data);
+            })
+            .whereType<ChurchChatMemberRef>()
+            .toList();
+        ChurchGalleryPhotoWarmup.warmBytesForChatRefs(
+          widget.tenantId,
+          refs,
+        );
+      } else {
+        unawaited(
+          MembersDirectorySnapshotService.warmFromCallableIfStale(
+            widget.tenantId,
+          ).then((warmed) {
+            if (!mounted || !warmed.hasEntries) return;
+            setState(() => _rows = _rowsFromDirectory(warmed));
+          }),
+        );
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _docs = [];
+        _rows = const [];
         _loading = false;
+        _loadFailed = true;
       });
     }
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filteredMemberDocs() {
-    final docs = _docs ?? [];
+  List<_ChatDirectoryMemberRow> _filteredMemberRows() {
     final q = widget.filterCtrl.text.trim().toLowerCase();
-    final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    for (final doc in docs) {
-      final d = doc.data();
-      final st = (d['STATUS'] ?? d['status'] ?? '').toString().toLowerCase();
+    final out = <_ChatDirectoryMemberRow>[];
+    for (final row in _rows) {
+      final d = row.data;
+      final st = (d['STATUS'] ?? d['status'] ?? 'ativo').toString().toLowerCase();
       if (st != 'ativo') continue;
-      final auth = (d['authUid'] ?? d['firebaseUid'] ?? '').toString();
-      if (auth.isEmpty || auth == widget.myUid) continue;
+      final auth = _authUidFromMemberData(row.docId, d);
+      if (auth == null || auth == widget.myUid) continue;
       if (widget.prefs.isBlockedPeer(auth)) continue;
-      final nome =
-          (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
+      final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? '')
+          .toString()
+          .trim();
       final label = nome.isEmpty ? auth : nome;
       if (q.isNotEmpty) {
         if (!label.toLowerCase().contains(q) &&
@@ -3164,13 +3262,13 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
           continue;
         }
       }
-      out.add(doc);
+      out.add(row);
     }
     return out;
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortMembersOnlineFirst(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> members,
+  List<_ChatDirectoryMemberRow> _sortMembersOnlineFirst(
+    List<_ChatDirectoryMemberRow> members,
     Map<String, Timestamp> presenceByUid,
   ) {
     bool online(String uid) {
@@ -3179,13 +3277,12 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       return DateTime.now().difference(ts.toDate()).inSeconds < 45;
     }
 
-    final copy =
-        List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(members);
+    final copy = List<_ChatDirectoryMemberRow>.from(members);
     copy.sort((a, b) {
-      final da = a.data();
-      final db = b.data();
-      final authA = (da['authUid'] ?? da['firebaseUid'] ?? '').toString();
-      final authB = (db['authUid'] ?? db['firebaseUid'] ?? '').toString();
+      final da = a.data;
+      final db = b.data;
+      final authA = _authUidFromMemberData(a.docId, da) ?? '';
+      final authB = _authUidFromMemberData(b.docId, db) ?? '';
       final onA = online(authA);
       final onB = online(authB);
       if (onA != onB) {
@@ -3227,7 +3324,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
           if (ts is Timestamp) presenceByUid[p.id] = ts;
         }
         final rows =
-            _sortMembersOnlineFirst(_filteredMemberDocs(), presenceByUid);
+            _sortMembersOnlineFirst(_filteredMemberRows(), presenceByUid);
         final dpr = MediaQuery.devicePixelRatioOf(context);
         final cachePx = (40 * dpr).round().clamp(96, 240);
 
@@ -3242,9 +3339,11 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
                       height: MediaQuery.sizeOf(context).height * 0.15,
                     ),
                     Text(
-                      (_docs ?? []).isEmpty
-                          ? 'Não foi possível listar membros.'
-                          : 'Nenhum membro corresponde ao filtro.',
+                      _loadFailed
+                          ? 'Não foi possível listar membros. Puxe para atualizar.'
+                          : _rows.isEmpty
+                              ? 'Nenhum membro ativo com acesso ao app.'
+                              : 'Nenhum membro corresponde ao filtro.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: ThemeCleanPremium.onSurfaceVariant,
@@ -3258,10 +3357,9 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 28),
                   itemCount: rows.length,
                   itemBuilder: (_, i) {
-                    final doc = rows[i];
-                    final d = doc.data();
-                    final auth =
-                        (d['authUid'] ?? d['firebaseUid'] ?? '').toString();
+                    final row = rows[i];
+                    final d = row.data;
+                    final auth = _authUidFromMemberData(row.docId, d) ?? '';
                     final nome =
                         (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
                     final label = nome.isEmpty ? auth : nome;
@@ -3289,7 +3387,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
                                         imageUrl:
                                             photoUrl.isEmpty ? null : photoUrl,
                                         tenantId: widget.tenantId,
-                                        memberId: doc.id,
+                                        memberId: row.docId,
                                         cpfDigits: _cpfDigitsFromMembro(d),
                                         authUid:
                                             auth.isNotEmpty ? auth : null,

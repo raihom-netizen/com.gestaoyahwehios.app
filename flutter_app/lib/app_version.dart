@@ -1,4 +1,5 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1688: Chat web — contatos cache-first; mural bootstrap leve; nomes nas conversas.
 /// 11.2.295+1687: Fotos painel/chat/perfil — cache web instantâneo, thumbs, painel não bloqueia prefetch.
 /// 11.2.295+1686: Avisos/eventos — escolher fotos + Publicar grava tudo na hora (padrão Controle Total).
 /// 11.2.295+1685: CI iOS — upload dSYM Crashlytics obrigatório (sem Missing dSYM).
@@ -206,7 +207,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1687';
+const String appBuildNumber = '1688';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

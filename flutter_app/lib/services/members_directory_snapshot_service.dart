@@ -94,7 +94,10 @@ class MemberDirectoryEntry {
       },
       if (fotoUrlCacheRevision > 0)
         'fotoUrlCacheRevision': fotoUrlCacheRevision,
-      if (authUid != null && authUid!.isNotEmpty) 'authUid': authUid,
+      if (authUid != null && authUid!.isNotEmpty) ...{
+        'authUid': authUid,
+        'firebaseUid': authUid,
+      },
       if (cpfDigits != null && cpfDigits!.isNotEmpty) 'CPF': cpfDigits,
       if (email != null && email!.isNotEmpty) 'EMAIL': email,
       if (telefone != null && telefone!.isNotEmpty) 'TELEFONES': telefone,
@@ -168,7 +171,16 @@ class MembersDirectorySnapshotService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const MembersDirectorySnapshot();
     try {
-      final snap = await cacheRef(tid).get();
+      final cached = await cacheRef(tid).get(
+        const GetOptions(source: Source.cache),
+      );
+      final fromCache = MembersDirectorySnapshot.fromMap(cached.data());
+      if (fromCache.hasEntries) return fromCache;
+    } catch (_) {}
+    try {
+      final snap = await cacheRef(tid).get(
+        const GetOptions(source: Source.serverAndCache),
+      );
       return MembersDirectorySnapshot.fromMap(snap.data());
     } catch (_) {
       return const MembersDirectorySnapshot();
