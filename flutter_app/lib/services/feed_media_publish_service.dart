@@ -7,7 +7,6 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
-import 'package:gestao_yahweh/services/feed_media_publish_fast.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_strict.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
@@ -177,7 +176,7 @@ abstract final class FeedMediaPublishService {
     await PendingUploadsFirestoreService.resumeAllForTenant(tenantId);
   }
 
-  /// Fotos novas: aguarda upload + URL antes de publicar no Firestore (sem doc vazio).
+  /// Fotos novas: upload Storage → URLs → Firestore `published` (padrão Controle Total).
   static Future<String> saveStubAndSchedulePhotos({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String tenantId,
@@ -199,16 +198,16 @@ abstract final class FeedMediaPublishService {
         isNewDoc: isNewDoc,
       );
     }
-    return FeedMediaPublishFast.publishWithPhotosInBackground(
+    return publish(
       docRef: docRef,
       tenantId: tenantId,
+      postId: docRef.id,
       postType: postType,
       corePayload: stubPayload,
       isNewDoc: isNewDoc,
       existingUrls: existingUrls,
       startSlotIndex: startSlotIndex,
       hasVideo: hasVideo,
-      pendingPhotoCount: pendingPhotoCount,
       newImagesBytes: newImagesBytes,
       newImagePaths: newImagePaths,
       onPublished: onPublished,

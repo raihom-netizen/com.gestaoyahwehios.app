@@ -334,11 +334,13 @@ workflows:
           echo "IPA: $ABS_IPA (normalizado para GestaoYahweh.ipa no passo seguinte)"
           echo "Copias para artefactos: $ROOT/build/ios/ipa/ e $FLUTTER_PWD/build/ios/ipa/"
           ls -la "$ROOT/build/ios/ipa" "$FLUTTER_PWD/build/ios/ipa"
-      - name: Upload dSYM para Firebase Crashlytics
+      - name: Upload dSYM para Firebase Crashlytics (obrigatorio)
         script: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          export CM_CRASHLYTICS_DSYM_REQUIRED=1
           bash "$ROOT/scripts/codemagic_ios_upload_crashlytics_dsyms.sh"
+          echo "dSYM enviados — UUID desta build no Console Crashlytics deve ficar resolvido."
       # O publicador ASC da Codemagic procura *.ipa nos artefactos; em monorepo o IPA fica
       # em flutter_app/build/ios/ipa/ (ou $FLUTTER_BUILD_DIR). Copiar para build/ios/ipa na raiz.
       - name: IPA para publicação ASC (cópia na raiz do repo)

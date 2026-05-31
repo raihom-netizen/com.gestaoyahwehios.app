@@ -1632,7 +1632,18 @@ class _MembersPageState extends State<MembersPage> {
         _funcaoLabel,
       );
       if (fromPainel.isNotEmpty) {
-        return fromPainel.map((e) => (key: e.key, label: e.label)).toList();
+        final merged = <String, String>{
+          for (final e in fromPainel) e.key: e.label,
+        };
+        for (final k in _funcoesList) {
+          merged.putIfAbsent(k, () => _funcaoLabel(k));
+        }
+        final list = merged.entries
+            .map((e) => (key: e.key, label: e.value))
+            .toList();
+        list.sort(
+            (a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+        return list;
       }
     } catch (_) {}
     try {
@@ -9373,6 +9384,7 @@ const List<String> _funcoesList = [
   'diacono',
   'secretario',
   'tesoureiro',
+  'lider_departamento',
   'evangelista',
   'musico',
   'auxiliar',
@@ -9390,6 +9402,7 @@ String _funcaoLabel(String value) {
     'diacono': 'Diácono',
     'secretario': 'Secretário',
     'tesoureiro': 'Tesoureiro',
+    'lider_departamento': 'Líder de departamento',
     'evangelista': 'Evangelista',
     'musico': 'Músico',
     'auxiliar': 'Auxiliar',
@@ -9692,8 +9705,8 @@ class _MemberAvatar extends StatelessWidget {
                 authUid: au,
                 memberData: memberData,
                 backgroundColor: backgroundColor,
-                memCacheWidth: 1400,
-                memCacheHeight: 1400,
+                memCacheWidth: 720,
+                memCacheHeight: 720,
                 fallbackChild: _letterAvatar(),
               ),
             ),

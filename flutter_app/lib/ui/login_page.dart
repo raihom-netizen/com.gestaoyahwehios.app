@@ -283,6 +283,10 @@ class _LoginPageState extends State<LoginPage> {
 
     if (!kIsWeb && _nativeChurchLogin) {
       await _tryExpressGoogleReconnectAndEnterPainel();
+      if (!mounted) return;
+      if (FirebaseAuth.instance.currentUser == null) {
+        await _tryAutoOAuthSilentOnce();
+      }
     }
   }
 
@@ -505,29 +509,64 @@ class _LoginPageState extends State<LoginPage> {
     await _refreshQuickBiometricState();
     _scheduleMaybeAutoBiometricLogin();
     _scheduleMaybeAutoWebCredentialLogin();
+    _scheduleNativeReturningUserUnlock();
+  }
+
+  /// Android/iOS painel: restaura Google/e-mail guardado antes de pedir login manual.
+  void _scheduleNativeReturningUserUnlock() {
+    if (kIsWeb || !_nativeChurchLogin) return;
+    if (!loginAfterTargetsPainelOrAtualizarPlano(_painelLoginRoute)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 120), () async {
+        if (!mounted || _loading || _oauthGoogleInFlight || _sessionFinalizing) {
+          return;
+        }
+        if (await LoginPreferences.isAccountSwitchPending()) return;
+        final u = FirebaseAuth.instance.currentUser;
+        if (u != null && !u.isAnonymous) {
+          await _tryReturningUserAutoAccessOnLogin();
+          return;
+        }
+        await _tryAutoOAuthSilentOnce();
+      });
+    });
   }
 
   /// Utilizador já entrou no painel neste aparelho (Google/Apple ou auto-login).
   Future<bool> _nativeChurchHasPainelUnlockHints() async {
     if (!_nativeChurchLogin) return false;
+    if (LoginPreferences.autoPainelLoginSync) return true;
     final lastId = (await LoginPreferences.getLastLoginIdentifier()).trim();
     if (!lastId.contains('@')) return false;
     final lastProv = await LoginPreferences.getLastOAuthProvider();
-    if (lastProv == 'google' || lastProv == 'apple') return true;
+    if (lastProv == 'google' || lastProv == 'apple' || lastProv == 'email') {
+      return true;
+    }
     if (await ChurchAutoSessionService.isAutoPainelEnabled()) return true;
     final prefs = await SharedPreferences.getInstance();
     final lr = (prefs.getString('last_route') ?? '').trim();
     return lr == '/painel' || lr.startsWith('/painel/');
   }
 
-  /// Biometria automática só com sessão Firebase já no disco (Controle Total).
+  /// Biometria automática: restaura sessão no disco → Google silencioso → digital.
   void _scheduleMaybeAutoBiometricLogin({Duration? delay}) {
     if (kIsWeb || !_nativeChurchLogin) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future<void>.delayed(delay ?? const Duration(milliseconds: 350), () async {
         if (!mounted) return;
         if (await LoginPreferences.isAccountSwitchPending()) return;
-        final u = FirebaseAuth.instance.currentUser;
+        if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
+
+        var u = FirebaseAuth.instance.currentUser;
+        if (u == null || u.isAnonymous) {
+          u = await SessionRestoreService.tryRestoreIfNeeded(allowRetry: true);
+          if (!mounted) return;
+        }
+        if (u == null || u.isAnonymous) {
+          await _tryExpressGoogleReconnectAndEnterPainel();
+          if (!mounted) return;
+          u = FirebaseAuth.instance.currentUser;
+        }
         if (u == null || u.isAnonymous) return;
         await _tryAutoBiometricLoginOnce();
       });
@@ -1014,7 +1053,7 @@ class _LoginPageState extends State<LoginPage> {
       await _refreshQuickBiometricState();
     }
     if (mounted && _nativeChurchLogin) {
-      await BiometricService().maybeEnableBiometrics(context);
+      await BiometricService().enableForReturningUserAfterLogin();
       await _refreshQuickBiometricState();
     }
     await _syncLoginPreferencesHints();

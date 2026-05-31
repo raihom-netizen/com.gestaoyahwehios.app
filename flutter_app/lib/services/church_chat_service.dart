@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart'
     show YahwehUploadModule;
 import 'package:gestao_yahweh/services/upload_storage_task.dart'
     show awaitStorageUploadTask;
+import 'church_chat_album_utils.dart';
 import 'church_chat_attachment_utils.dart';
 import 'church_chat_local_conversations.dart';
 import 'church_chat_member_prefs.dart';
@@ -1821,6 +1822,9 @@ class ChurchChatService {
     Map<String, dynamic>? replyTo,
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
+    String? albumGroupId,
+    int albumIndex = 0,
+    int albumCount = 1,
   }) async {
     await ensureFirebaseReadyForChatSend();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
@@ -1843,10 +1847,17 @@ class ChurchChatService {
     final expiresAt =
         Timestamp.fromDate(DateTime.now().add(mediaRetention));
     final msgRef = messagesCol(tenantId, threadId).doc();
-    var preview = ChurchChatAttachmentUtils.previewForThreadLastMessage(
-      kind: kind,
-      fileName: fileName,
-    );
+    final gid = (albumGroupId ?? '').trim();
+    final aCount = albumCount < 1 ? 1 : albumCount;
+    var preview = gid.isNotEmpty && aCount > 1
+        ? ChurchChatAlbumUtils.threadPreviewForAlbum(
+            aCount,
+            hasVideo: kind == 'video',
+          )
+        : ChurchChatAttachmentUtils.previewForThreadLastMessage(
+            kind: kind,
+            fileName: fileName,
+          );
     final nr = normalizeReplyTo(replyTo);
     final nf = normalizeForwardedFrom(forwardedFrom);
     if (nf != null) {
@@ -1868,6 +1879,11 @@ class ChurchChatService {
           'fileName': fileName.trim(),
         if (nr != null) 'replyTo': nr,
         if (nf != null) 'forwardedFrom': nf,
+        if (gid.isNotEmpty) ...{
+          'albumGroupId': gid,
+          'albumIndex': albumIndex,
+          'albumCount': aCount,
+        },
         if (label.isNotEmpty)
           'senderDisplayName':
               label.length > 100 ? label.substring(0, 100) : label,

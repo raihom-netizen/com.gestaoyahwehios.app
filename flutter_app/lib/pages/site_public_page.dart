@@ -15,6 +15,7 @@ import "package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dar
 import "package:gestao_yahweh/ui/widgets/yahweh_official_social_bar.dart";
 import "package:gestao_yahweh/services/public_site_analytics.dart";
 import "package:gestao_yahweh/core/app_constants.dart";
+import "package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart";
 
 String money(double v) => "R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}";
 
@@ -309,7 +310,11 @@ class _SitePublicPageState extends State<SitePublicPage> {
                         onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil('/', (_) => false),
                         tooltip: 'Voltar ao início',
                       )
-                    : null,
+                    : YahwehSuperPremiumBackButton.appBarLeading(
+                        context,
+                        tooltip: 'Voltar',
+                        variant: YahwehSuperPremiumBackVariant.onDarkAppBar,
+                      ),
                 title: _sitePublicAppBarTitle(context),
                 backgroundColor: Colors.transparent,
                 foregroundColor: Colors.white,

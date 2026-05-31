@@ -278,7 +278,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 1;
 			shellPath = /bin/sh;
-			shellScript = "if [ -z \"${PODS_ROOT:-}\" ] || [ ! -f \"${PODS_ROOT}/FirebaseCrashlytics/run\" ]; then\n  echo \"warning: FirebaseCrashlytics/run ausente — pod install\"\n  exit 0\nfi\n\"${PODS_ROOT}/FirebaseCrashlytics/run\"\n";
+			shellScript = "if [ \"${CONFIGURATION}\" != \"Release\" ] && [ \"${CONFIGURATION}\" != \"Profile\" ]; then exit 0; fi\nif [ -z \"${PODS_ROOT:-}\" ] || [ ! -f \"${PODS_ROOT}/FirebaseCrashlytics/run\" ]; then\n  if [ -n \"${CI:-}\" ] || [ -n \"${CM_BUILD_ID:-}\" ]; then\n    echo \"error: FirebaseCrashlytics/run ausente no CI — execute pod install\"\n    exit 1\n  fi\n  echo \"warning: FirebaseCrashlytics/run ausente — pod install\"\n  exit 0\nfi\n\"${PODS_ROOT}/FirebaseCrashlytics/run\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

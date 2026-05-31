@@ -260,33 +260,43 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
     }
 
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 260, minWidth: 180),
+      constraints: const BoxConstraints(maxWidth: 300, minWidth: 220),
       child: StreamBuilder<PlayerState>(
         stream: _player.playerStateStream,
         initialData: _player.playerState,
         builder: (context, stateSnap) {
           final playing = stateSnap.data?.playing ?? false;
+          final fg = widget.mine ? ThemeCleanPremium.primary : _accent;
           return Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              IconButton.filledTonal(
-                onPressed: _toggle,
-                style: IconButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                  padding: const EdgeInsets.all(8),
-                  backgroundColor: widget.mine
-                      ? ThemeCleanPremium.primary.withValues(alpha: 0.22)
-                      : _accent.withValues(alpha: 0.12),
-                  foregroundColor: widget.mine
-                      ? ThemeCleanPremium.primary
-                      : _accent,
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: fg.withValues(alpha: 0.14),
+                  shape: BoxShape.circle,
                 ),
-                icon: Icon(
-                  playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  size: 28,
+                child: Icon(Icons.mic_rounded, color: fg, size: 22),
+              ),
+              const SizedBox(width: 8),
+              Material(
+                color: fg.withValues(alpha: 0.12),
+                shape: const CircleBorder(),
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: _toggle,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Icon(
+                      playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                      color: fg,
+                      size: 26,
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               Expanded(
                 child: StreamBuilder<Duration>(
                   stream: _player.positionStream,
@@ -309,14 +319,12 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
                             minHeight: 4,
                             backgroundColor: ThemeCleanPremium.onSurfaceVariant
                                 .withValues(alpha: 0.12),
-                            color: widget.mine
-                                ? ThemeCleanPremium.primary
-                                : _accent,
+                            color: fg,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${_fmtDur(pos)} / ${_fmtDur(dur)}',
+                          _fmtDur(dur.inMilliseconds > 0 ? pos : Duration.zero),
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,

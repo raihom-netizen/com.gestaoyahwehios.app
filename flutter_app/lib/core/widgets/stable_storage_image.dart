@@ -480,6 +480,7 @@ class StableMemberAvatar extends StatelessWidget {
     this.size = 44,
     this.memCacheWidth,
     this.memCacheHeight,
+    this.preferListThumbnail = true,
   });
 
   final String? imageUrl;
@@ -492,6 +493,8 @@ class StableMemberAvatar extends StatelessWidget {
   final double size;
   final int? memCacheWidth;
   final int? memCacheHeight;
+  /// Listas/chat: miniatura Storage (`thumb_foto_perfil.jpg`) — carrega mais rápido.
+  final bool preferListThumbnail;
 
   @override
   Widget build(BuildContext context) {
@@ -509,6 +512,7 @@ class StableMemberAvatar extends StatelessWidget {
       memberData: memberData,
       memCacheWidth: memCacheWidth,
       memCacheHeight: memCacheHeight,
+      preferListThumbnail: preferListThumbnail,
     );
   }
 }

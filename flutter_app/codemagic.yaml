@@ -267,6 +267,14 @@ workflows:
             exit 1
           fi
           echo "IPA OK: $IPA_PATH"
+      - name: Upload dSYM para Firebase Crashlytics (obrigatorio)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          UP="$ROOT/../scripts/codemagic_ios_upload_crashlytics_dsyms.sh"
+          if [ ! -f "$UP" ]; then UP="$ROOT/scripts/codemagic_ios_upload_crashlytics_dsyms.sh"; fi
+          export CM_CRASHLYTICS_DSYM_REQUIRED=1
+          bash "$UP"
       - name: IPA na raiz do clone (artefactos)
         script: |
           set -e

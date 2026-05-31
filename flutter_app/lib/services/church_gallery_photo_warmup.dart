@@ -43,7 +43,7 @@ abstract final class ChurchGalleryPhotoWarmup {
   static String _lastKey = '';
   static const int _listMaxBytes = 112 * 1024;
   static const int _feedMaxBytes = 512 * 1024;
-  static const int _parallelMembers = 22;
+  static const int _parallelMembers = 36;
 
   static List<ChurchGalleryMemberPhotoRef> _refsFromPanel(
     PanelDashboardSnapshot panel,
@@ -137,7 +137,7 @@ abstract final class ChurchGalleryPhotoWarmup {
         if (url.startsWith('http')) urls.add(url);
       }
     }
-    await warmBytesForUrls(urls, maxItems: 120, maxBytes: _listMaxBytes);
+    await warmBytesForUrls(urls, maxItems: 160, maxBytes: _listMaxBytes);
   }
 
   /// Chat igreja — avatares visíveis na lista de conversas.
@@ -252,8 +252,8 @@ abstract final class ChurchGalleryPhotoWarmup {
     final key = '$tid:${list.map((e) => e.memberDocId).join(',')}';
     final now = DateTime.now();
     final debounce = highPriority
-        ? const Duration(seconds: 2)
-        : const Duration(seconds: 25);
+        ? (force ? Duration.zero : const Duration(seconds: 1))
+        : const Duration(seconds: 20);
     if (!force &&
         _lastKey == key &&
         _lastRun != null &&

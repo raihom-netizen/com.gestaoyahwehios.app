@@ -150,8 +150,8 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
       });
     }
     if (!needsFresh) return;
-    // App: URL com token do Firestore — getData no decode; evita getDownloadURL em listas.
-    if (!kIsWeb && firebaseStorageDownloadUrlLooksTokenized(norm)) {
+    // URL com token do Firestore — getData no decode; evita getDownloadURL em listas (iOS/Android/web).
+    if (firebaseStorageDownloadUrlLooksTokenized(norm)) {
       if (mounted) setState(() => _resolving = false);
       return;
     }

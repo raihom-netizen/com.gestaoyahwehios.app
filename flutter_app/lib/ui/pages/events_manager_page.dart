@@ -156,9 +156,10 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       );
 
   String? _eventsModuleBarSubtitle() {
-    final dn = (FirebaseAuth.instance.currentUser?.displayName ?? '').trim();
+    final user = firebaseDefaultAuth.currentUser;
+    final dn = (user?.displayName ?? '').trim();
     if (dn.isNotEmpty) return dn;
-    final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+    final email = (user?.email ?? '').trim();
     return email.isNotEmpty ? email : null;
   }
 
@@ -207,8 +208,9 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 
   Future<void> _bootstrapFirestoreTenant() async {
+    await ensureFirebaseReadyForPublishUpload().catchError((_) {});
     await PerformanceService.track('load_events', () async {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final uid = firebaseDefaultAuth.currentUser?.uid;
       try {
         final tid = await TenantResolverService
             .resolveEffectiveTenantIdPreferringUserBinding(
@@ -228,7 +230,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
   Future<void> _loadTenantDoc() async {
     try {
-      final snap = await FirebaseFirestore.instance
+      await ensureFirebaseReadyForPublishUpload();
+      final snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(_tid)
           .get();
@@ -242,7 +245,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
   Future<void> _novoEvento(
       {DocumentSnapshot<Map<String, dynamic>>? doc}) async {
-    await ensureFirebaseInitialized().catchError((_) {});
+    await ensureFirebaseReadyForPublishUpload().catchError((_) {});
     final result = await Navigator.push<bool>(
         context,
         MaterialPageRoute(
@@ -340,7 +343,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
     Future<void> fillLocationFromCadastro() async {
       try {
-        final snap = await FirebaseFirestore.instance
+        await ensureFirebaseReadyForPublishUpload();
+        final snap = await firebaseDefaultFirestore
             .collection('igrejas')
             .doc(tenantId)
             .get();
@@ -799,7 +803,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       ),
     );
     if (res != true) return;
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await firebaseDefaultAuth.currentUser?.getIdToken(true);
     await Future.delayed(const Duration(milliseconds: 150));
     final now = Timestamp.now();
     final payload = <String, dynamic>{
@@ -822,7 +826,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     }
     if (doc == null) {
       payload['createdAt'] = now;
-      payload['createdByUid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
+      payload['createdByUid'] = firebaseDefaultAuth.currentUser?.uid ?? '';
       await _templates.add(payload);
     } else {
       await doc.reference.update(payload);
@@ -931,15 +935,16 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       else
         cursor = cursor.add(const Duration(days: 7));
     }
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     final tsNow = Timestamp.now();
     final imageUrls =
         defaultImageUrl.isNotEmpty ? <String>[defaultImageUrl] : <String>[];
-    final agendaCol = FirebaseFirestore.instance
+    await ensureFirebaseReadyForPublishUpload();
+    final agendaCol = firebaseDefaultFirestore
         .collection('igrejas')
         .doc(_tid)
         .collection('agenda');
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     for (final dt in dates) {
       final notRef = _noticias.doc();
       final endAgenda = dt.add(const Duration(hours: 2));
@@ -2360,6 +2365,7 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadEvents() async {
+    await ensureFirebaseReadyForPublishUpload();
     return widget.noticias
         .orderBy('startAt', descending: true)
         .limit(200)
@@ -2407,9 +2413,10 @@ class _FeedTabState extends State<_FeedTab> {
     );
     if (ok != true || !mounted) return;
 
+    await ensureFirebaseReadyForPublishUpload();
     const int chunkSize = 400; // limite seguro de batch
     for (var i = 0; i < refs.length; i += chunkSize) {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       final chunk = refs.sublist(
           i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
       for (final r in chunk) {
@@ -3473,16 +3480,16 @@ class _EventoPostState extends State<_EventoPost>
   bool _showHeart = false;
   int _carouselIndex = 0;
 
-  String? get _myUid => FirebaseAuth.instance.currentUser?.uid;
+  String? get _myUid => firebaseDefaultAuth.currentUser?.uid;
 
   Future<({String name, String photo})> _memberDisplay() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null) return (name: 'Membro', photo: '');
     var name = user.displayName?.trim() ?? '';
     var photo = user.photoURL?.trim() ?? '';
     if (name.isEmpty) {
       try {
-        final uDoc = await FirebaseFirestore.instance
+        final uDoc = await firebaseDefaultFirestore
             .collection('users')
             .doc(user.uid)
             .get();
@@ -5068,7 +5075,7 @@ class _EventPostLinksRow extends StatelessWidget {
     }
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future:
-          FirebaseFirestore.instance.collection('igrejas').doc(tenantId).get(),
+          firebaseDefaultFirestore.collection('igrejas').doc(tenantId).get(),
       builder: (context, snap) {
         return _buildLinks(context, snap.data?.data());
       },
@@ -5310,133 +5317,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   int get _newPhotoCount => kIsWeb ? _newImages.length : _newImagePaths.length;
 
-  /// Fotos a enviar ao Storage assim que são escolhidas (fila serial por slot).
-  int _inFlightPhotoUploads = 0;
-  Future<void>? _photoUploadChain;
-
-  void _enqueueEventPhotoUpload(Future<void> Function() task) {
-    _photoUploadChain = (_photoUploadChain ?? Future.value()).then((_) async {
-      try {
-        await task();
-      } catch (_) {}
-    });
-    unawaited(_photoUploadChain);
-  }
-
-  Future<void> _mergeEventMediaDraftToFirestore() async {
-    try {
-      await runFirebaseBackgroundTask(() async {
-        final urls = dedupeImageRefsByStorageIdentity(_existingUrls);
-        if (urls.isEmpty &&
-            _eventVideos.isEmpty &&
-            _videoUrl.text.trim().isEmpty) {
-          return;
-        }
-        final firstVideoUrl = _eventVideos.isNotEmpty
-            ? (_eventVideos.first['videoUrl'] ?? '').toString().trim()
-            : _videoUrl.text.trim();
-        final videosClean = _eventVideos
-            .map((e) => <String, dynamic>{
-                  'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
-                  'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
-                })
-            .where((m) => (m['videoUrl'] as String).isNotEmpty)
-            .toList();
-        final patch = <String, dynamic>{
-          'updatedAt': FieldValue.serverTimestamp(),
-          'publishState': FeedMediaPublishService.statusDraft,
-          if (firstVideoUrl.isNotEmpty) 'videoUrl': firstVideoUrl,
-          if (_eventVideos.isNotEmpty)
-            'thumbUrl': (_eventVideos.first['thumbUrl'] ?? '').toString().trim(),
-          'videos': videosClean,
-          ...MuralPostMediaPayload.buildMediaFields(
-            allUrls: urls,
-            aspectRatio: 1.0,
-            hasVideo: firstVideoUrl.isNotEmpty,
-            allowDeleteSentinels: false,
-          ),
-        };
-        await _eventDocRef.set(patch, SetOptions(merge: true));
-      }, debugLabel: 'event_media_draft');
-    } catch (_) {}
-  }
-
-  void _removeLocalEventPhoto({Uint8List? bytes, String? localPath}) {
-    if (kIsWeb && bytes != null) {
-      final i = _newImages.indexOf(bytes);
-      if (i >= 0) {
-        _newImages.removeAt(i);
-        if (i < _newNames.length) _newNames.removeAt(i);
-      }
-      return;
-    }
-    if (localPath != null) {
-      final i = _newImagePaths.indexOf(localPath);
-      if (i >= 0) {
-        _newImagePaths.removeAt(i);
-        if (i < _newNames.length) _newNames.removeAt(i);
-      }
-    }
-  }
-
-  Future<void> _uploadNewEventPhotoImmediate({
-    Uint8List? bytes,
-    String? localPath,
-  }) async {
-    final slotIndex = _existingUrls.length;
-    if (mounted) setState(() => _inFlightPhotoUploads++);
-    try {
-      await runFirebaseBackgroundTask(() async {
-        final postId = _eventDocRef.id;
-        late final String primaryUrl;
-        if (kIsWeb) {
-          if (bytes == null || bytes.isEmpty) {
-            throw StateError('Foto não encontrada.');
-          }
-          primaryUrl = await MuralPostMediaPayload.uploadPhotoSlot(
-            tenantId: widget.tenantId,
-            postType: 'evento',
-            postId: postId,
-            bytes: bytes,
-            slotIndex: slotIndex,
-          );
-        } else {
-          final path = localPath?.trim() ?? '';
-          if (path.isEmpty || !File(path).existsSync()) {
-            throw StateError('Foto não encontrada.');
-          }
-          final r = await IosPublishImagePipeline.uploadFeedPhotoSlot(
-            tenantId: widget.tenantId,
-            postType: 'evento',
-            postId: postId,
-            slotIndex: slotIndex,
-            localPath: path,
-          );
-          primaryUrl = r.primaryUrl;
-        }
-        if (!mounted) return;
-        setState(() {
-          _removeLocalEventPhoto(bytes: bytes, localPath: localPath);
-          _existingUrls.add(primaryUrl);
-        });
-        unawaited(_mergeEventMediaDraftToFirestore());
-      }, debugLabel: 'event_photo_immediate');
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(formatUploadErrorForUser(e)),
-          backgroundColor: ThemeCleanPremium.error,
-          behavior: SnackBarBehavior.floating,
-        ));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _inFlightPhotoUploads =
-            (_inFlightPhotoUploads - 1).clamp(0, 99));
-      }
-    }
-  }
-
   Future<void> _addEncodedEventPhoto(XFile encoded) async {
     if (kIsWeb) {
       final bytes = await encoded.readAsBytes();
@@ -5445,10 +5325,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         _newImages.add(bytes);
         _newNames.add(encoded.name);
       });
-      final captured = bytes;
-      _enqueueEventPhotoUpload(
-        () => _uploadNewEventPhotoImmediate(bytes: captured),
-      );
       return;
     }
     final path = await FeedEditorMediaService.persistXFileToTemp(
@@ -5466,16 +5342,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       return;
     }
     if (!mounted) return;
-    final capturedPath = path;
     setState(() {
-      _newImagePaths.add(capturedPath);
+      _newImagePaths.add(path);
       _newNames.add(
-        encoded.name.isNotEmpty ? encoded.name : capturedPath.split('/').last,
+        encoded.name.isNotEmpty ? encoded.name : path.split('/').last,
       );
     });
-    _enqueueEventPhotoUpload(
-      () => _uploadNewEventPhotoImmediate(localPath: capturedPath),
-    );
   }
 
   Future<List<Uint8List>> _copyNewImagesForPublish() async {
@@ -5587,8 +5459,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _usarEnderecoIgreja() async {
     try {
-      await ensureFirebaseInitialized();
-      final snap = await FirebaseFirestore.instance
+      await ensureFirebaseReadyForPublishUpload();
+      final snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .get();
@@ -5745,7 +5617,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(ensureFirebaseInitialized().catchError((_) {}));
+    unawaited(ensureFirebaseReadyForPublishUpload().catchError((_) {}));
     unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
     _eventDocRef = widget.doc?.reference ?? widget.noticias.doc();
     final data = widget.doc?.data() ?? {};
@@ -5852,8 +5724,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _refreshAgendaLinkFromFirestore() async {
     try {
-      await ensureFirebaseInitialized();
-      final q = await FirebaseFirestore.instance
+      await ensureFirebaseReadyForPublishUpload();
+      final q = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('agenda')
@@ -5902,7 +5774,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final (start, end) = _computeStartEndForSave();
     final cat = _agendaCategoryKeyFromEvent();
     final colorHex = _agendaColorHexForCategory();
-    final agendaCol = FirebaseFirestore.instance
+    final agendaCol = firebaseDefaultFirestore
         .collection('igrejas')
         .doc(widget.tenantId)
         .collection('agenda');
@@ -5919,10 +5791,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'location': _localSalvo(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     if (existing.docs.isEmpty) {
       payload['createdAt'] = FieldValue.serverTimestamp();
-      payload['createdByUid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
+      payload['createdByUid'] = firebaseDefaultAuth.currentUser?.uid ?? '';
       batch.set(agendaCol.doc(), payload);
     } else {
       for (final d in existing.docs) {
@@ -5933,13 +5805,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Future<void> _removeAgendaLinkedNoticia(String noticiaId) async {
-    final q = await FirebaseFirestore.instance
+    final q = await firebaseDefaultFirestore
         .collection('igrejas')
         .doc(widget.tenantId)
         .collection('agenda')
         .where('noticiaId', isEqualTo: noticiaId)
         .get();
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     for (final d in q.docs) {
       batch.delete(d.reference);
     }
@@ -5948,7 +5820,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _applyAgendaSyncAfterSave(String postId) async {
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForPublishUpload();
       if (_syncAgenda) {
         await _upsertAgendaLinkedNoticia(postId);
       } else if (widget.doc != null) {
@@ -5969,8 +5841,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _loadCategories() async {
     setState(() => _loadingCategories = true);
     try {
-      await ensureFirebaseInitialized();
-      final q = await FirebaseFirestore.instance
+      await ensureFirebaseReadyForPublishUpload();
+      final q = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('event_categories')
@@ -6377,7 +6249,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             'thumbUrl': result.thumbUrl,
           });
         });
-        unawaited(_mergeEventMediaDraftToFirestore());
         if (_publishedAwaitingVideoMerge) {
           _publishedAwaitingVideoMerge = false;
           unawaited(_mergePublishedEventVideoFields());
@@ -6669,7 +6540,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
     } else {
       payload['createdAt'] = FieldValue.serverTimestamp();
-      payload['createdByUid'] = FirebaseAuth.instance.currentUser?.uid ?? '';
+      payload['createdByUid'] = firebaseDefaultAuth.currentUser?.uid ?? '';
       payload['likesCount'] = 0;
       payload['rsvpCount'] = 0;
       payload['commentsCount'] = 0;
@@ -6722,14 +6593,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     } catch (_) {}
   }
 
-  Future<void> _waitEventPhotoUploadQueue() async {
-    if (_inFlightPhotoUploads <= 0 && _newPhotoCount <= 0) return;
-    try {
-      await (_photoUploadChain ?? Future.value())
-          .timeout(const Duration(minutes: 2));
-    } catch (_) {}
-  }
-
   Future<void> _save() async {
     if (_saving) return;
     if (_mediaPicking) {
@@ -6751,7 +6614,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final isNewDoc = widget.doc == null;
     try {
       await ensureFirebaseReadyForPublishUpload();
-      await _waitEventPhotoUploadQueue();
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
         final hasPendingLocal = _newPhotoCount > 0;
         double? aspectRatio;
@@ -6782,14 +6644,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           if (n == 0) {
             throw StateError('Não foi possível ler as fotos para enviar.');
           }
-          // Upload Storage + getDownloadURL antes do Firestore publicado.
-          await FeedMediaPublishService.saveStubAndSchedulePhotos(
+          await FeedMediaPublishService.publish(
             docRef: docRef,
             tenantId: widget.tenantId,
+            postId: postId,
             postType: 'evento',
-            stubPayload: payload,
+            corePayload: payload,
             isNewDoc: isNewDoc,
-            pendingPhotoCount: n,
             existingUrls: existingUrls,
             startSlotIndex: startSlot,
             hasVideo: hasVideo,
@@ -6814,7 +6675,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
               _uploadingVideo
-                  ? 'Evento publicado — vídeo a concluir…'
+                  ? 'Evento publicado — vídeo a concluir em segundo plano.'
                   : (isNewDoc ? 'Evento publicado!' : 'Evento atualizado!'),
             ),
           );
@@ -6833,7 +6694,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           msg.contains('permission-denied');
       if (mounted && isAssertionOrPerm) {
         try {
-          await FirebaseAuth.instance.currentUser?.getIdToken();
+          await firebaseDefaultAuth.currentUser?.getIdToken();
           await Future.delayed(const Duration(milliseconds: 150));
           final publishBytes = await _copyNewImagesForPublish();
           if (widget.doc == null) {
@@ -6890,7 +6751,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               'active': true,
               'updatedAt': FieldValue.serverTimestamp(),
               'createdAt': FieldValue.serverTimestamp(),
-              'createdByUid': FirebaseAuth.instance.currentUser?.uid ?? '',
+              'createdByUid': firebaseDefaultAuth.currentUser?.uid ?? '',
               'generated': false,
               'publicSite': _publicSite,
               'galleryPermanent': _galleryPermanent,
@@ -7028,7 +6889,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final docRef = _eventDocRef;
     final isNewDoc = widget.doc == null;
     try {
-      await _waitEventPhotoUploadQueue();
       await runFirebaseBackgroundTask(() async {
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       double? aspectRatio;
@@ -7294,17 +7154,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               padding.bottom + bottomInset),
           children: [
             AsyncUploadProgressStrip(
-              localActive: _mediaPicking ||
-                  _uploadingVideo ||
-                  _saving ||
-                  _inFlightPhotoUploads > 0,
+              localActive: _mediaPicking || _uploadingVideo || _saving,
               localLabel: _uploadingVideo
                   ? 'A enviar vídeo…'
-                  : (_inFlightPhotoUploads > 0
-                      ? 'A enviar fotos…'
-                      : (_mediaPicking
-                          ? 'A preparar fotos…'
-                          : 'A publicar evento…')),
+                  : (_mediaPicking
+                      ? 'A preparar fotos…'
+                      : 'A publicar evento…'),
             ),
             // Mídia no topo (fotos + vídeos antes dos campos de texto).
             Container(
@@ -8483,7 +8338,7 @@ class _FixosTabState extends State<_FixosTab> {
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadProximosNoticias() async {
     // Token em cache: evita ida forçada à rede a cada abertura da lista.
-    await FirebaseAuth.instance.currentUser?.getIdToken();
+    await firebaseDefaultAuth.currentUser?.getIdToken();
     final now = DateTime.now();
     final rangeStart = DateTime(now.year, now.month, now.day);
     final rangeEnd = rangeStart.add(const Duration(days: 400));
@@ -8662,7 +8517,7 @@ class _FixosTabState extends State<_FixosTab> {
 
     const int chunkSize = 400;
     for (var i = 0; i < refs.length; i += chunkSize) {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       final chunk = refs.sublist(
           i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
       for (final r in chunk) {
@@ -8900,7 +8755,7 @@ class _FixosTabState extends State<_FixosTab> {
 
     const int chunkSize = 400;
     for (var i = 0; i < refs.length; i += chunkSize) {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       final chunk = refs.sublist(
           i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
       for (final r in chunk) {
@@ -10609,7 +10464,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
         final list = <String>[];
         for (final uid in uids) {
           try {
-            final u = await FirebaseFirestore.instance
+            final u = await firebaseDefaultFirestore
                 .collection('users')
                 .doc(uid)
                 .get();
@@ -10638,7 +10493,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
         final list = <String>[];
         for (final uid in uids) {
           try {
-            final u = await FirebaseFirestore.instance
+            final u = await firebaseDefaultFirestore
                 .collection('users')
                 .doc(uid)
                 .get();

@@ -20,7 +20,7 @@ abstract final class SessionRestoreService {
 
   static const _diskPollAttempts = 12;
   static const _diskPollDelay = Duration(milliseconds: 50);
-  static const _silentOAuthTimeout = Duration(seconds: 12);
+  static const _silentOAuthTimeout = Duration(seconds: 20);
 
   /// [allowRetry] — ecrã de login após cold start em [main] (flag já consumida).
   static Future<User?> tryRestoreIfNeeded({bool allowRetry = false}) async {

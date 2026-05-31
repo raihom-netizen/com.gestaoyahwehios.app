@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -8,6 +10,26 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show churchTenantLogoUrl, memCacheExtentForLogicalSize;
 import 'package:gestao_yahweh/ui/widgets/church_public_social_gallery.dart'
     show ChurchPublicSocialPresets;
+
+/// Site público aberto com [Navigator.push] no app (Android/iOS) — mostrar «Voltar» na barra.
+bool churchPublicSiteOpenedInsideApp(BuildContext context) {
+  if (kIsWeb) return false;
+  return Navigator.canPop(context);
+}
+
+/// Botão Voltar Super Premium para barra do site público no app.
+Widget? churchPublicSiteInAppBackLeading(
+  BuildContext context, {
+  String tooltip = 'Voltar ao painel',
+  VoidCallback? onPressed,
+}) {
+  if (!churchPublicSiteOpenedInsideApp(context)) return null;
+  return YahwehSuperPremiumBackButton(
+    onPressed: onPressed ?? () => Navigator.maybePop(context),
+    tooltip: tooltip,
+    variant: YahwehSuperPremiumBackVariant.onDarkAppBar,
+  );
+}
 
 /// Endereço em uma linha — **mesma regra** que [IgrejaCadastroPage._buildEnderecoCompleto]:
 /// monta a partir de rua, quadra/número, bairro, cidade, UF e CEP no Firestore.
@@ -322,7 +344,10 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
     final toolbarH = layoutCompact
         ? row1H + 6 + 44 + 12
         : (row1H + 12.0);
-    final toolbarClamped = toolbarH.clamp(logoSize + 12.0, 148.0);
+    final inAppBack = churchPublicSiteInAppBackLeading(context);
+    final hasInAppBack = inAppBack != null;
+    final toolbarClamped = (toolbarH + (hasInAppBack ? 4.0 : 0.0))
+        .clamp(logoSize + 12.0, 152.0);
 
     final metaStyle = TextStyle(
       fontSize: 12.5,
@@ -645,6 +670,10 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (inAppBack != null) ...[
+                          inAppBack,
+                          const SizedBox(width: 4),
+                        ],
                         ChurchPublicSiteLogoBadge(
                           tenantId: tenantId,
                           churchData: churchData,
@@ -673,6 +702,10 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
               : Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
+                    if (inAppBack != null) ...[
+                      inAppBack,
+                      const SizedBox(width: 6),
+                    ],
                     ChurchPublicSiteLogoBadge(
                       tenantId: tenantId,
                       churchData: churchData,

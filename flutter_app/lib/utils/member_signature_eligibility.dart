@@ -75,12 +75,56 @@ bool memberNeedsAssinaturaFieldFromFuncoes(List<String> funcoes) {
   return false;
 }
 
+/// Cargos que podem assinar documentos oficiais (carteirinha, certificados, cartas, etc.).
+const Set<String> kChurchDocumentSignatoryRoleKeys = {
+  'gestor',
+  'pastor',
+  'pastora',
+  'secretario',
+  'secretaria',
+  'tesoureiro',
+  'tesouraria',
+  'lider',
+  'lider_departamento',
+  'lider_de_departamento',
+  'liderdepartamento',
+};
+
+bool _roleKeyCanSignDocuments(String normalizedKey) {
+  if (normalizedKey.isEmpty || normalizedKey == 'membro') return false;
+  if (kChurchDocumentSignatoryRoleKeys.contains(normalizedKey)) return true;
+  if (normalizedKey.contains('lider') &&
+      (normalizedKey.contains('depart') || normalizedKey.contains('dept'))) {
+    return true;
+  }
+  if (normalizedKey.contains('tesour')) return true;
+  if (normalizedKey.contains('secretar')) return true;
+  return false;
+}
+
 /// Membro pode figurar como signatário na carteirinha (cargo de liderança / não só membro).
 /// Opcional na ficha: `certificadoSignatario` / `podeAssinarCertificado` = true.
 bool memberHasLeadershipForAssinatura(Map<String, dynamic> d) {
   final ex = d['certificadoSignatario'] ?? d['podeAssinarCertificado'];
-  if (ex == true) return true;
+  if (ex == true) return memberCanSignChurchDocuments(d);
   return memberNeedsAssinaturaFieldFromFuncoes(extractMemberFuncoesKeys(d));
+}
+
+/// Gestor, pastor, secretário, tesoureiro ou líder de departamento — assina documentos.
+bool memberCanSignChurchDocuments(Map<String, dynamic> d) {
+  final ex = d['certificadoSignatario'] ?? d['podeAssinarCertificado'];
+  if (ex == true) {
+    for (final f in extractMemberFuncoesKeys(d)) {
+      if (_roleKeyCanSignDocuments(normalizeMemberRoleKey(f))) return true;
+    }
+  }
+  for (final f in extractMemberFuncoesKeys(d)) {
+    if (_roleKeyCanSignDocuments(normalizeMemberRoleKey(f))) return true;
+  }
+  final cargoSingle = normalizeMemberRoleKey(
+    (d['FUNCAO'] ?? d['funcao'] ?? d['CARGO'] ?? d['cargo'] ?? '').toString(),
+  );
+  return _roleKeyCanSignDocuments(cargoSingle);
 }
 
 String _formatCargoKeyForDisplay(String key) {

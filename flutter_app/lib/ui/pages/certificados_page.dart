@@ -571,7 +571,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
     _SignatoryOption? optionFromDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
       final d = doc.data();
-      if (!memberHasLeadershipForAssinatura(d)) return null;
+      if (!memberCanSignChurchDocuments(d)) return null;
       final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
       if (nome.isEmpty) return null;
       final cpf =
@@ -612,7 +612,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       }
       if (doc == null) continue;
       final d = doc.data();
-      if (!memberHasLeadershipForAssinatura(d)) continue;
+      if (!memberCanSignChurchDocuments(d)) continue;
       final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
       if (nome.isEmpty) continue;
       final cargoOptions = signatoryCargoDisplayOptions(d);
@@ -3345,7 +3345,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
     final seenCpfs = <String>{};
     for (final doc in _memberDocs) {
       final d = doc.data();
-      if (!memberHasLeadershipForAssinatura(d)) continue;
+      if (!memberCanSignChurchDocuments(d)) continue;
       final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
       if (nome.isEmpty) continue;
       final cpf =

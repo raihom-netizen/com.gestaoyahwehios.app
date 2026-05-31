@@ -94,8 +94,8 @@ class FotoMembroWidget extends StatelessWidget {
     final defaultMc = memCacheExtentForLogicalSize(
       size,
       dpr,
-      oversample: 1.25,
-      maxPx: 600,
+      oversample: 1.2,
+      maxPx: 320,
     );
     final tid = tenantId?.trim();
     final mid = memberId?.trim();

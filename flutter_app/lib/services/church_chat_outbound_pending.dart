@@ -12,6 +12,9 @@ class ChurchChatOutboundPending {
     this.previewBytes,
     this.localPath,
     this.replyPreview,
+    this.albumGroupId,
+    this.albumIndex = 0,
+    this.albumCount = 1,
   }) : createdAt = DateTime.now();
 
   final String localId;
@@ -21,6 +24,9 @@ class ChurchChatOutboundPending {
   final Uint8List? previewBytes;
   String? localPath;
   final String? replyPreview;
+  final String? albumGroupId;
+  final int albumIndex;
+  final int albumCount;
   final DateTime createdAt;
 
   double progress = 0;

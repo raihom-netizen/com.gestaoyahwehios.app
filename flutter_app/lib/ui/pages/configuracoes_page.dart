@@ -17,7 +17,9 @@ import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:gestao_yahweh/app_version.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/media_cache_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/church_payment_receiving_settings_section.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -656,6 +658,12 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                   if (!kIsWeb) ...[
                     const SizedBox(height: 24),
                     _SectionTitle(
+                      icon: Icons.apple_rounded,
+                      title: 'Atualizar no iPhone (TestFlight)',
+                    ),
+                    _buildTestFlightUpdateCard(context),
+                    const SizedBox(height: 24),
+                    _SectionTitle(
                         icon: Icons.speed_rounded, title: 'Desempenho do app'),
                     _Card(
                       child: Column(
@@ -703,6 +711,52 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                   ],
                 ],
               ),
+      ),
+    );
+  }
+
+  Widget _buildTestFlightUpdateCard(BuildContext context) {
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Versão instalada: v$appVersion+$appBuildNumber',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            AppConstants.marketingDownloadIosTestFlightHint,
+            style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, height: 1.35),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: () async {
+              final uri = Uri.parse(AppConstants.gestaoYahwehTestFlightUrl);
+              if (!await canLaunchUrl(uri)) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Não foi possível abrir o link do TestFlight.'),
+                  ),
+                );
+                return;
+              }
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            },
+            icon: const Icon(Icons.open_in_new_rounded, size: 20),
+            label: const Text('Abrir TestFlight — instalar/atualizar'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF1D4ED8),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+        ],
       ),
     );
   }

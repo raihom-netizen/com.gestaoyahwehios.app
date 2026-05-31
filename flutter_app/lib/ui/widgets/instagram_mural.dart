@@ -12,7 +12,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
@@ -205,7 +204,13 @@ class InstagramMuralState extends State<InstagramMural> {
   final _feedSearchCtrl = TextEditingController();
   String _lastFeedMediaWarmupKey = '';
 
-  User? get _user => FirebaseAuth.instance.currentUser;
+  User? get _user {
+    try {
+      return firebaseDefaultAuth.currentUser;
+    } catch (_) {
+      return null;
+    }
+  }
   String get uid => _user?.uid ?? '';
   String get displayName {
     final dn = _user?.displayName?.trim();
@@ -225,7 +230,7 @@ class InstagramMuralState extends State<InstagramMural> {
 
   bool _canEditDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     if (_canManageAll) return true;
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = _user?.uid ?? '';
     final data = doc.data() ?? {};
     return uid.isNotEmpty && (data['createdByUid'] ?? '').toString() == uid;
   }
@@ -269,14 +274,17 @@ class InstagramMuralState extends State<InstagramMural> {
       _hasMoreFeedPages = true;
       _isFeedInitialLoading = true;
       _feedLoadError = null;
-      unawaited(_startFeedLiveSync());
-      unawaited(_loadFeedPage(reset: true));
+      unawaited(_bootstrapMural());
     }
+  }
+
+  Future<void> _ensureMuralFirebaseReady() async {
+    await ensureFirebaseReadyForPublishUpload();
   }
 
   Future<void> _bootstrapMural() async {
     try {
-      await ensureFirebaseInitialized();
+      await _ensureMuralFirebaseReady();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -295,7 +303,7 @@ class InstagramMuralState extends State<InstagramMural> {
 
   Future<void> _loadTenant() async {
     try {
-      await ensureFirebaseInitialized();
+      await _ensureMuralFirebaseReady();
       final snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
@@ -327,6 +335,7 @@ class InstagramMuralState extends State<InstagramMural> {
       ),
     );
     if (ok == true) {
+      await _ensureMuralFirebaseReady();
       await doc.reference.delete();
       unawaited(_loadFeedPage(reset: true));
       if (mounted) {
@@ -340,7 +349,7 @@ class InstagramMuralState extends State<InstagramMural> {
       {DocumentSnapshot<Map<String, dynamic>>? doc,
       required String type}) async {
     try {
-      await ensureFirebaseReadyForMediaUpload();
+      await ensureFirebaseReadyForPublishUpload();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -383,7 +392,7 @@ class InstagramMuralState extends State<InstagramMural> {
 
   Future<void> _startFeedLiveSync() async {
     try {
-      await ensureFirebaseInitialized();
+      await _ensureMuralFirebaseReady();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -443,7 +452,7 @@ class InstagramMuralState extends State<InstagramMural> {
     });
 
     try {
-      await ensureFirebaseInitialized();
+      await _ensureMuralFirebaseReady();
       Query<Map<String, dynamic>> q = _feedBaseQuery().limit(_feedPageSize);
       if (!reset && _feedLastCursor != null) {
         q = q.startAfterDocument(_feedLastCursor!);
@@ -485,7 +494,7 @@ class InstagramMuralState extends State<InstagramMural> {
 
   bool _docVisibleInFeed(Map<String, dynamic> data) {
     final ps = (data['publishState'] ?? '').toString();
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = _user?.uid ?? '';
     final author = (data['createdByUid'] ?? '').toString();
     final isAuthor = uid.isNotEmpty && author == uid;
     if (ps.isEmpty || ps == MuralFastPublishService.statePublished) return true;
@@ -505,22 +514,29 @@ class InstagramMuralState extends State<InstagramMural> {
 
   Widget _buildFeedBody() {
     if (_feedLoadError != null && _feedRawDocs.isEmpty) {
+      final msg = formatFirebaseErrorForUser(_feedLoadError!);
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline_rounded,
+              Icon(Icons.cloud_off_rounded,
                   size: 48, color: ThemeCleanPremium.error),
               const SizedBox(height: 12),
-              Text('Erro ao carregar o mural.',
-                  style: TextStyle(color: Colors.grey.shade700)),
-              const SizedBox(height: 8),
+              Text(
+                msg,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: () => _loadFeedPage(reset: true),
+                onPressed: () {
+                  unawaited(_bootstrapMural());
+                  unawaited(_loadFeedPage(reset: true));
+                },
                 icon: const Icon(Icons.refresh_rounded, size: 20),
-                label: const Text('Tentar novamente'),
+                label: const Text('Tentar de novo'),
               ),
             ],
           ),
@@ -3191,7 +3207,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   void initState() {
     super.initState();
     unawaited(() async {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForPublishUpload().catchError((_) {});
       await FeedPostMediaUpload.warmAuthToken().catchError((_) {});
     }());
     final data = widget.doc?.data() ?? {};
@@ -3298,7 +3314,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   Future<void> _usarEnderecoIgreja() async {
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForPublishUpload();
       final snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
@@ -3700,9 +3716,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     required double aspectRatio,
     required bool isNewDoc,
   }) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final displayName =
-        FirebaseAuth.instance.currentUser?.displayName ?? 'Administrador';
+    final editorUser = firebaseDefaultAuth.currentUser;
+    final uid = editorUser?.uid ?? '';
+    final displayName = editorUser?.displayName?.trim().isNotEmpty == true
+        ? editorUser!.displayName!.trim()
+        : 'Administrador';
     final now = FieldValue.serverTimestamp();
     final hasVideo = _videoUrl.text.trim().isNotEmpty;
     final plainBody = _bodyDescription.text.trim();
@@ -3813,13 +3831,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           isNewDoc: isNewDoc,
         );
         final n = bytes?.length ?? paths?.length ?? 0;
-        await FeedMediaPublishService.saveStubAndSchedulePhotos(
+        await FeedMediaPublishService.publish(
           docRef: docRef,
           tenantId: widget.tenantId,
+          postId: docRef.id,
           postType: widget.type,
-          stubPayload: corePayload,
+          corePayload: corePayload,
           isNewDoc: isNewDoc,
-          pendingPhotoCount: n,
           existingUrls: existingUrls,
           startSlotIndex: startSlot,
           hasVideo: _videoUrl.text.trim().isNotEmpty,
@@ -3829,11 +3847,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         );
         if (mounted) {
           unawaited(IosPublishMemory.releaseAfterHeavyWork());
+          _schedulePostPublishCacheWarmup();
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
-              isNewDoc
-                  ? 'Aviso publicado — fotos a concluir em segundo plano.'
-                  : 'Aviso atualizado — fotos a concluir em segundo plano.',
+              isNewDoc ? 'Publicado com sucesso' : 'Atualizado com sucesso',
             ),
           );
           Navigator.pop(context, true);
@@ -3897,7 +3914,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await ensureFirebaseInitialized();
+      await ensureFirebaseReadyForPublishUpload();
       final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
       final isNewDoc = widget.doc == null;
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);

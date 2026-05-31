@@ -344,9 +344,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       if (mounted) {
         final tenantRef =
             FirebaseFirestore.instance.collection('igrejas').doc(resolved);
+        final quickPanel = quick[0] as PanelDashboardSnapshot;
         setState(() {
           _effectiveTenantId = resolved;
-          _panelCache = quick[0] as PanelDashboardSnapshot;
+          _panelCache = quickPanel;
           _dashboardKpis = quick[1] as ChurchDashboardCurrent;
           _avisosStream = FirestoreStreamUtils.resilientQuery(
             tenantRef
@@ -363,6 +364,16 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                 .snapshots(),
           );
         });
+        if (quickPanel.hasHomeLeaders ||
+            quickPanel.homeCorpoAdmin.isNotEmpty ||
+            quickPanel.birthdaysToday.isNotEmpty) {
+          unawaited(
+            ChurchGalleryPhotoWarmup.warmBytesForPanel(
+              tenantId: resolved,
+              panel: quickPanel,
+            ),
+          );
+        }
       }
     }
 
@@ -404,22 +415,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     final results = await Future.wait([
       PanelDashboardSnapshotService.readOnce(resolved),
       ChurchDashboardCurrentService.readOnce(resolved),
-      PanelMediaPrefetchService.readOnce(resolved),
     ]);
     if (!mounted) return;
     unawaited(
       PanelPreheatCoordinator.preheatOnce(tenantIdHint: resolved),
     );
-    final prefetchRaw = results[2] as Map<String, dynamic>?;
-    if (igSnap != null) {
-      unawaited(
-        PanelMediaPrefetchService.applyToUrlCaches(
-          resolved,
-          raw: prefetchRaw,
-          tenantData: igSnap.data(),
-        ),
-      );
-    }
+    final igSnapData = igSnap?.data();
     YahwehPerformanceMonitor.markScreenReady('igreja_dashboard');
     setState(() {
       _effectiveTenantId = resolved;
@@ -451,16 +452,23 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         panel: panelSnap,
       ),
     );
-    if (prefetchRaw != null) {
-      unawaited(
-        ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(
+    unawaited(() async {
+      final prefetchRaw = await PanelMediaPrefetchService.readOnce(resolved);
+      if (!mounted) return;
+      await PanelMediaPrefetchService.applyToUrlCaches(
+        resolved,
+        raw: prefetchRaw,
+        tenantData: igSnapData,
+      );
+      if (prefetchRaw != null && prefetchRaw.isNotEmpty) {
+        await ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(
           resolved,
           prefetchRaw,
-        ),
-      );
-    }
+        );
+      }
+    }());
     if (panelSnap.isFreshForInstantPanel) {
-      Future<void>.delayed(const Duration(seconds: 6), () {
+      Future<void>.delayed(const Duration(seconds: 3), () {
         if (!mounted) return;
         _scheduleHeavyDashboardStreams(allIds);
       });

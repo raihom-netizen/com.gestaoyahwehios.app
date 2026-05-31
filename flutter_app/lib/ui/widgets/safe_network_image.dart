@@ -1844,7 +1844,7 @@ class _MemberProfileBytesEntry {
 class MemberProfilePhotoBytesCache {
   static final Map<String, _MemberProfileBytesEntry> _map = {};
   static final List<String> _order = [];
-  static const int maxEntries = 400;
+  static const int maxEntries = 720;
   static const Duration ttl = Duration(days: 30);
 
   /// Identifica o mesmo ficheiro após rotação de token na query string.
@@ -1955,6 +1955,19 @@ Future<void> _writeStorageImageBytesToDisk(
 /// Carrega imagem via **Firebase Storage SDK** ([getData]) ou HTTP, depois [Image.memory].
 /// No Android, [CachedNetworkImage] costuma ficar indefinidamente em loading com URLs
 /// `firebasestorage.googleapis.com` tokenizadas; este widget contorna o problema.
+/// Limite de download para avatares/listas (evita puxar foto 4K no painel ou chat).
+int firebaseStorageMaxBytesForMemCache(int? memCacheWidth, int? memCacheHeight) {
+  final edge = [
+    memCacheWidth ?? 0,
+    memCacheHeight ?? 0,
+  ].reduce((a, b) => a > b ? a : b);
+  if (edge <= 0) return 4 * 1024 * 1024;
+  if (edge <= 160) return 96 * 1024;
+  if (edge <= 320) return 160 * 1024;
+  if (edge <= 640) return 512 * 1024;
+  return 2 * 1024 * 1024;
+}
+
 class FirebaseStorageMemoryImage extends StatefulWidget {
   final String imageUrl;
   final BoxFit fit;
@@ -2074,25 +2087,7 @@ class _FirebaseStorageMemoryImageState
     }
     final hit = MemberProfilePhotoBytesCache.get(url);
     if (hit != null) {
-      if (kIsWeb) {
-        // Na web o LRU pode ter bytes que o Skia/HTML não decodifica — revalidar em [_fetch].
-        void applyLoading() {
-          _bytes = null;
-          _failed = false;
-          _loading = true;
-          _didFreshTokenRetry = false;
-          _webBrowserImg = false;
-          _webBrowserUrl = '';
-        }
-
-        if (notify) {
-          setState(applyLoading);
-        } else {
-          applyLoading();
-        }
-        return;
-      }
-      void apply() {
+      void applyHit() {
         _bytes = hit;
         _loading = false;
         _failed = false;
@@ -2101,9 +2096,19 @@ class _FirebaseStorageMemoryImageState
       }
 
       if (notify) {
-        setState(apply);
+        setState(applyHit);
       } else {
-        apply();
+        applyHit();
+      }
+
+      if (kIsWeb) {
+        unawaited(() async {
+          if (!await storageBytesRenderWithImageMemory(hit)) {
+            if (!mounted) return;
+            MemberProfilePhotoBytesCache.remove(url);
+            _fetch(url);
+          }
+        }());
       }
       return;
     }
@@ -2163,10 +2168,14 @@ class _FirebaseStorageMemoryImageState
 
     Uint8List? data;
     const storageTimeout = Duration(seconds: 28);
+    final maxDl = firebaseStorageMaxBytesForMemCache(
+      widget.memCacheWidth,
+      widget.memCacheHeight,
+    );
     try {
       if (isFirebaseStorageHttpUrl(url)) {
         data = await firebaseStorageBytesFromDownloadUrl(url,
-                maxBytes: 12 * 1024 * 1024,
+                maxBytes: maxDl,
                 skipFreshDisplayUrl: widget.skipFreshDisplayUrl)
             .timeout(storageTimeout, onTimeout: () => null);
       } else {

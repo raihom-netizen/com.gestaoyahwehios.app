@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_theme.dart' show SaaSContentViewport;
@@ -69,7 +69,8 @@ class _MuralPageState extends State<MuralPage>
     String churchSlug,
     Map<String, dynamic> tenantData,
   })> _loadTenantAndSlug() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    await ensureFirebaseReadyForPublishUpload();
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     final tid =
         await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
       widget.tenantId,
@@ -77,12 +78,12 @@ class _MuralPageState extends State<MuralPage>
     );
     DocumentSnapshot<Map<String, dynamic>> snap;
     try {
-      snap = await FirebaseFirestore.instance
+      snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(tid)
           .get(const GetOptions(source: Source.serverAndCache));
     } catch (_) {
-      snap = await FirebaseFirestore.instance
+      snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(tid)
           .get(const GetOptions(source: Source.cache));
@@ -103,9 +104,10 @@ class _MuralPageState extends State<MuralPage>
   }
 
   String? _muralModuleBarSubtitle() {
-    final dn = (FirebaseAuth.instance.currentUser?.displayName ?? '').trim();
+    final user = firebaseDefaultAuth.currentUser;
+    final dn = (user?.displayName ?? '').trim();
     if (dn.isNotEmpty) return dn;
-    final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+    final email = (user?.email ?? '').trim();
     return email.isNotEmpty ? email : null;
   }
 

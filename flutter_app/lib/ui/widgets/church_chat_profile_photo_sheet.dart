@@ -204,6 +204,7 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
                       memoryPreviewBytes: _previewBytes,
                       memCacheWidth: 280,
                       memCacheHeight: 280,
+                      preferListThumbnail: true,
                     ),
                   ),
                   const SizedBox(height: 8),

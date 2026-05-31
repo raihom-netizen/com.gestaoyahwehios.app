@@ -1,6 +1,7 @@
 import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -65,6 +66,7 @@ import 'widgets/church_panel_ui_helpers.dart';
 import 'widgets/gestor_welcome_dialog.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_shell_nav_icon.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/app_theme.dart';
@@ -185,14 +187,45 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   bool get _isMobile => MediaQuery.sizeOf(context).width < _breakpointDesktop;
   bool get _isPhone => MediaQuery.sizeOf(context).width < _breakpointPhone;
 
-  /// Módulos em ecrã completo no telemóvel (sem rodapé azul; barra própria com Voltar).
+  /// Módulos em ecrã completo no telemóvel (sem rodapé; Voltar na barra do módulo ou shell).
   bool _isMobileFullscreenModule(int index) {
     if (!_isMobile || index == ChurchShellIndices.painel) return false;
-    return index == ChurchShellIndices.membros ||
-        index == ChurchShellIndices.muralAvisos ||
-        index == ChurchShellIndices.muralEventos ||
-        index == ChurchShellIndices.chatIgreja ||
-        index == ChurchShellIndices.cartaoMembro;
+    return true;
+  }
+
+  /// Já trazem [ChurchEmbeddedModuleBar] ou cabeçalho próprio — evita barra duplicada.
+  static const Set<int> _shellModulesWithOwnMobileBar = {
+    ChurchShellIndices.membros,
+    ChurchShellIndices.muralAvisos,
+    ChurchShellIndices.muralEventos,
+    ChurchShellIndices.chatIgreja,
+    ChurchShellIndices.cartaoMembro,
+    ChurchShellIndices.financeiro,
+    ChurchShellIndices.patrimonio,
+    ChurchShellIndices.fornecedores,
+  };
+
+  Widget _wrapShellMobileModule(int index, Widget page) {
+    if (!_isMobile ||
+        index == ChurchShellIndices.painel ||
+        _shellBackToPainel == null ||
+        _shellModulesWithOwnMobileBar.contains(index)) {
+      return page;
+    }
+    final entry = kChurchShellNavEntries[index];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ChurchEmbeddedModuleBar(
+          title: entry.label,
+          icon: entry.icon,
+          accent: entry.accent,
+          onBack: _shellBackToPainel!,
+          subtitle: _shellUserGreetingName(),
+        ),
+        Expanded(child: page),
+      ],
+    );
   }
 
   VoidCallback? get _shellBackToPainel =>
@@ -661,38 +694,103 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _shellPrefetchDone.remove(index);
       return;
     }
-    final base = FirebaseFirestore.instance.collection('igrejas').doc(tid);
     try {
       switch (index) {
         case ChurchShellIndices.membros:
-          unawaited(base
-              .collection('membros')
-              .orderBy('updatedAt', descending: true)
-              .limit(24)
-              .get());
+          unawaited(
+            runFirebaseBackgroundTask<void>(
+              () async {
+                final base = firebaseDefaultFirestore
+                    .collection('igrejas')
+                    .doc(tid);
+                await base
+                    .collection('membros')
+                    .orderBy('updatedAt', descending: true)
+                    .limit(24)
+                    .get();
+              },
+              debugLabel: 'shell_prefetch_membros',
+            ),
+          );
           break;
         case ChurchShellIndices.muralAvisos:
-          unawaited(base
-              .collection('avisos')
-              .orderBy('createdAt', descending: true)
-              .limit(24)
-              .get());
+          unawaited(
+            runFirebaseBackgroundTask<void>(
+              () async {
+                final base = firebaseDefaultFirestore
+                    .collection('igrejas')
+                    .doc(tid);
+                await base
+                    .collection('avisos')
+                    .orderBy('createdAt', descending: true)
+                    .limit(24)
+                    .get();
+              },
+              debugLabel: 'shell_prefetch_avisos',
+            ),
+          );
           break;
         case ChurchShellIndices.muralEventos:
-          unawaited(base
-              .collection('noticias')
-              .orderBy('startAt', descending: true)
-              .limit(24)
-              .get());
+          unawaited(
+            runFirebaseBackgroundTask<void>(
+              () async {
+                final base = firebaseDefaultFirestore
+                    .collection('igrejas')
+                    .doc(tid);
+                await base
+                    .collection('noticias')
+                    .orderBy('startAt', descending: true)
+                    .limit(24)
+                    .get();
+              },
+              debugLabel: 'shell_prefetch_eventos',
+            ),
+          );
           break;
         case 20:
-          unawaited(base.collection('finance').limit(24).get());
+          unawaited(
+            runFirebaseBackgroundTask<void>(
+              () async {
+                await firebaseDefaultFirestore
+                    .collection('igrejas')
+                    .doc(tid)
+                    .collection('finance')
+                    .limit(24)
+                    .get();
+              },
+              debugLabel: 'shell_prefetch_finance',
+            ),
+          );
           break;
         case 21:
-          unawaited(base.collection('patrimonio').limit(24).get());
+          unawaited(
+            runFirebaseBackgroundTask<void>(
+              () async {
+                await firebaseDefaultFirestore
+                    .collection('igrejas')
+                    .doc(tid)
+                    .collection('patrimonio')
+                    .limit(24)
+                    .get();
+              },
+              debugLabel: 'shell_prefetch_patrimonio',
+            ),
+          );
           break;
         case 22:
-          unawaited(base.collection('fornecedores').limit(24).get());
+          unawaited(
+            runFirebaseBackgroundTask<void>(
+              () async {
+                await firebaseDefaultFirestore
+                    .collection('igrejas')
+                    .doc(tid)
+                    .collection('fornecedores')
+                    .limit(24)
+                    .get();
+              },
+              debugLabel: 'shell_prefetch_fornecedores',
+            ),
+          );
           break;
         default:
           _shellPrefetchDone.remove(index);
@@ -1202,13 +1300,21 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                       : 'Planos',
                 ),
               IconButton(
+                tooltip: 'Sair',
+                icon: const Icon(Icons.logout_rounded,
+                    color: Colors.white, size: 22),
+                onPressed: () =>
+                    unawaited(ChurchSignOutNavigation.signOutForAccountSwitch()),
+                style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+              ),
+              IconButton(
                 icon: const Icon(Icons.settings_rounded,
                     color: Colors.white, size: 22),
                 onPressed: () {
                   setState(() => _selectedIndex = ChurchShellIndices.configuracoes);
                 },
                 style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                tooltip: 'Configurações (trocar conta)',
+                tooltip: 'Configurações',
               ),
             ],
           ),
@@ -2100,7 +2206,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     for (var i = 1; i < _pageCache.length; i++) {
       _pageCache[i] = null;
     }
-    return RepaintBoundary(child: _buildPageForIndex(_selectedIndex));
+    return RepaintBoundary(
+      child: _wrapShellMobileModule(
+        _selectedIndex,
+        _buildPageForIndex(_selectedIndex),
+      ),
+    );
   }
 
   /// Licença vencida (trial + carência ou assinatura): só renovação / pagamento, conforme regra do master.

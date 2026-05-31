@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:gestao_yahweh/services/auth_session_service.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
+import 'package:gestao_yahweh/services/login_preferences.dart';
+import 'package:gestao_yahweh/services/session_restore_service.dart';
 
 /// Rota inicial nativa — sessão Firebase persistida abre o painel sem passar pelo login.
 abstract final class AppStartupRoute {
@@ -22,6 +24,15 @@ abstract final class AppStartupRoute {
   static Future<String> finalizeNativeRoute(String candidate) async {
     if (!isNativeMobile) return candidate;
     var route = candidate.trim().isEmpty ? '/' : candidate.trim();
+
+    if (!await AuthSessionService.hasSession() &&
+        !await LoginPreferences.isAccountSwitchPending()) {
+      final restored =
+          await SessionRestoreService.tryRestoreIfNeeded(allowRetry: true);
+      if (restored != null) {
+        await ChurchAutoSessionService.ensureAutoPainelFlagForPersistedSession();
+      }
+    }
 
     if (await AuthSessionService.hasSession()) {
       await ChurchAutoSessionService.ensureAutoPainelFlagForPersistedSession();

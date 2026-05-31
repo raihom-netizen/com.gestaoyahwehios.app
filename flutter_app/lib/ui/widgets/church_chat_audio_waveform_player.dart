@@ -118,39 +118,57 @@ class _ChurchChatAudioWaveformPlayerState
     }
 
     final fg = widget.mine ? ThemeCleanPremium.primary : _accent;
+    final playing = _controller.playerState == PlayerState.playing;
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 280, minWidth: 200),
+      constraints: const BoxConstraints(maxWidth: 300, minWidth: 220),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          IconButton.filledTonal(
-            onPressed: _toggle,
-            style: IconButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.all(8),
-              backgroundColor: fg.withValues(alpha: 0.15),
-              foregroundColor: fg,
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: fg.withValues(alpha: 0.14),
+              shape: BoxShape.circle,
             ),
-            icon: Icon(
-              _controller.playerState == PlayerState.playing
-                  ? Icons.pause_rounded
-                  : Icons.play_arrow_rounded,
-              size: 26,
+            child: Icon(
+              Icons.mic_rounded,
+              color: fg,
+              size: 22,
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 8),
+          Material(
+            color: fg.withValues(alpha: 0.12),
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: _toggle,
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: Icon(
+                  playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                  color: fg,
+                  size: 26,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           Expanded(
             child: AudioFileWaveforms(
-              size: const Size(double.infinity, 44),
+              size: const Size(double.infinity, 40),
               playerController: _controller,
               enableSeekGesture: true,
               waveformType: WaveformType.fitWidth,
               playerWaveStyle: PlayerWaveStyle(
                 fixedWaveColor: ThemeCleanPremium.onSurfaceVariant
-                    .withValues(alpha: 0.25),
+                    .withValues(alpha: 0.28),
                 liveWaveColor: fg,
-                spacing: 3,
+                spacing: 4,
                 showSeekLine: true,
                 seekLineColor: fg,
+                waveThickness: 2.2,
               ),
             ),
           ),

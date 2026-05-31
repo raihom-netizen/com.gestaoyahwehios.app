@@ -43,9 +43,9 @@ O projeto já inclui `firebase_crashlytics` no Dart e os plugins Gradle (`com.go
 
 1. Coloque **`google-services.json`** em `flutter_app/android/app/` (baixar na Firebase Console → configurações do projeto Android). Sem este ficheiro o **build Android falha**.
 2. **iOS — dSYM (obrigatório para stack traces legíveis):**
-   - Xcode: fase **Firebase Crashlytics dSYM** (`Pods/FirebaseCrashlytics/run`) no target Runner (só archive/release).
-   - **Codemagic:** passo `Upload dSYM para Firebase Crashlytics` (`scripts/codemagic_ios_upload_crashlytics_dsyms.sh`) após `flutter build ipa`.
-   - E-mail «Missing dSYM» para uma build **antiga**: só some após enviar o `.dSYM` dessa build (artefacto `Runner.xcarchive/dSYMs` no CI) ou ignorar e aguardar **nova** build iOS com o script activo.
+   - Xcode: fase **Firebase Crashlytics dSYM** (`Pods/FirebaseCrashlytics/run`) no target Runner (Release/Profile).
+   - **Codemagic:** passo **Upload dSYM para Firebase Crashlytics (obrigatorio)** — `scripts/codemagic_ios_upload_crashlytics_dsyms.sh` após `flutter build ipa`; **falha o build** se não enviar (não ignora mais).
+   - E-mail «Missing dSYM» de build **já publicada** (ex. `11.2.295 (1780181613)`): não há correção retroativa automática — dispare **nova** build iOS no Codemagic; o upload corre nesta pipeline.
    - Upload manual (Mac, com o `.dSYM` guardado):  
      `flutter_app/ios/Pods/FirebaseCrashlytics/upload-symbols -gsp flutter_app/ios/Runner/GoogleService-Info.plist -p ios /caminho/Runner.app.dSYM`
 3. Relatórios: [Firebase Console → Crashlytics](https://console.firebase.google.com/project/gestaoyahweh-21e23/crashlytics). Em **debug** a recolha fica desligada (`kReleaseMode`); use um build **release** para ver crashes reais.

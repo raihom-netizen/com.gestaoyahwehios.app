@@ -14,7 +14,9 @@ import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/services/church_chat_album_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_album_grid.dart';
 import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_fs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
@@ -194,7 +196,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   void initState() {
     super.initState();
     logYahwehModuleScreen('chat_thread');
-    unawaited(ensureFirebaseInitialized().catchError((_) {}));
+    unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
     unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
@@ -1429,6 +1431,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
     }
     if (!mounted) return;
+    final albumId = _newAlbumGroupIdIfBatch(toSend.length);
     if (toSend.length > 1) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1440,10 +1443,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     for (var i = 0; i < toSend.length; i++) {
       if (!mounted) return;
-      await _sendPickedPlatformFile(toSend[i]);
-      if (i < toSend.length - 1) {
-        await Future<void>.delayed(const Duration(milliseconds: 100));
-      }
+      unawaited(_sendPickedPlatformFile(
+        toSend[i],
+        albumGroupId: albumId,
+        albumIndex: i,
+        albumCount: toSend.length,
+      ));
     }
   }
 
@@ -1457,6 +1462,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
     if (list.isEmpty) return;
     if (!mounted) return;
+    final albumId = _newAlbumGroupIdIfBatch(list.length);
     if (list.length > 1) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1468,14 +1474,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     for (var i = 0; i < list.length; i++) {
       if (!mounted) return;
-      await _sendPickedImageFile(list[i], previewOnWeb: kIsWeb && list.length == 1);
-      if (i < list.length - 1) {
-        await Future<void>.delayed(const Duration(milliseconds: 80));
-      }
+      unawaited(_sendPickedImageFile(
+        list[i],
+        previewOnWeb: kIsWeb && list.length == 1,
+        albumGroupId: albumId,
+        albumIndex: i,
+        albumCount: list.length,
+      ));
     }
   }
 
-  Future<void> _sendPickedImageFile(XFile x, {required bool previewOnWeb}) async {
+  Future<void> _sendPickedImageFile(
+    XFile x, {
+    required bool previewOnWeb,
+    String? albumGroupId,
+    int albumIndex = 0,
+    int albumCount = 1,
+  }) async {
     if (!mounted) return;
     final name = x.name.isNotEmpty ? x.name : 'foto.jpg';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
@@ -1484,7 +1499,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       mime: mime,
     );
     if (!kIsWeb && (x.path ?? '').isNotEmpty) {
-      unawaited(_uploadAndSendFromPath(x.path!, name, mime, kind));
+      unawaited(_uploadAndSendFromPath(
+        x.path!,
+        name,
+        mime,
+        kind,
+        albumGroupId: albumGroupId,
+        albumIndex: albumIndex,
+        albumCount: albumCount,
+      ));
       return;
     }
     final bytes = await x.readAsBytes();
@@ -1498,7 +1521,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
       if (!ok || !mounted) return;
     }
-    unawaited(_uploadAndSend(bytes, name, mime, kind));
+    unawaited(_uploadAndSend(
+      bytes,
+      name,
+      mime,
+      kind,
+      albumGroupId: albumGroupId,
+      albumIndex: albumIndex,
+      albumCount: albumCount,
+    ));
   }
 
   Future<void> _pickVideosFromGallery() async {
@@ -1514,6 +1545,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         'Só os primeiros $kChatMaxVideosPerPick vídeos serão enviados.',
       );
     }
+    final albumId = _newAlbumGroupIdIfBatch(files.length);
     if (files.length > 1 && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1525,10 +1557,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     for (var i = 0; i < files.length; i++) {
       if (!mounted) return;
-      await _sendPickedPlatformFile(files[i], defaultVideoName: 'video_$i.mp4');
-      if (i < files.length - 1) {
-        await Future<void>.delayed(const Duration(milliseconds: 120));
-      }
+      unawaited(_sendPickedPlatformFile(
+        files[i],
+        defaultVideoName: 'video_$i.mp4',
+        albumGroupId: albumId,
+        albumIndex: i,
+        albumCount: files.length,
+      ));
     }
   }
 
@@ -1584,6 +1619,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Future<void> _sendPickedPlatformFile(
     PlatformFile f, {
     String? defaultVideoName,
+    String? albumGroupId,
+    int albumIndex = 0,
+    int albumCount = 1,
   }) async {
     final name = f.name.isNotEmpty
         ? f.name
@@ -1594,7 +1632,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       mime: mime,
     );
     if (!kIsWeb && (f.path ?? '').isNotEmpty) {
-      unawaited(_uploadAndSendFromPath(f.path!, name, mime, kind));
+      unawaited(_uploadAndSendFromPath(
+        f.path!,
+        name,
+        mime,
+        kind,
+        albumGroupId: albumGroupId,
+        albumIndex: albumIndex,
+        albumCount: albumCount,
+      ));
       return;
     }
     if (f.bytes == null || f.bytes!.isEmpty) {
@@ -1610,7 +1656,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
       return;
     }
-    unawaited(_uploadAndSend(f.bytes!, name, mime, kind));
+    unawaited(_uploadAndSend(
+      f.bytes!,
+      name,
+      mime,
+      kind,
+      albumGroupId: albumGroupId,
+      albumIndex: albumIndex,
+      albumCount: albumCount,
+    ));
   }
 
   void _onMemberProfilePhotoSynced() {
@@ -1691,6 +1745,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
   }
 
+  String? _newAlbumGroupIdIfBatch(int count) {
+    if (count < 2) return null;
+    return 'alb_${DateTime.now().millisecondsSinceEpoch}_${count}';
+  }
+
+  int? _pendingAlbumAnchorListIndex(String? albumGroupId) {
+    if ((albumGroupId ?? '').isEmpty) return null;
+    var anchor = -1;
+    for (var i = 0; i < _pendingOutbound.length; i++) {
+      final p = _pendingOutbound[i];
+      if (p.albumGroupId == albumGroupId) {
+        if (anchor < 0 || i > anchor) anchor = i;
+      }
+    }
+    return anchor < 0 ? null : anchor;
+  }
+
   void _enqueuePending(ChurchChatOutboundPending pending) {
     if (!mounted) return;
     setState(() => _pendingOutbound.insert(0, pending));
@@ -1722,14 +1793,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   /// Stub Firestore imediato (padrão Controle Total: BD primeiro, ficheiro depois).
   Future<void> _startPendingFirestoreStub(ChurchChatOutboundPending pending) async {
     if ((pending.firestoreMessageId ?? '').trim().isNotEmpty) return;
-    await ensureFirebaseInitialized();
+    await ensureFirebaseReadyForChatSend();
     final begun = await ChurchChatService.beginMediaUploadMessage(
       tenantId: widget.tenantId,
       threadId: widget.threadId,
       kind: pending.kind,
       fileName: pending.kind == 'document' ? pending.fileName : null,
-      replyTo: _replyDraft?.toReplyPayload(),
+      replyTo: pending.albumIndex == 0 ? _replyDraft?.toReplyPayload() : null,
       senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
+      albumGroupId: pending.albumGroupId,
+      albumIndex: pending.albumIndex,
+      albumCount: pending.albumCount,
     ).timeout(const Duration(seconds: 20));
     pending.firestoreMessageId = begun.messageId;
     pending.storagePath = begun.storagePath;
@@ -1855,8 +1929,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     String localPath,
     String name,
     String mime,
-    String kind,
-  ) async {
+    String kind, {
+    String? albumGroupId,
+    int albumIndex = 0,
+    int albumCount = 1,
+  }) async {
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
@@ -1866,13 +1943,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     // Enfileira imediatamente (estilo WhatsApp): evita bloquear envio lendo bytes antes.
     Uint8List? previewBytes;
     final pending = ChurchChatOutboundPending(
-      localId: 'p_${DateTime.now().millisecondsSinceEpoch}',
+      localId: 'p_${DateTime.now().millisecondsSinceEpoch}_${albumIndex}',
       kind: kind,
       fileName: name,
       mime: mime,
       localPath: localPath,
       previewBytes: previewBytes,
-      replyPreview: _replyDraft?.preview,
+      replyPreview: albumIndex == 0 ? _replyDraft?.preview : null,
+      albumGroupId: albumGroupId,
+      albumIndex: albumIndex,
+      albumCount: albumCount,
     );
     unawaited(_enqueueAndUploadPending(
       pending: pending,
@@ -1951,10 +2031,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     for (var i = 0; i < files.length; i++) {
       if (!mounted) return;
-      await _sendPickedPlatformFile(files[i], defaultVideoName: 'audio_$i.m4a');
-      if (i < files.length - 1) {
-        await Future<void>.delayed(const Duration(milliseconds: 80));
-      }
+      unawaited(
+          _sendPickedPlatformFile(files[i], defaultVideoName: 'audio_$i.m4a'));
     }
   }
 
@@ -1962,8 +2040,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     List<int> bytes,
     String name,
     String mime,
-    String kind,
-  ) async {
+    String kind, {
+    String? albumGroupId,
+    int albumIndex = 0,
+    int albumCount = 1,
+  }) async {
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
@@ -1974,12 +2055,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
         : null;
     final pending = ChurchChatOutboundPending(
-      localId: 'p_${DateTime.now().millisecondsSinceEpoch}',
+      localId: 'p_${DateTime.now().millisecondsSinceEpoch}_${albumIndex}',
       kind: kind,
       fileName: name,
       mime: mime,
       previewBytes: preview,
-      replyPreview: _replyDraft?.preview,
+      replyPreview: albumIndex == 0 ? _replyDraft?.preview : null,
+      albumGroupId: albumGroupId,
+      albumIndex: albumIndex,
+      albumCount: albumCount,
     );
     unawaited(_enqueueAndUploadPending(
       pending: pending,
@@ -2190,6 +2274,99 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           : Icons.schedule_rounded),
                   size: 14,
                   color: p.failed
+                      ? ThemeCleanPremium.error
+                      : ThemeCleanPremium.onSurface.withValues(alpha: 0.45),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPendingAlbumBubble(
+    List<ChurchChatOutboundPending> group,
+    String myUid,
+  ) {
+    final maxBubbleW = MediaQuery.sizeOf(context).width * 0.78;
+    final cells = <ChurchChatAlbumCell>[
+      for (final p in group)
+        ChurchChatAlbumCell(
+          previewBytes: p.previewBytes,
+          localPath: p.localPath,
+          type: p.kind == 'video' ? 'video' : 'image',
+        ),
+    ];
+    final failed = group.any((p) => p.failed);
+    final avgProgress = group.isEmpty
+        ? 0.0
+        : group.map((p) => p.progress).reduce((a, b) => a + b) / group.length;
+    final lead = group.first;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Container(
+        constraints: BoxConstraints(maxWidth: maxBubbleW),
+        margin: const EdgeInsets.only(bottom: 4, left: 56, right: 4),
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: ChurchChatSenderPalette.outgoingBubbleBackground
+              .withValues(alpha: failed ? 0.55 : 0.92),
+          borderRadius: ChurchChatSenderPalette.bubbleBorderRadius(mine: true),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                ChurchChatAlbumGrid(
+                  items: cells,
+                  maxWidth: maxBubbleW - 8,
+                ),
+                if (!failed && avgProgress < 1)
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.28),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Center(
+                        child: SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: CircularProgressIndicator(
+                            value: avgProgress > 0.02 ? avgProgress : null,
+                            strokeWidth: 3,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _fmtMsgTime(Timestamp.fromDate(lead.createdAt)),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: ThemeCleanPremium.onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  failed
+                      ? Icons.error_outline_rounded
+                      : (avgProgress >= 1
+                          ? Icons.done_all_rounded
+                          : Icons.schedule_rounded),
+                  size: 14,
+                  color: failed
                       ? ThemeCleanPremium.error
                       : ThemeCleanPremium.onSurface.withValues(alpha: 0.45),
                 ),
@@ -3075,10 +3252,38 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         }
                         if (i < pendingCount) {
                           final p = _pendingOutbound[pendingCount - 1 - i];
+                          final anchorIdx =
+                              _pendingAlbumAnchorListIndex(p.albumGroupId);
+                          if (anchorIdx != null &&
+                              _pendingOutbound[anchorIdx] != p) {
+                            return const SizedBox.shrink();
+                          }
+                          if (anchorIdx != null &&
+                              (p.albumGroupId ?? '').isNotEmpty) {
+                            final group = _pendingOutbound
+                                .where((x) => x.albumGroupId == p.albumGroupId)
+                                .toList()
+                              ..sort((a, b) =>
+                                  a.albumIndex.compareTo(b.albumIndex));
+                            return _buildPendingAlbumBubble(group, uid);
+                          }
                           return _buildPendingOutboundBubble(p, uid);
                         }
                         final docIndex = i - pendingCount;
+                        final anchor =
+                            ChurchChatAlbumUtils.anchorDocIndexOrNull(
+                                docs, docIndex);
+                        if (anchor == null) {
+                          return const SizedBox.shrink();
+                        }
                         final m = docs[docIndex].data();
+                        final albumDocs =
+                            ChurchChatAlbumUtils.albumGroupIdFrom(m) != null
+                                ? ChurchChatAlbumUtils.collectAlbumDocs(
+                                    docs, docIndex)
+                                : null;
+                        final isAlbumBubble =
+                            albumDocs != null && albumDocs.length > 1;
                         final mine = (m['senderUid'] ?? '').toString() == uid;
                         final type = (m['type'] ?? 'text').toString();
                         final createdRaw = m['createdAt'];
@@ -3156,8 +3361,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                               left: mine ? 56 : (groupIncoming ? 0 : 4),
                               right: mine ? 4 : 56,
                             ),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isAlbumBubble ? 4 : 12,
+                              vertical: isAlbumBubble ? 4 : 8,
+                            ),
                             decoration: bubbleDecoration,
                             child: Column(
                               crossAxisAlignment: mine
@@ -3187,6 +3394,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                   mine: mine,
                                   replyQuoteAccent: quoteAccent,
                                   onOpenAttachment: _openAttachmentExternally,
+                                  albumDocs: albumDocs,
                                 ),
                                 _buildReactionsStrip(m, uid, mine),
                                 Padding(
@@ -3526,6 +3734,7 @@ class _MessageBody extends StatelessWidget {
   final bool mine;
   final Color? replyQuoteAccent;
   final Future<void> Function(String rawUrl)? onOpenAttachment;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>>? albumDocs;
 
   const _MessageBody({
     required this.messageId,
@@ -3534,6 +3743,7 @@ class _MessageBody extends StatelessWidget {
     required this.mine,
     this.replyQuoteAccent,
     this.onOpenAttachment,
+    this.albumDocs,
   });
 
   Widget _replyQuote(BuildContext context) {
@@ -3620,8 +3830,45 @@ class _MessageBody extends StatelessWidget {
         _replyQuote(context),
       ];
 
+  Widget _buildAlbumGrid(BuildContext context) {
+    final docs = albumDocs!;
+    final cells = <ChurchChatAlbumCell>[];
+    for (final d in docs) {
+      final dm = d.data();
+      final t = (dm['type'] ?? 'image').toString();
+      final url = (dm['mediaUrl'] ?? '').toString().trim();
+      final delivery = (dm['deliveryStatus'] ?? '').toString();
+      if (url.isEmpty &&
+          (delivery == ChurchChatService.deliveryUploading ||
+              delivery == ChurchChatService.deliverySending)) {
+        cells.add(ChurchChatAlbumCell(type: t));
+        continue;
+      }
+      cells.add(ChurchChatAlbumCell(
+        url: url.isEmpty ? null : url,
+        type: t == 'video' ? 'video' : 'image',
+        onTap: url.isEmpty
+            ? null
+            : () => churchChatOpenImageZoom(context, url),
+      ));
+    }
+    final maxW = MediaQuery.sizeOf(context).width * 0.72;
+    return ChurchChatAlbumGrid(items: cells, maxWidth: maxW);
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (albumDocs != null && albumDocs!.length > 1) {
+      return Column(
+        crossAxisAlignment:
+            mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ..._quotePrefix(context),
+          _buildAlbumGrid(context),
+        ],
+      );
+    }
     if (type == 'text') {
       return Column(
         crossAxisAlignment:

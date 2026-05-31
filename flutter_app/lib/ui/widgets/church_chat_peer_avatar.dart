@@ -43,6 +43,7 @@ class ChurchChatPeerAvatar extends StatelessWidget {
         size: size,
         memCacheWidth: cachePx,
         memCacheHeight: cachePx,
+        preferListThumbnail: true,
       );
     }
 

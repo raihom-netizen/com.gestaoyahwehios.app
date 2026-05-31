@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 
@@ -326,15 +328,28 @@ class PublicMemberSignupCompactHeader extends StatelessWidget {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    IconButton(
-                      icon: Icon(
-                        Icons.arrow_back_rounded,
-                        color: Colors.grey.shade800,
+                    if (!kIsWeb && Navigator.canPop(context))
+                      Padding(
+                        padding: const EdgeInsets.only(left: 2),
+                        child: YahwehSuperPremiumBackButton(
+                          onPressed:
+                              onBack ?? () => Navigator.maybePop(context),
+                          tooltip: 'Voltar ao painel',
+                          variant:
+                              YahwehSuperPremiumBackVariant.onLightSurface,
+                        ),
+                      )
+                    else
+                      IconButton(
+                        icon: Icon(
+                          Icons.arrow_back_rounded,
+                          color: Colors.grey.shade800,
+                        ),
+                        tooltip: 'Voltar',
+                        visualDensity: VisualDensity.compact,
+                        onPressed:
+                            onBack ?? () => Navigator.maybePop(context),
                       ),
-                      tooltip: 'Voltar',
-                      visualDensity: VisualDensity.compact,
-                      onPressed: onBack ?? () => Navigator.maybePop(context),
-                    ),
                     SizedBox(
                       width: logoBox,
                       height: logoBox,

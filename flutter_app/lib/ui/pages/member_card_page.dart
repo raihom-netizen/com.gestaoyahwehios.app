@@ -2517,14 +2517,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
       defaultSigId =
           (snap.data()?['defaultSignatoryMemberId'] ?? '').toString().trim();
     } catch (_) {}
-    final signat = _selectSignatory(
+    final signat = await _pickSignatoryFromOptions(
+      context,
       options,
-      (defaultSigId ?? '').isEmpty ? null : defaultSigId,
+      preferredMemberId:
+          (defaultSigId?.isNotEmpty ?? false) ? defaultSigId : null,
     );
-    if (signat == null) {
-      if (context.mounted) await _abrirAssinarEmLote(context);
-      return;
-    }
+    if (signat == null) return;
     if (!context.mounted) return;
     final ok = await showDialog<bool>(
       context: context,
@@ -4604,7 +4603,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     })>[];
     for (final doc in snap.docs) {
       final d = doc.data();
-      if (!memberHasLeadershipForAssinatura(d)) continue;
+      if (!memberCanSignChurchDocuments(d)) continue;
       final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
       if (nome.isEmpty) continue;
       final url =
@@ -4636,6 +4635,108 @@ class _MemberCardPageState extends State<MemberCardPage> {
       }
     }
     return options.first;
+  }
+
+  /// Escolha explícita do signatário (gestor, pastor, secretário, tesoureiro, líder).
+  Future<
+      ({
+        String memberId,
+        String nome,
+        String cargo,
+        String? cpf,
+        String? assinaturaUrl,
+      })?> _pickSignatoryFromOptions(
+    BuildContext context,
+    List<
+        ({
+          String memberId,
+          String nome,
+          String cargo,
+          String? cpf,
+          String? assinaturaUrl,
+        })> options, {
+    String? preferredMemberId,
+  }) async {
+    if (options.isEmpty) return null;
+    var selectedId = (preferredMemberId ?? '').trim();
+    if (selectedId.isEmpty ||
+        !options.any((o) => o.memberId == selectedId)) {
+      selectedId = options.first.memberId;
+    }
+    return showDialog<
+        ({
+          String memberId,
+          String nome,
+          String cargo,
+          String? cpf,
+          String? assinaturaUrl,
+        })?>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setLocal) {
+            return AlertDialog(
+              title: const Text('Quem assina?'),
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Gestor, pastor, secretário, tesoureiro ou líder de departamento com assinatura cadastrada em Membros.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.35,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selectedId,
+                      decoration: const InputDecoration(
+                        labelText: 'Signatário',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: [
+                        for (final o in options)
+                          DropdownMenuItem(
+                            value: o.memberId,
+                            child: Text(
+                              '${o.nome} (${o.cargo})',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) setLocal(() => selectedId = v);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    for (final o in options) {
+                      if (o.memberId == selectedId) {
+                        Navigator.pop(ctx, o);
+                        return;
+                      }
+                    }
+                  },
+                  child: const Text('Continuar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   /// Garante [assinaturaUrl] atualizada a partir da ficha do membro (módulo Membros).
