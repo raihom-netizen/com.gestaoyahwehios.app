@@ -11,6 +11,9 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
@@ -199,7 +202,7 @@ Widget _financeBankMiniLogo({
 }
 
 Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
-  final col = FirebaseFirestore.instance
+  final col = firebaseDefaultFirestore
       .collection('igrejas')
       .doc(tenantId)
       .collection('categorias_receitas');
@@ -220,7 +223,7 @@ Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
 
 Future<List<({String id, String nome})>> _financeContasAtivasTenant(
     String tenantId) async {
-  final snap = await FirebaseFirestore.instance
+  final snap = await firebaseDefaultFirestore
       .collection('igrejas')
       .doc(tenantId)
       .collection('contas')
@@ -278,7 +281,7 @@ Future<_FinancePdfSignerSelection?> _pickFinancePdfSigners(
   BuildContext context, {
   required String tenantId,
 }) async {
-  final snap = await FirebaseFirestore.instance
+  final snap = await firebaseDefaultFirestore
       .collection('igrejas')
       .doc(tenantId)
       .collection('membros')
@@ -763,7 +766,8 @@ class _FinanceMetasEditorSheetState extends State<_FinanceMetasEditorSheet> {
   Future<void> _salvar() async {
     setState(() => _saving = true);
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await _ensureFinanceWriteReady();
+      await firebaseDefaultAuth.currentUser?.getIdToken(true);
       final lim = _parseMoneyField(_limiteCtrl.text) ?? 0.0;
       final orc = <String, double>{};
       for (final r in _rows) {
@@ -989,6 +993,9 @@ class FinancePage extends StatefulWidget {
   /// Dentro de [IgrejaCleanShell]: sem título duplicado nas abas e [SafeArea] ajustado.
   final bool embeddedInShell;
 
+  /// Voltar ao Painel no shell mobile (full screen).
+  final VoidCallback? onShellBack;
+
   const FinancePage({
     super.key,
     required this.tenantId,
@@ -999,6 +1006,7 @@ class FinancePage extends StatefulWidget {
     this.initialTabIndex,
     this.openLancamentoId,
     this.embeddedInShell = false,
+    this.onShellBack,
   });
 
   @override
@@ -1050,7 +1058,7 @@ class _FinancePageState extends State<FinancePage>
       unawaited(s.cancel());
     }
     _financeRealtimeSubs.clear();
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     _financeRealtimeSubs.addAll([
       _financeCol.limit(1).snapshots().listen((_) => _scheduleFinanceRealtimeRefresh()),
       db
@@ -1081,13 +1089,14 @@ class _FinancePageState extends State<FinancePage>
   void initState() {
     super.initState();
     logYahwehModuleScreen('financeiro');
+    unawaited(_ensureFinanceWriteReady().catchError((_) {}));
     final rawTab = widget.initialTabIndex ?? 0;
     final idx = rawTab < 0 ? 0 : (rawTab > 7 ? 7 : rawTab);
     _tabCtrl = TabController(length: 8, vsync: this, initialIndex: idx);
     _tenantRef =
-        FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId);
+        firebaseDefaultFirestore.collection('igrejas').doc(widget.tenantId);
     _financeCol = _tenantRef.collection('finance');
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    firebaseDefaultAuth.currentUser?.getIdToken(true);
     _startFinanceRealtimeSync();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_warmupBankBrandingAssets());
@@ -1132,11 +1141,25 @@ class _FinancePageState extends State<FinancePage>
     super.dispose();
   }
 
+  static const _financeTabs = <Widget>[
+    Tab(text: 'Resumo'),
+    Tab(text: 'Lançamentos'),
+    Tab(text: 'Despesas Fixas'),
+    Tab(text: 'Receitas Fixas'),
+    Tab(text: 'Conciliação'),
+    Tab(text: 'Categorias'),
+    Tab(text: 'Contas'),
+    Tab(text: 'Relatórios'),
+  ];
+
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final canPop = Navigator.canPop(context);
     final showAppBar = !isMobile || canPop;
+    final moduleEntry = kChurchShellNavEntries[ChurchShellIndices.financeiro];
+    final moduleAccent = moduleEntry.accent;
+    final shellChrome = widget.onShellBack != null && isMobile;
 
     if (!AppPermissions.canViewFinance(
       widget.role,
@@ -1261,9 +1284,8 @@ class _FinancePageState extends State<FinancePage>
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              ThemeCleanPremium.primary,
-              Color.lerp(ThemeCleanPremium.primaryLight,
-                  ThemeCleanPremium.primary, 0.35)!,
+              moduleAccent,
+              Color.lerp(moduleAccent, Colors.white, 0.22)!,
             ],
           ),
           border: Border.all(
@@ -1272,7 +1294,7 @@ class _FinancePageState extends State<FinancePage>
           ),
           boxShadow: [
             BoxShadow(
-              color: ThemeCleanPremium.primary.withValues(alpha: 0.42),
+              color: moduleAccent.withValues(alpha: 0.42),
               blurRadius: 22,
               offset: const Offset(0, 10),
               spreadRadius: -2,
@@ -1301,9 +1323,25 @@ class _FinancePageState extends State<FinancePage>
                   BorderRadius.circular(ThemeCleanPremium.radiusLg)),
         ),
       ),
-      body: SafeArea(
-        top: !widget.embeddedInShell,
-        child: NestedScrollView(
+      body: DecoratedBox(
+        decoration: churchModuleBodyGradient(moduleAccent),
+        child: SafeArea(
+        top: widget.onShellBack == null && !widget.embeddedInShell,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (shellChrome)
+              ChurchModuleShellChrome(
+                onBack: widget.onShellBack!,
+                title: 'Financeiro',
+                icon: moduleEntry.icon,
+                accent: moduleAccent,
+                subtitle: 'Receitas · despesas · contas',
+                tabController: _tabCtrl,
+                tabs: _financeTabs,
+              ),
+            Expanded(
+              child: NestedScrollView(
           // Abas + visão por conta sobem com o scroll do conteúdo (web e mobile).
           headerSliverBuilder: (BuildContext context, bool innerBoxIsScrolled) {
             return [
@@ -1358,21 +1396,22 @@ class _FinancePageState extends State<FinancePage>
                   ),
                 ),
               SliverToBoxAdapter(
-                child: isMobile && widget.embeddedInShell
-                    ? Container(
-                        color: ThemeCleanPremium.primary,
+                child: isMobile &&
+                        widget.embeddedInShell &&
+                        widget.onShellBack == null
+                    ? DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              moduleAccent,
+                              Color.lerp(moduleAccent, Colors.white, 0.2)!,
+                            ],
+                          ),
+                        ),
                         child: ChurchPanelPillTabBar(
                           controller: _tabCtrl,
-                          tabs: const [
-                            Tab(text: 'Resumo'),
-                            Tab(text: 'Lançamentos'),
-                            Tab(text: 'Despesas Fixas'),
-                            Tab(text: 'Receitas Fixas'),
-                            Tab(text: 'Conciliação'),
-                            Tab(text: 'Categorias'),
-                            Tab(text: 'Contas'),
-                            Tab(text: 'Relatórios'),
-                          ],
+                          accentColor: moduleAccent,
+                          tabs: _financeTabs,
                         ),
                       )
                     : Container(
@@ -1494,6 +1533,10 @@ class _FinancePageState extends State<FinancePage>
             ],
           ),
         ),
+            ),
+          ],
+        ),
+      ),
       ),
     );
   }
@@ -1682,7 +1725,7 @@ class _FinanceContasResumoStrip extends StatelessWidget {
     return FutureBuilder<List<dynamic>>(
       future: Future.wait([
         financeCol.orderBy('createdAt', descending: true).get(),
-        FirebaseFirestore.instance
+        firebaseDefaultFirestore
             .collection('igrejas')
             .doc(tenantId)
             .collection('contas')
@@ -2232,7 +2275,7 @@ class _ResumoTabState extends State<_ResumoTab> {
       () => widget.financeCol.orderBy('createdAt', descending: true).get(),
     );
     _futureContas = financeFirestoreOpWithRetry(
-      () => FirebaseFirestore.instance
+      () => firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('contas')
@@ -2248,7 +2291,7 @@ class _ResumoTabState extends State<_ResumoTab> {
         () => widget.financeCol.orderBy('createdAt', descending: true).get(),
       );
       _futureContas = financeFirestoreOpWithRetry(
-        () => FirebaseFirestore.instance
+        () => firebaseDefaultFirestore
             .collection('igrejas')
             .doc(widget.tenantId)
             .collection('contas')
@@ -3582,7 +3625,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          future: FirebaseFirestore.instance
+                          future: firebaseDefaultFirestore
                               .collection('igrejas')
                               .doc(widget.tenantId)
                               .collection('contas')
@@ -3625,7 +3668,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                     if (ctaId != null && ctaId.isNotEmpty && saldoIni != null) ...[
                       const SizedBox(height: 6),
                       FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        future: FirebaseFirestore.instance
+                        future: firebaseDefaultFirestore
                             .collection('igrejas')
                             .doc(widget.tenantId)
                             .collection('contas')
@@ -3729,12 +3772,12 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                       onDelete: () => _excluirLancamento(docs[i]),
                       onApprove: () async {
                         try {
-                          await FirebaseAuth.instance.currentUser
+                          await firebaseDefaultAuth.currentUser
                               ?.getIdToken(true);
                           await docs[i].reference.update({
                             'aprovacaoPendente': false,
                             'aprovadoPorUid':
-                                FirebaseAuth.instance.currentUser?.uid ?? '',
+                                firebaseDefaultAuth.currentUser?.uid ?? '',
                             'aprovadoEm': FieldValue.serverTimestamp(),
                           });
                           if (mounted) _refresh();
@@ -3953,12 +3996,12 @@ class _ListaLancamentosPorTipoPageState
                         onDelete: () => _excluirLancamento(doc),
                         onApprove: () async {
                           try {
-                            await FirebaseAuth.instance.currentUser
+                            await firebaseDefaultAuth.currentUser
                                 ?.getIdToken(true);
                             await doc.reference.update({
                               'aprovacaoPendente': false,
                               'aprovadoPorUid':
-                                  FirebaseAuth.instance.currentUser?.uid ?? '',
+                                  firebaseDefaultAuth.currentUser?.uid ?? '',
                               'aprovadoEm': FieldValue.serverTimestamp(),
                             });
                             if (mounted) _refresh();
@@ -4068,9 +4111,9 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    firebaseDefaultAuth.currentUser?.getIdToken(true);
     _future = widget.financeCol.orderBy('createdAt', descending: true).get();
-    _futureContas = FirebaseFirestore.instance
+    _futureContas = firebaseDefaultFirestore
         .collection('igrejas')
         .doc(widget.tenantId)
         .collection('contas')
@@ -4081,7 +4124,7 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   void _refresh() {
     setState(() {
       _future = widget.financeCol.orderBy('createdAt', descending: true).get();
-      _futureContas = FirebaseFirestore.instance
+      _futureContas = firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('contas')
@@ -4770,12 +4813,12 @@ class _LancamentosTabState extends State<_LancamentosTab> {
                       onDelete: () => _excluirLancamento(doc),
                       onApprove: () async {
                         try {
-                          await FirebaseAuth.instance.currentUser
+                          await firebaseDefaultAuth.currentUser
                               ?.getIdToken(true);
                           await doc.reference.update({
                             'aprovacaoPendente': false,
                             'aprovadoPorUid':
-                                FirebaseAuth.instance.currentUser?.uid ?? '',
+                                firebaseDefaultAuth.currentUser?.uid ?? '',
                             'aprovadoEm': FieldValue.serverTimestamp(),
                           });
                           if (mounted) _refresh();
@@ -5205,7 +5248,7 @@ class _DespesasFixasTab extends StatefulWidget {
 
 class _DespesasFixasTabState extends State<_DespesasFixasTab> {
   CollectionReference<Map<String, dynamic>> get _col =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('despesas_fixas');
@@ -5215,7 +5258,7 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    firebaseDefaultAuth.currentUser?.getIdToken(true);
     _future = _col.orderBy('descricao').get();
   }
 
@@ -5941,7 +5984,8 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
     dataFimCtrl.dispose();
 
     if (result == null) return;
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await _ensureFinanceWriteReady();
+    await firebaseDefaultAuth.currentUser?.getIdToken(true);
     if (isEdit) {
       await doc.reference.set(result, SetOptions(merge: true));
     } else {
@@ -6091,7 +6135,7 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
         lanc['fornecedorNome'] = (despesa['fornecedorNome'] ?? '').toString();
       }
     }
-    await FirebaseFirestore.instance
+    await firebaseDefaultFirestore
         .collection('igrejas')
         .doc(widget.tenantId)
         .collection('finance')
@@ -6116,7 +6160,7 @@ class _FinanceCategoriasTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ref = FirebaseFirestore.instance.collection('igrejas').doc(tenantId);
+    final ref = firebaseDefaultFirestore.collection('igrejas').doc(tenantId);
     final colDespesas = ref.collection('categorias_despesas');
     final colReceitas = ref.collection('categorias_receitas');
     return SingleChildScrollView(
@@ -6426,13 +6470,13 @@ class _FinanceContasTab extends StatefulWidget {
 
 class _FinanceContasTabState extends State<_FinanceContasTab> {
   CollectionReference<Map<String, dynamic>> get _col =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('contas');
 
   CollectionReference<Map<String, dynamic>> get _financeCol =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('finance');
@@ -6454,7 +6498,7 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    firebaseDefaultAuth.currentUser?.getIdToken(true);
     _future = _col.orderBy('nome').get();
   }
 
@@ -6968,7 +7012,7 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
 
     if (contaPrincipal) {
       final snap = await col.get();
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       for (final doc in snap.docs) {
         batch.update(doc.reference, {'contaPrincipal': doc.id == savedRef.id});
       }
@@ -7338,7 +7382,7 @@ class _MiniButton extends StatelessWidget {
 Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
     String tenantId) async {
   try {
-    final snap = await FirebaseFirestore.instance
+    final snap = await firebaseDefaultFirestore
         .collection('igrejas')
         .doc(tenantId)
         .collection('fornecedores')
@@ -7362,7 +7406,7 @@ Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
 Future<List<({String id, String nome})>> _membrosParaFinanceDropdown(
     String tenantId) async {
   try {
-    final snap = await FirebaseFirestore.instance
+    final snap = await firebaseDefaultFirestore
         .collection('igrejas')
         .doc(tenantId)
         .collection('membros')
@@ -7411,6 +7455,19 @@ String? financeLancamentoVinculoLabel(Map<String, dynamic> data) {
 
 /// Editor de lançamento (mesmo fluxo do módulo financeiro) — reutilizável no painel.
 /// Retorna `true` se gravou com sucesso.
+Future<void> _ensureFinanceWriteReady() async {
+  try {
+    await ensureFirebaseReadyForPublishUpload();
+  } catch (e) {
+    if (isFirebaseNoAppError(e)) {
+      await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+      await ensureFirebaseReadyForPublishUpload();
+      return;
+    }
+    rethrow;
+  }
+}
+
 Future<bool> showFinanceLancamentoEditorForTenant(
   BuildContext context, {
   required String tenantId,
@@ -7422,7 +7479,8 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   /// Só para **novo** lançamento: `entrada`, `saida` ou `transferencia`.
   String? presetNovoTipo,
 }) async {
-  final financeCol = FirebaseFirestore.instance
+  await _ensureFinanceWriteReady();
+  final financeCol = firebaseDefaultFirestore
       .collection('igrejas')
       .doc(tenantId)
       .collection('finance');
@@ -8434,11 +8492,12 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   }
 
   try {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await _ensureFinanceWriteReady();
+    await firebaseDefaultAuth.currentUser?.getIdToken(true);
     if (isEdit) {
       final novoComp = comprovanteFile;
       if (novoComp != null) {
-        final ref = FirebaseStorage.instance
+        final ref = firebaseDefaultStorage
             .ref('igrejas/$tenantId/comprovantes/${existingDoc.id}.jpg');
         final bytes = await novoComp.readAsBytes();
         final compressed = await ImageHelper.compressImage(
@@ -8497,7 +8556,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       final docRef = await financeCol.add(result);
       final novoCompAdd = comprovanteFile;
       if (novoCompAdd != null) {
-        final ref = FirebaseStorage.instance
+        final ref = firebaseDefaultStorage
             .ref('igrejas/$tenantId/comprovantes/${docRef.id}.jpg');
         final bytesNew = await novoCompAdd.readAsBytes();
         final compressedNew = await ImageHelper.compressImage(
@@ -8521,8 +8580,12 @@ Future<bool> showFinanceLancamentoEditorForTenant(
     return true;
   } catch (e) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(formatFirebaseErrorForUser(e)),
+          backgroundColor: ThemeCleanPremium.error,
+        ),
+      );
     }
     return false;
   } finally {
@@ -8581,7 +8644,7 @@ Future<void> uploadFinanceComprovanteForLancamento(
       .showSnackBar(const SnackBar(content: Text('Enviando comprovante...')));
 
   try {
-    final ref = FirebaseStorage.instance
+    final ref = firebaseDefaultStorage
         .ref('igrejas/$tenantId/comprovantes/${doc.id}.jpg');
     final bytes = await xfile.readAsBytes();
     final compressed = await ImageHelper.compressImage(

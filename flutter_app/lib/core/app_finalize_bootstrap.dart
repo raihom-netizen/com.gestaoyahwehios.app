@@ -62,12 +62,13 @@ abstract final class AppFinalizeBootstrap {
 
   static Future<void> _refreshAuthTokenSilently() async {
     try {
-      final user = FirebaseAuth.instance.currentUser;
+      await FirebaseBootstrap.ensureInitialized();
+      final user = firebaseDefaultAuth.currentUser;
       if (user == null) return;
       await user.getIdToken(false);
     } catch (_) {
       try {
-        await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        await firebaseDefaultAuth.currentUser?.getIdToken(true);
       } catch (_) {}
     }
   }

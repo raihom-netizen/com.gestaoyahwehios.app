@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -244,12 +245,92 @@ enum ChurchPanelPillTabBarStyle {
 ///
 /// Usar em mobile dentro do [IgrejaCleanShell] com [embeddedInShell] para alinhar ao cabeçalho do shell sem
 /// duplicar AppBar. [tabs] devem ser [Tab] com texto (e opcionalmente ícone).
+/// Fundo suave do corpo dos módulos Financeiro / Patrimônio / Fornecedores.
+BoxDecoration churchModuleBodyGradient(Color accent) {
+  return BoxDecoration(
+    gradient: LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Color.lerp(accent, Colors.white, 0.72)!,
+        ThemeCleanPremium.surfaceVariant,
+        const Color(0xFFF8FAFC),
+      ],
+      stops: const [0.0, 0.22, 1.0],
+    ),
+  );
+}
+
+/// Faixa superior no shell: voltar + abas coloridas do módulo.
+class ChurchModuleShellChrome extends StatelessWidget {
+  const ChurchModuleShellChrome({
+    super.key,
+    required this.onBack,
+    required this.title,
+    required this.icon,
+    required this.accent,
+    required this.tabController,
+    required this.tabs,
+    this.subtitle,
+    this.denseTabs = true,
+    this.actions = const [],
+  });
+
+  final VoidCallback onBack;
+  final String title;
+  final IconData icon;
+  final Color accent;
+  final String? subtitle;
+  final TabController tabController;
+  final List<Widget> tabs;
+  final bool denseTabs;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ChurchEmbeddedModuleBar(
+          title: title,
+          icon: icon,
+          accent: accent,
+          onBack: onBack,
+          subtitle: subtitle,
+          actions: actions,
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                accent,
+                Color.lerp(accent, Colors.white, 0.18)!,
+              ],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+          ),
+          child: ChurchPanelPillTabBar(
+            controller: tabController,
+            tabs: tabs,
+            dense: denseTabs,
+            accentColor: accent,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class ChurchPanelPillTabBar extends StatelessWidget implements PreferredSizeWidget {
   final TabController controller;
   final List<Widget> tabs;
   /// Altura total menor (faixa azul mais baixa), mantendo o visual “pill” do Patrimônio.
   final bool dense;
   final ChurchPanelPillTabBarStyle style;
+  /// Cor do módulo (Financeiro verde, Patrimônio âmbar, etc.) — substitui o azul primário.
+  final Color? accentColor;
 
   const ChurchPanelPillTabBar({
     super.key,
@@ -257,6 +338,7 @@ class ChurchPanelPillTabBar extends StatelessWidget implements PreferredSizeWidg
     required this.tabs,
     this.dense = false,
     this.style = ChurchPanelPillTabBarStyle.onPrimary,
+    this.accentColor,
   });
 
   @override
@@ -265,7 +347,7 @@ class ChurchPanelPillTabBar extends StatelessWidget implements PreferredSizeWidg
   @override
   Widget build(BuildContext context) {
     final onLight = style == ChurchPanelPillTabBarStyle.onLight;
-    final p = ThemeCleanPremium.primary;
+    final p = accentColor ?? ThemeCleanPremium.primary;
     final outer = dense
         ? EdgeInsets.fromLTRB(10, onLight ? 6 : 2, 10, onLight ? 8 : 6)
         : EdgeInsets.fromLTRB(12, onLight ? 4 : 0, 12, onLight ? 12 : 10);

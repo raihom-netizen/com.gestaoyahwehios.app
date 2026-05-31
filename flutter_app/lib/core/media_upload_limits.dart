@@ -59,10 +59,10 @@ Duration get mediaVideoMaxDurationEffective => kMediaChatVideoMaxDuration;
 int get mediaVideoSkipTranscodeMaxBytes =>
     kMediaTurboMobilePreset ? (64 * 1024 * 1024) : (32 * 1024 * 1024);
 
-/// Uploads em lote (avisos/eventos): web até 4; mobile 2 (evita OOM + falso «Firebase não iniciou»).
+/// Uploads em lote (avisos/eventos): paralelo limitado (turbo mobile = mais rápido em Wi‑Fi/4G).
 int get mediaFeedUploadMaxConcurrent {
-  if (kIsWeb) return 4;
-  return kMediaTurboMobilePreset ? 2 : 2;
+  if (kIsWeb) return 6;
+  return kMediaTurboMobilePreset ? 4 : 3;
 }
 
 int get mediaPickerImageQuality =>

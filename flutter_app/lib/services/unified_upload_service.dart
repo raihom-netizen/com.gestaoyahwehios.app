@@ -72,18 +72,30 @@ abstract final class UnifiedUploadService {
         return url;
       }
 
-      final url = await YahwehMediaUploadPipeline.uploadBytes(
-        storagePath: storagePath,
-        bytes: bytes,
-        contentType: skipClientPrepare ? contentType : _guessImageContentType(bytes, skipClientPrepare),
-        module: module,
-        localFilePathForRetry: localPath,
-        chatJpegFast: chatJpegFast,
-        useOfflineQueue: useOfflineQueue,
-        onProgress: onProgress,
-        onUploadTaskCreated: onUploadTaskCreated,
-        maxAttempts: maxAttempts,
-      );
+      final String url;
+      if (skipClientPrepare) {
+        url = await YahwehMediaUploadPipeline.uploadPreparedBytes(
+          storagePath: storagePath,
+          bytes: bytes,
+          contentType: contentType,
+          maxAttempts: maxAttempts,
+          onProgress: onProgress,
+          onUploadTaskCreated: onUploadTaskCreated,
+        );
+      } else {
+        url = await YahwehMediaUploadPipeline.uploadBytes(
+          storagePath: storagePath,
+          bytes: bytes,
+          contentType: _guessImageContentType(bytes, skipClientPrepare),
+          module: module,
+          localFilePathForRetry: localPath,
+          chatJpegFast: chatJpegFast,
+          useOfflineQueue: useOfflineQueue,
+          onProgress: onProgress,
+          onUploadTaskCreated: onUploadTaskCreated,
+          maxAttempts: maxAttempts,
+        );
+      }
       logFirebasePublishPhase('UPLOAD_END', '$platformLabel|$storagePath');
       return url;
     } catch (e, st) {

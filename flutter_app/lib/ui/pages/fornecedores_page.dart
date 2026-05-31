@@ -1,12 +1,16 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/pdf/fornecedor_recibo_pdf.dart';
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
-    show kFornecedoresModuleIcon;
+    show kChurchShellNavEntries, kFornecedoresModuleIcon;
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
@@ -819,7 +823,7 @@ Future<void> showFornecedorCompromissoEditor(
   valorCtrl.dispose();
 
   if (ok != true || !context.mounted) return;
-  await FirebaseAuth.instance.currentUser?.getIdToken(true);
+  await firebaseDefaultAuth.currentUser?.getIdToken(true);
   final dt = DateTime(
     dEnd.year,
     dEnd.month,
@@ -855,6 +859,9 @@ class FornecedoresPage extends StatefulWidget {
   /// Dentro de [IgrejaCleanShell]: sem [ModuleHeaderPremium] duplicado; abas “pill” coladas ao cartão do módulo.
   final bool embeddedInShell;
 
+  /// Voltar ao Painel no shell mobile (full screen).
+  final VoidCallback? onShellBack;
+
   const FornecedoresPage({
     super.key,
     required this.tenantId,
@@ -863,6 +870,7 @@ class FornecedoresPage extends StatefulWidget {
     this.podeVerFornecedores,
     this.permissions,
     this.embeddedInShell = false,
+    this.onShellBack,
   });
 
   @override
@@ -874,6 +882,22 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   final _searchCtrl = TextEditingController();
   String _q = '';
   late TabController _tabMain;
+  QuerySnapshot<Map<String, dynamic>>? _fornecedoresCacheSnap;
+
+  static const _mainTabs = <Widget>[
+    Tab(
+      text: 'Cadastros',
+      icon: Icon(kFornecedoresModuleIcon, size: 20),
+    ),
+    Tab(
+      text: 'Agenda geral',
+      icon: Icon(Icons.calendar_month_rounded, size: 20),
+    ),
+    Tab(
+      text: 'Lista',
+      icon: Icon(Icons.view_agenda_rounded, size: 20),
+    ),
+  ];
 
   @override
   void initState() {
@@ -882,6 +906,19 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     _tabMain.addListener(() {
       if (!_tabMain.indexIsChanging && mounted) setState(() {});
     });
+    unawaited(_warmFornecedoresListCache());
+  }
+
+  Future<void> _warmFornecedoresListCache() async {
+    try {
+      final cached = await _col
+          .orderBy('nome')
+          .limit(500)
+          .get(const GetOptions(source: Source.cache));
+      if (cached.docs.isNotEmpty && mounted) {
+        setState(() => _fornecedoresCacheSnap = cached);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -937,6 +974,9 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     final isMobile = ThemeCleanPremium.isMobile(context);
     final canPop = Navigator.canPop(context);
     final embedded = widget.embeddedInShell;
+    final moduleEntry = kChurchShellNavEntries[ChurchShellIndices.fornecedores];
+    final moduleAccent = moduleEntry.accent;
+    final shellChrome = widget.onShellBack != null && isMobile;
     /// No shell: só faixa “pill” — sem AppBar com título (evita repetir “Fornecedores”).
     final showScaffoldAppBar = !embedded && (!isMobile || canPop);
     if (!_canAccess) {
@@ -987,9 +1027,15 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           ? Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                gradient: LinearGradient(
+                  colors: [
+                    moduleAccent,
+                    Color.lerp(moduleAccent, Colors.white, 0.2)!,
+                  ],
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.42),
+                    color: moduleAccent.withValues(alpha: 0.42),
                     blurRadius: 28,
                     offset: const Offset(0, 12),
                     spreadRadius: -2,
@@ -1003,7 +1049,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
               ),
               child: FloatingActionButton.extended(
                 onPressed: () => _openEditor(),
-                backgroundColor: ThemeCleanPremium.primary,
+                backgroundColor: Colors.transparent,
                 foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
@@ -1024,32 +1070,38 @@ class _FornecedoresPageState extends State<FornecedoresPage>
             )
           : null,
       body: DecoratedBox(
-        decoration: BoxDecoration(gradient: ThemeCleanPremium.churchPanelBodyGradient),
+        decoration: churchModuleBodyGradient(moduleAccent),
         child: SafeArea(
-          top: !embedded,
+          top: widget.onShellBack == null && !embedded,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (embedded)
-                Container(
-                  color: ThemeCleanPremium.primary,
+              if (shellChrome)
+                ChurchModuleShellChrome(
+                  onBack: widget.onShellBack!,
+                  title: 'Fornecedores',
+                  icon: moduleEntry.icon,
+                  accent: moduleAccent,
+                  subtitle: 'Cadastros · agenda · compromissos',
+                  tabController: _tabMain,
+                  tabs: _mainTabs,
+                  denseTabs: true,
+                )
+              else if (embedded)
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        moduleAccent,
+                        Color.lerp(moduleAccent, const Color(0xFF94A3B8), 0.35)!,
+                      ],
+                    ),
+                  ),
                   child: ChurchPanelPillTabBar(
                     dense: true,
                     controller: _tabMain,
-                    tabs: const [
-                      Tab(
-                        text: 'Cadastros',
-                        icon: Icon(kFornecedoresModuleIcon, size: 18),
-                      ),
-                      Tab(
-                        text: 'Agenda geral',
-                        icon: Icon(Icons.calendar_month_rounded, size: 18),
-                      ),
-                      Tab(
-                        text: 'Lista',
-                        icon: Icon(Icons.view_agenda_rounded, size: 18),
-                      ),
-                    ],
+                    accentColor: moduleAccent,
+                    tabs: _mainTabs,
                   ),
                 ),
               if (!embedded && isMobile && !canPop)
@@ -1111,6 +1163,8 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   }
 
   Widget _buildCadastrosTab() {
+    final accent =
+        kChurchShellNavEntries[ChurchShellIndices.fornecedores].accent;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1121,7 +1175,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
             onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
             decoration: InputDecoration(
               hintText: 'Buscar por nome, CPF/CNPJ ou cidade',
-              prefixIcon: Icon(Icons.search_rounded, color: ThemeCleanPremium.primary),
+              prefixIcon: Icon(Icons.search_rounded, color: accent),
               filled: true,
               fillColor: Colors.white,
               border: OutlineInputBorder(
@@ -1130,11 +1184,11 @@ class _FornecedoresPageState extends State<FornecedoresPage>
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: ThemeCleanPremium.primary.withValues(alpha: 0.22)),
+                borderSide: BorderSide(color: accent.withValues(alpha: 0.28)),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: ThemeCleanPremium.primary.withValues(alpha: 0.65), width: 1.4),
+                borderSide: BorderSide(color: accent, width: 1.5),
               ),
             ),
           ),
@@ -1142,6 +1196,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _col.orderBy('nome').limit(500).snapshots(),
+            initialData: _fornecedoresCacheSnap,
             builder: (context, snap) {
               if (snap.hasError) {
                 return ChurchPanelErrorBody(
@@ -2698,7 +2753,7 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await firebaseDefaultAuth.currentUser?.getIdToken(true);
       final payload = <String, dynamic>{
         'nome': _nomeCtrl.text.trim(),
         'tipoPessoa': _tipo,
@@ -3112,18 +3167,18 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
     super.dispose();
   }
 
-  DocumentReference<Map<String, dynamic>> get _fornecedorRef => FirebaseFirestore.instance
+  DocumentReference<Map<String, dynamic>> get _fornecedorRef => firebaseDefaultFirestore
       .collection('igrejas')
       .doc(widget.tenantId)
       .collection('fornecedores')
       .doc(widget.fornecedorId);
 
-  CollectionReference<Map<String, dynamic>> get _financeCol => FirebaseFirestore.instance
+  CollectionReference<Map<String, dynamic>> get _financeCol => firebaseDefaultFirestore
       .collection('igrejas')
       .doc(widget.tenantId)
       .collection('finance');
 
-  CollectionReference<Map<String, dynamic>> get _compCol => FirebaseFirestore.instance
+  CollectionReference<Map<String, dynamic>> get _compCol => firebaseDefaultFirestore
       .collection('igrejas')
       .doc(widget.tenantId)
       .collection('fornecedor_compromissos');
@@ -3213,7 +3268,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
     final ts = m['createdAt'];
     DateTime? dt;
     if (ts is Timestamp) dt = ts.toDate();
-    final membrosSnap = await FirebaseFirestore.instance
+    final membrosSnap = await firebaseDefaultFirestore
         .collection('igrejas')
         .doc(widget.tenantId)
         .collection('membros')
@@ -3454,7 +3509,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
               ),
               _FornecedoresCompromissosListaTab(
                 tenantId: widget.tenantId,
-                colFornecedores: FirebaseFirestore.instance
+                colFornecedores: firebaseDefaultFirestore
                     .collection('igrejas')
                     .doc(widget.tenantId)
                     .collection('fornecedores'),
@@ -4171,7 +4226,7 @@ class _AgendaTabState extends State<_AgendaTab> {
 
   @override
   Widget build(BuildContext context) {
-    final fornecedorRef = FirebaseFirestore.instance
+    final fornecedorRef = firebaseDefaultFirestore
         .collection('igrejas')
         .doc(widget.tenantId)
         .collection('fornecedores')

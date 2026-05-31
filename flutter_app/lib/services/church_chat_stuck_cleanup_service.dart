@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
@@ -65,7 +65,7 @@ abstract final class ChurchChatStuckCleanupService {
 
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     try {
-      await FirebaseFirestore.instance.enableNetwork();
+      await firebaseDefaultFirestore.enableNetwork();
     } catch (_) {}
 
     var queueDocs = 0;
@@ -86,10 +86,10 @@ abstract final class ChurchChatStuckCleanupService {
   static Future<int> _purgeAllPendingUploadsDocsForCurrentUser(
     String tenantId,
   ) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return 0;
     try {
-      final snap = await FirebaseFirestore.instance
+      final snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(tenantId)
           .collection('pending_uploads')
@@ -97,7 +97,7 @@ abstract final class ChurchChatStuckCleanupService {
           .limit(200)
           .get();
       if (snap.docs.isEmpty) return 0;
-      var batch = FirebaseFirestore.instance.batch();
+      var batch = firebaseDefaultFirestore.batch();
       var ops = 0;
       var n = 0;
       for (final doc in snap.docs) {
@@ -106,7 +106,7 @@ abstract final class ChurchChatStuckCleanupService {
         n++;
         if (ops >= 400) {
           await batch.commit();
-          batch = FirebaseFirestore.instance.batch();
+          batch = firebaseDefaultFirestore.batch();
           ops = 0;
         }
       }
@@ -118,7 +118,7 @@ abstract final class ChurchChatStuckCleanupService {
   }
 
   static Future<int> _purgeOpenChatUploads(String tenantId) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return 0;
     final openStatuses = [
       ChurchChatUploadsService.statusQueued,
@@ -128,7 +128,7 @@ abstract final class ChurchChatStuckCleanupService {
       ChurchChatUploadsService.statusFailed,
     ];
     try {
-      final snap = await FirebaseFirestore.instance
+      final snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(tenantId)
           .collection('chat_uploads')
@@ -160,7 +160,7 @@ abstract final class ChurchChatStuckCleanupService {
   }
 
   static Future<int> _purgeStuckMessagesInThreads(String tenantId) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return 0;
 
     QuerySnapshot<Map<String, dynamic>> threadsSnap;

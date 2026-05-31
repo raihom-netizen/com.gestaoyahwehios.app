@@ -264,6 +264,7 @@ abstract final class ChurchChatMediaOutboxService {
   static Future<void> _resumeAll() async {
     await runFirebaseBackgroundTask<void>(
       () async {
+        await ensureFirebaseReadyForChatSend();
         final prefs = await SharedPreferences.getInstance();
         final raw = prefs.getString(_prefsKey);
         if (raw == null || raw.isEmpty) return;

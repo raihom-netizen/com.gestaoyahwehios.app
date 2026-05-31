@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -70,11 +71,11 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
   @override
   void initState() {
     super.initState();
-    _finRef = FirebaseFirestore.instance
+    _finRef = firebaseDefaultFirestore
         .collection('igrejas')
         .doc(widget.tenantId)
         .collection('finance');
-    _contasRef = FirebaseFirestore.instance
+    _contasRef = firebaseDefaultFirestore
         .collection('igrejas')
         .doc(widget.tenantId)
         .collection('contas');
@@ -256,10 +257,10 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
     }
     setState(() => _loadingApply = true);
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await firebaseDefaultAuth.currentUser?.getIdToken(true);
       const chunk = 400;
       for (var i = 0; i < targets.length; i += chunk) {
-        final batch = FirebaseFirestore.instance.batch();
+        final batch = firebaseDefaultFirestore.batch();
         for (final doc in targets.skip(i).take(chunk)) {
           final m = doc.data();
           final tipo = (m['type'] ?? '').toString().toLowerCase();

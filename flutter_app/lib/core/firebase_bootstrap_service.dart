@@ -287,20 +287,46 @@ abstract final class FirebaseBootstrapService {
     return FirebaseBootstrapResult.failed(fail);
   }
 
+  /// Sonda Firestore (cache) — confirma que `core/no-app` não voltará no `set`/`get`.
+  static Future<void> _assertFirestoreReachable() async {
+    try {
+      await firestore
+          .collection('_health')
+          .doc('client_ping')
+          .get(const GetOptions(source: Source.cache));
+    } catch (e) {
+      if (_isNoFirebaseApp(e)) {
+        await reconnect(requireAuthSession: false);
+        return;
+      }
+      if (e is FirebaseException &&
+          (e.code == 'permission-denied' || e.code == 'unavailable')) {
+        return;
+      }
+      rethrow;
+    }
+  }
+
+  /// Leituras do painel / mural — init completo sem exigir token fresco.
+  static Future<void> ensureReadyForPanelRead() async {
+    if (!isReady() || !_hasApp()) {
+      final r = await initialize();
+      if (!r.isReady && r.failure != null) throw r.failure!;
+    } else {
+      await FirebaseBootstrap.ensureInitialized();
+    }
+    await _assertFirestoreReachable();
+  }
+
   /// Publicar aviso/evento ou enviar mídia — init + sessão, sem health check FCM.
   static Future<void> ensureReadyForPublishUpload() async {
-    await FirebaseBootstrap.ensureInitialized();
-    // Controle Total: utilizador já no app — não repetir health check pesado (FCM/Functions).
-    if (!_hasApp()) {
-      try {
-        final r = await initialize();
-        if (!r.isReady && r.failure != null) throw r.failure!;
-      } catch (e, st) {
-        if (!_hasApp()) {
-          throw FirebaseBootstrapException.from(e, st);
-        }
-      }
+    if (!isReady() || !_hasApp()) {
+      final r = await initialize();
+      if (!r.isReady && r.failure != null) throw r.failure!;
+    } else {
+      await FirebaseBootstrap.ensureInitialized();
     }
+    await _assertFirestoreReachable();
     final user = auth.currentUser;
     if (user == null) {
       throw StateError(

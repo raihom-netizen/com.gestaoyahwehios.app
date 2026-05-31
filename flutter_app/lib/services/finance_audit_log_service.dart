@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 /// Histórico de exclusões e alterações relevantes no módulo financeiro (quem, quando).
 Future<void> logFinanceiroAuditoria({
@@ -8,8 +8,9 @@ Future<void> logFinanceiroAuditoria({
   required String lancamentoId,
   Map<String, dynamic>? dadosAntes,
 }) async {
-  final u = FirebaseAuth.instance.currentUser;
-  await FirebaseFirestore.instance
+  await ensureFirebaseReadyForPublishUpload();
+  final u = firebaseDefaultAuth.currentUser;
+  await firebaseDefaultFirestore
       .collection('igrejas')
       .doc(tenantId)
       .collection('finance_logs')

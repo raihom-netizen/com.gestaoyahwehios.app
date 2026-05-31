@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 /// Configurações do financeiro por igreja — doc `igrejas/{id}/config/finance_settings`.
 class FinanceTenantSettings {
@@ -11,7 +12,7 @@ class FinanceTenantSettings {
   });
 
   static DocumentReference<Map<String, dynamic>> docRef(String tenantId) =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(tenantId)
           .collection('config')
@@ -44,6 +45,8 @@ class FinanceTenantSettings {
   }
 
   Future<void> save(String tenantId) async {
+    await ensureFirebaseReadyForPublishUpload();
+    await firebaseDefaultAuth.currentUser?.getIdToken(true);
     await docRef(tenantId).set(
       {
         'limiteAprovacaoDespesa': limiteAprovacaoDespesa,

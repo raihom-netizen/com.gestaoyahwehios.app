@@ -71,7 +71,7 @@ class _MuralPageState extends State<MuralPage>
     Map<String, dynamic> tenantData,
   })> _loadTenantAndSlug() async {
     try {
-      await FirebaseBootstrap.ensureInitialized();
+      await ensureFirebaseReadyForPanelRead();
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
     } catch (_) {
       final fallback = widget.tenantId.trim();

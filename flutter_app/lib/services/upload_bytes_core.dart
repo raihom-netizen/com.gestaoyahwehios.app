@@ -42,7 +42,7 @@ Future<String> uploadStoragePutDataWithRetry({
 
   void Function(UploadTask task)? onTaskStarted,
 
-  bool useOfflineQueue = true,
+  bool useOfflineQueue = false,
 
   String? localFilePathForRetry,
 
@@ -92,7 +92,7 @@ Future<String> uploadStoragePutFileWithRetry({
 
   void Function(UploadTask task)? onTaskStarted,
 
-  bool useOfflineQueue = true,
+  bool useOfflineQueue = false,
 
 }) async {
 

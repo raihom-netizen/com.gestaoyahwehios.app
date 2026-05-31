@@ -80,13 +80,15 @@ String formatFirebaseErrorForUser(
   return raw.replaceFirst(RegExp(r'^Bad state:\s*'), '').trim();
 }
 
-bool _isNoFirebaseAppError(Object e) {
+bool isFirebaseNoAppError(Object e) {
   final low = e.toString().toLowerCase();
   return low.contains('no firebase app') ||
       low.contains('firebase.initializeapp') ||
       low.contains('core/no-app') ||
       low.contains('has not been initialized');
 }
+
+bool _isNoFirebaseAppError(Object e) => isFirebaseNoAppError(e);
 
 /// Alias legado (upload / mural / chat).
 String formatUploadErrorForUser(Object error) =>

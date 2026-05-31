@@ -2,7 +2,8 @@ import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -251,6 +252,13 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     _effectiveTenantId = widget.tenantId;
     PanelScrollBridge.scrollToCorpoAdministrativo =
         _scrollToCorpoAdministrativo;
+    final tidBoot = widget.tenantId.trim();
+    if (tidBoot.isNotEmpty) {
+      try {
+        _attachPanelFeedStreams(tidBoot);
+      } catch (_) {}
+      unawaited(_paintPanelFromLocalCacheFirst(tidBoot));
+    }
     _loadStreams();
   }
 
@@ -334,35 +342,99 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         permissions: widget.permissions,
       );
 
+  bool get _panelCanPaintWithoutSkeleton =>
+      _avisosStream != null &&
+      _noticiasPainelStream != null;
+
+  void _attachPanelFeedStreams(String resolved) {
+    final tenantRef =
+        firebaseDefaultFirestore.collection('igrejas').doc(resolved);
+    _avisosStream = FirestoreStreamUtils.resilientQuery(
+      tenantRef
+          .collection(ChurchTenantPostsCollections.avisos)
+          .orderBy('createdAt', descending: true)
+          .limit(10)
+          .snapshots(),
+    );
+    _noticiasPainelStream = FirestoreStreamUtils.resilientQuery(
+      tenantRef
+          .collection(ChurchTenantPostsCollections.noticias)
+          .orderBy('startAt', descending: true)
+          .limit(32)
+          .snapshots(),
+    );
+  }
+
+  /// Cache Firestore local antes do bootstrap — evita skeleton prolongado na web.
+  Future<void> _paintPanelFromLocalCacheFirst(String resolved) async {
+    final tid = resolved.trim();
+    if (tid.isEmpty) return;
+    try {
+      final quick = await Future.wait([
+        PanelDashboardSnapshotService.readOnce(tid),
+        ChurchDashboardCurrentService.readOnceFromLocalCache(tid),
+      ]);
+      if (!mounted) return;
+      final quickPanel = quick[0] as PanelDashboardSnapshot;
+      final instant = quickPanel.isFreshForInstantPanel ||
+          quickPanel.hasHomeLeaders ||
+          quickPanel.hasHomeCorpo ||
+          quickPanel.hasBirthdayData;
+      if (!instant && quickPanel.membersTotalCount <= 0) {
+        return;
+      }
+      _attachPanelFeedStreams(tid);
+      setState(() {
+        _effectiveTenantId = tid;
+        _panelCache = quickPanel;
+        _dashboardKpis = quick[1] as ChurchDashboardCurrent;
+      });
+      if (quickPanel.hasHomeLeaders ||
+          quickPanel.homeCorpoAdmin.isNotEmpty ||
+          quickPanel.birthdaysToday.isNotEmpty) {
+        unawaited(
+          ChurchGalleryPhotoWarmup.warmBytesForPanel(
+            tenantId: tid,
+            panel: quickPanel,
+          ),
+        );
+      }
+      if (quickPanel.isFreshForInstantPanel) {
+        Future<void>.delayed(const Duration(seconds: 3), () {
+          if (!mounted) return;
+          _scheduleHeavyDashboardStreams([tid]);
+        });
+      }
+    } catch (_) {}
+  }
+
   Future<void> _loadStreams() async {
     var resolved = widget.tenantId.trim();
     if (resolved.isNotEmpty) {
+      unawaited(_paintPanelFromLocalCacheFirst(resolved));
+    }
+
+    final firebaseReady = ensureFirebaseReadyForPanelRead().catchError((e, st) {
+      if (mounted) {
+        debugPrint('Painel: Firebase indisponível: $e\n$st');
+      }
+    });
+    await firebaseReady;
+    if (!mounted) return;
+
+    resolved = widget.tenantId.trim();
+    if (resolved.isNotEmpty && !_panelCanPaintWithoutSkeleton) {
       final quick = await Future.wait([
         PanelDashboardSnapshotService.readOnce(resolved),
         ChurchDashboardCurrentService.readOnce(resolved),
       ]);
       if (mounted) {
-        final tenantRef =
-            FirebaseFirestore.instance.collection('igrejas').doc(resolved);
         final quickPanel = quick[0] as PanelDashboardSnapshot;
+        _attachPanelFeedStreams(resolved);
         setState(() {
           _effectiveTenantId = resolved;
           _panelCache = quickPanel;
           _dashboardKpis = quick[1] as ChurchDashboardCurrent;
-          _avisosStream = FirestoreStreamUtils.resilientQuery(
-            tenantRef
-                .collection(ChurchTenantPostsCollections.avisos)
-                .orderBy('createdAt', descending: true)
-                .limit(10)
-                .snapshots(),
-          );
-          _noticiasPainelStream = FirestoreStreamUtils.resilientQuery(
-            tenantRef
-                .collection(ChurchTenantPostsCollections.noticias)
-                .orderBy('startAt', descending: true)
-                .limit(32)
-                .snapshots(),
-          );
         });
         if (quickPanel.hasHomeLeaders ||
             quickPanel.homeCorpoAdmin.isNotEmpty ||
@@ -375,6 +447,11 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
           );
         }
       }
+    } else if (resolved.isNotEmpty && _panelCanPaintWithoutSkeleton) {
+      final kpis = await ChurchDashboardCurrentService.readOnce(resolved);
+      if (mounted) {
+        setState(() => _dashboardKpis = kpis);
+      }
     }
 
     final forceToken = !_initialAuthTokenForced;
@@ -382,7 +459,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: forceToken));
     resolved = await _resolveEffectiveTenantId();
     if (!mounted) return;
-    final tenantRef = FirebaseFirestore.instance.collection('igrejas').doc(resolved);
+    final tenantRef = firebaseDefaultFirestore.collection('igrejas').doc(resolved);
     var churchSlug = '';
     var churchNome = '';
     late final List<String> allIds;
@@ -624,7 +701,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   @override
   Widget build(BuildContext context) {
-    if (_avisosStream == null || _noticiasPainelStream == null) {
+    if (!_panelCanPaintWithoutSkeleton) {
       return SafeArea(
         child: Container(
           color: ThemeCleanPremium.surfaceVariant,

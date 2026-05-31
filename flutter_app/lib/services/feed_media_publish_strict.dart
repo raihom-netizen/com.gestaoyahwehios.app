@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
@@ -42,15 +43,17 @@ abstract final class FeedMediaPublishStrict {
     List<String>? newImagePaths,
     Future<void> Function()? onPublished,
   }) async {
-    await ensureFirebaseReadyForPublishUpload();
+    await Future.wait([
+      FastMediaPublishBootstrap.warmForFeedPublish(),
+      AppFinalizeBootstrap.ensureSessionForPublish(
+        logLabel: postType == 'aviso' ? 'avisos_strict' : 'eventos_strict',
+      ),
+    ]);
     logFirebasePublishPhase(
       'EVENT_START',
       '${postType == 'aviso' ? 'aviso' : 'evento'}|${docRef.path}',
     );
     logFirebaseAppsBeforeOperation('feed_strict_publish', module: postType);
-    await AppFinalizeBootstrap.ensureSessionForPublish(
-      logLabel: postType == 'aviso' ? 'avisos_strict' : 'eventos_strict',
-    );
     final postId = docRef.id;
     var localPathsForRetry = const <String>[];
     GlobalUploadProgress.instance.startBatch(

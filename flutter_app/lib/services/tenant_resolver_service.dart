@@ -1,6 +1,7 @@
 import 'dart:async' show TimeoutException;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 /// Resolve o ID do tenant ou igreja para carregar membros.
 /// Suporta tenants e igrejas (quando membros estão em igrejas/{id}/membros).
@@ -8,8 +9,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class TenantResolverService {
   TenantResolverService._();
 
-  static final _firestore = FirebaseFirestore.instance;
+  static FirebaseFirestore get _firestore => firebaseDefaultFirestore;
   static const int _scanLimit = 350;
+
+  static Future<void> _ensureFirestore() => ensureFirebaseReadyForPanelRead();
 
   static String _normalize(String s) {
     if (s.isEmpty) return '';
@@ -21,6 +24,7 @@ class TenantResolverService {
     final raw = id.trim();
     if (raw.isEmpty) return id;
 
+    await _ensureFirestore();
     try {
       final doc = await _firestore.collection('igrejas').doc(raw).get();
       if (doc.exists) return raw;
@@ -133,6 +137,7 @@ class TenantResolverService {
     final raw = resolvedId.trim();
     if (raw.isEmpty) return const [];
 
+    await _ensureFirestore();
     final result = <String>{raw};
 
     Map<String, dynamic>? data;

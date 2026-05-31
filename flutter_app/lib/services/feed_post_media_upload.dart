@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
 
@@ -99,7 +100,7 @@ abstract final class FeedPostMediaUpload {
     }
   }
 
-  /// [MediaUploadService.uploadBytesWithRetry] com preset do feed (WebP cap + 2 tentativas).
+  /// WebP/JPEG preparado → `putData` directo (sem fila offline nem segunda compressão).
   static Future<String> uploadFeedPhotoBytes({
     required String storagePath,
     required Uint8List bytes,
@@ -107,16 +108,18 @@ abstract final class FeedPostMediaUpload {
   }) async {
     final webp = bytesLookLikeWebp(bytes);
     final prepared = webp ? await prepareFeedWebpBytes(bytes) : bytes;
-    return MediaUploadService.uploadBytesWithRetry(
+    if (prepared.isEmpty) {
+      throw StateError('Falha ao preparar imagem para envio.');
+    }
+    await ensureUploadBootstrapForStoragePath(storagePath);
+    final url = await YahwehMediaUploadPipeline.uploadPreparedBytes(
       storagePath: storagePath,
       bytes: prepared,
       contentType: webp ? 'image/webp' : 'image/jpeg',
-      skipClientPrepare: webp,
-      chatJpegFast: !webp,
-      useOfflineQueue: false,
-      maxAttempts: 2,
+      maxAttempts: 3,
       onProgress: onProgress,
     );
+    return url;
   }
 
   static Future<MediaUploadResult> uploadFeedPhotoDetailed({
@@ -124,17 +127,16 @@ abstract final class FeedPostMediaUpload {
     required Uint8List bytes,
     void Function(double progress)? onProgress,
   }) async {
-    final webp = bytesLookLikeWebp(bytes);
-    final prepared = webp ? await prepareFeedWebpBytes(bytes) : bytes;
-    return MediaUploadService.uploadBytesDetailed(
+    final url = await uploadFeedPhotoBytes(
       storagePath: storagePath,
-      bytes: prepared,
-      contentType: webp ? 'image/webp' : 'image/jpeg',
-      skipClientPrepare: webp,
-      chatJpegFast: !webp,
-      useOfflineQueue: false,
-      maxAttempts: 2,
+      bytes: bytes,
       onProgress: onProgress,
+    );
+    final webp = bytesLookLikeWebp(bytes);
+    return MediaUploadResult(
+      downloadUrl: url,
+      storagePath: storagePath,
+      contentType: webp ? 'image/webp' : 'image/jpeg',
     );
   }
 }

@@ -96,7 +96,7 @@ abstract final class YahwehMediaUploadPipeline {
     String? tenantId,
     String? localFilePathForRetry,
     bool chatJpegFast = false,
-    bool useOfflineQueue = false,
+    bool useOfflineQueue = false, // Controle Total: directo; fila só se caller pedir
     String? pendingUploadId,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
@@ -227,6 +227,24 @@ abstract final class YahwehMediaUploadPipeline {
   }
 
   static void hideProgress() => GlobalUploadProgress.instance.end();
+
+  /// Bytes já comprimidos (ex. patrimônio WebP) — `putData` directo, sem fila offline.
+  static Future<String> uploadPreparedBytes({
+    required String storagePath,
+    required Uint8List bytes,
+    required String contentType,
+    int maxAttempts = 4,
+    void Function(double progress)? onProgress,
+    void Function(UploadTask task)? onUploadTaskCreated,
+  }) =>
+      _putDataDirect(
+        storagePath: storagePath,
+        bytes: bytes,
+        contentType: contentType,
+        maxAttempts: maxAttempts,
+        onProgress: onProgress,
+        onTaskStarted: onUploadTaskCreated,
+      );
 
   static Future<String> _putDataDirect({
     required String storagePath,

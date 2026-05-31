@@ -142,6 +142,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   void initState() {
     super.initState();
     logYahwehModuleScreen('chat');
+    unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
     // Migração CT (web + iOS + Android): limpa fila Firestore antiga na 1.ª abertura do chat.
     unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
     _localConvListener = () {
@@ -196,6 +197,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(AppFinalizeBootstrap.onAppResume());
+      unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
+      ChurchChatMediaOutboxService.resumePendingOnAppStart();
       final t = _resolvedTenantId;
       if (t != null) unawaited(_syncMemberDepartments(t));
       _requestSilentConversasSyncIfStale();
@@ -225,13 +228,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   /// Pull-to-refresh: sincroniza em segundo plano sem substituir o stream nem esvaziar a lista.
   Future<void> _pullRefreshConversas() async {
     final tid = _resolvedTenantId;
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (tid == null || uid.isEmpty) return;
     if (_chatThreadsStream == null) {
       await _bootstrap();
       return;
     }
     await _silentSyncConversasIndex(tid, force: true);
+    await _warmMemberDirectoryForChat(tid);
   }
 
   void _requestSilentConversasSyncIfStale() {
@@ -292,6 +296,35 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     unawaited(_refreshPeerProfilesForAuthUids(tid, {uid}));
   }
 
+  /// Diretório `_panel_cache/members_directory` — nomes na web sem N queries em `membros`.
+  Future<void> _warmMemberDirectoryForChat(String tenantId) async {
+    await ensureFirebaseReadyForPanelRead().catchError((_) {});
+    var snap = await MembersDirectorySnapshotService.readOnce(tenantId);
+    if (!snap.hasEntries) {
+      snap = await MembersDirectorySnapshotService.warmFromCallableIfStale(
+        tenantId,
+      );
+    }
+    if (!mounted || _resolvedTenantId != tenantId) return;
+    if (!snap.hasEntries) return;
+    final merged = <String, ChurchChatMemberRef>{};
+    for (final e in snap.entries) {
+      final au = (e.authUid ?? '').trim();
+      if (au.isEmpty) continue;
+      final nome = e.displayName.trim();
+      if (nome.isEmpty || nome == 'Membro') continue;
+      merged[au] = ChurchChatMemberRef(
+        memberId: e.memberDocId,
+        authUid: au,
+        data: e.toMemberDataMap(),
+        photoUrl: e.photoUrl,
+      );
+    }
+    if (merged.isEmpty) return;
+    ChurchGalleryPhotoWarmup.warmBytesForChatRefs(tenantId, merged.values);
+    setState(() => _peerMemberByUid = {..._peerMemberByUid, ...merged});
+  }
+
   Future<void> _refreshPeerProfilesForAuthUids(
     String tenantId,
     Set<String> authUids,
@@ -310,10 +343,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   void _schedulePeerProfilesLoad(String tenantId, Set<String> peerUids) {
     if (peerUids.isEmpty) return;
-    final missing =
-        peerUids.where((u) => !_peerMemberByUid.containsKey(u)).toSet();
+    final missing = peerUids.where((u) {
+      if (!_peerMemberByUid.containsKey(u)) return true;
+      return _memberDisplayName(_peerMemberByUid[u]!).isEmpty;
+    }).toSet();
     if (missing.isEmpty) return;
     unawaited(() async {
+      await ensureFirebaseReadyForPanelRead().catchError((_) {});
       final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
         tenantId: tenantId,
         authUids: missing,
@@ -404,7 +440,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       return;
     }
     if (type == 'dm') {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final uid = firebaseDefaultAuth.currentUser?.uid;
       if (uid == null) return;
       final peerList = (data['participantUids'] as List?)
               ?.map((e) => e.toString().trim())
@@ -419,10 +455,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         }
       }
       if (peer == null || peer.isEmpty) return;
-      final titles = data['titlesByUid'];
-      var dmTitle = peer;
-      if (titles is Map && titles[peer] != null) {
-        dmTitle = titles[peer].toString();
+      var dmTitle = _resolvePeerDisplayName(peer, threadData: data);
+      if (dmTitle.isEmpty) {
+        dmTitle = _looksLikeFirebaseUid(peer) ? 'Membro' : peer;
       }
       await nav.push(
         MaterialPageRoute<void>(
@@ -478,7 +513,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   /// Lista imediata a partir de `chat_peer_profiles` + ids `dm_*` (não espera reparo CF).
   Future<void> _reloadLocalConversations() async {
     final tid = _resolvedTenantId;
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (tid == null || uid.isEmpty) return;
     final list = await ChurchChatLocalConversations.listForUser(
       tenantId: tid,
@@ -499,7 +534,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   Future<void> _primeConversasListFromFallback(String tenantId) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
     try {
       final fallback = await ChurchChatService.loadDmThreadsSnapshotFallback(
@@ -516,10 +551,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final tid = await TenantResolverService
         .resolveEffectiveTenantIdPreferringUserBinding(
       widget.tenantId,
-      userUid: FirebaseAuth.instance.currentUser?.uid,
+      userUid: firebaseDefaultAuth.currentUser?.uid,
     );
     if (!mounted) return;
-    final u = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final u = firebaseDefaultAuth.currentUser?.uid ?? '';
     final cachedList = u.isNotEmpty
         ? await ChurchChatThreadsListCache.loadSnapshot(tid, uid: u)
         : null;
@@ -538,6 +573,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     });
     unawaited(_loadChatNotifPrefs());
     unawaited(_pruneStaleChatUploads(tid));
+    unawaited(_warmMemberDirectoryForChat(tid));
     await _primeConversasListFromFallback(tid);
     await _reloadLocalConversations();
     if (!mounted) return;
@@ -681,7 +717,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   Future<void> _syncMemberDepartments(String tid) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return;
     final digits = widget.cpf.replaceAll(RegExp(r'\D'), '');
     final base =
@@ -768,6 +804,50 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     return 0;
   }
 
+  /// Evita mostrar UID Firebase como «nome» na lista (comum na web sem cache).
+  static bool _looksLikeFirebaseUid(String raw) {
+    final s = raw.trim();
+    if (s.length < 20 || s.length > 128) return false;
+    if (s.contains('@') || s.contains(' ')) return false;
+    return RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(s);
+  }
+
+  String? _titleFromThreadForPeer(Map<String, dynamic> data, String peer) {
+    final titles = data['titlesByUid'];
+    if (titles is! Map) return null;
+    final t = titles[peer]?.toString().trim() ?? '';
+    if (t.isEmpty || t == peer || _looksLikeFirebaseUid(t)) return null;
+    return t;
+  }
+
+  String? _displayNameFromLocalCache(String peerUid) {
+    for (final loc in _localConversations) {
+      if (loc.peerUid != peerUid) continue;
+      final n = loc.displayName.trim();
+      if (n.isNotEmpty && !_looksLikeFirebaseUid(n)) return n;
+    }
+    return null;
+  }
+
+  String _resolvePeerDisplayName(
+    String peer, {
+    Map<String, dynamic>? threadData,
+  }) {
+    if (peer.isEmpty) return '';
+    final memberRef = _peerMemberByUid[peer];
+    if (memberRef != null) {
+      final fromMember = _memberDisplayName(memberRef);
+      if (fromMember.isNotEmpty) return fromMember;
+    }
+    if (threadData != null) {
+      final fromThread = _titleFromThreadForPeer(threadData, peer);
+      if (fromThread != null) return fromThread;
+    }
+    final fromLocal = _displayNameFromLocalCache(peer);
+    if (fromLocal != null) return fromLocal;
+    return '';
+  }
+
   String _dmDisplayTitle(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
     String myUid,
@@ -781,18 +861,16 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (peer.isEmpty) {
       peer = ChurchChatService.otherUidInDmThread(doc.id, myUid) ?? '';
     }
-    final memberRef = peer.isNotEmpty ? _peerMemberByUid[peer] : null;
-    if (memberRef != null) {
-      final fromMember = _memberDisplayName(memberRef);
-      if (fromMember.isNotEmpty && fromMember != peer) return fromMember;
+    final resolved = _resolvePeerDisplayName(peer, threadData: data);
+    if (resolved.isNotEmpty) return resolved;
+    if (peer.isNotEmpty && _looksLikeFirebaseUid(peer)) {
+      final tid = _resolvedTenantId;
+      if (tid != null) {
+        unawaited(_refreshPeerProfilesForAuthUids(tid, {peer}));
+      }
+      return 'Membro';
     }
-    final titles = data['titlesByUid'];
-    var title = peer;
-    if (titles is Map && titles[peer] != null) {
-      title = titles[peer].toString();
-    }
-    final t = title.trim();
-    return t.isNotEmpty ? t : peer;
+    return peer.isNotEmpty ? peer : 'Conversa';
   }
 
   String _deptDisplayTitle(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
@@ -846,8 +924,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             '')
         .toString()
         .trim();
-    if (nome.isNotEmpty) return nome;
-    return ref.authUid;
+    if (nome.isNotEmpty && !_looksLikeFirebaseUid(nome)) return nome;
+    return '';
   }
 
   /// Primeiro nome na lista (estilo WhatsApp).
@@ -1368,16 +1446,16 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   String? _chatHubModuleBarSubtitle() {
-    final dn = (FirebaseAuth.instance.currentUser?.displayName ?? '').trim();
+    final dn = (firebaseDefaultAuth.currentUser?.displayName ?? '').trim();
     if (dn.isNotEmpty) return dn;
-    final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+    final email = (firebaseDefaultAuth.currentUser?.email ?? '').trim();
     return email.isNotEmpty ? email : null;
   }
 
   @override
   Widget build(BuildContext context) {
     final tid = _resolvedTenantId;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (tid == null || uid == null) {
       return ColoredBox(
         color: Colors.white,
@@ -1386,8 +1464,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
 
     final shellFullscreen = widget.onShellBack != null;
-    return ColoredBox(
-      color: Colors.white,
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: churchChatHubBackgroundGradient,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -2129,7 +2209,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       tenantId: tid,
       uidA: myUid,
       uidB: peerUid,
-      titleA: FirebaseAuth.instance.currentUser?.displayName ?? 'Eu',
+      titleA: firebaseDefaultAuth.currentUser?.displayName ?? 'Eu',
       titleB: displayName,
     );
     final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
@@ -2237,7 +2317,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   ) {
     final peer = loc.peerUid;
     if (peer.isEmpty) return const SizedBox.shrink();
-    final fullTitle = loc.displayName.isNotEmpty ? loc.displayName : peer;
+    var fullTitle = _resolvePeerDisplayName(peer);
+    if (fullTitle.isEmpty) {
+      final locName = loc.displayName.trim();
+      if (locName.isNotEmpty && !_looksLikeFirebaseUid(locName)) {
+        fullTitle = locName;
+      } else if (_looksLikeFirebaseUid(peer)) {
+        fullTitle = 'Membro';
+      } else {
+        fullTitle = peer;
+      }
+    }
     final rowTitle = _firstNameForChatRow(fullTitle);
     final preview = loc.lastMessage;
     final memberRef = memberByPeerUid[peer];
@@ -2771,7 +2861,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       tenantId: tid,
       uidA: uid,
       uidB: picked.uid,
-      titleA: FirebaseAuth.instance.currentUser?.displayName ?? 'Eu',
+      titleA: firebaseDefaultAuth.currentUser?.displayName ?? 'Eu',
       titleB: picked.name,
     );
     final threadId = ChurchChatService.dmThreadId(uid, picked.uid);

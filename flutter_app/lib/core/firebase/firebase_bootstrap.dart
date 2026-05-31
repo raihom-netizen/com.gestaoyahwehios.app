@@ -10,8 +10,7 @@ abstract final class FirebaseBootstrap {
 
   static Future<void>? _future;
 
-  /// Garante `Firebase.initializeApp` — reexecuta se o app `[DEFAULT]` sumiu
-  /// (reconexão, `restart()`, hot restart parcial).
+  /// Garante `Firebase.initializeApp` — reexecuta se o app `[DEFAULT]` sumiu.
   static Future<void> ensureInitialized() {
     if (_hasDefaultApp()) {
       return Future.value();
@@ -28,7 +27,8 @@ abstract final class FirebaseBootstrap {
 
   static bool _hasDefaultApp() {
     try {
-      return Firebase.apps.isNotEmpty;
+      Firebase.app();
+      return true;
     } catch (_) {
       return false;
     }

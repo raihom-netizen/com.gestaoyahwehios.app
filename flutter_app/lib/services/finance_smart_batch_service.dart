@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/controle_total_sync/bank_notification_parser.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
@@ -99,7 +100,7 @@ abstract final class FinanceSmartBatchService {
 
     var total = 0;
     for (var i = 0; i < valid.length; i += kMaxChunk) {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       for (final row in valid.skip(i).take(kMaxChunk)) {
         final catEfetiva = categoriaForRow != null
             ? (categoriaForRow(row) ?? categoria)

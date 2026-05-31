@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import '../services/ios_payments_gate.dart';
 
-import 'pages/biometric_lock_page.dart';
 import 'pages/change_password_page.dart';
 import 'pages/completar_cadastro_membro_page.dart';
 import 'igreja_clean_shell.dart';
@@ -1014,8 +1013,6 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
 
         final pair = snap.data;
         final p = pair?.$1;
-        final bioEnabled = pair?.$2 ?? false;
-
         if (p == null) return _IgrejaNaoVinculadaPage(user: widget.user);
 
         final user = widget.user;
@@ -1099,13 +1096,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
         );
         final withAnnouncement =
             GlobalAnnouncementOverlay(child: dashboard);
-        // Aviso só depois do desbloqueio por biometria (filho do lock), senão o diálogo competia com a tela de digital.
-        if (bioEnabled) {
-          if (BiometricService.consumeSkipNextDashboardBiometricLock()) {
-            return withAnnouncement;
-          }
-          return BiometricLockPage(child: withAnnouncement);
-        }
+        // Biometria só na tela de login — não bloquear o painel/chat ao voltar da galeria ou câmera.
         return withAnnouncement;
       },
     );

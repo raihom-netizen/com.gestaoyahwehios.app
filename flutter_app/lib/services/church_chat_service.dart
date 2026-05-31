@@ -44,7 +44,7 @@ class ChurchChatService {
 
   static String formatInstantSendError(Object e) => formatUploadErrorForUser(e);
 
-  static final FirebaseFirestore _db = FirebaseFirestore.instance;
+  static FirebaseFirestore get _db => firebaseDefaultFirestore;
 
   static String dmThreadId(String uidA, String uidB) {
     final a = uidA.compareTo(uidB) < 0 ? uidA : uidB;
@@ -146,7 +146,7 @@ class ChurchChatService {
   static Query<Map<String, dynamic>> chatThreadsBroadScanQuery(String tenantId) {
     return chatThreadsParticipantQuery(
       tenantId,
-      FirebaseAuth.instance.currentUser?.uid ?? '',
+      firebaseDefaultAuth.currentUser?.uid ?? '',
     );
   }
 
@@ -378,7 +378,7 @@ class ChurchChatService {
   }
 
   static Future<int> repairDmThreadsClient(String tenantId) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return 0;
 
     final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
@@ -786,7 +786,7 @@ class ChurchChatService {
     required bool active,
     String? displayLabel,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return;
     final ref = typingCol(tenantId, threadId).doc(uid);
     final thread = threadRef(tenantId, threadId);
@@ -958,7 +958,7 @@ class ChurchChatService {
 
   /// Nome mostrado no grupo/DM (gravado em mensagens novas).
   static String senderDisplayNameForNewMessage() {
-    final u = FirebaseAuth.instance.currentUser;
+    final u = firebaseDefaultAuth.currentUser;
     final n = u?.displayName?.trim();
     if (n != null && n.isNotEmpty) {
       return n.length > 100 ? n.substring(0, 100) : n;
@@ -1044,7 +1044,7 @@ class ChurchChatService {
     required String messageId,
     String? emoji,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return false;
     var e = emoji?.trim() ?? '';
     if (e.length > 8) e = e.substring(0, 8);
@@ -1081,7 +1081,7 @@ class ChurchChatService {
     required List<String> departmentIds,
     String? memberDocId,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return;
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
@@ -1103,7 +1103,7 @@ class ChurchChatService {
   }
 
   static Future<void> touchPresence(String tenantId) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return;
     await _db
         .collection('igrejas')
@@ -1127,7 +1127,7 @@ class ChurchChatService {
       stopAppWidePresenceHeartbeat();
       return;
     }
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
       stopAppWidePresenceHeartbeat();
       return;
@@ -1217,7 +1217,7 @@ class ChurchChatService {
     required String threadId,
     required String messageId,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return false;
     try {
       await messagesCol(tenantId, threadId).doc(messageId).update({
@@ -1271,7 +1271,7 @@ class ChurchChatService {
     required String tenantId,
     required String threadId,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return;
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
@@ -1295,7 +1295,7 @@ class ChurchChatService {
     required String threadId,
     int limit = 40,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || !threadId.startsWith('dm_')) return;
     try {
       final snap = await messagesCol(tenantId, threadId)
@@ -1412,7 +1412,7 @@ class ChurchChatService {
       tenantId: tenantId,
       threadId: threadId,
     );
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final expiresAt =
         Timestamp.fromDate(DateTime.now().add(textRetention));
     final msgRef = messagesCol(tenantId, threadId).doc();
@@ -1462,7 +1462,7 @@ class ChurchChatService {
     Map<String, dynamic>? forwardedFrom,
   }) async {
     await ensureFirebaseReadyForChatSend();
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final nf = normalizeForwardedFrom(forwardedFrom);
     final preview = nf != null
         ? '↪ ${nf['preview']}'
@@ -1525,7 +1525,7 @@ class ChurchChatService {
     )) {
       return (messageId: '', allowed: false);
     }
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final expiresAt =
         Timestamp.fromDate(DateTime.now().add(mediaRetention));
     final msgRef = messagesCol(tenantId, threadId).doc();
@@ -1554,7 +1554,7 @@ class ChurchChatService {
     String? storagePath,
     String stickerSource = 'upload',
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final preview = ChurchChatAttachmentUtils.previewForThreadLastMessage(
       kind: 'sticker',
       fileName: null,
@@ -1594,7 +1594,7 @@ class ChurchChatService {
     )) {
       return false;
     }
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final expiresAt =
         Timestamp.fromDate(DateTime.now().add(mediaRetention));
     final msgRef = messagesCol(tenantId, threadId).doc();
@@ -1651,7 +1651,7 @@ class ChurchChatService {
     )) {
       return false;
     }
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final expiresAt =
         Timestamp.fromDate(DateTime.now().add(mediaRetention));
     final msgRef = messagesCol(tenantId, threadId).doc();
@@ -1695,7 +1695,7 @@ class ChurchChatService {
     required String fileName,
     required String contentType,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final ts = DateTime.now().millisecondsSinceEpoch;
     final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
     final path =
@@ -1716,7 +1716,7 @@ class ChurchChatService {
     required String storagePath,
     String label = '',
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final doc = stickersCol(tenantId).doc();
     await doc.set({
       'createdAt': FieldValue.serverTimestamp(),
@@ -1734,7 +1734,7 @@ class ChurchChatService {
     required String tenantId,
     required String stickerDocId,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return false;
     final ref = stickersCol(tenantId).doc(stickerDocId);
     final snap = await ref.get();
@@ -1796,7 +1796,7 @@ class ChurchChatService {
     required String threadId,
     int? timestampMs,
   }) {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final ts = timestampMs ?? DateTime.now().millisecondsSinceEpoch;
     return ChurchStorageLayout.buildChatImageThumbPath(
       tenantId: tenantId,
@@ -1837,7 +1837,7 @@ class ChurchChatService {
       tenantId: tenantId,
       threadId: threadId,
     );
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     final storagePath = buildChatMediaStoragePath(
       tenantId: tenantId,
       threadId: threadId,
@@ -1930,7 +1930,7 @@ class ChurchChatService {
         rethrow;
       }
     }
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isNotEmpty) {
       final kind = (await ref.get()).data()?['type']?.toString() ?? 'image';
       final preview = ChurchChatAttachmentUtils.previewForThreadLastMessage(
@@ -2176,7 +2176,7 @@ class ChurchChatService {
     required String tenantId,
     required String threadId,
   }) async {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = firebaseDefaultAuth.currentUser!.uid;
     await threadRef(tenantId, threadId).set(
       {
         'hiddenForUids': FieldValue.arrayUnion([uid]),

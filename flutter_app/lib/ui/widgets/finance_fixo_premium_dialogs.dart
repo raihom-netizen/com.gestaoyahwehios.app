@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
     show kFornecedoresModuleIcon;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -252,7 +253,7 @@ Future<(String, String, String?)?> showFinancePremiumMemberPicker(
   BuildContext context, {
   required String tenantId,
 }) async {
-  final membros = (await FirebaseFirestore.instance
+  final membros = (await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(tenantId)
           .collection('membros')
@@ -445,7 +446,7 @@ Future<(String, String, String?)?> showFinancePremiumMemberPicker(
 
 Future<List<({String id, String nome})>> _fornecedoresAtivos(String tenantId) async {
   try {
-    final snap = await FirebaseFirestore.instance
+    final snap = await firebaseDefaultFirestore
         .collection('igrejas')
         .doc(tenantId)
         .collection('fornecedores')

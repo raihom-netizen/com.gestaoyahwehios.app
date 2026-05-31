@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
@@ -196,8 +197,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   void initState() {
     super.initState();
     logYahwehModuleScreen('chat_thread');
-    unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
-    unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
+    unawaited(
+      FastMediaPublishBootstrap.warmForChatSend().catchError((_) {}),
+    );
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
@@ -712,7 +714,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   void _showEmojiReactionPicker(String messageId, Map<String, dynamic> m) {
     const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🔥'];
-    final myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final myUid = firebaseDefaultAuth.currentUser?.uid ?? '';
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: ThemeCleanPremium.surface,
@@ -902,7 +904,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     Map<String, dynamic> m,
     String senderUid,
   ) {
-    final myUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final myUid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (ChurchChatService.messageHiddenForMe(m, myUid)) return;
     final mine = senderUid == myUid && myUid.isNotEmpty;
 
@@ -1378,7 +1380,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
   }
 
+  Future<void> _ensureChatFirebaseBeforePicker() async {
+    await ensureFirebaseReadyForChatSend().catchError((_) {});
+  }
+
   Future<void> _pickImage(ImageSource source) async {
+    await _ensureChatFirebaseBeforePicker();
     final picker = ImagePicker();
     final x = await picker.pickImage(
       source: source,
@@ -1392,6 +1399,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   /// Android/iOS: uma seleção com fotos e vídeos (como galeria de avisos/eventos).
   Future<void> _pickMixedMediaFromGallery() async {
+    await _ensureChatFirebaseBeforePicker();
     final r = await FilePicker.platform.pickFiles(
       type: FileType.media,
       allowMultiple: true,
@@ -1453,6 +1461,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickImagesFromGallery() async {
+    await _ensureChatFirebaseBeforePicker();
     final picker = ImagePicker();
     final list = await picker.pickMultiImage(
       imageQuality: mediaChatImageQuality,
@@ -1533,6 +1542,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickVideosFromGallery() async {
+    await _ensureChatFirebaseBeforePicker();
     final r = await FilePicker.platform.pickFiles(
       type: FileType.video,
       allowMultiple: true,
@@ -1568,6 +1578,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickVideo(ImageSource source) async {
+    await _ensureChatFirebaseBeforePicker();
     final picker = ImagePicker();
     final x = await picker.pickVideo(
       source: source,
@@ -1672,7 +1683,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         MemberProfilePhotoSyncNotifier.instance.lastAuthUid?.trim() ?? '';
     if (uid.isEmpty) return;
     final peer = widget.peerUid?.trim() ?? '';
-    final me = FirebaseAuth.instance.currentUser?.uid?.trim() ?? '';
+    final me = firebaseDefaultAuth.currentUser?.uid?.trim() ?? '';
     if (uid != peer && uid != me) return;
     unawaited(_refreshSenderProfilesForAuthUids({uid}));
   }
@@ -1693,7 +1704,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final uids = <String>{};
     final peer = widget.peerUid?.trim() ?? '';
     if (peer.isNotEmpty) uids.add(peer);
-    final me = FirebaseAuth.instance.currentUser?.uid;
+    final me = firebaseDefaultAuth.currentUser?.uid;
     if (me != null && me.isNotEmpty) uids.add(me);
     if (uids.isEmpty) return;
     final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
@@ -1962,6 +1973,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickDocument() async {
+    await _ensureChatFirebaseBeforePicker();
     final r = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowMultiple: true,
@@ -2008,6 +2020,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickAudioFile() async {
+    await _ensureChatFirebaseBeforePicker();
     final r = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowMultiple: true,
@@ -2397,6 +2410,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _startVoiceRecording() async {
+    await _ensureChatFirebaseBeforePicker();
     try {
       final startedPath = await _chatAudio.startRecording();
       if (startedPath == null && !kIsWeb) {
@@ -2536,7 +2550,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   @override
   Widget build(BuildContext context) {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final blockedDm = !widget.isDepartment &&
         widget.peerUid != null &&
         widget.peerUid!.isNotEmpty &&

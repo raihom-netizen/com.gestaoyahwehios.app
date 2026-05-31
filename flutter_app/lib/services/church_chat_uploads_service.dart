@@ -18,12 +18,12 @@ abstract final class ChurchChatUploadsService {
   static const statusFailed = 'failed';
 
   static CollectionReference<Map<String, dynamic>> _col(String tenantId) =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(tenantId)
           .collection('chat_uploads');
 
-  static String? get _uid => FirebaseAuth.instance.currentUser?.uid;
+  static String? get _uid => firebaseDefaultAuth.currentUser?.uid;
 
   /// Regista ou atualiza o documento de upload (id estável = [uploadId] ou novo).
   static Future<String> upsert({
@@ -160,7 +160,7 @@ abstract final class ChurchChatUploadsService {
     ];
     final out = <Map<String, dynamic>>[];
     try {
-      final snap = await FirebaseFirestore.instance
+      final snap = await firebaseDefaultFirestore
           .collectionGroup('chat_uploads')
           .where('ownerUid', isEqualTo: uid)
           .where('status', whereIn: statuses)

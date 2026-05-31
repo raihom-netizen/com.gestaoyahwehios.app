@@ -30,6 +30,7 @@ import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_strict.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
@@ -42,6 +43,8 @@ import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
 import 'package:gestao_yahweh/core/mural_video_warmup.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaDisplayVideoThumbnailUrl,
@@ -279,7 +282,16 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   Future<void> _ensureMuralFirebaseReady() async {
-    await ensureFirebaseReadyForPublishUpload();
+    try {
+      await ensureFirebaseReadyForPublishUpload();
+    } catch (e) {
+      if (isFirebaseNoAppError(e)) {
+        await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+        await ensureFirebaseReadyForPublishUpload();
+        return;
+      }
+      rethrow;
+    }
   }
 
   Future<void> _bootstrapMural() async {
@@ -3206,10 +3218,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(() async {
-      await ensureFirebaseReadyForPublishUpload().catchError((_) {});
-      await FeedPostMediaUpload.warmAuthToken().catchError((_) {});
-    }());
+    unawaited(FastMediaPublishBootstrap.warmForFeedPublish());
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
     _bodyDescription = TextEditingController(
@@ -3796,7 +3805,16 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await ensureFirebaseReadyForPublishUpload();
+      try {
+        await FastMediaPublishBootstrap.warmForFeedPublish();
+      } catch (e) {
+        if (isFirebaseNoAppError(e)) {
+          await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+          await FastMediaPublishBootstrap.warmForFeedPublish();
+        } else {
+          rethrow;
+        }
+      }
       final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
       final isNewDoc = widget.doc == null;
       final hasNewImages = _newPhotoCount > 0;

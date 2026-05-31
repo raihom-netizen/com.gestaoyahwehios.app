@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl, sanitizeImageUrl;
@@ -18,7 +19,7 @@ class ChurchChatPeerProfileService {
   static CollectionReference<Map<String, dynamic>> _profilesCol(
     String tenantId,
   ) {
-    return FirebaseFirestore.instance
+    return firebaseDefaultFirestore
         .collection('igrejas')
         .doc(tenantId.trim())
         .collection('chat_peer_profiles');
@@ -60,6 +61,7 @@ class ChurchChatPeerProfileService {
     bool forceRefresh = false,
     Set<String>? refetchAuthUids,
   }) async {
+    await ensureFirebaseReadyForPanelRead().catchError((_) {});
     final tid = tenantId.trim();
     if (tid.isEmpty) return {};
 
@@ -167,7 +169,7 @@ class ChurchChatPeerProfileService {
     List<String> authUids,
   ) async {
     final out = <String, ChurchChatMemberRef>{};
-    final col = FirebaseFirestore.instance
+    final col = firebaseDefaultFirestore
         .collection('igrejas')
         .doc(tenantId)
         .collection('membros');

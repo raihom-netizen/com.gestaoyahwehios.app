@@ -16,7 +16,8 @@ export 'firebase_bootstrap_service.dart' show
     FirebaseBootstrapService,
     FirebaseHealthReport;
 
-export 'firebase_user_facing_error.dart' show formatFirebaseErrorForUser;
+export 'firebase_user_facing_error.dart'
+    show formatFirebaseErrorForUser, isFirebaseNoAppError;
 
 export 'firebase_publish_guard.dart' show ensureFirebaseReadyToPublish;
 
@@ -26,6 +27,10 @@ Future<void> ensureFirebaseInitialized() =>
 
 Future<void> ensureFirebaseReadyForMediaUpload({bool force = false}) =>
     FirebaseBootstrapService.ensureReadyForMediaUpload(force: force);
+
+/// Painel / feeds — Firestore pronto (sem refresh de token).
+Future<void> ensureFirebaseReadyForPanelRead() =>
+    FirebaseBootstrapService.ensureReadyForPanelRead();
 
 /// Avisos/eventos/mural — init + token (sem FCM nem backoff longo).
 Future<void> ensureFirebaseReadyForPublishUpload() =>

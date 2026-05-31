@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
@@ -5617,8 +5618,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(ensureFirebaseReadyForPublishUpload().catchError((_) {}));
-    unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
+    unawaited(FastMediaPublishBootstrap.warmForFeedPublish());
     _eventDocRef = widget.doc?.reference ?? widget.noticias.doc();
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
@@ -6613,7 +6613,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final postId = docRef.id;
     final isNewDoc = widget.doc == null;
     try {
-      await ensureFirebaseReadyForPublishUpload();
+      try {
+        await FastMediaPublishBootstrap.warmForFeedPublish();
+      } catch (e) {
+        if (isFirebaseNoAppError(e)) {
+          await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+          await FastMediaPublishBootstrap.warmForFeedPublish();
+        } else {
+          rethrow;
+        }
+      }
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
         final hasPendingLocal = _newPhotoCount > 0;
         double? aspectRatio;

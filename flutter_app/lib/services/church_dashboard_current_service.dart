@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// KPIs pré-calculados no servidor — `igrejas/{tenant}/_performance_cache/dashboard_current`.
@@ -45,14 +46,31 @@ abstract final class ChurchDashboardCurrentService {
   ChurchDashboardCurrentService._();
 
   static DocumentReference<Map<String, dynamic>> ref(String tenantId) {
-    return FirebaseFirestore.instance
+    return firebaseDefaultFirestore
         .collection('igrejas')
         .doc(tenantId.trim())
         .collection('_performance_cache')
         .doc('dashboard_current');
   }
 
+  /// Leitura cache-first sem aguardar bootstrap (pintura instantânea do painel).
+  static Future<ChurchDashboardCurrent> readOnceFromLocalCache(
+    String tenantId,
+  ) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return const ChurchDashboardCurrent();
+    try {
+      final cached = await ref(tid).get(
+        const GetOptions(source: Source.cache),
+      );
+      return ChurchDashboardCurrent.fromMap(cached.data());
+    } catch (_) {
+      return const ChurchDashboardCurrent();
+    }
+  }
+
   static Future<ChurchDashboardCurrent> readOnce(String tenantId) async {
+    await ensureFirebaseReadyForPanelRead();
     try {
       final cached = await ref(tenantId).get(
         const GetOptions(source: Source.cache),

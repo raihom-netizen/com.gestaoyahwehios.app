@@ -153,6 +153,8 @@ class _LoginPageState extends State<LoginPage> {
   bool _hasSavedCredentials = false;
   /// E-mail já gravado após primeiro login (Google/Apple ou e-mail) — não pedir de novo.
   bool _hasSavedEmailHint = false;
+  /// Último login foi Google/Apple — UI só OAuth até «Entrar com e-mail e senha».
+  bool _oauthPrimaryLogin = false;
   bool _quickBiometricReady = false;
   /// Google/Apple já usados neste aparelho + biometria activa (sem senha guardada).
   bool _oauthQuickUnlockReady = false;
@@ -506,10 +508,25 @@ class _LoginPageState extends State<LoginPage> {
         (savedSenha.isNotEmpty || _hasSavedEmailHint)) {
       setState(() => _rememberLogin = true);
     }
+    final accountSwitch = await LoginPreferences.isAccountSwitchPending();
+    final lastProv = await LoginPreferences.getLastOAuthProvider();
+    _oauthPrimaryLogin = !accountSwitch &&
+        (lastProv == 'google' || lastProv == 'apple');
+    if (_oauthPrimaryLogin) {
+      _hasSavedCredentials = false;
+      _showManualCredentialFields = false;
+    }
+    if (!mounted) return;
+    setState(() {});
     await _refreshQuickBiometricState();
     _scheduleMaybeAutoBiometricLogin();
     _scheduleMaybeAutoWebCredentialLogin();
     _scheduleNativeReturningUserUnlock();
+    if (_oauthPrimaryLogin && _nativeChurchLogin && !accountSwitch) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_tryExpressGoogleReconnectAndEnterPainel());
+      });
+    }
   }
 
   /// Android/iOS painel: restaura Google/e-mail guardado antes de pedir login manual.
@@ -588,6 +605,9 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _tryAutoWebCredentialLoginOnce() async {
     if (!kIsWeb || _autoCredentialLoginAttempted) return;
     if (_painelLoginRoute != '/painel' || _isMasterAdminLogin) return;
+    if (_oauthPrimaryLogin) return;
+    final lastProv = await LoginPreferences.getLastOAuthProvider();
+    if (lastProv == 'google' || lastProv == 'apple') return;
     if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
     if (FirebaseAuth.instance.currentUser != null) return;
     if (!_rememberLogin || !_hasSavedCredentials) return;
@@ -659,6 +679,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _tryAutoCredentialLoginOnce() async {
     if (kIsWeb || !_nativeChurchLogin) return;
+    if (_oauthPrimaryLogin) return;
     if (_autoCredentialLoginAttempted) return;
     if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
     if (FirebaseAuth.instance.currentUser != null) return;
@@ -689,7 +710,7 @@ class _LoginPageState extends State<LoginPage> {
         _ => 'Falha no login: ${e.code}',
       });
     } catch (_) {
-      if (mounted) {
+      if (mounted && !_oauthPrimaryLogin) {
         setState(() => _showManualCredentialFields = true);
       }
     } finally {
@@ -802,9 +823,10 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   bool _requireChurchPanelEmailBeforeOAuth() {
-    // App nativo: Google/Apple usam a conta do telemóvel — não exige digitar e-mail antes.
-    if (_nativeChurchLogin) return true;
+    // Painel igreja (app + web): Google/Apple usam a conta do dispositivo — sem e-mail manual.
+    if (_nativeChurchLogin || _isIgrejaPainelLogin) return true;
     if (_simplifiedGoogleOnlyLogin) return true;
+    if (_oauthPrimaryLogin) return true;
     if (_churchPanelEmailHintFilled()) return true;
     if (!mounted) return false;
     const msg =
@@ -863,10 +885,10 @@ class _LoginPageState extends State<LoginPage> {
   Future<void> _forgetThisDevice() async {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+        const SnackBar(
         content: Text(
-          'Para trocar o e-mail de login: entre no painel → Configurações → '
-          '«Trocar e-mail de login».',
+          'Para usar outra conta: entre no painel → Configurações → '
+          '«Trocar de conta».',
         ),
         duration: Duration(seconds: 5),
       ),
@@ -903,7 +925,9 @@ class _LoginPageState extends State<LoginPage> {
       final okBio = await BiometricService().authenticate();
       if (!okBio) {
         if (!mounted) return;
-        setState(() => _showManualCredentialFields = true);
+        if (!_oauthPrimaryLogin) {
+          setState(() => _showManualCredentialFields = true);
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Biometria não confirmada. Use Google ou e-mail e senha.'),
@@ -932,7 +956,9 @@ class _LoginPageState extends State<LoginPage> {
             await LoginPreferences.shouldForceGoogleAccountPicker();
         final firstBind = await LoginPreferences.isFirstGoogleBindOnDevice();
         if (!forcePicker && !firstBind) {
-          setState(() => _showManualCredentialFields = true);
+          if (!_oauthPrimaryLogin) {
+            setState(() => _showManualCredentialFields = true);
+          }
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.feedbackSnackBar(
               'Não foi possível restaurar a sessão Google automaticamente. '
@@ -961,7 +987,9 @@ class _LoginPageState extends State<LoginPage> {
           if (mounted) setState(() => _oauthGoogleInFlight = false);
         }
         if (!mounted) return;
-        setState(() => _showManualCredentialFields = true);
+        if (!_oauthPrimaryLogin) {
+          setState(() => _showManualCredentialFields = true);
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
             'Não foi possível restaurar a sessão Google. Verifique a internet '
@@ -1057,6 +1085,11 @@ class _LoginPageState extends State<LoginPage> {
       await _refreshQuickBiometricState();
     }
     await _syncLoginPreferencesHints();
+    final lastProv = await LoginPreferences.getLastOAuthProvider();
+    if (lastProv == 'google' || lastProv == 'apple') {
+      _oauthPrimaryLogin = true;
+      _hasSavedCredentials = false;
+    }
     if (mounted) setState(() => _errorMessage = null);
     if (!mounted) return false;
 
@@ -1639,6 +1672,16 @@ class _LoginPageState extends State<LoginPage> {
 
   /// Login do Painel Master: só marca Gestão YAHWEH (nunca logo de igreja).
   bool get _isMasterAdminLogin => widget.afterLoginRoute == '/admin';
+
+  bool get _isIgrejaPainelLogin {
+    final route = widget.afterLoginRoute.split('?').first;
+    return route == '/painel' && !_isMasterAdminLogin;
+  }
+
+  /// Campos de e-mail/senha só quando o utilizador pede ou guardou senha (não OAuth).
+  bool get _showEmailPasswordFields =>
+      _showManualCredentialFields ||
+      (_hasSavedCredentials && !_oauthPrimaryLogin);
 
   bool get _useSmartFlow {
     if (_isMasterAdminLogin) return false;
@@ -2321,8 +2364,8 @@ class _LoginPageState extends State<LoginPage> {
   /// Já entrou antes (e-mail gravado), sem biometria: só Google/Apple + entrada automática.
   bool get _nativeOAuthOnlyCompact =>
       !_simplifiedGoogleOnlyLogin &&
-      _nativeChurchLogin &&
-      _hasSavedEmailHint &&
+      (_nativeChurchLogin || (kIsWeb && _isIgrejaPainelLogin)) &&
+      (_oauthPrimaryLogin || _hasSavedEmailHint) &&
       !_quickBiometricReady &&
       !_oauthQuickUnlockReady &&
       !_showManualCredentialFields &&
@@ -2667,7 +2710,7 @@ class _LoginPageState extends State<LoginPage> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Outro e-mail? Configurações → Trocar e-mail de login.',
+          'Outra conta? No painel: Configurações → Trocar de conta.',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           textAlign: TextAlign.center,
         ),
@@ -2749,7 +2792,7 @@ class _LoginPageState extends State<LoginPage> {
         Padding(
           padding: const EdgeInsets.only(top: 4),
           child: Text(
-            'Outro e-mail? Configurações → Trocar e-mail de login.',
+            'Outra conta? No painel: Configurações → Trocar de conta.',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             textAlign: TextAlign.center,
           ),
@@ -2967,8 +3010,7 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                 ),
                               ],
-                              if (!_showManualCredentialFields &&
-                                  !_hasSavedCredentials) ...[
+                              if (!_showEmailPasswordFields) ...[
                                 const SizedBox(height: 12),
                                 TextButton(
                                   onPressed: _loading
@@ -2978,7 +3020,7 @@ class _LoginPageState extends State<LoginPage> {
                                                 true,
                                           ),
                                   child: Text(
-                                    'Entrar com e-mail e senha',
+                                    'Entrar com e-mail e senha (opcional)',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w700,
                                       color: theme,
@@ -3055,8 +3097,7 @@ class _LoginPageState extends State<LoginPage> {
                                 ..._biometricQuickActions(theme),
                                 const SizedBox(height: 8),
                               ],
-                              if (_showManualCredentialFields ||
-                                  _hasSavedCredentials) ...[
+                              if (_showEmailPasswordFields) ...[
                                 FilledButton(
                                   style: FilledButton.styleFrom(
                                     backgroundColor: theme,
@@ -3405,6 +3446,8 @@ class _LoginPageState extends State<LoginPage> {
                                 usePoppins: true)
                             : _buildSmartGestorBranchBody(theme,
                                 usePoppins: true))
+                      else if (_nativeOAuthOnlyCompact)
+                        _buildNativeOAuthOnlyCompactBody(theme)
                       else ...[
                         Text(
                           _displayLoginTitle,
@@ -3444,112 +3487,130 @@ class _LoginPageState extends State<LoginPage> {
                         ],
                         const SizedBox(height: 16),
                         _buildChurchOAuthButtons(theme),
-                        if (_showChurchGoogleButton) ...[
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              Expanded(
-                                  child:
-                                      Divider(color: Colors.grey.shade300)),
-                              Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 10),
-                                child: Text(
-                                  'ou',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 13,
+                        if (_showEmailPasswordFields) ...[
+                          if (_showChurchGoogleButton) ...[
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                    child:
+                                        Divider(color: Colors.grey.shade300)),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10),
+                                  child: Text(
+                                    'ou',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ),
+                                Expanded(
+                                    child:
+                                        Divider(color: Colors.grey.shade300)),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+                          TextField(
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            autocorrect: false,
+                            decoration: InputDecoration(
+                              labelText: 'E-mail',
+                              hintText: 'Ex.: seu@email.com',
+                              helperText: _isIgrejaPainelLogin
+                                  ? 'Opcional se usar Google ou Apple.'
+                                  : 'Use o mesmo e-mail do cadastro na igreja.',
+                              border: const OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: _senhaController,
+                            obscureText: _obscure,
+                            decoration: InputDecoration(
+                              labelText: 'Senha',
+                              border: const OutlineInputBorder(),
+                              suffixIcon: IconButton(
+                                icon: Icon(_obscure
+                                    ? Icons.visibility_off
+                                    : Icons.visibility),
+                                onPressed: () =>
+                                    setState(() => _obscure = !_obscure),
                               ),
-                              Expanded(
-                                  child:
-                                      Divider(color: Colors.grey.shade300)),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                        ],
-                        TextField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          autocorrect: false,
-                          decoration: InputDecoration(
-                            labelText: 'E-mail',
-                            hintText: 'Ex.: seu@email.com',
-                            helperText: widget.afterLoginRoute == '/painel' ||
-                                    loginAfterTargetsPainelOrAtualizarPlano(
-                                        widget.afterLoginRoute)
-                                ? (widget.churchWebAppleIosRenewEntry
-                                    ? 'Mesmo e-mail do cadastro na igreja.'
-                                    : (_credentialsAsMembro
-                                        ? 'Mesmo e-mail do cadastro na igreja (membro).'
-                                        : 'E-mail da conta de gestor.'))
-                                : 'Use o mesmo e-mail do cadastro na igreja.',
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _senhaController,
-                          obscureText: _obscure,
-                          decoration: InputDecoration(
-                            labelText: 'Senha',
-                            border: const OutlineInputBorder(),
-                            suffixIcon: IconButton(
-                              icon: Icon(_obscure
-                                  ? Icons.visibility_off
-                                  : Icons.visibility),
-                              onPressed: () =>
-                                  setState(() => _obscure = !_obscure),
                             ),
                           ),
-                        ),
-                        ..._senhaClipboardRow(),
-                        if (_errorMessage != null) ...[
+                          ..._senhaClipboardRow(),
+                          if (_errorMessage != null) ...[
+                            const SizedBox(height: 8),
+                            Text(_errorMessage!,
+                                style: const TextStyle(
+                                    color: Colors.red, fontSize: 13)),
+                          ],
                           const SizedBox(height: 8),
-                          Text(_errorMessage!,
-                              style: const TextStyle(
-                                  color: Colors.red, fontSize: 13)),
-                        ],
-                        const SizedBox(height: 8),
-                        CheckboxListTile(
-                          value: _rememberLogin,
-                          onChanged: (v) =>
-                              setState(() => _rememberLogin = v ?? false),
-                          title: const Text('Lembrar usuário e senha',
-                              style: TextStyle(fontSize: 14)),
-                          controlAffinity: ListTileControlAffinity.leading,
-                          contentPadding: EdgeInsets.zero,
-                          activeColor: theme,
-                        ),
-                        ..._biometricQuickActions(theme),
-                        const SizedBox(height: 16),
-                        FilledButton(
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
+                          CheckboxListTile(
+                            value: _rememberLogin,
+                            onChanged: (v) =>
+                                setState(() => _rememberLogin = v ?? false),
+                            title: const Text('Lembrar usuário e senha',
+                                style: TextStyle(fontSize: 14)),
+                            controlAffinity: ListTileControlAffinity.leading,
+                            contentPadding: EdgeInsets.zero,
+                            activeColor: theme,
+                          ),
+                          ..._biometricQuickActions(theme),
+                          const SizedBox(height: 16),
+                          FilledButton(
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            onPressed: _loading ? null : _onEntrar,
+                            child: _loading
+                                ? const SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2))
+                                : Text(
+                                    'Entrar',
+                                    style: GoogleFonts.poppins(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                          ),
+                          TextButton(
+                            onPressed: _loading ? null : _onResetSenha,
+                            child: const Text('Esqueci a senha'),
+                          ),
+                        ] else ...[
+                          if (_errorMessage != null) ...[
+                            const SizedBox(height: 8),
+                            Text(_errorMessage!,
+                                style: const TextStyle(
+                                    color: Colors.red, fontSize: 13)),
+                          ],
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: _loading
+                                ? null
+                                : () => setState(
+                                      () => _showManualCredentialFields = true,
+                                    ),
+                            child: Text(
+                              'Entrar com e-mail e senha (opcional)',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: theme,
+                              ),
                             ),
                           ),
-                          onPressed: _loading ? null : _onEntrar,
-                          child: _loading
-                              ? const SizedBox(
-                                  height: 24,
-                                  width: 24,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2))
-                              : Text(
-                                  'Entrar',
-                                  style: GoogleFonts.poppins(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                        ),
-                        TextButton(
-                          onPressed: _loading ? null : _onResetSenha,
-                          child: const Text('Esqueci a senha'),
-                        ),
+                        ],
                       ],
                       if (_showIosNewGestorSiteHint) ...[
                         const SizedBox(height: 16),

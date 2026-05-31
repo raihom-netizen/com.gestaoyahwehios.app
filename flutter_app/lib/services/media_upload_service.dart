@@ -141,6 +141,7 @@ class MediaUploadService {
             maxAttempts: maxAttempts,
             onProgress: onProgress,
             onTaskStarted: onUploadTaskCreated,
+            useOfflineQueue: false,
           );
         }
         try {

@@ -65,6 +65,7 @@ import 'widgets/connectivity_offline_strip.dart';
 import 'widgets/church_panel_ui_helpers.dart';
 import 'widgets/gestor_welcome_dialog.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/core/church_shell_lazy_module_policy.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_shell_nav_icon.dart';
@@ -237,7 +238,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (!mounted) return;
     // iPhone: fluxo in-app (expresso) — evita cold start do Safari.
     if (IosPaymentsGate.shouldHidePayments && !kIsWeb) {
-      final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
+      final email = (firebaseDefaultAuth.currentUser?.email ?? '').trim();
       Navigator.push(
         context,
         ThemeCleanPremium.fadeSlideRoute(
@@ -361,6 +362,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                               );
                               return;
                             }
+                            _prefetchShellModuleData(idx);
+                            if (_pageCache[idx] == null) {
+                              _pageCache[idx] = _buildPageForIndex(idx);
+                            }
                             setState(() => _selectedIndex = idx);
                           },
                         ),
@@ -393,6 +398,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       setState(() => _selectedIndex = idx);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(ensureFirebaseReadyForPanelRead().catchError((_) {}));
       reportChurchClientSessionToUserDoc();
       _runMembersToMembrosMigration();
       unawaited(ChurchTenantOfflineWarmupService.instance
@@ -447,7 +453,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   Future<void> _bootstrapChatPresenceHeartbeat() async {
-    final u = FirebaseAuth.instance.currentUser;
+    final u = firebaseDefaultAuth.currentUser;
     if (u == null) return;
     final raw = widget.tenantId.trim();
     if (raw.isEmpty) return;
@@ -529,12 +535,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final tid = widget.tenantId.trim();
     if (tid.isEmpty || !mounted) return;
     final church =
-        await FirebaseFirestore.instance.collection('igrejas').doc(tid).get();
+        await firebaseDefaultFirestore.collection('igrejas').doc(tid).get();
     if (!mounted) return;
     final d = church.data() ?? {};
     var slug = (d['slug'] ?? '').toString().trim();
     if (slug.isEmpty) slug = tid;
-    final avisos = FirebaseFirestore.instance
+    final avisos = firebaseDefaultFirestore
         .collection('igrejas')
         .doc(tid)
         .collection('avisos');
@@ -625,9 +631,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   void _loadUserPhotoFromFirestore() {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     if (user == null || (user.photoURL ?? '').trim().isNotEmpty) return;
-    FirebaseFirestore.instance
+    firebaseDefaultFirestore
         .collection('users')
         .doc(user.uid)
         .get()
@@ -789,6 +795,22 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                     .get();
               },
               debugLabel: 'shell_prefetch_fornecedores',
+            ),
+          );
+          break;
+        case ChurchShellIndices.chatIgreja:
+          unawaited(
+            runFirebaseBackgroundTask<void>(
+              () async {
+                await firebaseDefaultFirestore
+                    .collection('igrejas')
+                    .doc(tid)
+                    .collection('chat_threads')
+                    .orderBy('lastMessageAt', descending: true)
+                    .limit(16)
+                    .get();
+              },
+              debugLabel: 'shell_prefetch_chat',
             ),
           );
           break;
@@ -984,7 +1006,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   /// Nome para saudação no cabeçalho azul e, no telemóvel, subtítulo no cartão do módulo.
   String _shellUserGreetingName() {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     final fallback = user?.email ?? 'Usuário';
     final dn = (user?.displayName ?? '').trim();
     if (dn.isNotEmpty) return dn;
@@ -1090,7 +1112,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   Widget _buildHeader({required bool licenseBlocked}) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = firebaseDefaultAuth.currentUser;
     final greetingName = _shellUserGreetingName();
     final photoUrl = (user?.photoURL ?? '').trim().isNotEmpty
         ? user!.photoURL
@@ -1450,7 +1472,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (nowMs - _lastSubscriptionSyncMs < 5 * 60 * 1000) return;
     _lastSubscriptionSyncMs = nowMs;
     try {
-      await FirebaseFirestore.instance
+      await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .set(SubscriptionGuard.normalizedChurchFields(guard),
@@ -2089,6 +2111,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           podeVerFinanceiro: widget.podeVerFinanceiro,
           permissions: widget.permissions,
           embeddedInShell: true,
+          onShellBack: _shellBackToPainel,
         );
       case 21:
         final bootPat = _shellBootstrapPatrimonioSearch;
@@ -2107,6 +2130,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           permissions: widget.permissions,
           initialSearchQuery: bootPat,
           embeddedInShell: true,
+          onShellBack: _shellBackToPainel,
         );
       case 22:
         return FornecedoresPage(
@@ -2117,6 +2141,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           podeVerFornecedores: widget.podeVerFornecedores,
           permissions: widget.permissions,
           embeddedInShell: true,
+          onShellBack: _shellBackToPainel,
         );
       case 23:
         if (IosPaymentsGate.isIosNative) {
@@ -2194,22 +2219,41 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       );
     }
 
-    /// Mobile/tablet: só o Painel (0) fica em cache. Demais módulos desmontam ao sair —
-    /// evita até 20 telas pesadas + streams ativos (principal causa de OOM / tela preta).
-    if (_selectedIndex == 0) {
-      _pageCache[0] ??= _buildPageForIndex(0);
-      for (var i = 1; i < _pageCache.length; i++) {
-        _pageCache[i] = null;
+    /// Mobile: rodapé (Painel/Membros/Eventos/Avisos/Chat) em [IndexedStack];
+    /// módulos só do drawer desmontam ao sair (menos RAM que desktop).
+    final footerTab =
+        ChurchShellLazyModulePolicy.isMobileFooterTab(_selectedIndex);
+    if (footerTab) {
+      _pageCache[_selectedIndex] ??= _buildPageForIndex(_selectedIndex);
+      for (var i = 0; i < _pageCache.length; i++) {
+        if (!ChurchShellLazyModulePolicy.isMobileFooterTab(i)) {
+          _pageCache[i] = null;
+        }
       }
-      return RepaintBoundary(child: _pageCache[0]!);
+      return RepaintBoundary(
+        child: IndexedStack(
+          index: _selectedIndex,
+          sizing: StackFit.expand,
+          children: List.generate(_pageCache.length, (i) {
+            if (!ChurchShellLazyModulePolicy.isMobileFooterTab(i)) {
+              return const SizedBox.shrink();
+            }
+            if (_pageCache[i] == null && i != _selectedIndex) {
+              return const SizedBox.shrink();
+            }
+            if (_pageCache[i] == null) {
+              _pageCache[i] = _buildPageForIndex(i);
+            }
+            return _pageCache[i]!;
+          }),
+        ),
+      );
     }
-    for (var i = 1; i < _pageCache.length; i++) {
-      _pageCache[i] = null;
-    }
+    _pageCache[_selectedIndex] ??= _buildPageForIndex(_selectedIndex);
     return RepaintBoundary(
       child: _wrapShellMobileModule(
         _selectedIndex,
-        _buildPageForIndex(_selectedIndex),
+        _pageCache[_selectedIndex]!,
       ),
     );
   }
@@ -2331,7 +2375,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       },
       child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         key: ValueKey('tenant_stream_$_tenantStreamRetry'),
-        stream: FirebaseFirestore.instance
+        stream: firebaseDefaultFirestore
             .collection('igrejas')
             .doc(widget.tenantId)
             .snapshots(),
@@ -2553,7 +2597,7 @@ class _HeaderLocalizacao extends StatelessWidget {
   Widget build(BuildContext context) {
     if (tenantId.isEmpty) return const SizedBox.shrink();
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
+      stream: firebaseDefaultFirestore
           .collection('igrejas')
           .doc(tenantId)
           .snapshots(),
@@ -2601,7 +2645,7 @@ class _HeaderVencimento extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
+      stream: firebaseDefaultFirestore
           .collection('igrejas')
           .doc(tenantId)
           .snapshots(),

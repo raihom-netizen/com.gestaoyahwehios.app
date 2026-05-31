@@ -199,10 +199,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Trocar e-mail de login'),
+        title: const Text('Trocar de conta'),
         content: const Text(
-          'Você sairá desta sessão neste aparelho e poderá entrar com outro e-mail, '
-          'outra conta Google ou Apple (iPhone).\n\nContinuar?',
+          'Você sairá desta sessão neste aparelho e poderá entrar com outra conta '
+          'Google, Apple ou e-mail e senha.\n\nContinuar?',
         ),
         actions: [
           TextButton(
@@ -251,8 +251,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Digital/Face ID ativado. Ao abrir o app pede só a biometria e reabre a sua conta '
-            '(Google/Apple ou e-mail já usados). Outra conta: «Trocar e-mail de login».',
+            'Digital/Face ID ativado só na tela Entrar. Google/Apple ou e-mail guardados '
+            'reabrem a sessão. Outra conta: «Trocar de conta».',
           ),
           duration: Duration(seconds: 5),
         ),
@@ -488,7 +488,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                               const SizedBox(height: 10),
                               const _ConfigHelpBullet(
                                 text:
-                                    'Toque no botão verde «Trocar e-mail de login» abaixo.',
+                                    'Toque no botão verde «Trocar de conta» abaixo.',
                               ),
                               const _ConfigHelpBullet(
                                 text:
@@ -505,7 +505,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                         FilledButton.icon(
                           onPressed: () => _trocarConta(context),
                           icon: const Icon(Icons.logout_rounded, size: 22),
-                          label: const Text('Trocar e-mail de login'),
+                          label: const Text('Trocar de conta'),
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFF0F766E),
                             foregroundColor: Colors.white,
@@ -824,7 +824,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
               subtitle: const Text(
-                'Ao abrir o app, usa biometria em vez de escolher conta de novo.',
+                'Só na tela de entrar (login). No painel e no chat não pede digital de novo.',
                 style: TextStyle(fontSize: 12.5),
               ),
               value: _bioEnabled,

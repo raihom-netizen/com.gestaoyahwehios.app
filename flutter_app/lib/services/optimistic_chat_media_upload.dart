@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 
 import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
@@ -619,7 +620,9 @@ abstract final class OptimisticChatMediaUpload {
 
       reportProgress(0.08);
 
-      unawaited(FeedPostMediaUpload.warmAuthToken().catchError((_) {}));
+      await FastMediaPublishBootstrap.warmForChatSend()
+          .timeout(const Duration(seconds: 18))
+          .catchError((_) {});
 
 
 

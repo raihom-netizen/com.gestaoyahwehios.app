@@ -17,12 +17,19 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show formatFirebaseErrorForUser, isFirebaseNoAppError;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
+import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
@@ -291,7 +298,7 @@ Future<({
   BuildContext context, {
   required String tenantId,
 }) async {
-  final snap = await FirebaseFirestore.instance
+  final snap = await firebaseDefaultFirestore
       .collection('igrejas')
       .doc(tenantId)
       .collection('membros')
@@ -620,22 +627,30 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
 /// Abas do cabeçalho — alto contraste sobre fundo primário (segmentos tipo “pill”).
 class PatrimonioModuleTabBar extends StatelessWidget implements PreferredSizeWidget {
   final TabController controller;
+  final Color? accentColor;
 
-  const PatrimonioModuleTabBar({super.key, required this.controller});
+  const PatrimonioModuleTabBar({
+    super.key,
+    required this.controller,
+    this.accentColor,
+  });
 
   @override
   Size get preferredSize => const Size.fromHeight(64);
+
+  static const _tabs = <Widget>[
+    Tab(text: 'Bens'),
+    Tab(text: 'Dashboard'),
+    Tab(text: 'Relatórios'),
+    Tab(text: 'Inventário'),
+  ];
 
   @override
   Widget build(BuildContext context) {
     return ChurchPanelPillTabBar(
       controller: controller,
-      tabs: const [
-        Tab(text: 'Bens'),
-        Tab(text: 'Dashboard'),
-        Tab(text: 'Relatórios'),
-        Tab(text: 'Inventário'),
-      ],
+      accentColor: accentColor,
+      tabs: _tabs,
     );
   }
 }
@@ -654,6 +669,9 @@ class PatrimonioPage extends StatefulWidget {
   /// Dentro de [IgrejaCleanShell]: evita [SafeArea] superior extra entre o cartão do módulo e as abas.
   final bool embeddedInShell;
 
+  /// Voltar ao Painel no shell mobile (full screen).
+  final VoidCallback? onShellBack;
+
   const PatrimonioPage({
     super.key,
     required this.tenantId,
@@ -662,6 +680,7 @@ class PatrimonioPage extends StatefulWidget {
     this.permissions,
     this.initialSearchQuery,
     this.embeddedInShell = false,
+    this.onShellBack,
   });
 
   @override
@@ -686,7 +705,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   }
 
   CollectionReference<Map<String, dynamic>> get _col =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('patrimonio');
@@ -769,7 +788,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       unawaited(s.cancel());
     }
     _patrimonioRealtimeSubs.clear();
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     _patrimonioRealtimeSubs.addAll([
       _col.limit(1).snapshots().listen((_) => _schedulePatrimonioRealtimeRefresh()),
       db
@@ -794,7 +813,8 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       _searchCtrl.text = s;
       _q = s.toLowerCase();
     }
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    firebaseDefaultAuth.currentUser?.getIdToken(true);
+    unawaited(FastMediaPublishBootstrap.warmForPatrimonioSave());
     unawaited(_loadCategoriasExtras());
     _startPatrimonioRealtimeSync();
   }
@@ -811,7 +831,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   Future<void> _loadCategoriasExtras() async {
     try {
-      final snap = await FirebaseFirestore.instance
+      final snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('config')
@@ -1091,7 +1111,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   Future<void> _exportPdfFromPage(BuildContext context) async {
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await firebaseDefaultAuth.currentUser?.getIdToken(true);
       final snap = await _col.orderBy('nome').get();
       final docs = snap.docs;
       if (docs.isEmpty) {
@@ -1192,9 +1212,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               final antigoResp = (m['responsavel'] ?? '').toString();
               final novoResp = respCtrl.text.trim();
               final novoLocal = localCtrl.text.trim();
-              final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+              final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
               final userName =
-                  FirebaseAuth.instance.currentUser?.displayName ?? 'Usuário';
+                  firebaseDefaultAuth.currentUser?.displayName ?? 'Usuário';
 
               await _col.doc(doc.id).update({
                 'responsavel': novoResp,
@@ -1366,9 +1386,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                     child: FilledButton(
                   onPressed: () async {
                     if (descCtrl.text.trim().isEmpty) return;
-                    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
                     final userName =
-                        FirebaseAuth.instance.currentUser?.displayName ??
+                        firebaseDefaultAuth.currentUser?.displayName ??
                             'Usuário';
                     await doc.reference.collection('manutencoes').add({
                       'descricao': descCtrl.text.trim(),
@@ -1874,6 +1894,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     final isMobile = ThemeCleanPremium.isMobile(context);
     final canPop = Navigator.canPop(context);
     final showAppBar = !isMobile || canPop;
+    final moduleEntry = kChurchShellNavEntries[ChurchShellIndices.patrimonio];
+    final moduleAccent = moduleEntry.accent;
+    final shellChrome = widget.onShellBack != null && isMobile;
 
     if (!AppPermissions.canViewPatrimonio(
       widget.role,
@@ -1964,13 +1987,13 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                     BorderRadius.circular(ThemeCleanPremium.radiusLg),
                 gradient: LinearGradient(
                   colors: [
-                    ThemeCleanPremium.primary,
-                    ThemeCleanPremium.primaryLight,
+                    moduleAccent,
+                    Color.lerp(moduleAccent, Colors.white, 0.22)!,
                   ],
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.38),
+                    color: moduleAccent.withValues(alpha: 0.38),
                     blurRadius: 18,
                     offset: const Offset(0, 8),
                   ),
@@ -1995,14 +2018,36 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               ),
             )
           : null,
-      body: SafeArea(
-        top: !widget.embeddedInShell,
+      body: DecoratedBox(
+        decoration: churchModuleBodyGradient(moduleAccent),
+        child: SafeArea(
+        top: widget.onShellBack == null && !widget.embeddedInShell,
         child: Column(
           children: [
-            if (isMobile)
-              Container(
-                color: ThemeCleanPremium.primary,
-                child: PatrimonioModuleTabBar(controller: _tabCtrl),
+            if (shellChrome)
+              ChurchModuleShellChrome(
+                onBack: widget.onShellBack!,
+                title: 'Patrimônio',
+                icon: moduleEntry.icon,
+                accent: moduleAccent,
+                subtitle: 'Bens · dashboard · inventário',
+                tabController: _tabCtrl,
+                tabs: PatrimonioModuleTabBar._tabs,
+              )
+            else if (isMobile)
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      moduleAccent,
+                      Color.lerp(moduleAccent, Colors.white, 0.2)!,
+                    ],
+                  ),
+                ),
+                child: PatrimonioModuleTabBar(
+                  controller: _tabCtrl,
+                  accentColor: moduleAccent,
+                ),
               ),
             Expanded(
               child: TabBarView(
@@ -2080,6 +2125,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -3665,7 +3711,7 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
       );
       return;
     }
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await firebaseDefaultAuth.currentUser?.getIdToken(true);
     if (!context.mounted) return;
     await _exportPatrimonioRelatorioPdf(
       context: context,
@@ -4111,7 +4157,7 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
       );
       return;
     }
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await firebaseDefaultAuth.currentUser?.getIdToken(true);
     if (!context.mounted) return;
     await _exportPatrimonioRelatorioPdf(
       context: context,
@@ -4865,7 +4911,7 @@ class _DashboardTabState extends State<_DashboardTab> {
 
               // ── Linha: inventários finalizados por mês (últimos 6 meses) ──
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: FirebaseFirestore.instance
+                stream: firebaseDefaultFirestore
                     .collection('igrejas')
                     .doc(widget.tenantId)
                     .collection('patrimonio_inventario_historico')
@@ -5243,8 +5289,8 @@ class _InventarioTabState extends State<_InventarioTab> {
 
   Future<void> _marcarConferido(
       DocumentSnapshot<Map<String, dynamic>> doc) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final nome = FirebaseAuth.instance.currentUser?.displayName ?? 'Usuário';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    final nome = firebaseDefaultAuth.currentUser?.displayName ?? 'Usuário';
     await doc.reference.update({
       'ultimaConferencia': FieldValue.serverTimestamp(),
       'conferidoPor': nome,
@@ -5265,8 +5311,8 @@ class _InventarioTabState extends State<_InventarioTab> {
     final total = docs.length;
     final conferidos = _conferidos.length;
     final pendentes = total - conferidos;
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-    final nome = FirebaseAuth.instance.currentUser?.displayName ?? 'Usuário';
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    final nome = firebaseDefaultAuth.currentUser?.displayName ?? 'Usuário';
 
     await showDialog(
       context: context,
@@ -5313,7 +5359,7 @@ class _InventarioTabState extends State<_InventarioTab> {
                     'conferidoNestaSessao': _conferidos.contains(d.id),
                   });
                 }
-                await FirebaseFirestore.instance
+                await firebaseDefaultFirestore
                     .collection('igrejas')
                     .doc(widget.tenantId)
                     .collection('patrimonio_inventario_historico')
@@ -5576,7 +5622,7 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
+      stream: firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('patrimonio_inventario_historico')
@@ -6956,6 +7002,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     final urls = _fotoUrlsFromData(data);
     _existingUrls.addAll(
         urls.length > _maxFotosPorItem ? urls.sublist(0, _maxFotosPorItem) : urls);
+    unawaited(FastMediaPublishBootstrap.warmForPatrimonioSave());
   }
 
   @override
@@ -7043,7 +7090,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         }
       }
       final tenantId = widget.col.parent!.id;
-      await FirebaseFirestore.instance
+      await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(tenantId)
           .collection('config')
@@ -7134,7 +7181,16 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _uploadProgress = 0;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken();
+      try {
+        await FastMediaPublishBootstrap.warmForPatrimonioSave();
+      } catch (e) {
+        if (isFirebaseNoAppError(e)) {
+          await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+          await FastMediaPublishBootstrap.warmForPatrimonioSave();
+        } else {
+          rethrow;
+        }
+      }
       final tenantId = widget.col.parent!.id;
       final DocumentReference<Map<String, dynamic>> itemRef =
           widget.doc != null ? widget.col.doc(widget.doc!.id) : widget.col.doc();
@@ -7171,6 +7227,52 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       final startSlot = allUrls.length;
       final vagas = (_maxFotosPorItem - startSlot).clamp(0, _maxFotosPorItem);
       final nBatch = _newImages.length < vagas ? _newImages.length : vagas;
+      final valor = parseBrCurrencyInput(_valor.text);
+      final vidaUtil = int.tryParse(_vidaUtil.text);
+
+      Map<String, dynamic> buildPayload(List<String> urls, List<String> paths) {
+        return <String, dynamic>{
+          'nome': _nome.text.trim(),
+          'descricao': _desc.text.trim(),
+          'categoria': _categoria,
+          'codigoPatrimonio': _codigo.text.trim(),
+          'valor': valor,
+          'vidaUtil': vidaUtil,
+          'dataAquisicao':
+              _dataAquisicao != null ? Timestamp.fromDate(_dataAquisicao!) : null,
+          'proximaManutencao': _proximaManutencao != null
+              ? Timestamp.fromDate(_proximaManutencao!)
+              : null,
+          'localizacao': _local.text.trim(),
+          'responsavel': _resp.text.trim(),
+          'numeroSerie': _serie.text.trim(),
+          'status': _status,
+          'observacoes': _obs.text.trim(),
+          'fotoUrls': urls,
+          if (paths.isNotEmpty) 'fotoStoragePaths': paths,
+          if (urls.isNotEmpty) 'imageUrl': urls.first,
+          if (urls.isNotEmpty) 'defaultImageUrl': urls.first,
+          if (paths.isNotEmpty) 'imageStoragePath': paths.first,
+          'atualizadoEm': FieldValue.serverTimestamp(),
+        };
+      }
+
+      /// Metadados no Firestore antes do upload — bem aparece na lista na hora.
+      if (nBatch > 0) {
+        final early = buildPayload(
+          List<String>.from(_existingUrls),
+          List<String>.from(allPaths),
+        );
+        if (widget.doc == null) {
+          early['criadoEm'] = FieldValue.serverTimestamp();
+          await itemRef.set(early);
+        } else {
+          early['imageVariants'] = FieldValue.delete();
+          early['fotoVariants'] = FieldValue.delete();
+          await itemRef.set(early, SetOptions(merge: true));
+        }
+      }
+
       if (nBatch > 0) {
         await Future.wait(
           List.generate(
@@ -7180,12 +7282,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                   itemDocId: itemId,
                   slot: startSlot + j,
                 ),
-          ),
-        );
-        final compressed = await Future.wait(
-          List.generate(
-            nBatch,
-            (j) => ImageHelper.compressPatrimonioPhotoForUpload(_newImages[j]),
           ),
         );
         final progresses = List<double>.filled(nBatch, 0);
@@ -7209,11 +7305,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               final slot = startSlot + j;
               final path =
                   ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemId, slot);
-              return MediaUploadService.uploadBytesDetailed(
+              return PatrimonioMediaUpload.uploadGalleryPhoto(
                 storagePath: path,
-                bytes: compressed[j],
-                contentType: 'image/webp',
-                skipClientPrepare: true,
+                rawBytes: _newImages[j],
                 onProgress: (p) {
                   progresses[j] = p.clamp(0.0, 1.0);
                   bumpUploadProgress();
@@ -7262,43 +7356,19 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       }
 
       final occupiedSlots = allUrls.length;
+
       if (mounted) {
-        setState(() => _uploadProgress = 0.92);
+        setState(() => _uploadProgress = nBatch > 0 ? 0.92 : 0.92);
       }
-      final valor = parseBrCurrencyInput(_valor.text);
-      final vidaUtil = int.tryParse(_vidaUtil.text);
-      final payload = <String, dynamic>{
-        'nome': _nome.text.trim(),
-        'descricao': _desc.text.trim(),
-        'categoria': _categoria,
-        'codigoPatrimonio': _codigo.text.trim(),
-        'valor': valor,
-        'vidaUtil': vidaUtil,
-        'dataAquisicao':
-            _dataAquisicao != null ? Timestamp.fromDate(_dataAquisicao!) : null,
-        'proximaManutencao': _proximaManutencao != null
-            ? Timestamp.fromDate(_proximaManutencao!)
-            : null,
-        'localizacao': _local.text.trim(),
-        'responsavel': _resp.text.trim(),
-        'numeroSerie': _serie.text.trim(),
-        'status': _status,
-        'observacoes': _obs.text.trim(),
-        'fotoUrls': allUrls,
-        if (allPaths.isNotEmpty) 'fotoStoragePaths': allPaths,
-        if (allUrls.isNotEmpty) 'imageUrl': allUrls.first,
-        if (allUrls.isNotEmpty) 'defaultImageUrl': allUrls.first,
-        if (allPaths.isNotEmpty) 'imageStoragePath': allPaths.first,
-        'atualizadoEm': FieldValue.serverTimestamp(),
-      };
+      final payload = buildPayload(allUrls, allPaths);
       if (widget.doc != null) {
         payload['imageVariants'] = FieldValue.delete();
         payload['fotoVariants'] = FieldValue.delete();
       }
-      if (widget.doc == null) {
+      if (widget.doc == null && nBatch == 0) {
         payload['criadoEm'] = FieldValue.serverTimestamp();
         await itemRef.set(payload);
-      } else {
+      } else if (nBatch > 0 || widget.doc != null) {
         await itemRef.set(payload, SetOptions(merge: true));
       }
       FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(
@@ -7325,8 +7395,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Erro: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(formatFirebaseErrorForUser(e))),
+      );
     } finally {
       if (mounted) {
         setState(() {

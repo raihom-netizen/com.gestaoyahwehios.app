@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/services.dart';
 
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
@@ -113,7 +114,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
 
   Future<void> _carregarCategorias() async {
     try {
-      final despSnap = await FirebaseFirestore.instance
+      final despSnap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('categorias_despesas')
@@ -123,7 +124,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
           .map((d) => (d.data()['nome'] ?? '').toString().trim())
           .where((e) => e.isNotEmpty)
           .toList();
-      final recSnap = await FirebaseFirestore.instance
+      final recSnap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('categorias_receitas')
@@ -252,7 +253,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
           false;
       final nome = ctrl.text.trim();
       if (!ok || nome.isEmpty) return;
-      final col = FirebaseFirestore.instance
+      final col = firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection(isIncome ? 'categorias_receitas' : 'categorias_despesas');
@@ -622,8 +623,8 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     }
     setState(() => _saving = true);
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final contas = await FirebaseFirestore.instance
+      await firebaseDefaultAuth.currentUser?.getIdToken(true);
+      final contas = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('contas')
@@ -653,7 +654,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       final expenseRows = chosen.where((r) => r.type != 'income').toList();
       if (incomeRows.isNotEmpty) {
         total += await FinanceSmartBatchService.writeRows(
-          financeCol: FirebaseFirestore.instance
+          financeCol: firebaseDefaultFirestore
               .collection('igrejas')
               .doc(widget.tenantId)
               .collection('finance'),
@@ -672,7 +673,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       }
       if (expenseRows.isNotEmpty) {
         total += await FinanceSmartBatchService.writeRows(
-          financeCol: FirebaseFirestore.instance
+          financeCol: firebaseDefaultFirestore
               .collection('igrejas')
               .doc(widget.tenantId)
               .collection('finance'),
@@ -1162,7 +1163,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                 ),
                 const SizedBox(height: 8),
                 FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  future: FirebaseFirestore.instance
+                  future: firebaseDefaultFirestore
                       .collection('igrejas')
                       .doc(widget.tenantId)
                       .collection('contas')

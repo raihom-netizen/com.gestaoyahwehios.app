@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'firestore_stream_utils.dart';
 
 /// Entrada leve em `igrejas/{tid}/_panel_cache/members_directory`.
@@ -150,7 +151,7 @@ class MembersDirectorySnapshotService {
       FirebaseFunctions.instanceFor(region: 'us-central1');
 
   static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
-    return FirebaseFirestore.instance
+    return firebaseDefaultFirestore
         .collection('igrejas')
         .doc(tenantId.trim())
         .collection('_panel_cache')

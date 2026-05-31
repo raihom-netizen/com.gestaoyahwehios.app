@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -37,7 +38,7 @@ double _parseValor(dynamic raw) {
 }
 
 Future<List<String>> _categoriasReceitaTenant(String tenantId) async {
-  final col = FirebaseFirestore.instance
+  final col = firebaseDefaultFirestore
       .collection('igrejas')
       .doc(tenantId)
       .collection('categorias_receitas');
@@ -59,7 +60,7 @@ Future<List<String>> _categoriasReceitaTenant(String tenantId) async {
 }
 
 Future<List<({String id, String nome})>> _contasAtivas(String tenantId) async {
-  final snap = await FirebaseFirestore.instance
+  final snap = await firebaseDefaultFirestore
       .collection('igrejas')
       .doc(tenantId)
       .collection('contas')
@@ -73,7 +74,7 @@ Future<List<({String id, String nome})>> _contasAtivas(String tenantId) async {
 }
 
 Future<String> _nomeIgreja(String tenantId) async {
-  final d = await FirebaseFirestore.instance
+  final d = await firebaseDefaultFirestore
       .collection('igrejas')
       .doc(tenantId)
       .get();
@@ -115,8 +116,7 @@ class FinanceReceitasFixasTab extends StatefulWidget {
 }
 
 class _FinanceReceitasFixasTabState extends State<FinanceReceitasFixasTab> {
-  CollectionReference<Map<String, dynamic>> get _col => FirebaseFirestore
-      .instance
+  CollectionReference<Map<String, dynamic>> get _col => firebaseDefaultFirestore
       .collection('igrejas')
       .doc(widget.tenantId)
       .collection('receitas_recorrentes');
@@ -126,7 +126,7 @@ class _FinanceReceitasFixasTabState extends State<FinanceReceitasFixasTab> {
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    firebaseDefaultAuth.currentUser?.getIdToken(true);
     _future = _col.get();
   }
 
@@ -571,6 +571,8 @@ class _FinanceReceitasFixasTabState extends State<FinanceReceitasFixasTab> {
     }
 
     try {
+      await ensureFirebaseReadyForPublishUpload();
+      await firebaseDefaultAuth.currentUser?.getIdToken(true);
       if (doc != null) {
         await doc.reference.set(payload, SetOptions(merge: true));
       } else {
@@ -937,7 +939,7 @@ class FinanceConciliacaoReceitasTab extends StatefulWidget {
 class _FinanceConciliacaoReceitasTabState
     extends State<FinanceConciliacaoReceitasTab> {
   CollectionReference<Map<String, dynamic>> get _fin =>
-      FirebaseFirestore.instance
+      firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('finance');
@@ -955,8 +957,8 @@ class _FinanceConciliacaoReceitasTabState
     super.initState();
     final n = DateTime.now();
     _competencia = competenciaFinanceira(n);
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
-    _contasFuture = FirebaseFirestore.instance
+    firebaseDefaultAuth.currentUser?.getIdToken(true);
+    _contasFuture = firebaseDefaultFirestore
         .collection('igrejas')
         .doc(widget.tenantId)
         .collection('contas')
@@ -981,7 +983,7 @@ class _FinanceConciliacaoReceitasTabState
     if (_selected.isEmpty) return;
     setState(() => _loading = true);
     try {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       for (final doc in pendentes) {
         if (!_selected.contains(doc.id)) continue;
         batch.update(doc.reference, {
@@ -1040,7 +1042,7 @@ class _FinanceConciliacaoReceitasTabState
           final valor = _parseValor(m['amount'] ?? m['valor']);
           var phone = (m['memberTelefone'] ?? '').toString().trim();
           if (phone.isEmpty) {
-            final ms = await FirebaseFirestore.instance
+            final ms = await firebaseDefaultFirestore
                 .collection('igrejas')
                 .doc(widget.tenantId)
                 .collection('membros')
@@ -1102,7 +1104,7 @@ class _FinanceConciliacaoReceitasTabState
     if (ok != true || !mounted) return;
     setState(() => _loading = true);
     try {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       for (final doc in docs) {
         batch.update(doc.reference, {
           'recebimentoConfirmado': true,
