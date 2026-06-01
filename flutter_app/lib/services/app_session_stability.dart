@@ -1,0 +1,281 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb, debugPrint;
+import 'package:flutter/widgets.dart';
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
+import 'package:gestao_yahweh/services/login_preferences.dart';
+import 'package:gestao_yahweh/services/session_restore_service.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
+    if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
+
+/// Sessão e retoma estáveis em **toda** a app (web, Android, iOS) — padrão Controle Total.
+///
+/// - Não desloga ao trocar de aba / voltar do background (só «Sair» explícito).
+/// - Renova token Firebase sem `reconnect()` pesado.
+/// - Cache de acesso master e utilizador «sticky» para evitar tela branca.
+abstract final class AppSessionStability {
+  AppSessionStability._();
+
+  static User? _stickyUser;
+  static int? _cachedMasterLevel;
+  static String? _cachedMasterUid;
+  static DateTime? _cachedMasterAt;
+  static bool _adminPanelVerified = false;
+  static bool _bound = false;
+  static final List<void Function()> _resumeListeners = <void Function()>[];
+
+  static const Duration _masterCacheTtl = Duration(hours: 12);
+
+  /// Regista lifecycle + visibilidade da aba (web). Idempotente.
+  static void bindGlobal(WidgetsBindingObserver observer) {
+    if (_bound) return;
+    _bound = true;
+    final u = FirebaseAuth.instance.currentUser;
+    if (u != null && !u.isAnonymous) _stickyUser = u;
+    if (kIsWeb) {
+      registerWebResumeRepaint(onGlobalResume);
+    }
+  }
+
+  static void registerResumeListener(void Function() listener) {
+    if (!_resumeListeners.contains(listener)) {
+      _resumeListeners.add(listener);
+    }
+  }
+
+  static void unregisterResumeListener(void Function() listener) {
+    _resumeListeners.remove(listener);
+  }
+
+  /// Chamado ao voltar do background / foco na aba (web + mobile).
+  static void onGlobalResume() {
+    final u = FirebaseAuth.instance.currentUser;
+    if (u != null && !u.isAnonymous) {
+      _stickyUser = u;
+    }
+    unawaited(AppFinalizeBootstrap.onAppResume());
+    unawaited(_refreshAuthTokenSilently());
+    for (final cb in List<void Function()>.from(_resumeListeners)) {
+      try {
+        cb();
+      } catch (e, st) {
+        if (kDebugMode) {
+          debugPrint('AppSessionStability resume listener: $e\n$st');
+        }
+      }
+    }
+  }
+
+  static Future<void> _refreshAuthTokenSilently() async {
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(false);
+    } catch (_) {
+      try {
+        await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      } catch (_) {}
+    }
+  }
+
+  static void rememberUser(User? user) {
+    if (user != null && !user.isAnonymous) {
+      _stickyUser = user;
+    }
+  }
+
+  /// Utilizador efetivo para [StreamBuilder] de auth — evita logout fantasma.
+  static User? effectiveAuthUser(
+    User? streamUser, {
+    ConnectionState connectionState = ConnectionState.active,
+  }) {
+    if (streamUser != null && !streamUser.isAnonymous) {
+      _stickyUser = streamUser;
+      return streamUser;
+    }
+    final sync = FirebaseAuth.instance.currentUser;
+    if (sync != null && !sync.isAnonymous) {
+      _stickyUser = sync;
+      return sync;
+    }
+    final sticky = _stickyUser;
+    if (sticky != null &&
+        !sticky.isAnonymous &&
+        (connectionState == ConnectionState.waiting ||
+            connectionState == ConnectionState.active)) {
+      return sticky;
+    }
+    return streamUser;
+  }
+
+  static bool hasReturningSessionHints() {
+    if (_stickyUser != null) return true;
+    final shellUid = AppShellSessionCache.cachedUidSync();
+    if (shellUid != null && shellUid.isNotEmpty) return true;
+    return LoginPreferences.autoPainelLoginSync;
+  }
+
+  static Future<User?> tryRestoreSession() async {
+    return SessionRestoreService.tryRestoreIfNeeded(allowRetry: true);
+  }
+
+  // ─── Painel Master (/admin) ─────────────────────────────────────────────
+
+  /// 0 = sem login, 1 = logado sem ADM, 2 = ADM/master.
+  static int? peekCachedMasterAccessLevel() {
+    final uid =
+        (FirebaseAuth.instance.currentUser?.uid ?? _stickyUser?.uid ?? '')
+            .trim();
+    if (uid.isEmpty) return null;
+    if (_cachedMasterUid == uid &&
+        _cachedMasterLevel != null &&
+        _cachedMasterAt != null &&
+        DateTime.now().difference(_cachedMasterAt!) < _masterCacheTtl) {
+      return _cachedMasterLevel;
+    }
+    return null;
+  }
+
+  static void cacheMasterAccessLevel(int level, String uid) {
+    final clean = uid.trim();
+    if (clean.isEmpty) return;
+    _cachedMasterUid = clean;
+    _cachedMasterLevel = level;
+    _cachedMasterAt = DateTime.now();
+    if (level >= 2) _adminPanelVerified = true;
+  }
+
+  static void clearMasterAccessCache() {
+    _cachedMasterUid = null;
+    _cachedMasterLevel = null;
+    _cachedMasterAt = null;
+    _adminPanelVerified = false;
+  }
+
+  static bool get adminPanelWasVerified => _adminPanelVerified;
+
+  static void markAdminPanelVerified() => _adminPanelVerified = true;
+
+  /// Verificação de acesso master — cache + claims + Firestore resiliente.
+  static Future<int> resolveMasterAccessLevel({bool forceRefresh = false}) async {
+    if (!forceRefresh) {
+      final peek = peekCachedMasterAccessLevel();
+      if (peek != null) return peek;
+    }
+
+    final user = FirebaseAuth.instance.currentUser ?? _stickyUser;
+    if (user == null || user.isAnonymous) {
+      cacheMasterAccessLevel(0, '');
+      return 0;
+    }
+    rememberUser(user);
+
+    final email = (user.email ?? '').toString().toLowerCase();
+    if (email == 'raihom@gmail.com') {
+      cacheMasterAccessLevel(2, user.uid);
+      return 2;
+    }
+
+    try {
+      var token = await user.getIdTokenResult(false).timeout(
+            const Duration(seconds: 8),
+          );
+      if (_tokenIsMaster(token)) {
+        cacheMasterAccessLevel(2, user.uid);
+        return 2;
+      }
+      token = await user.getIdTokenResult(true).timeout(
+            const Duration(seconds: 12),
+          );
+      if (_tokenIsMaster(token)) {
+        cacheMasterAccessLevel(2, user.uid);
+        return 2;
+      }
+    } catch (_) {}
+
+    try {
+      final snap = await FirestoreReadResilience.getDocument(
+        FirebaseFirestore.instance.collection('users').doc(user.uid),
+        cacheKey: 'master_users_${user.uid}',
+        maxAttempts: 3,
+      );
+      final data = snap.data() ?? {};
+      final role =
+          (data['role'] ?? data['nivel'] ?? '').toString().toUpperCase();
+      final nivel = (data['nivel'] ?? '').toString().toLowerCase();
+      if (role == 'ADM' ||
+          role == 'ADMIN' ||
+          role == 'MASTER' ||
+          nivel == 'adm') {
+        cacheMasterAccessLevel(2, user.uid);
+        return 2;
+      }
+      cacheMasterAccessLevel(1, user.uid);
+      return 1;
+    } on TimeoutException {
+      try {
+        final fn = FirebaseFunctions.instance.httpsCallable('getAdminCheck');
+        final res = await fn
+            .call<Map<String, dynamic>>()
+            .timeout(const Duration(seconds: 10));
+        if (res.data['allowed'] == true) {
+          cacheMasterAccessLevel(2, user.uid);
+          return 2;
+        }
+      } catch (_) {}
+      final peek = peekCachedMasterAccessLevel();
+      if (peek != null && peek >= 2) return peek;
+      cacheMasterAccessLevel(0, user.uid);
+      return 0;
+    } catch (_) {
+      try {
+        final snap = await FirestoreReadResilience.getDocument(
+          FirebaseFirestore.instance.collection('usuarios').doc(user.uid),
+          cacheKey: 'master_usuarios_${user.uid}',
+        );
+        final nivel = (snap.data()?['nivel'] ?? '').toString().toLowerCase();
+        if (nivel == 'adm') {
+          cacheMasterAccessLevel(2, user.uid);
+          return 2;
+        }
+      } catch (_) {}
+      try {
+        final fn = FirebaseFunctions.instance.httpsCallable('getAdminCheck');
+        final res = await fn
+            .call<Map<String, dynamic>>()
+            .timeout(const Duration(seconds: 10));
+        if (res.data['allowed'] == true) {
+          cacheMasterAccessLevel(2, user.uid);
+          return 2;
+        }
+      } catch (_) {}
+      final peek = peekCachedMasterAccessLevel();
+      if (peek != null) return peek;
+      cacheMasterAccessLevel(1, user.uid);
+      return 1;
+    }
+  }
+
+  static bool _tokenIsMaster(IdTokenResult token) {
+    final roleClaim = (token.claims?['role'] ?? token.claims?['nivel'] ?? '')
+        .toString()
+        .toUpperCase();
+    if (roleClaim == 'ADM' || roleClaim == 'ADMIN' || roleClaim == 'MASTER') {
+      return true;
+    }
+    if ((token.claims?['nivel'] ?? '').toString().toLowerCase() == 'adm') {
+      return true;
+    }
+    return token.claims?['admin'] == true;
+  }
+
+  /// Verificação rápida para [AdminPanelPage] — não repõe spinner se já validou.
+  static Future<bool> resolveIsMasterAdmin({bool forceRefresh = false}) async {
+    if (!forceRefresh && _adminPanelVerified) return true;
+    final level = await resolveMasterAccessLevel(forceRefresh: forceRefresh);
+    return level >= 2;
+  }
+}

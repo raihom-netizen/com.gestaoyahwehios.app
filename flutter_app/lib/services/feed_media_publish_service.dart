@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_strict.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 
@@ -88,11 +89,13 @@ abstract final class FeedMediaPublishService {
       clearPublishError: true,
     );
     patch['updatedAt'] = FieldValue.serverTimestamp();
-    if (isNewDoc) {
-      await docRef.set(patch);
-    } else {
-      await docRef.set(patch, SetOptions(merge: true));
-    }
+    await runFirestorePublishWithRecovery<void>(() async {
+      if (isNewDoc) {
+        await docRef.set(patch);
+      } else {
+        await docRef.set(patch, SetOptions(merge: true));
+      }
+    });
     return docRef.id;
   }
 

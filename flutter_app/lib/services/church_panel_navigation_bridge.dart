@@ -1,11 +1,21 @@
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 
-/// Pedido de abrir uma conversa concreta (ex.: toque num push de chat com [threadId]).
+/// Pedido de abrir uma conversa concreta (ex.: push FCM ou atalho «Chat igreja»).
 class PendingChatThreadOpen {
   final String threadId;
   final String? tenantId;
+  /// DM — cria/abre mesmo sem doc prévio em `chat_threads`.
+  final String? peerUid;
+  final String? displayName;
+  final String? initialDraftText;
 
-  const PendingChatThreadOpen({required this.threadId, this.tenantId});
+  const PendingChatThreadOpen({
+    required this.threadId,
+    this.tenantId,
+    this.peerUid,
+    this.displayName,
+    this.initialDraftText,
+  });
 }
 
 /// Encaminha toques em notificações push (FCM) para o módulo certo do painel da igreja.
@@ -23,13 +33,22 @@ class ChurchPanelNavigationBridge {
   void requestNavigateToChatThread({
     required String threadId,
     String? tenantId,
+    String? peerUid,
+    String? displayName,
+    String? initialDraftText,
   }) {
     final tid = threadId.trim();
     if (tid.isEmpty) return;
     final tRaw = tenantId?.trim() ?? '';
+    final peer = peerUid?.trim() ?? '';
+    final name = displayName?.trim() ?? '';
+    final draft = initialDraftText?.trim() ?? '';
     _pendingChatOpen = PendingChatThreadOpen(
       threadId: tid,
       tenantId: tRaw.isEmpty ? null : tRaw,
+      peerUid: peer.isEmpty ? null : peer,
+      displayName: name.isEmpty ? null : name,
+      initialDraftText: draft.isEmpty ? null : draft,
     );
     requestNavigateToShellIndex(kChurchShellIndexChat);
     _notifyChatOpenListeners();

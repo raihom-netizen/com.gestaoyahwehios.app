@@ -46,6 +46,7 @@ import 'widgets/version_footer.dart';
 import 'widgets/global_announcement_overlay.dart';
 import 'widgets/connectivity_offline_strip.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/core/marketing_official_config.dart';
 
 part 'admin_igrejas_tab.dart';
@@ -123,7 +124,8 @@ class AdminPanelPage extends StatefulWidget {
   State<AdminPanelPage> createState() => _AdminPanelPageState();
 }
 
-class _AdminPanelPageState extends State<AdminPanelPage> {
+class _AdminPanelPageState extends State<AdminPanelPage>
+    with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   String _q = '';
   late AdminMenuItem _selectedItem;
@@ -140,19 +142,43 @@ class _AdminPanelPageState extends State<AdminPanelPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _selectedItem = AdminMenuItem.commandCenter;
     _adminContext = AdminContext.igrejas;
-    // Timeout 10s: se a verificação do token travar, negar acesso master por segurança.
-    _isAdminFuture = Future.any<bool>([
-      _isAdmin(),
-      Future.delayed(const Duration(seconds: 10), () => false),
-    ]);
+    if (AppSessionStability.adminPanelWasVerified) {
+      _isAdminFuture = Future.value(true);
+      AppSessionStability.markAdminPanelVerified();
+    } else {
+      _isAdminFuture = Future.any<bool>([
+        AppSessionStability.resolveIsMasterAdmin(),
+        Future.delayed(const Duration(seconds: 10), () => false),
+      ]).then((ok) {
+        if (ok) AppSessionStability.markAdminPanelVerified();
+        return ok;
+      });
+    }
     unawaited(_loadMasterRbac());
     _touchActivity();
+    AppSessionStability.registerResumeListener(_onGlobalResume);
+  }
+
+  void _onGlobalResume() {
+    if (!AppSessionStability.adminPanelWasVerified) return;
+    unawaited(AppSessionStability.resolveIsMasterAdmin());
+    unawaited(_loadMasterRbac());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      AppSessionStability.onGlobalResume();
+    }
   }
 
   @override
   void dispose() {
+    AppSessionStability.unregisterResumeListener(_onGlobalResume);
+    WidgetsBinding.instance.removeObserver(this);
     _idleTimer?.cancel();
     super.dispose();
   }

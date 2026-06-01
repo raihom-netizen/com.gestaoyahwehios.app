@@ -27,6 +27,7 @@ import '../services/church_chat_notification_prefs.dart';
 import '../services/church_auto_session_service.dart';
 import '../services/session_restore_service.dart';
 import '../services/church_sign_out_navigation.dart';
+import '../services/app_session_stability.dart';
 import '../core/roles_permissions.dart';
 
 /// Tela quando usuário logou mas não tem igreja vinculada em claims nem em users.
@@ -346,8 +347,74 @@ class AuthGate extends StatefulWidget {
   State<AuthGate> createState() => _AuthGateState();
 }
 
-class _AuthGateState extends State<AuthGate> {
+class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   bool _scheduledLoginRedirect = false;
+  Timer? _signOutConfirmTimer;
+  bool _restoreInFlight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    AppSessionStability.rememberUser(FirebaseAuth.instance.currentUser);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _signOutConfirmTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      AppSessionStability.onGlobalResume();
+      if (mounted) setState(() {});
+    }
+  }
+
+  void _kickSessionRestore() {
+    if (_restoreInFlight) return;
+    _restoreInFlight = true;
+    unawaited(() async {
+      try {
+        final restored = await AppSessionStability.tryRestoreSession();
+        if (restored != null && mounted) {
+          AppSessionStability.rememberUser(restored);
+          _scheduledLoginRedirect = false;
+          setState(() {});
+        }
+      } finally {
+        _restoreInFlight = false;
+      }
+    }());
+  }
+
+  void _scheduleSignOutIfStillLoggedOut() {
+    _signOutConfirmTimer?.cancel();
+    _signOutConfirmTimer = Timer(const Duration(milliseconds: 900), () async {
+      if (!mounted) return;
+      final current = FirebaseAuth.instance.currentUser;
+      if (current != null && !current.isAnonymous) {
+        AppSessionStability.rememberUser(current);
+        _scheduledLoginRedirect = false;
+        if (mounted) setState(() {});
+        return;
+      }
+      if (AppSessionStability.hasReturningSessionHints()) {
+        final restored = await AppSessionStability.tryRestoreSession();
+        if (restored != null && mounted) {
+          AppSessionStability.rememberUser(restored);
+          _scheduledLoginRedirect = false;
+          setState(() {});
+          return;
+        }
+      }
+      if (!mounted) return;
+      await ChurchSignOutNavigation.redirectAfterSignOut();
+    });
+  }
 
   Future<Map<String, dynamic>?> _loadProfile(User user, {int repairDepth = 0}) async {
     final cached = await AuthProfileCacheService.instance.load(user.uid);
@@ -791,37 +858,69 @@ class _AuthGateState extends State<AuthGate> {
     return _loadProfileOnlineFast(user, null);
   }
 
+  Widget _authGateWaitingScaffold({String? message}) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF0F4FF),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 32,
+              height: 32,
+              child: CircularProgressIndicator(strokeWidth: 2.6),
+            ),
+            if (message != null) ...[
+              const SizedBox(height: 14),
+              Text(
+                message,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
+        final user = AppSessionStability.effectiveAuthUser(
+          snap.data,
+          connectionState: snap.connectionState,
+        );
 
-        final user = snap.data;
         if (user == null || user.isAnonymous) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
+          if (snap.connectionState == ConnectionState.waiting ||
+              AppSessionStability.hasReturningSessionHints()) {
+            _kickSessionRestore();
+            final sticky = AppSessionStability.effectiveAuthUser(
+              snap.data,
+              connectionState: snap.connectionState,
+            );
+            if (sticky != null) {
+              return _AuthGateProfileLoader(
+                user: sticky,
+                loadProfile: () => _loadProfile(sticky),
+                initialOpenMemberDocId: widget.initialOpenMemberDocId,
+                initialShellIndex: widget.initialShellIndex,
+              );
+            }
+            return _authGateWaitingScaffold(
+              message: 'A restaurar a sua sessão…',
             );
           }
-          // Sem sessão: redirecionar (web → divulgação `/`). Não renderizar SitePublicPage
-          // dentro do AuthGate em /painel — isso deixava o shell por baixo (overlay branco).
+
           if (!_scheduledLoginRedirect) {
             _scheduledLoginRedirect = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) async {
-              if (!mounted) return;
-              final currentUser = FirebaseAuth.instance.currentUser;
-              if (currentUser != null && !currentUser.isAnonymous) {
-                _scheduledLoginRedirect = false;
-                return;
-              }
-              await ChurchSignOutNavigation.redirectAfterSignOut();
-            });
+            _scheduleSignOutIfStillLoggedOut();
           }
           if (kIsWeb) {
             return const ColoredBox(
@@ -829,10 +928,10 @@ class _AuthGateState extends State<AuthGate> {
               child: SizedBox.expand(),
             );
           }
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return _authGateWaitingScaffold();
         }
+
+        _signOutConfirmTimer?.cancel();
         _scheduledLoginRedirect = false;
         return _AuthGateProfileLoader(
           user: user,
@@ -862,13 +961,17 @@ class _AuthGateProfileLoader extends StatefulWidget {
   State<_AuthGateProfileLoader> createState() => _AuthGateProfileLoaderState();
 }
 
-class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
+class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
+    with WidgetsBindingObserver {
   late Future<Map<String, dynamic>?> _profileFuture;
   late Future<bool> _biometricFuture;
   late Future<(Map<String, dynamic>?, bool)> _readyFuture;
 
   /// Perfil em RAM/disco — pinta o shell no 1.º frame sem esperar rede.
   Map<String, dynamic>? _bootstrapProfile;
+
+  /// Mantém o painel visível ao voltar de outra aba (não repõe spinner completo).
+  bool _panelEverShown = false;
 
   Timer? _emergencyBootstrapTimer;
 
@@ -974,6 +1077,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(SessionRestoreService.tryRestoreIfNeeded());
     final peek = AuthProfileCacheService.instance.peek(widget.user.uid);
     if (peek != null && (peek['igrejaId'] ?? '').toString().trim().isNotEmpty) {
@@ -1055,10 +1159,18 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _emergencyBootstrapTimer?.cancel();
     _userRoleSigDebounce?.cancel();
     _userDocRoleSub?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    AppSessionStability.onGlobalResume();
+    unawaited(_silentRefreshProfileCache());
   }
 
   void _retryProfile() {
@@ -1090,6 +1202,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
   }
 
   Widget _buildPanelShellFromProfile(Map<String, dynamic> p) {
+    _panelEverShown = true;
     final user = widget.user;
     final active = p['active'] == true;
     final mustChangePass = p['mustChangePass'] == true;
@@ -1190,7 +1303,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
           p = _bootstrapProfile;
         }
 
-        if (p != null && !done) {
+        if (p != null && (!done || _panelEverShown)) {
           return _buildPanelShellFromProfile(p);
         }
 

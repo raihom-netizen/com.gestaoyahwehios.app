@@ -2233,18 +2233,17 @@ class _MembersPageState extends State<MembersPage> {
                       label: 'Chat igreja',
                       color: const Color(0xFF0D9488),
                       onTap: () {
-                        unawaited(
-                          ChurchMemberContactChat.openChatIgreja(
-                            context: ctx,
-                            tenantId: _effectiveTenantId,
-                            memberRole: widget.role,
-                            viewerCpfDigits:
-                                widget.linkedCpf?.replaceAll(RegExp(r'\D'), '') ??
-                                    '',
-                            memberData: member.data,
-                            displayName: name,
-                            popSheetBeforeNavigate: true,
-                          ),
+                        ChurchMemberContactChat.openChatIgrejaUnawaited(
+                          context: ctx,
+                          tenantId: _effectiveTenantId,
+                          memberRole: widget.role,
+                          viewerCpfDigits:
+                              widget.linkedCpf?.replaceAll(RegExp(r'\D'), '') ??
+                                  '',
+                          memberData: member.data,
+                          memberDocId: member.id,
+                          displayName: name,
+                          popSheetBeforeNavigate: true,
                         );
                       },
                     ),

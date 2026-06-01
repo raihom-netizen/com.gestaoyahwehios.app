@@ -317,7 +317,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state != AppLifecycleState.resumed) return;
-    if (kIsWeb) return;
     final tid = _effectiveTenantId.trim();
     if (tid.isEmpty || !mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1450,7 +1449,7 @@ void _openAniversarianteDetalheSheetCore(
                 const SizedBox(height: 28),
                 YahwehSuperPremiumActionButton.chat(
                   label: 'Parabenizar no chat da igreja',
-                  onPressed: () => ChurchBirthdayParabenizar.openChat(
+                  onPressed: () => ChurchBirthdayParabenizar.openChatUnawaited(
                     context: ctx,
                     tenantId: tenantId,
                     memberRole: memberRole,
@@ -1458,6 +1457,7 @@ void _openAniversarianteDetalheSheetCore(
                     memberData: data,
                     displayName: titulo,
                     primeiroNome: primeiro,
+                    memberDocId: memberDocId,
                     popSheetBeforeNavigate: true,
                   ),
                 ),
@@ -2223,7 +2223,8 @@ class _AniversariantesCard extends StatelessWidget {
                           child: YahwehSuperPremiumActionButton.chat(
                             compact: true,
                             label: 'Chat',
-                            onPressed: () => ChurchBirthdayParabenizar.openChat(
+                            onPressed: () =>
+                                ChurchBirthdayParabenizar.openChatUnawaited(
                               context: context,
                               tenantId: tenantId,
                               memberRole: role,
@@ -2233,6 +2234,7 @@ class _AniversariantesCard extends StatelessWidget {
                                   ? primeiro
                                   : lite.displayName.trim(),
                               primeiroNome: primeiro,
+                              memberDocId: lite.memberDocId,
                             ),
                           ),
                         ),
@@ -2668,7 +2670,8 @@ class _AniversariantesCard extends StatelessWidget {
                         child: YahwehSuperPremiumActionButton.chat(
                           compact: true,
                           label: 'Chat',
-                          onPressed: () => ChurchBirthdayParabenizar.openChat(
+                          onPressed: () =>
+                              ChurchBirthdayParabenizar.openChatUnawaited(
                             context: context,
                             tenantId: tenantId,
                             memberRole: role,
@@ -2678,6 +2681,7 @@ class _AniversariantesCard extends StatelessWidget {
                                 ? primeiro
                                 : _anivNomeCompleto(data).trim(),
                             primeiroNome: primeiro,
+                            memberDocId: d.id,
                           ),
                         ),
                       ),
@@ -3150,16 +3154,16 @@ void _leaderGalleryOpenChat(
   required String memberRole,
   required String viewerCpfDigits,
   required String displayName,
+  String? memberDocId,
 }) {
-  unawaited(
-    ChurchMemberContactChat.openChatIgreja(
-      context: context,
-      tenantId: tenantId,
-      memberRole: memberRole,
-      viewerCpfDigits: viewerCpfDigits,
-      memberData: memberData,
-      displayName: displayName,
-    ),
+  ChurchMemberContactChat.openChatIgrejaUnawaited(
+    context: context,
+    tenantId: tenantId,
+    memberRole: memberRole,
+    viewerCpfDigits: viewerCpfDigits,
+    memberData: memberData,
+    displayName: displayName,
+    memberDocId: memberDocId,
   );
 }
 
@@ -3492,6 +3496,7 @@ class _LideresGaleria extends StatelessWidget {
               memberRole: role,
               viewerCpfDigits: viewerCpfDigits,
               displayName: nome,
+              memberDocId: lite.memberDocId,
             ),
             onWhatsApp: () => _leaderGalleryOpenWhatsApp(
               context,
@@ -3753,6 +3758,7 @@ class _LideresGaleria extends StatelessWidget {
                     memberRole: role,
                     viewerCpfDigits: viewerCpfDigits,
                     displayName: nome,
+                    memberDocId: memberDocId,
                   ),
                   onWhatsApp: () => _leaderGalleryOpenWhatsApp(
                     context,
@@ -3905,6 +3911,7 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
               memberRole: role,
               viewerCpfDigits: viewerCpfDigits,
               displayName: nome,
+              memberDocId: lite.memberDocId,
             ),
             onWhatsApp: () => _leaderGalleryOpenWhatsApp(
               context,
@@ -4044,6 +4051,7 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
                     memberRole: role,
                     viewerCpfDigits: viewerCpfDigits,
                     displayName: nome.trim().isEmpty ? 'Membro' : nome.trim(),
+                    memberDocId: m.id,
                   ),
                   onWhatsApp: () => _leaderGalleryOpenWhatsApp(
                     context,

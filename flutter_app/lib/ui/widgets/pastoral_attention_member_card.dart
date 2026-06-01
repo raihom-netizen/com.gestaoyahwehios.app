@@ -143,13 +143,14 @@ class PastoralAttentionMemberCard extends StatelessWidget {
                   child: YahwehSuperPremiumActionButton.chat(
                     compact: true,
                     label: 'Chat Igreja',
-                    onPressed: () => ChurchMemberContactChat.openChatIgreja(
+                    onPressed: () => ChurchMemberContactChat.openChatIgrejaUnawaited(
                       context: context,
                       tenantId: tenantId,
                       memberRole: memberRole,
                       viewerCpfDigits: viewerCpfDigits,
                       memberData: memberData,
                       displayName: alert.name,
+                      memberDocId: alert.memberId,
                       draftText: whatsappPrefill,
                     ),
                   ),

@@ -2,6 +2,7 @@ import "dart:async";
 
 import "package:flutter/foundation.dart" show kIsWeb;
 import "package:flutter/material.dart";
+import "package:gestao_yahweh/services/app_session_stability.dart";
 import "package:gestao_yahweh/core/public_site_media_auth.dart";
 import "package:cloud_firestore/cloud_firestore.dart";
 import "package:url_launcher/url_launcher.dart";
@@ -45,7 +46,8 @@ class SitePublicPage extends StatefulWidget {
   State<SitePublicPage> createState() => _SitePublicPageState();
 }
 
-class _SitePublicPageState extends State<SitePublicPage> {
+class _SitePublicPageState extends State<SitePublicPage>
+    with WidgetsBindingObserver {
   Map<String, EffectivePlanConfig>? _effectiveConfigs;
   StreamSubscription<Map<String, EffectivePlanConfig>>? _effectiveConfigsSub;
 
@@ -61,6 +63,7 @@ class _SitePublicPageState extends State<SitePublicPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (kIsWeb) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         PublicSiteMediaAuth.ensureWebAnonymousForStorage();
@@ -74,7 +77,15 @@ class _SitePublicPageState extends State<SitePublicPage> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      AppSessionStability.onGlobalResume();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _effectiveConfigsSub?.cancel();
     _effectiveConfigsSub = null;
     _scrollController.dispose();

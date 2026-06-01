@@ -1,4 +1,13 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1710: Estabilidade global (web/iOS/Android) — sessão, master, divulgação, painel, chat.
+/// 11.2.295+1709: Chat thread rápido/estável — mensagens cache+retry (padrão Controle Total), stream resiliente.
+/// 11.2.295+1708: Sessão estável (web/iOS/Android) — não desloga ao trocar de aba; painel com cache.
+/// 11.2.295+1707: Chat igreja — atalhos abrem módulo Chat com conversa (bridge + DM resiliente).
+/// 11.2.295+1706: Atalhos Chat (painel, aniversariantes, líderes, membros) — resolve authUid + abre DM automático.
+/// 11.2.295+1705: Chat Contatos — pesquisa silenciosa (sem refresh do hub), abrir DM estável.
+/// 11.2.295+1704: Avisos/eventos — publicação resiliente (retry Firestore, sem derrubar painel na rede instável).
+/// 11.2.295+1703: Membros → Chat igreja — navegação estável (navigator raiz antes de fechar folha, timeout DM).
+/// 11.2.295+1702: Chat Igreja web — contatos (membros) resilientes, grupos todos para liderança, sem hang presença/bootstrap.
 /// 11.2.295+1701: Património — até 5 fotos/bem (galeria multi + WebP); constante centralizada.
 /// 11.2.295+1700: Avisos — até 5 fotos só imagens; vídeo só em eventos; upload rápido partilhado com mural.
 /// 11.2.295+1699: Chat Igreja WhatsApp — recibos ✓✓/lido DM, preview câmara, uploads paralelos limitados, entrega em grupos.
@@ -220,7 +229,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1701';
+const String appBuildNumber = '1710';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

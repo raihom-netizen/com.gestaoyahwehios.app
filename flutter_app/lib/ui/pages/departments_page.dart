@@ -3567,13 +3567,14 @@ class _DepartmentHubSheet extends StatelessWidget {
           children: [
             IconButton(
               tooltip: 'Chat Igreja',
-              onPressed: () => ChurchMemberContactChat.openChatIgreja(
+              onPressed: () => ChurchMemberContactChat.openChatIgrejaUnawaited(
                 context: context,
                 tenantId: tenantId,
                 memberRole: memberRole,
                 viewerCpfDigits: '',
                 memberData: data,
                 displayName: nome,
+                memberDocId: doc.id,
               ),
               icon: Icon(Icons.forum_rounded,
                   color: ThemeCleanPremium.primary, size: 22),

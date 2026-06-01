@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
+import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_warmup_service.dart';
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
@@ -160,6 +161,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   /// Recria a subscrição ao doc da igreja após falha de rede.
   int _tenantStreamRetry = 0;
+
+  /// Último snapshot válido — evita spinner ao voltar de outra aba (Controle Total).
+  DocumentSnapshot<Map<String, dynamic>>? _lastGoodTenantDoc;
 
   /// Evita enfileirar [addPostFrameCallback] a cada frame do StreamBuilder (estresse no UI thread).
   String _lastSubscriptionGuardSignature = '';
@@ -339,6 +343,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AppSessionStability.registerResumeListener(_onGlobalSessionResume);
     final rawOpen = widget.initialOpenMemberDocId?.trim() ?? '';
     _shellBootstrapOpenMemberId = rawOpen.isEmpty ? null : rawOpen;
     HardwareKeyboard.instance.addHandler(_onShellHardwareKey);
@@ -382,6 +387,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   @override
   void dispose() {
+    AppSessionStability.unregisterResumeListener(_onGlobalSessionResume);
     WidgetsBinding.instance.removeObserver(this);
     ChurchChatService.stopAppWidePresenceHeartbeat();
     ChurchPanelNavigationBridge.instance.unregisterShellNavigator();
@@ -403,10 +409,17 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
+      AppSessionStability.onGlobalResume();
       unawaited(ChurchChatService.appWidePresencePingIfActive());
       ChurchTenantOfflineWarmupService.instance
           .scheduleLightRefreshOnResume(widget.tenantId);
     }
+  }
+
+  void _onGlobalSessionResume() {
+    ChurchTenantOfflineWarmupService.instance
+        .scheduleLightRefreshOnResume(widget.tenantId);
+    unawaited(ChurchChatService.appWidePresencePingIfActive());
   }
 
   Future<void> _bootstrapChatPresenceHeartbeat() async {
@@ -2331,7 +2344,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               .snapshots(),
         ),
         builder: (context, tenantSnap) {
-          if (tenantSnap.hasError) {
+          if (tenantSnap.hasData && tenantSnap.data != null) {
+            _lastGoodTenantDoc = tenantSnap.data;
+          }
+          final tenantDoc =
+              tenantSnap.hasData ? tenantSnap.data : _lastGoodTenantDoc;
+
+          if (tenantSnap.hasError && tenantDoc == null) {
             return Scaffold(
               backgroundColor: ThemeCleanPremium.surfaceVariant,
               body: DecoratedBox(
@@ -2348,9 +2367,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               ),
             );
           }
-          // Evita tratar “aguardando primeiro snapshot” como cadastro incompleto.
-          if (tenantSnap.connectionState == ConnectionState.waiting &&
-              !tenantSnap.hasData) {
+          // Evita spinner ao voltar de outra aba quando já houve snapshot.
+          if (tenantDoc == null &&
+              tenantSnap.connectionState == ConnectionState.waiting) {
             return Scaffold(
               backgroundColor: ThemeCleanPremium.surfaceVariant,
               body: DecoratedBox(
@@ -2365,14 +2384,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               ),
             );
           }
-          final registrationComplete = tenantSnap.hasData == true &&
-              (tenantSnap.data?.data()?['registrationComplete'] ?? true) ==
-                  true;
+          final registrationComplete = tenantDoc != null &&
+              (tenantDoc.data()?['registrationComplete'] ?? true) == true;
           if (!registrationComplete) {
             return _buildCompleteCadastroObrigatorio();
           }
-          final churchLive =
-              tenantSnap.hasData ? tenantSnap.data?.data() : null;
+          final churchLive = tenantDoc?.data();
           final guard = SubscriptionGuard.evaluate(
               church: churchLive, subscription: widget.subscription);
           final bool legacyBlocked = churchLive != null

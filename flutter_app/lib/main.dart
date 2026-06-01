@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/ui/pages/firebase_bootstrap_recovery_page.dart';
 import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/url_strategy.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -194,153 +195,91 @@ class _MasterPanelGuard extends StatefulWidget {
   State<_MasterPanelGuard> createState() => _MasterPanelGuardState();
 }
 
-class _MasterPanelGuardState extends State<_MasterPanelGuard> {
-  late final Future<int> _checkFuture;
+class _MasterPanelGuardState extends State<_MasterPanelGuard>
+    with WidgetsBindingObserver {
+  int? _accessLevel;
+  bool _resolveInFlight = false;
 
   @override
   void initState() {
     super.initState();
-    _checkFuture = _check();
+    WidgetsBinding.instance.addObserver(this);
+    _accessLevel = AppSessionStability.peekCachedMasterAccessLevel();
+    if (_accessLevel == null) {
+      unawaited(_resolveAccess());
+    } else {
+      unawaited(
+        AppSessionStability.resolveMasterAccessLevel().then((level) {
+          if (!mounted) return;
+          if (level != _accessLevel) setState(() => _accessLevel = level);
+        }),
+      );
+    }
   }
 
-  Future<int> _check() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return 0;
-    final email = (user.email ?? '').toString().toLowerCase();
-    if (email == 'raihom@gmail.com') return 2;
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
-    // 1) Custom claims (definidos pelo backend) — não dependem do Firestore
-    try {
-      final token = await user.getIdTokenResult(true);
-      final roleClaim = (token.claims?['role'] ?? token.claims?['nivel'] ?? '')
-          .toString()
-          .toUpperCase();
-      if (roleClaim == 'ADM' || roleClaim == 'ADMIN' || roleClaim == 'MASTER') {
-        return 2;
-      }
-      if ((token.claims?['nivel'] ?? '').toString().toLowerCase() == 'adm') {
-        return 2;
-      }
-      if (token.claims?['admin'] == true) return 2;
-    } catch (_) {}
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      AppSessionStability.onGlobalResume();
+      if (_accessLevel != null && _accessLevel! >= 2) return;
+      unawaited(_resolveAccess());
+    }
+  }
 
-    // 2) Firestore users/{uid}
+  Future<void> _resolveAccess() async {
+    if (_resolveInFlight) return;
+    _resolveInFlight = true;
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get()
-          .timeout(const Duration(seconds: 12),
-              onTimeout: () => throw TimeoutException('check'));
-      final data = doc.data() ?? {};
-      final role =
-          (data['role'] ?? data['nivel'] ?? '').toString().toUpperCase();
-      final nivel = (data['nivel'] ?? '').toString().toLowerCase();
-      if (role == 'ADM' ||
-          role == 'ADMIN' ||
-          role == 'MASTER' ||
-          nivel == 'adm') {
-        return 2;
-      }
-      return 1;
-    } on TimeoutException {
-      try {
-        final fn = FirebaseFunctions.instance.httpsCallable('getAdminCheck');
-        final res = await fn
-            .call<Map<String, dynamic>>()
-            .timeout(const Duration(seconds: 8));
-        if (res.data['allowed'] == true) return 2;
-      } catch (_) {}
-      return 0;
-    } catch (_) {
-      try {
-        final doc = await FirebaseFirestore.instance
-            .collection('usuarios')
-            .doc(user.uid)
-            .get()
-            .timeout(const Duration(seconds: 5));
-        final nivel = (doc.data()?['nivel'] ?? '').toString().toLowerCase();
-        if (nivel == 'adm') return 2;
-      } catch (_) {}
-      try {
-        final fn = FirebaseFunctions.instance.httpsCallable('getAdminCheck');
-        final res = await fn
-            .call<Map<String, dynamic>>()
-            .timeout(const Duration(seconds: 8));
-        if (res.data['allowed'] == true) return 2;
-      } catch (_) {}
-      return 1;
+      final level = await AppSessionStability.resolveMasterAccessLevel();
+      if (!mounted) return;
+      setState(() => _accessLevel = level);
+    } finally {
+      _resolveInFlight = false;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<int>(
-      future: _checkFuture,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Scaffold(
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.error_outline,
-                        size: 48, color: Colors.orange),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Não foi possível verificar o acesso.',
-                      textAlign: TextAlign.center,
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 24),
-                    FilledButton.icon(
-                      onPressed: () => Navigator.of(context)
-                          .pushReplacementNamed('/login_admin'),
-                      icon: const Icon(Icons.login),
-                      label: const Text('Ir para login'),
-                    ),
-                  ],
-                ),
+    final level = _accessLevel;
+    if (level == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF0F4FF),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF0A3D91),
+          foregroundColor: Colors.white,
+          title: const Text('Painel Master',
+              style: TextStyle(fontWeight: FontWeight.w800)),
+        ),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 48,
+                height: 48,
+                child: CircularProgressIndicator(
+                    strokeWidth: 3, color: Color(0xFF0A3D91)),
               ),
-            ),
-          );
-        }
-        if (!snapshot.hasData) {
-          return Scaffold(
-            backgroundColor: const Color(0xFFF0F4FF),
-            appBar: AppBar(
-              backgroundColor: const Color(0xFF0A3D91),
-              foregroundColor: Colors.white,
-              title: const Text('Painel Master',
-                  style: TextStyle(fontWeight: FontWeight.w800)),
-            ),
-            body: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 3, color: Color(0xFF0A3D91)),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Verificando acesso...',
-                    style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey.shade700,
-                        fontWeight: FontWeight.w500),
-                  ),
-                ],
+              const SizedBox(height: 20),
+              Text(
+                'Verificando acesso...',
+                style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w500),
               ),
-            ),
-          );
-        }
-        switch (snapshot.data!) {
+            ],
+          ),
+        ),
+      );
+    }
+    switch (level) {
           case 0:
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (context.mounted) {
@@ -379,7 +318,7 @@ class _MasterPanelGuardState extends State<_MasterPanelGuard> {
                 ),
               ),
             );
-          default:
+      default:
             return PopScope(
               canPop: false,
               onPopInvokedWithResult: (didPop, result) {
@@ -395,9 +334,7 @@ class _MasterPanelGuardState extends State<_MasterPanelGuard> {
               },
               child: const AdminPanelPage(),
             );
-        }
-      },
-    );
+    }
   }
 }
 
@@ -787,6 +724,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AppSessionStability.bindGlobal(this);
     if (kIsWeb) {
       registerWebResumeRepaint(_repaintAfterWebResume);
     }
@@ -812,7 +750,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
     _deepLinkSub?.cancel();
     _webResumeRepaintDebounce?.cancel();
     if (kIsWeb) {
-      unregisterWebResumeRepaint();
+      unregisterWebResumeRepaint(_repaintAfterWebResume);
     }
     _themeProvider.removeListener(_onThemeChanged);
     super.dispose();
@@ -822,7 +760,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
-      unawaited(AppFinalizeBootstrap.onAppResume());
+      AppSessionStability.onGlobalResume();
       if (kIsWeb) _repaintAfterWebResume();
     }
   }

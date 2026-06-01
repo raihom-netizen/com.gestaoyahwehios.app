@@ -1,8 +1,7 @@
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/services/church_chat_service.dart';
-import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
-import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 
 /// Parabenizar aniversariante pelo chat da igreja (DM) — web, iOS e Android.
 abstract final class ChurchBirthdayParabenizar {
@@ -14,19 +13,8 @@ abstract final class ChurchBirthdayParabenizar {
         'Que Deus te abençoe. 🎂';
   }
 
-  static String? authUidFromMember(Map<String, dynamic> data) {
-    for (final k in [
-      'authUid',
-      'uid',
-      'userId',
-      'firebaseUid',
-      'USER_ID',
-    ]) {
-      final v = (data[k] ?? '').toString().trim();
-      if (v.length >= 8) return v;
-    }
-    return null;
-  }
+  static String? authUidFromMember(Map<String, dynamic> data) =>
+      ChurchMemberContactChat.authUidFromMember(data);
 
   /// Abre DM no chat com mensagem pré-preenchida (utilizador envia).
   static Future<void> openChat({
@@ -37,71 +25,45 @@ abstract final class ChurchBirthdayParabenizar {
     required Map<String, dynamic> memberData,
     required String displayName,
     required String primeiroNome,
+    String? memberDocId,
     bool popSheetBeforeNavigate = false,
-  }) async {
-    final myUid = FirebaseAuth.instance.currentUser?.uid?.trim();
-    if (myUid == null || myUid.isEmpty) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Entre na sua conta para usar o chat da igreja.',
-        ),
-      );
-      return;
-    }
-
-    final peerUid = authUidFromMember(memberData)?.trim();
-    if (peerUid == null || peerUid.isEmpty) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Este membro ainda não tem login no app. '
-          'Peça para ativar a conta ou use o WhatsApp.',
-        ),
-      );
-      return;
-    }
-    if (peerUid == myUid) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Você não pode enviar parabéns para si mesmo no chat.',
-        ),
-      );
-      return;
-    }
-
-    final titulo = displayName.trim().isEmpty ? 'Membro' : displayName.trim();
-    final draft = messageFor(primeiroNome);
-
-    if (popSheetBeforeNavigate && context.mounted) {
-      Navigator.pop(context);
-    }
-
-    await ChurchChatService.ensureDmThread(
+  }) {
+    return ChurchMemberContactChat.openChatIgreja(
+      context: context,
       tenantId: tenantId,
-      uidA: myUid,
-      uidB: peerUid,
-      titleA: FirebaseAuth.instance.currentUser?.displayName ?? 'Eu',
-      titleB: titulo,
+      memberRole: memberRole,
+      viewerCpfDigits: memberCpfDigits,
+      memberData: memberData,
+      displayName: displayName,
+      memberDocId: memberDocId,
+      draftText: messageFor(primeiroNome),
+      popSheetBeforeNavigate: popSheetBeforeNavigate,
     );
+  }
 
-    final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
-    if (!context.mounted) return;
-
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => ChurchChatThreadPage(
-          tenantId: tenantId,
-          threadId: threadId,
-          title: titulo,
-          isDepartment: false,
-          peerUid: peerUid,
-          memberRole: memberRole,
-          memberCpfDigits: memberCpfDigits,
-          initialDraftText: draft,
-        ),
+  /// Botões do painel (aniversariantes) — não perder o toque por Future silenciosa.
+  static void openChatUnawaited({
+    required BuildContext context,
+    required String tenantId,
+    required String memberRole,
+    required String memberCpfDigits,
+    required Map<String, dynamic> memberData,
+    required String displayName,
+    required String primeiroNome,
+    String? memberDocId,
+    bool popSheetBeforeNavigate = false,
+  }) {
+    unawaited(
+      openChat(
+        context: context,
+        tenantId: tenantId,
+        memberRole: memberRole,
+        memberCpfDigits: memberCpfDigits,
+        memberData: memberData,
+        displayName: displayName,
+        primeiroNome: primeiroNome,
+        memberDocId: memberDocId,
+        popSheetBeforeNavigate: popSheetBeforeNavigate,
       ),
     );
   }

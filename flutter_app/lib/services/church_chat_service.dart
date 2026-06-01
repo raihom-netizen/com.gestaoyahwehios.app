@@ -22,6 +22,7 @@ import 'church_chat_local_conversations.dart';
 import 'church_chat_member_prefs.dart';
 import 'church_chat_threads_list_cache.dart';
 import 'firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'analytics_service.dart';
 import 'media_upload_service.dart';
 import 'upload_storage_task.dart' show formatUploadErrorForUser;
@@ -79,16 +80,59 @@ class ChurchChatService {
       YahwehPerformanceV4.chatMessagesPageSize;
   static const int maxOlderMessagePages = 50;
 
-  /// Stream só da «cauda» recente (substitui `limit` crescente até 2500).
-  static Stream<QuerySnapshot<Map<String, dynamic>>> recentMessagesStream({
+  static String recentMessagesCacheKey(String tenantId, String threadId) =>
+      'chat_msgs_${tenantId.trim()}_$threadId';
+
+  static Query<Map<String, dynamic>> recentMessagesQuery({
     required String tenantId,
     required String threadId,
     int pageSize = defaultMessagePageSize,
   }) {
     return messagesCol(tenantId, threadId)
         .orderBy('createdAt', descending: true)
-        .limit(pageSize)
-        .snapshots();
+        .limit(pageSize);
+  }
+
+  /// Leitura pontual estável (Controle Total) — cache → rede com retry.
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      fetchRecentMessagesPage({
+    required String tenantId,
+    required String threadId,
+    int pageSize = defaultMessagePageSize,
+  }) async {
+    final snap = await FirestoreReadResilience.getQuery(
+      recentMessagesQuery(
+        tenantId: tenantId,
+        threadId: threadId,
+        pageSize: pageSize,
+      ),
+      cacheKey: recentMessagesCacheKey(tenantId, threadId),
+    );
+    return snap.docs;
+  }
+
+  /// Stream da cauda recente — resiliente a rede/`INTERNAL ASSERTION` (web).
+  static Stream<QuerySnapshot<Map<String, dynamic>>> recentMessagesStream({
+    required String tenantId,
+    required String threadId,
+    int pageSize = defaultMessagePageSize,
+  }) {
+    return FirestoreStreamUtils.resilientQuery(
+      recentMessagesQuery(
+        tenantId: tenantId,
+        threadId: threadId,
+        pageSize: pageSize,
+      ).snapshots(),
+    );
+  }
+
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> threadSnapshots(
+    String tenantId,
+    String threadId,
+  ) {
+    return FirestoreStreamUtils.resilientDocument(
+      threadRef(tenantId, threadId).snapshots(),
+    );
   }
 
   /// Página mais antiga (`startAfterDocument`) para scroll infinito.
@@ -1393,6 +1437,41 @@ class ChurchChatService {
       },
       SetOptions(merge: true),
     );
+  }
+
+  /// Atalhos do painel / membros — bootstrap + até 3 tentativas antes de abrir o hub.
+  static Future<bool> ensureDmThreadResilient({
+    required String tenantId,
+    required String uidA,
+    required String uidB,
+    required String titleA,
+    required String titleB,
+  }) async {
+    await ensureFirebaseReadyForChatSend().catchError((_) {});
+    Object? lastError;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        await ensureDmThread(
+          tenantId: tenantId,
+          uidA: uidA,
+          uidB: uidB,
+          titleA: titleA,
+          titleB: titleB,
+        ).timeout(const Duration(seconds: 14));
+        return true;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      } catch (e) {
+        lastError = e;
+      }
+      if (attempt < 2) {
+        await Future<void>.delayed(Duration(milliseconds: 350 * (attempt + 1)));
+      }
+    }
+    if (kDebugMode && lastError != null) {
+      debugPrint('ensureDmThreadResilient failed: $lastError');
+    }
+    return false;
   }
 
   /// Legado síncrono — preferir [ChurchChatInstantSendService.enqueueText].

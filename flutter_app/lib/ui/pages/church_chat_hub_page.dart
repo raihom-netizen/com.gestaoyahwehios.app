@@ -86,8 +86,15 @@ String _chatHubFmtThreadTime(dynamic ts) {
 
 /// Gestor, administrador, pastor e equivalentes — vê todos os grupos (departamentos) e lista de contatos.
 bool _chatHubLeadershipFullAccess(String role, List<String>? permissions) {
-  return AppRoles.isFullAccess(role) ||
-      AppPermissions.canEditDepartments(role, permissions: permissions);
+  final r = role.toLowerCase();
+  if (AppRoles.isFullAccess(role)) return true;
+  if (AppPermissions.canEditDepartments(role, permissions: permissions)) {
+    return true;
+  }
+  return r == AppRoles.pastor ||
+      r == 'pastor_presidente' ||
+      r == 'pastora' ||
+      r == AppRoles.secretario;
 }
 
 /// Lista estilo WhatsApp — DM + grupos por departamento (membro: só os seus; liderança: todos).
@@ -163,8 +170,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     WidgetsBinding.instance.addObserver(this);
     _hubTabController = TabController(length: 3, vsync: this);
     _hubTabController.addListener(_hubTabListener);
-    _membersFilterCtrl.addListener(() => setState(() {}));
-    _deptFilterCtrl.addListener(() => setState(() {}));
     ChurchPanelNavigationBridge.instance
         .registerChatOpenListener(_onChatPendingFromBridge);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -406,7 +411,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   Future<void> _tryConsumePendingChatThread() async {
     if (!mounted || !widget.embeddedInShell) return;
     final tid = _resolvedTenantId;
-    if (tid == null) return;
+    if (tid == null || tid.isEmpty) return;
     final peek =
         ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen();
     if (peek == null) return;
@@ -415,16 +420,93 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         peek.tenantId != tid) {
       return;
     }
+
+    final threadId = peek.threadId.trim();
+    if (threadId.isEmpty) return;
+
+    final myUid = firebaseDefaultAuth.currentUser?.uid?.trim();
+    if (myUid == null || myUid.isEmpty) return;
+
+    final isDmPending = threadId.startsWith('dm_');
+    final pendingPeer = peek.peerUid?.trim() ?? '';
+    final pendingTitle = (peek.displayName ?? '').trim();
+
+    if (isDmPending && pendingPeer.isNotEmpty) {
+      await ChurchChatService.ensureDmThreadResilient(
+        tenantId: tid,
+        uidA: myUid,
+        uidB: pendingPeer,
+        titleA: firebaseDefaultAuth.currentUser?.displayName ?? 'Eu',
+        titleB: pendingTitle.isEmpty ? 'Membro' : pendingTitle,
+      );
+    }
+
     DocumentSnapshot<Map<String, dynamic>>? snap;
     try {
-      snap = await ChurchChatService.threadRef(tid, peek.threadId).get();
+      snap = await ChurchChatService.threadRef(tid, threadId).get();
     } catch (_) {
       snap = null;
     }
-    if (!mounted || snap == null || !snap.exists) return;
+
+    if (isDmPending) {
+      if ((snap == null || !snap.exists) && pendingPeer.isEmpty) return;
+      final pending =
+          ChurchPanelNavigationBridge.instance.consumePendingChatThreadOpen();
+      if (pending == null || pending.threadId != threadId) return;
+      if (!mounted) return;
+
+      final data = snap?.data() ?? <String, dynamic>{};
+      var peer = pendingPeer;
+      if (peer.isEmpty) {
+        final peerList = (data['participantUids'] as List?)
+                ?.map((e) => e.toString().trim())
+                .where((e) => e.isNotEmpty)
+                .toList() ??
+            <String>[];
+        for (final p in peerList) {
+          if (p != myUid) {
+            peer = p;
+            break;
+          }
+        }
+      }
+      if (peer.isEmpty) return;
+
+      var dmTitle = pendingTitle;
+      if (dmTitle.isEmpty) {
+        dmTitle = _resolvePeerDisplayName(peer, threadData: data);
+      }
+      if (dmTitle.isEmpty) {
+        dmTitle = _looksLikeFirebaseUid(peer) ? 'Membro' : peer;
+      }
+
+      final nav = Navigator.of(context);
+      await nav.push(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => ChurchChatThreadPage(
+            tenantId: tid,
+            threadId: pending.threadId,
+            title: dmTitle,
+            isDepartment: false,
+            peerUid: peer,
+            memberRole: widget.role,
+            memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+            initialDraftText: pending.initialDraftText,
+          ),
+        ),
+      );
+      if (mounted) {
+        unawaited(_primeConversasListFromFallback(tid));
+        unawaited(_reloadLocalConversations());
+      }
+      return;
+    }
+
+    if (snap == null || !snap.exists) return;
     final pending =
         ChurchPanelNavigationBridge.instance.consumePendingChatThreadOpen();
-    if (pending == null || pending.threadId != peek.threadId) return;
+    if (pending == null || pending.threadId != threadId) return;
     final data = snap.data() ?? {};
     final type = (data['type'] ?? '').toString();
     final nav = Navigator.of(context);
@@ -449,8 +531,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       return;
     }
     if (type == 'dm') {
-      final uid = firebaseDefaultAuth.currentUser?.uid;
-      if (uid == null) return;
       final peerList = (data['participantUids'] as List?)
               ?.map((e) => e.toString().trim())
               .where((e) => e.isNotEmpty)
@@ -458,7 +538,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           <String>[];
       String? peer;
       for (final p in peerList) {
-        if (p != uid) {
+        if (p != myUid) {
           peer = p;
           break;
         }
@@ -479,6 +559,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             peerUid: peer,
             memberRole: widget.role,
             memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+            initialDraftText: pending.initialDraftText,
           ),
         ),
       );
@@ -557,6 +638,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   Future<void> _bootstrap() async {
+    final hint = widget.tenantId.trim();
+    if (hint.isNotEmpty && mounted && _resolvedTenantId == null) {
+      setState(() => _resolvedTenantId = hint);
+    }
     final tid = await TenantResolverService
         .resolveEffectiveTenantIdPreferringUserBinding(
       widget.tenantId,
@@ -767,80 +852,80 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         await _syncAllDepartmentsForLeadership(tid, uid);
         return;
       }
-    final digits = widget.cpf.replaceAll(RegExp(r'\D'), '');
-    final base =
-        FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('membros');
+      final digits = widget.cpf.replaceAll(RegExp(r'\D'), '');
+      final base =
+          FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('membros');
 
-    DocumentSnapshot<Map<String, dynamic>>? membro;
-    try {
-      if (digits.length == 11) {
-        final byCpf = await base.doc(digits).get();
-        if (byCpf.exists) membro = byCpf;
-      }
-      membro ??= await base.doc(uid).get();
-      if (!membro.exists) {
-        final q =
-            await base.where('authUid', isEqualTo: uid).limit(1).get();
-        if (q.docs.isNotEmpty) membro = q.docs.first;
-      }
-    } catch (_) {}
+      DocumentSnapshot<Map<String, dynamic>>? membro;
+      try {
+        if (digits.length == 11) {
+          final byCpf = await base.doc(digits).get();
+          if (byCpf.exists) membro = byCpf;
+        }
+        membro ??= await base.doc(uid).get();
+        if (!membro.exists) {
+          final q =
+              await base.where('authUid', isEqualTo: uid).limit(1).get();
+          if (q.docs.isNotEmpty) membro = q.docs.first;
+        }
+      } catch (_) {}
 
-    final deptIds = <String>[];
-    if (membro != null && membro.exists) {
-      final d = membro.data() ?? {};
-      final raw = d['departamentosIds'];
-      if (raw is List) {
-        deptIds.addAll(raw.map((e) => e.toString()).where((s) => s.isNotEmpty));
-      }
-      final depNames = d['DEPARTAMENTOS'];
-      if (depNames is List) {
-        final col = FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(tid)
-            .collection('departamentos');
-        for (final name in depNames) {
-          final key = normalizeChurchDepartmentNameKey(name.toString());
-          if (key.isEmpty) continue;
-          try {
-            final hit = await col.where('nome', isEqualTo: name.toString()).limit(1).get();
-            if (hit.docs.isNotEmpty) {
-              deptIds.add(hit.docs.first.id);
-            }
-          } catch (_) {}
+      final deptIds = <String>[];
+      if (membro != null && membro.exists) {
+        final d = membro.data() ?? {};
+        final raw = d['departamentosIds'];
+        if (raw is List) {
+          deptIds.addAll(raw.map((e) => e.toString()).where((s) => s.isNotEmpty));
+        }
+        final depNames = d['DEPARTAMENTOS'];
+        if (depNames is List) {
+          final col = FirebaseFirestore.instance
+              .collection('igrejas')
+              .doc(tid)
+              .collection('departamentos');
+          for (final name in depNames) {
+            final key = normalizeChurchDepartmentNameKey(name.toString());
+            if (key.isEmpty) continue;
+            try {
+              final hit = await col.where('nome', isEqualTo: name.toString()).limit(1).get();
+              if (hit.docs.isNotEmpty) {
+                deptIds.add(hit.docs.first.id);
+              }
+            } catch (_) {}
+          }
         }
       }
-    }
 
-    await ChurchChatService.syncUserChatProfile(
-      tenantId: tid,
-      departmentIds: deptIds.toSet().toList(),
-      memberDocId: membro?.id,
-    );
+      await ChurchChatService.syncUserChatProfile(
+        tenantId: tid,
+        departmentIds: deptIds.toSet().toList(),
+        memberDocId: membro?.id,
+      );
 
-    final deptCol =
-        FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('departamentos');
-    final entries = <_DeptEntry>[];
-    for (final id in deptIds.toSet()) {
-      try {
-        final doc = await deptCol.doc(id).get();
-        final name = doc.exists
-            ? churchDepartmentNameFromData(doc.data() ?? {}, docId: doc.id)
-            : id;
-        entries.add(_DeptEntry(
-          id: id,
-          name: name,
-          deptData: doc.exists ? doc.data() : null,
-        ));
-        await ChurchChatService.ensureDepartmentThread(
-          tenantId: tid,
-          departmentId: id,
-          departmentName: name,
-          participantUids: [uid],
-        );
-      } catch (_) {}
-    }
-    if (!mounted) return;
-    setState(() => _departments = entries);
+      final deptCol =
+          FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('departamentos');
+      final entries = <_DeptEntry>[];
+      for (final id in deptIds.toSet()) {
+        try {
+          final doc = await deptCol.doc(id).get();
+          final name = doc.exists
+              ? churchDepartmentNameFromData(doc.data() ?? {}, docId: doc.id)
+              : id;
+          entries.add(_DeptEntry(
+            id: id,
+            name: name,
+            deptData: doc.exists ? doc.data() : null,
+          ));
+          await ChurchChatService.ensureDepartmentThread(
+            tenantId: tid,
+            departmentId: id,
+            departmentName: name,
+            participantUids: [uid],
+          );
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      setState(() => _departments = entries);
     } finally {
       if (mounted) setState(() => _departmentsLoading = false);
     }
@@ -1597,10 +1682,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             builder: (context, _) {
               final i = _hubTabController.index;
               if (i == 0) {
-                return _ChatSearchBar(
-                  controller: _searchCtrl,
-                  onChanged: () => setState(() {}),
-                );
+                return _ChatSearchBar(controller: _searchCtrl);
               }
               if (i == 1) {
                 return _HubScopedSearchBar(
@@ -1732,6 +1814,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   );
                 }
 
+                return ListenableBuilder(
+                  listenable: _searchCtrl,
+                  builder: (context, _) {
                 final threads = <Widget>[];
                 final q = _searchCtrl.text.trim();
                 final ql = q.toLowerCase();
@@ -1966,6 +2051,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       _buildDmBulkSelectBar(tid, displayedDmThreadIds),
                   ],
                 );
+                  },
+                );
               },
             );
           },
@@ -1973,21 +2060,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   Widget _buildContatosTab(BuildContext context, String tid, String uid) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: ChurchChatMemberPrefs.watch(tid),
-      builder: (context, prefSnap) {
-        final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
-        return _AllMembersDirectoryView(
-          tenantId: tid,
-          myUid: uid,
-          prefs: prefs,
-          filterCtrl: _membersFilterCtrl,
-          role: widget.role,
-          cpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-          onOpenDm: (peerUid, displayName) =>
-              _startDmWithPeer(context, tid, uid, peerUid, displayName),
-        );
-      },
+    return _AllMembersDirectoryView(
+      key: const ValueKey('chat_hub_contatos_dir'),
+      tenantId: tid,
+      myUid: uid,
+      filterCtrl: _membersFilterCtrl,
+      role: widget.role,
+      cpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+      onOpenDm: (peerUid, displayName) =>
+          _startDmWithPeer(context, tid, uid, peerUid, displayName),
     );
   }
 
@@ -2043,6 +2124,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       stream: ChurchChatMemberPrefs.watch(tid),
       builder: (context, prefSnap) {
         final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
+        return ListenableBuilder(
+          listenable: _deptFilterCtrl,
+          builder: (context, _) {
         final ql = _deptFilterCtrl.text.trim().toLowerCase();
         final filtered = _departments.where((d) {
           if (ql.isEmpty) {
@@ -2251,6 +2335,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           ),
         ),
         );
+          },
+        );
       },
     );
   }
@@ -2262,33 +2348,18 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     String peerUid,
     String displayName,
   ) async {
-    final nav = Navigator.of(context);
-    await ChurchChatService.ensureDmThread(
-      tenantId: tid,
-      uidA: myUid,
-      uidB: peerUid,
-      titleA: firebaseDefaultAuth.currentUser?.displayName ?? 'Eu',
-      titleB: displayName,
-    );
+    if (peerUid.trim().isEmpty) return;
     final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
-    if (!mounted) return;
-    await nav.push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => ChurchChatThreadPage(
-          tenantId: tid,
-          threadId: threadId,
-          title: displayName,
-          isDepartment: false,
-          peerUid: peerUid,
-          memberRole: widget.role,
-          memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-        ),
-      ),
+    ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
+      threadId: threadId,
+      tenantId: tid,
+      peerUid: peerUid,
+      displayName: displayName,
     );
     if (mounted) {
-      unawaited(_primeConversasListFromFallback(tid));
-      unawaited(_reloadLocalConversations());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_tryConsumePendingChatThread());
+      });
     }
   }
 
@@ -2923,8 +2994,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       titleB: picked.name,
     );
     final threadId = ChurchChatService.dmThreadId(uid, picked.uid);
-    if (!context.mounted) return;
-    await Navigator.of(context).push(
+    final nav = Navigator.of(context, rootNavigator: true);
+    if (!nav.mounted) return;
+    await nav.push(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
         builder: (_) => ChurchChatThreadPage(
@@ -2943,11 +3015,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
 class _ChatSearchBar extends StatefulWidget {
   final TextEditingController controller;
-  final VoidCallback onChanged;
 
   const _ChatSearchBar({
     required this.controller,
-    required this.onChanged,
   });
 
   @override
@@ -2994,7 +3064,6 @@ class _ChatSearchBarState extends State<_ChatSearchBar> {
             color: ThemeCleanPremium.cardBackground,
             child: TextField(
               controller: widget.controller,
-              onChanged: (_) => widget.onChanged(),
               style: TextStyle(
                 color: ThemeCleanPremium.onSurface,
                 fontWeight: FontWeight.w500,
@@ -3014,10 +3083,7 @@ class _ChatSearchBarState extends State<_ChatSearchBar> {
                           Icons.clear_rounded,
                           color: ThemeCleanPremium.onSurfaceVariant,
                         ),
-                        onPressed: () {
-                          widget.controller.clear();
-                          widget.onChanged();
-                        },
+                        onPressed: widget.controller.clear,
                       )
                     : null,
                 border: InputBorder.none,
@@ -3250,16 +3316,15 @@ class _ChatDirectoryMemberRow {
 class _AllMembersDirectoryView extends StatefulWidget {
   final String tenantId;
   final String myUid;
-  final ChurchChatMemberPrefsModel prefs;
   final TextEditingController filterCtrl;
   final String role;
   final String cpfDigits;
-  final void Function(String peerUid, String displayName) onOpenDm;
+  final Future<void> Function(String peerUid, String displayName) onOpenDm;
 
   const _AllMembersDirectoryView({
+    super.key,
     required this.tenantId,
     required this.myUid,
-    required this.prefs,
     required this.filterCtrl,
     required this.role,
     required this.cpfDigits,
@@ -3275,23 +3340,48 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   List<_ChatDirectoryMemberRow> _rows = const [];
   bool _loading = true;
   bool _loadFailed = false;
+  bool _openingDm = false;
   Map<String, bool> _presenceOnlineByUid = {};
   Timer? _presencePollTimer;
+  Timer? _filterDebounce;
+  ChurchChatMemberPrefsModel _prefs = const ChurchChatMemberPrefsModel();
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _prefsSub;
 
-  void _onFilterChanged() => setState(() {});
+  void _onFilterChanged() {
+    _filterDebounce?.cancel();
+    _filterDebounce = Timer(const Duration(milliseconds: 220), () {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void initState() {
     super.initState();
     widget.filterCtrl.addListener(_onFilterChanged);
+    _prefsSub = ChurchChatMemberPrefs.watch(widget.tenantId).listen((snap) {
+      if (!mounted) return;
+      setState(() => _prefs = ChurchChatMemberPrefs.parse(snap));
+    });
     _load();
   }
 
   @override
   void dispose() {
     widget.filterCtrl.removeListener(_onFilterChanged);
+    _filterDebounce?.cancel();
+    _prefsSub?.cancel();
     _presencePollTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _onMemberTap(String auth, String label) async {
+    if (_openingDm || auth.isEmpty) return;
+    setState(() => _openingDm = true);
+    try {
+      await widget.onOpenDm(auth, label);
+    } finally {
+      if (mounted) setState(() => _openingDm = false);
+    }
   }
 
   void _schedulePresencePoll() {
@@ -3353,6 +3443,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       _loadFailed = false;
     });
     var rows = <_ChatDirectoryMemberRow>[];
+    var fetchFailed = false;
     try {
       await ChurchTenantResilientReads.preparePanelRead();
 
@@ -3362,7 +3453,9 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
         if (directory.hasEntries) {
           rows = _rowsFromDirectory(directory);
         }
-      } catch (_) {}
+      } catch (_) {
+        fetchFailed = true;
+      }
 
       if (rows.isEmpty) {
         try {
@@ -3373,7 +3466,9 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
           rows = snap.docs
               .map((d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()))
               .toList();
-        } catch (_) {}
+        } catch (_) {
+          fetchFailed = true;
+        }
       }
 
       if (rows.isEmpty) {
@@ -3385,15 +3480,19 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
           if (warmed.hasEntries) {
             rows = _rowsFromDirectory(warmed);
           }
-        } catch (_) {}
+        } catch (_) {
+          fetchFailed = true;
+        }
       }
-    } catch (_) {}
+    } catch (_) {
+      fetchFailed = true;
+    }
 
     if (!mounted) return;
     setState(() {
       _rows = rows;
       _loading = false;
-      _loadFailed = rows.isEmpty;
+      _loadFailed = rows.isEmpty && fetchFailed;
     });
 
     if (rows.isNotEmpty) {
@@ -3422,7 +3521,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       if (st != 'ativo') continue;
       final auth = _authUidFromMemberData(row.docId, d);
       if (auth == null || auth == widget.myUid) continue;
-      if (widget.prefs.isBlockedPeer(auth)) continue;
+      if (_prefs.isBlockedPeer(auth)) continue;
       final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? '')
           .toString()
           .trim();
@@ -3527,7 +3626,9 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
                           ? ThemeCleanPremium.primary.withValues(alpha: 0.05)
                           : Colors.white,
                       child: InkWell(
-                        onTap: () => widget.onOpenDm(auth, label),
+                        onTap: _openingDm
+                            ? null
+                            : () => unawaited(_onMemberTap(auth, label)),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 12,
@@ -3613,8 +3714,6 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
                     );
                   },
                 ),
-        );
-      },
     );
   }
 }

@@ -3340,11 +3340,15 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   Future<void> _usarEnderecoIgreja() async {
     try {
-      await ensureFirebaseReadyForPanelRead().catchError((_) {});
-      final snap = await FirestoreReadResilience.getDocument(
-        firebaseDefaultFirestore.collection('igrejas').doc(widget.tenantId),
-        cacheKey: 'igreja_doc_${widget.tenantId}',
-      );
+      DocumentSnapshot<Map<String, dynamic>> snap;
+      try {
+        snap = await ChurchTenantResilientReads.churchDocument(widget.tenantId);
+      } catch (_) {
+        snap = await firebaseDefaultFirestore
+            .collection('igrejas')
+            .doc(widget.tenantId)
+            .get(const GetOptions(source: Source.cache));
+      }
       final data = snap.data() ?? {};
       final endereco = _buildEnderecoFromTenant(data);
       if (endereco.isEmpty) {
@@ -3378,12 +3382,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(
-                'Erro ao carregar igreja: ${formatFirebaseErrorForUser(e)}',
-                style: const TextStyle(color: Colors.white),
-              ),
-              backgroundColor: ThemeCleanPremium.error),
+          ThemeCleanPremium.errorSnackBarWithRetry(
+            'Não foi possível ler o endereço da igreja agora. '
+            'Pode preencher o local manualmente ou tentar de novo.',
+            onRetry: _usarEnderecoIgreja,
+          ),
         );
       }
     }
@@ -3855,11 +3858,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     setState(() => _saving = true);
     try {
       try {
-        await FastMediaPublishBootstrap.warmForFeedPublish();
+        await FastMediaPublishBootstrap.warmForFeedPublish()
+            .timeout(const Duration(seconds: 25));
       } catch (e) {
         if (isFirebaseNoAppError(e)) {
-          await FirebaseBootstrapService.reconnect(requireAuthSession: true);
-          await FastMediaPublishBootstrap.warmForFeedPublish();
+          await ensureFirebaseReadyForPublishUpload().catchError((_) {});
+          await FastMediaPublishBootstrap.warmForFeedPublish()
+              .timeout(const Duration(seconds: 25));
         } else {
           rethrow;
         }
@@ -3952,12 +3957,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         );
       } catch (_) {}
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-              formatUploadErrorForUser(e),
-              style: const TextStyle(color: Colors.white),
-            ),
-            backgroundColor: ThemeCleanPremium.error));
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.errorSnackBarWithRetry(
+            formatUploadErrorForUser(e),
+            onRetry: _save,
+          ),
+        );
       }
     } finally {
       if (mounted) {

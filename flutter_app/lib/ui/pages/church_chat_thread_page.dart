@@ -35,6 +35,7 @@ import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_delivery_status.dart';
@@ -176,6 +177,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   _ReplyDraft? _replyDraft;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> _olderMessageDocs = [];
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _latestRecentDocs = const [];
+  Timer? _messagesPrimeFallbackTimer;
+  bool _messagesPrimeInFlight = false;
   bool _loadingMoreHistory = false;
   bool _hasMoreOlderHistory = true;
   int _olderPagesLoaded = 0;
@@ -227,6 +230,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
     });
     unawaited(_loadInitialSenderProfiles());
+    unawaited(_primeRecentMessagesFromCacheOrServer());
+    _messagesPrimeFallbackTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      if (_latestRecentDocs.isEmpty) {
+        unawaited(_primeRecentMessagesFromCacheOrServer());
+      }
+    });
     _startPeerPresencePoll();
     if (widget.isDepartment &&
         widget.departmentId != null &&
@@ -260,6 +270,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
     _deptSub?.cancel();
     _peerPresencePoll?.cancel();
+    _messagesPrimeFallbackTimer?.cancel();
     _voiceTicker?.cancel();
     unawaited(_chatAudio.dispose());
     _prefsSub?.cancel();
@@ -279,6 +290,39 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           threadId: widget.threadId,
         ),
       );
+      unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
+    }
+  }
+
+  /// Controle Total: `.get()` com cache/retry — não fica no skeleton se o stream falhar.
+  Future<void> _primeRecentMessagesFromCacheOrServer({bool silent = false}) async {
+    if (_messagesPrimeInFlight) return;
+    _messagesPrimeInFlight = true;
+    try {
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
+      final docs = await ChurchChatService.fetchRecentMessagesPage(
+        tenantId: widget.tenantId,
+        threadId: widget.threadId,
+      );
+      if (!mounted) return;
+      if (docs.isEmpty && _latestRecentDocs.isNotEmpty) return;
+      setState(() => _latestRecentDocs = docs);
+    } catch (_) {
+      if (!silent && mounted && _latestRecentDocs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Rede lenta — a mostrar o que estiver em cache. '
+              'Puxe para atualizar ou tente enviar de novo.',
+            ),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: Colors.orange.shade800,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } finally {
+      _messagesPrimeInFlight = false;
     }
   }
 
@@ -3202,9 +3246,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             _buildTypingStrip(uid),
             Expanded(
               child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: ChurchChatService.threadRef(
-                        widget.tenantId, widget.threadId)
-                    .snapshots(),
+                stream: ChurchChatService.threadSnapshots(
+                  widget.tenantId,
+                  widget.threadId,
+                ),
                 builder: (context, thrSnap) {
                 Timestamp? peerSeenAt;
                 if (!widget.isDepartment &&
@@ -3233,11 +3278,54 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     threadId: widget.threadId,
                   ),
                   builder: (context, snap) {
-                    if (!snap.hasData) {
-                      return YahwehSkeletonLoading.chatMessages();
+                    if (snap.hasData) {
+                      final incoming = snap.data!.docs;
+                      if (incoming.isNotEmpty) {
+                        _latestRecentDocs = incoming;
+                      } else if (_latestRecentDocs.isEmpty) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted) {
+                            unawaited(
+                              _primeRecentMessagesFromCacheOrServer(
+                                silent: true,
+                              ),
+                            );
+                          }
+                        });
+                      }
+                    } else if (_latestRecentDocs.isEmpty) {
+                      if (snap.connectionState == ConnectionState.waiting) {
+                        return YahwehSkeletonLoading.chatMessages();
+                      }
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Não foi possível carregar as mensagens.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: ThemeCleanPremium.onSurfaceVariant,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              FilledButton.icon(
+                                onPressed: () => unawaited(
+                                  _primeRecentMessagesFromCacheOrServer(),
+                                ),
+                                icon: const Icon(Icons.refresh_rounded),
+                                label: const Text('Tentar de novo'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
                     }
-                    _latestRecentDocs = snap.data!.docs;
-                    final docsRaw = _mergeVisibleMessages(_latestRecentDocs);
+                    final docsRaw =
+                        _mergeVisibleMessages(_latestRecentDocs);
                     final visibleDocs = docsRaw
                         .where((d) => !ChurchChatService.messageHiddenForMe(
                               d.data(),

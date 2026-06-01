@@ -199,13 +199,14 @@ class ChurchLeaderContactPage extends StatelessWidget {
               const SizedBox(height: 28),
               YahwehSuperPremiumActionButton.chat(
                 label: 'Chat Igreja — Fale comigo',
-                onPressed: () => ChurchMemberContactChat.openChatIgreja(
+                onPressed: () => ChurchMemberContactChat.openChatIgrejaUnawaited(
                   context: context,
                   tenantId: tenantId,
                   memberRole: memberRole,
                   viewerCpfDigits: viewerCpfDigits,
                   memberData: memberData,
                   displayName: titulo,
+                  memberDocId: memberDocId,
                 ),
               ),
               const SizedBox(height: 10),

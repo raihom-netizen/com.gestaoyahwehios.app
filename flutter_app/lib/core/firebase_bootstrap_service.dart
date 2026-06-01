@@ -637,6 +637,19 @@ abstract final class FirebaseBootstrapService {
         if (CrashlyticsBenignErrors.isBenign(e)) break;
         if (attempt >= maxAttempts) break;
         if (chatOp || mediaPublishOp) {
+          final raw = e.toString();
+          if (raw.contains('INTERNAL ASSERTION') && attempt < maxAttempts) {
+            await Future.delayed(Duration(milliseconds: 400 * attempt));
+            try {
+              await auth.currentUser?.getIdToken(true);
+            } catch (_) {}
+            if (attempt >= maxAttempts - 1) {
+              try {
+                await reconnect(requireAuthSession: requireAuth);
+              } catch (_) {}
+            }
+            continue;
+          }
           await Future.delayed(Duration(milliseconds: 350 * attempt));
           try {
             await auth.currentUser?.getIdToken(true);

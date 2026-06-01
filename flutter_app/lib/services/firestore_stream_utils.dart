@@ -45,7 +45,11 @@ class FirestoreStreamUtils {
         s.contains('host lookup') ||
         s.contains('channel-error') ||
         s.contains('client is offline') ||
-        s.contains('timeout');
+        s.contains('timeout') ||
+        s.contains('internal assertion') ||
+        s.contains('unexpected state') ||
+        s.contains('watchchangeaggregator') ||
+        s.contains('persistentlistenstream');
   }
 
   /// Permite vários [StreamBuilder] no mesmo stream (ex.: departamentos no dashboard).

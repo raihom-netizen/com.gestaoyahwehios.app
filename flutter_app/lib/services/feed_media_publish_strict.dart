@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase/firebase_retry.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
@@ -119,7 +119,7 @@ abstract final class FeedMediaPublishStrict {
       final safe = FirestoreWriteGuard.stripHeavyFields(patch);
       logFirebasePublishPhase('INICIO_FIRESTORE', docRef.path);
       try {
-        await firebaseRetry<void>(
+        await runFirestorePublishWithRecovery<void>(
           () async {
             if (isNewDoc) {
               await docRef
@@ -131,7 +131,6 @@ abstract final class FeedMediaPublishStrict {
                   .timeout(const Duration(seconds: 30));
             }
           },
-          reason: 'feed_strict_firestore_${postType}',
         );
         logFirebasePublishPhase('FIRESTORE_OK', docRef.path);
         logFirebasePublishPhase('FIM_FIRESTORE', docRef.path);
