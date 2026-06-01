@@ -21,7 +21,7 @@ class ChurchChatOutboundPending {
   final String kind;
   final String fileName;
   final String mime;
-  final Uint8List? previewBytes;
+  Uint8List? previewBytes;
   String? localPath;
   final String? replyPreview;
   final String? albumGroupId;

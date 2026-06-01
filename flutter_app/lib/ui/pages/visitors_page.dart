@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -212,11 +213,8 @@ class _VisitorsPageState extends State<VisitorsPage> {
           .doc(widget.tenantId)
           .collection('membros');
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadVisitantes() async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    await Future.delayed(const Duration(milliseconds: 200));
-    return _visitantesRef.orderBy('createdAt', descending: true).get();
-  }
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadVisitantes() =>
+      ChurchTenantResilientReads.visitantes(widget.tenantId);
 
   void _refresh() {
     setState(() {
@@ -308,25 +306,12 @@ class _VisitorsPageState extends State<VisitorsPage> {
           : null,
       body: SafeArea(
         top: !widget.embeddedInShell,
-        child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        child: ResilientPanelQueryFutureBuilder(
           future: _visitantesFuture,
-          builder: (context, snap) {
-            if (snap.hasError) {
-              return Padding(
-                padding: ThemeCleanPremium.pagePadding(context),
-                child: ChurchPanelErrorBody(
-                  title: 'Não foi possível carregar os visitantes',
-                  error: snap.error,
-                  onRetry: _refresh,
-                ),
-              );
-            }
-
-            if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-              return const ChurchPanelLoadingBody();
-            }
-
-            final allDocs = snap.data?.docs ?? [];
+          errorTitle: 'Não foi possível carregar os visitantes',
+          onRetry: _refresh,
+          builder: (context, snap, {required bool showingStaleCache}) {
+            final allDocs = snap.docs;
             final allVisitors = allDocs
                 .map((d) => _VisitorData(id: d.id, data: d.data()))
                 .toList();

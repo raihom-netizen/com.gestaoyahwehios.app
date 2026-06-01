@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
@@ -14,7 +13,6 @@ abstract final class PatrimonioMediaUpload {
     required Uint8List rawBytes,
     void Function(double progress)? onProgress,
   }) async {
-    await ensureUploadBootstrapForStoragePath(storagePath);
     final bytes = await ImageHelper.compressPatrimonioPhotoForUpload(rawBytes);
     if (bytes.isEmpty) {
       throw StateError(

@@ -36,6 +36,8 @@ import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -283,11 +285,11 @@ class InstagramMuralState extends State<InstagramMural> {
 
   Future<void> _ensureMuralFirebaseReady() async {
     try {
-      await ensureFirebaseReadyForPublishUpload();
+      await ChurchTenantResilientReads.preparePanelRead();
     } catch (e) {
       if (isFirebaseNoAppError(e)) {
         await FirebaseBootstrapService.reconnect(requireAuthSession: true);
-        await ensureFirebaseReadyForPublishUpload();
+        await ChurchTenantResilientReads.preparePanelRead(refreshToken: true);
         return;
       }
       rethrow;
@@ -316,10 +318,7 @@ class InstagramMuralState extends State<InstagramMural> {
   Future<void> _loadTenant() async {
     try {
       await _ensureMuralFirebaseReady();
-      final snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .get();
+      final snap = await ChurchTenantResilientReads.churchDocument(widget.tenantId);
       if (mounted) setState(() => _tenantData = snap.data());
     } catch (_) {}
   }
@@ -414,10 +413,9 @@ class InstagramMuralState extends State<InstagramMural> {
       return;
     }
     _feedLiveSub?.cancel();
-    _feedLiveSub = _feedBaseQuery()
-        .limit(_feedPageSize)
-        .snapshots()
-        .listen((snap) {
+    _feedLiveSub = ChurchTenantResilientReads.querySnapshotsResilient(
+      _feedBaseQuery().limit(_feedPageSize),
+    ).listen((snap) {
       if (!mounted) return;
       final liveDocs = snap.docs;
       final liveIds = <String>{for (final d in liveDocs) d.id};
@@ -440,6 +438,13 @@ class InstagramMuralState extends State<InstagramMural> {
       });
     }, onError: (e) {
       if (!mounted) return;
+      if (_feedRawDocs.isNotEmpty) {
+        setState(() {
+          _feedLoadError = null;
+          _isFeedInitialLoading = false;
+        });
+        return;
+      }
       setState(() {
         _feedLoadError = e;
         _isFeedInitialLoading = false;
@@ -469,7 +474,10 @@ class InstagramMuralState extends State<InstagramMural> {
       if (!reset && _feedLastCursor != null) {
         q = q.startAfterDocument(_feedLastCursor!);
       }
-      final snap = await q.get();
+      final snap = await FirestoreReadResilience.getQuery(
+        q,
+        cacheKey: 'mural_avisos_${widget.tenantId}_${_feedLastCursor?.id ?? 'head'}',
+      );
       if (!mounted || requestEpoch != _feedRequestEpoch) return;
 
       final nextDocs = snap.docs;
@@ -484,7 +492,9 @@ class InstagramMuralState extends State<InstagramMural> {
       _feedLoadError = null;
     } catch (e) {
       if (!mounted || requestEpoch != _feedRequestEpoch) return;
-      _feedLoadError = e;
+      if (_feedRawDocs.isEmpty) {
+        _feedLoadError = e;
+      }
     } finally {
       if (mounted && requestEpoch == _feedRequestEpoch) {
         setState(() {
@@ -3125,6 +3135,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   int get _newPhotoCount => kIsWeb ? _newImages.length : _newImagePaths.length;
 
+  bool get _isAviso => widget.type == kChurchPostTypeAviso;
+
+  int get _maxPhotosPerPost => churchPostMaxFeedPhotos(widget.type);
+
   Future<void> _addEncodedFeedPhoto(XFile encoded) async {
     if (kIsWeb) {
       final bytes = await encoded.readAsBytes();
@@ -3224,8 +3238,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     _bodyDescription = TextEditingController(
       text: churchPostPlainText(data),
     );
-    _videoUrl =
-        TextEditingController(text: (data['videoUrl'] ?? '').toString());
+    _videoUrl = TextEditingController(
+      text: widget.type == 'aviso'
+          ? ''
+          : (data['videoUrl'] ?? '').toString(),
+    );
     _cep = TextEditingController();
     _logradouro = TextEditingController();
     _numero = TextEditingController();
@@ -3323,11 +3340,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   Future<void> _usarEnderecoIgreja() async {
     try {
-      await ensureFirebaseReadyForPublishUpload();
-      final snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .get();
+      await ensureFirebaseReadyForPanelRead().catchError((_) {});
+      final snap = await FirestoreReadResilience.getDocument(
+        firebaseDefaultFirestore.collection('igrejas').doc(widget.tenantId),
+        cacheKey: 'igreja_doc_${widget.tenantId}',
+      );
       final data = snap.data() ?? {};
       final endereco = _buildEnderecoFromTenant(data);
       if (endereco.isEmpty) {
@@ -3362,8 +3379,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erro ao carregar igreja: $e',
-                  style: const TextStyle(color: Colors.white)),
+              content: Text(
+                'Erro ao carregar igreja: ${formatFirebaseErrorForUser(e)}',
+                style: const TextStyle(color: Colors.white),
+              ),
               backgroundColor: ThemeCleanPremium.error),
         );
       }
@@ -3542,11 +3561,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   }
 
   Future<void> _pickImages() async {
-    if (_existingUrls.length + _newPhotoCount >= kMaxAvisoFeedPhotosPerPost) {
+    if (_existingUrls.length + _newPhotoCount >= _maxPhotosPerPost) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
-              'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso. Remova alguma para adicionar mais.'),
+              _isAviso
+                  ? 'Limite de $_maxPhotosPerPost fotos por aviso (só imagens). Remova alguma para adicionar mais.'
+                  : 'Limite de $_maxPhotosPerPost fotos. Remova alguma para adicionar mais.'),
           backgroundColor: ThemeCleanPremium.error,
           behavior: SnackBarBehavior.floating,
         ));
@@ -3555,17 +3576,16 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _mediaPicking = true);
     try {
-      final remaining = (kMaxAvisoFeedPhotosPerPost -
+      final remaining = (_maxPhotosPerPost -
               _existingUrls.length -
               _newPhotoCount)
-          .clamp(1, kMaxAvisoFeedPhotosPerPost);
+          .clamp(1, _maxPhotosPerPost);
       await MediaHandlerService.instance.pickMultiCropEncodeFeedWebpFromGallery(
         context,
         maxPickCount: remaining,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
         onEachReady: (encoded, index, total) async {
-          if (_existingUrls.length + _newPhotoCount >=
-              kMaxAvisoFeedPhotosPerPost) {
+          if (_existingUrls.length + _newPhotoCount >= _maxPhotosPerPost) {
             return;
           }
           await _addEncodedFeedPhoto(encoded);
@@ -3585,11 +3605,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   }
 
   Future<void> _pickCamera() async {
-    if (_existingUrls.length + _newPhotoCount >= kMaxAvisoFeedPhotosPerPost) {
+    if (_existingUrls.length + _newPhotoCount >= _maxPhotosPerPost) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
-              'Limite de $kMaxAvisoFeedPhotosPerPost fotos por aviso. Remova alguma para adicionar mais.'),
+              _isAviso
+                  ? 'Limite de $_maxPhotosPerPost fotos por aviso (só imagens). Remova alguma para adicionar mais.'
+                  : 'Limite de $_maxPhotosPerPost fotos. Remova alguma para adicionar mais.'),
           backgroundColor: ThemeCleanPremium.error,
           behavior: SnackBarBehavior.floating,
         ));
@@ -3621,7 +3643,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   Future<void> _openAddMediaSheet() async {
     final photosFull =
-        _existingUrls.length + _newPhotoCount >= kMaxAvisoFeedPhotosPerPost;
+        _existingUrls.length + _newPhotoCount >= _maxPhotosPerPost;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -3659,7 +3681,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                           color: ThemeCleanPremium.primary, size: 22),
                       const SizedBox(width: 8),
                       Text(
-                        'Mídia premium',
+                        _isAviso ? 'Fotos do aviso' : 'Mídia premium',
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 18,
@@ -3668,6 +3690,19 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                       ),
                     ],
                   ),
+                  if (_isAviso)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        'Até $_maxPhotosPerPost fotos por aviso · só imagens (vídeos ficam nos eventos).',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          height: 1.35,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ),
                   const SizedBox(height: 16),
                   ListTile(
                     leading: CircleAvatar(
@@ -3678,7 +3713,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                     title: const Text('Fotos da galeria',
                         style: TextStyle(fontWeight: FontWeight.w700)),
                     subtitle: Text(
-                      photosFull ? 'Limite de fotos atingido' : 'Várias · recorte',
+                      photosFull
+                          ? 'Limite de $_maxPhotosPerPost fotos'
+                          : (_isAviso
+                              ? 'Até $_maxPhotosPerPost · foto inteira automática'
+                              : 'Várias · recorte'),
                       style: TextStyle(
                         fontSize: 12,
                         color: photosFull
@@ -3731,14 +3770,16 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         ? editorUser!.displayName!.trim()
         : 'Administrador';
     final now = FieldValue.serverTimestamp();
-    final hasVideo = _videoUrl.text.trim().isNotEmpty;
+    final isAviso = widget.type == kChurchPostTypeAviso;
+    final hasVideo =
+        !isAviso && _videoUrl.text.trim().isNotEmpty;
     final plainBody = _bodyDescription.text.trim();
     final payload = <String, dynamic>{
       'type': widget.type,
       'title': _title.text.trim(),
       'text': plainBody,
       kChurchPostTextDeltaKey: churchPostDeltaJsonFromPlainText(plainBody),
-      'videoUrl': _videoUrl.text.trim(),
+      if (!isAviso) 'videoUrl': _videoUrl.text.trim(),
       'updatedAt': now,
       ..._locationFieldsForSave(allowDeleteSentinels: !isNewDoc),
       ...MuralPostMediaPayload.buildMediaFields(
@@ -3748,6 +3789,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         allowDeleteSentinels: !isNewDoc,
       ),
     };
+    if (isAviso) {
+      payload.addAll(
+        stripVideoFieldsForAvisoPayload(
+          const {},
+          allowDeleteSentinels: !isNewDoc,
+        ),
+      );
+    }
     if (widget.type == 'evento' && _date != null && _time != null) {
       final dt = DateTime(
           _date!.year, _date!.month, _date!.day, _time!.hour, _time!.minute);
@@ -3858,7 +3907,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           isNewDoc: isNewDoc,
           existingUrls: existingUrls,
           startSlotIndex: startSlot,
-          hasVideo: _videoUrl.text.trim().isNotEmpty,
+          hasVideo: widget.type != kChurchPostTypeAviso &&
+              _videoUrl.text.trim().isNotEmpty,
           newImagesBytes: bytes,
           newImagePaths: paths,
           onPublished: () async => _schedulePostPublishCacheWarmup(),
@@ -4107,7 +4157,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                         : _openAddMediaSheet,
                     icon: const Icon(Icons.add_photo_alternate_rounded, size: 22),
                     label: Text(
-                      'Adicionar foto (${_existingUrls.length + _newPhotoCount})',
+                      _isAviso
+                          ? 'Adicionar foto (${_existingUrls.length + _newPhotoCount}/$_maxPhotosPerPost)'
+                          : 'Adicionar foto (${_existingUrls.length + _newPhotoCount})',
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     style: FilledButton.styleFrom(
@@ -4233,9 +4285,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                     : (isEvento ? 'A publicar evento…' : 'A publicar aviso…'),
               ),
 
-              if (!isEvento &&
-                  (allPreviews.isNotEmpty ||
-                      _videoUrl.text.trim().isNotEmpty)) ...[
+              if (!isEvento && allPreviews.isNotEmpty) ...[
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -4679,16 +4729,17 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                           ),
                         ),
                       ],
-                      const SizedBox(height: 14),
-                      TextField(
+                      if (isEvento) ...[
+                        const SizedBox(height: 14),
+                        TextField(
                           controller: _videoUrl,
                           keyboardType: TextInputType.url,
                           decoration: const InputDecoration(
-                              labelText: 'Link do vídeo (YouTube/Vimeo)',
-                              prefixIcon: Icon(Icons.video_library_rounded),
-                              hintText: 'https://...')),
-                      const SizedBox(height: 14),
-                      if (isEvento) ...[
+                            labelText: 'Link do vídeo (YouTube/Vimeo)',
+                            prefixIcon: Icon(Icons.video_library_rounded),
+                            hintText: 'https://...',
+                          ),
+                        ),
                         const SizedBox(height: 14),
                         Row(children: [
                           Expanded(
@@ -4803,7 +4854,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                         Padding(
                           padding: const EdgeInsets.only(top: 8),
                           child: Text(
-                            'Avisos são temporários: no site público ficam visíveis até 1 dia após a data de validade (ou da publicação). No painel continuam visíveis.',
+                            'Avisos: até $_maxPhotosPerPost fotos (só imagens; vídeos nos eventos). '
+                            'No site público ficam visíveis até 1 dia após a validade (ou publicação). No painel continuam visíveis.',
                             style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey.shade600,

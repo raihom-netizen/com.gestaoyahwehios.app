@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_theme.dart' show SaaSContentViewport;
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_insights_dashboard.dart';
@@ -69,45 +70,11 @@ class _MuralPageState extends State<MuralPage>
     String firestoreTenantId,
     String churchSlug,
     Map<String, dynamic> tenantData,
-  })> _loadTenantAndSlug() async {
-    try {
-      await ensureFirebaseReadyForPanelRead();
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
-    } catch (_) {
-      final fallback = widget.tenantId.trim();
-      return (
-        firestoreTenantId: fallback,
-        churchSlug: fallback,
-        tenantData: <String, dynamic>{},
+  })> _loadTenantAndSlug() =>
+      ChurchTenantResilientReads.loadTenantBundle(
+        widget.tenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
       );
-    }
-    final uid = firebaseDefaultAuth.currentUser?.uid;
-    final tid =
-        await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
-      widget.tenantId,
-      userUid: uid,
-    );
-    DocumentSnapshot<Map<String, dynamic>> snap;
-    try {
-      snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tid)
-          .get(const GetOptions(source: Source.serverAndCache));
-    } catch (_) {
-      snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tid)
-          .get(const GetOptions(source: Source.cache));
-    }
-    final data = snap.data() ?? {};
-    final slug = (data['slug'] ?? '').toString().trim();
-    final churchSlug = slug.isEmpty ? tid : slug;
-    return (
-      firestoreTenantId: tid,
-      churchSlug: churchSlug,
-      tenantData: data,
-    );
-  }
 
   Future<void> _onRefresh() async {
     await _muralFeedKey.currentState?.refreshFeed();

@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_retry.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
@@ -43,12 +42,7 @@ abstract final class FeedMediaPublishStrict {
     List<String>? newImagePaths,
     Future<void> Function()? onPublished,
   }) async {
-    await Future.wait([
-      FastMediaPublishBootstrap.warmForFeedPublish(),
-      AppFinalizeBootstrap.ensureSessionForPublish(
-        logLabel: postType == 'aviso' ? 'avisos_strict' : 'eventos_strict',
-      ),
-    ]);
+    await FastMediaPublishBootstrap.warmForFeedPublish();
     logFirebasePublishPhase(
       'EVENT_START',
       '${postType == 'aviso' ? 'aviso' : 'evento'}|${docRef.path}',

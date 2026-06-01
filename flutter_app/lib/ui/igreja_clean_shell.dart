@@ -404,6 +404,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       unawaited(ChurchChatService.appWidePresencePingIfActive());
+      ChurchTenantOfflineWarmupService.instance
+          .scheduleLightRefreshOnResume(widget.tenantId);
     }
   }
 

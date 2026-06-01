@@ -30,6 +30,9 @@ import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
@@ -1213,9 +1216,8 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     super.dispose();
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _load() {
-    return widget.noticias.orderBy('startAt', descending: true).limit(250).get();
-  }
+  Future<QuerySnapshot<Map<String, dynamic>>> _load() =>
+      ChurchTenantResilientReads.noticiasByStartAt(widget.tenantId, limit: 250);
 
   Future<void> _refresh() async {
     setState(() => _future = _load());
@@ -2343,6 +2345,8 @@ class _FeedTab extends StatefulWidget {
 
 class _FeedTabState extends State<_FeedTab> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _eventsFuture;
+  QuerySnapshot<Map<String, dynamic>>? _lastGoodEventsSnap;
+  bool _showingOfflineEvents = false;
   String _filterPeriod = 'all';
   int _filterWeekday = 0;
   final _searchCtrl = TextEditingController();
@@ -2366,15 +2370,33 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadEvents() async {
-    await ensureFirebaseReadyForPublishUpload();
-    return widget.noticias
+    await ensureFirebaseReadyForPanelRead().catchError((_) {});
+    final q = widget.noticias
         .orderBy('startAt', descending: true)
-        .limit(200)
-        .get();
+        .limit(200);
+    try {
+      final snap = await FirestoreReadResilience.getQuery(
+        q,
+        cacheKey: 'events_feed_${widget.tenantId}',
+      );
+      _lastGoodEventsSnap = snap;
+      _showingOfflineEvents = false;
+      return snap;
+    } catch (_) {
+      final mem = _lastGoodEventsSnap;
+      if (mem != null && mem.docs.isNotEmpty) {
+        _showingOfflineEvents = true;
+        return mem;
+      }
+      rethrow;
+    }
   }
 
   Future<void> _refresh() async {
-    setState(() => _eventsFuture = _loadEvents());
+    setState(() {
+      _showingOfflineEvents = false;
+      _eventsFuture = _loadEvents();
+    });
   }
 
   void _toggleSelectMode() {
@@ -2522,6 +2544,13 @@ class _FeedTabState extends State<_FeedTab> {
       future: _eventsFuture,
       builder: (context, snap) {
         if (snap.hasError) {
+          final fallback = _lastGoodEventsSnap;
+          if (fallback != null && fallback.docs.isNotEmpty) {
+            return _buildFeedList(
+              fallback.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>(),
+              offlineBanner: true,
+            );
+          }
           return ChurchPanelErrorBody(
             title: 'Não foi possível carregar os eventos',
             error: snap.error,
@@ -2529,13 +2558,32 @@ class _FeedTabState extends State<_FeedTab> {
           );
         }
         if (snap.connectionState != ConnectionState.done || !snap.hasData) {
+          final fallback = _lastGoodEventsSnap;
+          if (fallback != null && fallback.docs.isNotEmpty) {
+            return _buildFeedList(
+              fallback.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>(),
+              offlineBanner: _showingOfflineEvents,
+            );
+          }
           return const _FeedSkeleton();
         }
+        _lastGoodEventsSnap = snap.data;
         final now = DateTime.now();
         final allDocs =
             snap.data!.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
+        return _buildFeedList(allDocs, now: now);
+      },
+    );
+  }
+
+  Widget _buildFeedList(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs, {
+    DateTime? now,
+    bool offlineBanner = false,
+  }) {
+        final effectiveNow = now ?? DateTime.now();
         final docs = _applyFilters(
-            allDocs, now, _filterPeriod, _filterWeekday, _searchCtrl.text);
+            allDocs, effectiveNow, _filterPeriod, _filterWeekday, _searchCtrl.text);
 
         final preloadUrls = docs
             .take(8)
@@ -2585,9 +2633,42 @@ class _FeedTabState extends State<_FeedTab> {
                 ThemeCleanPremium.spaceMd,
                 80),
             cacheExtent: 1200,
-            itemCount: docs.length + 1,
+            itemCount: docs.length + 1 + (offlineBanner ? 1 : 0),
             itemBuilder: (context, index) {
-              if (index == 0) {
+              if (offlineBanner && index == 0) {
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
+                  child: Material(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.cloud_off_rounded,
+                              size: 20, color: Colors.orange.shade800),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Modo offline — a mostrar a última lista guardada. Puxe para atualizar.',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.orange.shade900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+              final headerIndex = offlineBanner ? 1 : 0;
+              if (index == headerIndex) {
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
                   child: Column(
@@ -2685,7 +2766,7 @@ class _FeedTabState extends State<_FeedTab> {
                   ),
                 );
               }
-              final d = docs[index - 1];
+              final d = docs[index - headerIndex - 1];
               final selected = _selectedEventIds.contains(d.id);
               return Stack(
                 children: [
@@ -2739,8 +2820,6 @@ class _FeedTabState extends State<_FeedTab> {
             },
           ),
         );
-      },
-    );
   }
 }
 
@@ -5460,11 +5539,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _usarEnderecoIgreja() async {
     try {
-      await ensureFirebaseReadyForPublishUpload();
-      final snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .get();
+      final snap = await ChurchTenantResilientReads.churchDocument(widget.tenantId);
       final data = snap.data() ?? {};
       final endereco = _buildEnderecoFromTenant(data);
       if (endereco.isEmpty) {
@@ -5498,7 +5573,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Erro ao carregar igreja: $e'),
+            content: Text(
+              'Erro ao carregar igreja: ${formatFirebaseErrorForUser(e)}',
+            ),
             backgroundColor: ThemeCleanPremium.error));
       }
     }
@@ -5841,12 +5918,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _loadCategories() async {
     setState(() => _loadingCategories = true);
     try {
-      await ensureFirebaseReadyForPublishUpload();
-      final q = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('event_categories')
-          .get();
+      final q = await ChurchTenantResilientReads.eventCategories(widget.tenantId);
       final list = q.docs.toList()
         ..sort((a, b) => (a.data()['nome'] ?? '')
             .toString()
@@ -6703,7 +6775,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           msg.contains('permission-denied');
       if (mounted && isAssertionOrPerm) {
         try {
-          await firebaseDefaultAuth.currentUser?.getIdToken();
+          await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+          await firebaseDefaultAuth.currentUser?.getIdToken(true);
           await Future.delayed(const Duration(milliseconds: 150));
           final publishBytes = await _copyNewImagesForPublish();
           if (widget.doc == null) {

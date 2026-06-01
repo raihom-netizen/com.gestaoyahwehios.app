@@ -190,6 +190,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Map<String, ChurchChatMemberRef> _senderMemberByUid = {};
   bool _peerOnline = false;
   Timer? _peerPresencePoll;
+  int? _lastPeerReadSyncMs;
   late final VoidCallback _photoSyncListener;
   final List<ChurchChatOutboundPending> _pendingOutbound = [];
 
@@ -1394,7 +1395,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       maxHeight: mediaChatImageMaxHeight.toDouble(),
     );
     if (x == null) return;
-    await _sendPickedImageFile(x, previewOnWeb: kIsWeb);
+    await _sendPickedImageFile(
+      x,
+      previewBeforeSend: kIsWeb || source == ImageSource.camera,
+    );
   }
 
   /// Android/iOS: uma seleção com fotos e vídeos (como galeria de avisos/eventos).
@@ -1485,7 +1489,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       if (!mounted) return;
       unawaited(_sendPickedImageFile(
         list[i],
-        previewOnWeb: kIsWeb && list.length == 1,
+        previewBeforeSend: false,
         albumGroupId: albumId,
         albumIndex: i,
         albumCount: list.length,
@@ -1495,7 +1499,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _sendPickedImageFile(
     XFile x, {
-    required bool previewOnWeb,
+    bool previewBeforeSend = false,
     String? albumGroupId,
     int albumIndex = 0,
     int albumCount = 1,
@@ -1507,6 +1511,18 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       fileName: name,
       mime: mime,
     );
+    if (previewBeforeSend && (x.path ?? '').isNotEmpty) {
+      final ok = await showChurchChatMediaPreviewSheet(
+        context,
+        localPath: !kIsWeb ? x.path : null,
+        previewBytes: kIsWeb
+            ? Uint8List.fromList(await x.readAsBytes())
+            : null,
+        title: 'Enviar foto',
+        isVideo: false,
+      );
+      if (!ok || !mounted) return;
+    }
     if (!kIsWeb && (x.path ?? '').isNotEmpty) {
       unawaited(_uploadAndSendFromPath(
         x.path!,
@@ -1521,7 +1537,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     final bytes = await x.readAsBytes();
     if (!mounted) return;
-    if (previewOnWeb) {
+    if (previewBeforeSend && kIsWeb) {
       final ok = await showChurchChatMediaPreviewSheet(
         context,
         previewBytes: bytes is Uint8List ? bytes : Uint8List.fromList(bytes),
@@ -1586,16 +1602,31 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
     if (x == null) return;
     if (!mounted) return;
-    await _sendPickedVideoXFile(x, previewOnWeb: kIsWeb);
+    await _sendPickedVideoXFile(
+      x,
+      previewBeforeSend: kIsWeb || source == ImageSource.camera,
+    );
   }
 
-  Future<void> _sendPickedVideoXFile(XFile x, {required bool previewOnWeb}) async {
+  Future<void> _sendPickedVideoXFile(
+    XFile x, {
+    required bool previewBeforeSend,
+  }) async {
     var name = x.name.isNotEmpty ? x.name : 'video.mp4';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
     final kind = ChurchChatAttachmentUtils.messageKindForAttachment(
       fileName: name,
       mime: mime,
     );
+    if (previewBeforeSend && !kIsWeb && x.path != null && x.path!.isNotEmpty) {
+      final ok = await showChurchChatMediaPreviewSheet(
+        context,
+        localPath: x.path,
+        title: 'Enviar vídeo',
+        isVideo: true,
+      );
+      if (!ok || !mounted) return;
+    }
     if (!kIsWeb && x.path != null && x.path!.isNotEmpty) {
       unawaited(_uploadAndSendFromPath(x.path!, name, mime, kind));
       return;
@@ -1609,7 +1640,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
       return;
     }
-    if (previewOnWeb) {
+    if (previewBeforeSend && kIsWeb) {
       final previewBytes = bytes.length <= 6 * 1024 * 1024
           ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
           : null;
@@ -1776,6 +1807,46 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   void _enqueuePending(ChurchChatOutboundPending pending) {
     if (!mounted) return;
     setState(() => _pendingOutbound.insert(0, pending));
+    _warmPendingImagePreview(pending);
+  }
+
+  void _warmPendingImagePreview(ChurchChatOutboundPending pending) {
+    if (pending.kind != 'image' || kIsWeb) return;
+    final path = pending.localPath?.trim() ?? '';
+    if (path.isEmpty) return;
+    unawaited(() async {
+      try {
+        final f = File(path);
+        if (!await f.exists()) return;
+        if (await f.length() > 380 * 1024) return;
+        final b = await f.readAsBytes();
+        if (!mounted) return;
+        final i =
+            _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+        if (i < 0) return;
+        _pendingOutbound[i].previewBytes = Uint8List.fromList(b);
+        if (mounted) setState(() {});
+      } catch (_) {}
+    }());
+  }
+
+  void _syncPeerReadStatus(Timestamp? peerSeenAt) {
+    if (peerSeenAt == null ||
+        widget.isDepartment ||
+        widget.peerUid == null ||
+        widget.peerUid!.isEmpty) {
+      return;
+    }
+    final ms = peerSeenAt.millisecondsSinceEpoch;
+    if (ms <= (_lastPeerReadSyncMs ?? 0)) return;
+    _lastPeerReadSyncMs = ms;
+    unawaited(
+      ChurchChatService.markOutboundMessagesReadUpTo(
+        tenantId: widget.tenantId,
+        threadId: widget.threadId,
+        peerSeenAt: peerSeenAt.toDate(),
+      ),
+    );
   }
 
   void _removePending(String localId) {
@@ -3145,6 +3216,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     if (v is Timestamp) peerSeenAt = v;
                   }
                 }
+                _syncPeerReadStatus(peerSeenAt);
                 final threadMap = thrSnap.data?.data();
                 final titlesByUid = <String, String>{};
                 if (threadMap != null) {
@@ -3304,10 +3376,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         Timestamp? ct;
                         if (createdRaw is Timestamp) ct = createdRaw;
                         final ps = peerSeenAt;
-                        final peerRead = ps != null &&
-                            ct != null &&
-                            ps.millisecondsSinceEpoch >=
-                                ct.millisecondsSinceEpoch;
+                        final dsRaw =
+                            (m['deliveryStatus'] ?? '').toString();
+                        final peerRead = dsRaw ==
+                                ChurchChatService.deliveryRead ||
+                            (ps != null &&
+                                ct != null &&
+                                ps.millisecondsSinceEpoch >=
+                                    ct.millisecondsSinceEpoch);
                         final messageId = docs[docIndex].id;
                         DateTime? msgWhen;
                         if (ct != null) msgWhen = ct.toDate();
@@ -3442,8 +3518,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                       if (mine) ...[
                                         const SizedBox(width: 5),
                                         ChurchChatDeliveryStatusIcon(
-                                          deliveryStatus: (m['deliveryStatus'] ?? '')
-                                              .toString(),
+                                          deliveryStatus: peerRead
+                                              ? ChurchChatService.deliveryRead
+                                              : dsRaw,
                                           mine: true,
                                           peerRead: !widget.isDepartment &&
                                               widget.peerUid != null &&

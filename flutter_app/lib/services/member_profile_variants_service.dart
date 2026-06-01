@@ -4,27 +4,12 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/network_media_quality_policy.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 
 /// Variantes WebP de foto de perfil — lista usa thumb, perfil usa medium.
 abstract final class MemberProfileVariantsService {
   MemberProfileVariantsService._();
-
-  static Future<Uint8List> _encodeWebp(Uint8List raw, int minSide) async {
-    if (raw.isEmpty) return raw;
-    final q = await NetworkMediaQualityPolicy.webpQualityForCurrentNetwork();
-    try {
-      final out = await FlutterImageCompress.compressWithList(
-        raw,
-        quality: q,
-        format: CompressFormat.webp,
-        minWidth: minSide,
-        minHeight: minSide,
-      );
-      if (out.isNotEmpty) return Uint8List.fromList(out);
-    } catch (_) {}
-    return raw;
-  }
 
   /// Thumb 200 + medium 500 + full 1920 (canónico `foto_perfil`).
   static Future<({
@@ -33,12 +18,32 @@ abstract final class MemberProfileVariantsService {
     Uint8List full,
   })> encodeProfileTiers(Uint8List raw) async {
     if (raw.isEmpty) throw StateError('Sem bytes de imagem.');
+    final q = await NetworkMediaQualityPolicy.webpQualityForCurrentNetwork();
     final results = await Future.wait([
-      _encodeWebp(raw, YahwehPerformanceV4.profileThumbEdge),
-      _encodeWebp(raw, YahwehPerformanceV4.profileMediumEdge),
-      _encodeWebp(raw, YahwehPerformanceV4.feedFullEdge),
+      _encodeWebpWithQuality(raw, YahwehPerformanceV4.profileThumbEdge, q),
+      _encodeWebpWithQuality(raw, YahwehPerformanceV4.profileMediumEdge, q),
+      _encodeWebpWithQuality(raw, YahwehPerformanceV4.feedFullEdge, q),
     ]);
     return (thumb: results[0], medium: results[1], full: results[2]);
+  }
+
+  static Future<Uint8List> _encodeWebpWithQuality(
+    Uint8List raw,
+    int minSide,
+    int quality,
+  ) async {
+    if (raw.isEmpty) return raw;
+    try {
+      final out = await FlutterImageCompress.compressWithList(
+        raw,
+        quality: quality,
+        format: CompressFormat.webp,
+        minWidth: minSide,
+        minHeight: minSide,
+      );
+      if (out.isNotEmpty) return Uint8List.fromList(out);
+    } catch (_) {}
+    return raw;
   }
 
   static Future<({
@@ -71,6 +76,7 @@ abstract final class MemberProfileVariantsService {
       onProgress?.call(((i + p) / 3).clamp(0.0, 1.0));
     }
 
+    await FastMediaPublishBootstrap.warmForFeedPublish();
     final urls = await Future.wait([
       FeedPostMediaUpload.uploadFeedPhotoBytes(
         storagePath: thumbPath,

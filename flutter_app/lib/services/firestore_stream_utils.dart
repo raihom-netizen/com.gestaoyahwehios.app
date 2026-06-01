@@ -22,6 +22,32 @@ class FirestoreStreamUtils {
     return s.contains('permission-denied') || s.contains('permission_denied');
   }
 
+  /// Rede instável / Firestore temporariamente indisponível — não derrubar o painel.
+  static bool isTransientNetworkError(Object error) {
+    if (error is FirebaseException) {
+      switch (error.code) {
+        case 'unavailable':
+        case 'deadline-exceeded':
+        case 'aborted':
+        case 'cancelled':
+        case 'resource-exhausted':
+        case 'internal':
+        case 'unknown':
+          return true;
+      }
+    }
+    final s = error.toString().toLowerCase();
+    return s.contains('failed to fetch') ||
+        s.contains('network') ||
+        s.contains('offline') ||
+        s.contains('unreachable') ||
+        s.contains('connection reset') ||
+        s.contains('host lookup') ||
+        s.contains('channel-error') ||
+        s.contains('client is offline') ||
+        s.contains('timeout');
+  }
+
   /// Permite vários [StreamBuilder] no mesmo stream (ex.: departamentos no dashboard).
   static Stream<QuerySnapshot<Map<String, dynamic>>> broadcastQuery(
     Stream<QuerySnapshot<Map<String, dynamic>>> source,
@@ -38,11 +64,9 @@ class FirestoreStreamUtils {
       StreamTransformer.fromHandlers(
         handleData: (data, sink) => sink.add(data),
         handleError: (error, stackTrace, sink) {
-          if (isPermissionDenied(error)) {
-            sink.add(const MergedFirestoreQuerySnapshot([]));
-            return;
-          }
-          if (isStreamAlreadyListened(error)) {
+          if (isPermissionDenied(error) ||
+              isStreamAlreadyListened(error) ||
+              isTransientNetworkError(error)) {
             sink.add(const MergedFirestoreQuerySnapshot([]));
             return;
           }
@@ -62,11 +86,9 @@ class FirestoreStreamUtils {
       StreamTransformer.fromHandlers(
         handleData: (data, sink) => sink.add(data),
         handleError: (error, stackTrace, sink) {
-          if (isPermissionDenied(error)) {
-            sink.add(_emptyDocumentSnapshot);
-            return;
-          }
-          if (isStreamAlreadyListened(error)) {
+          if (isPermissionDenied(error) ||
+              isStreamAlreadyListened(error) ||
+              isTransientNetworkError(error)) {
             sink.add(_emptyDocumentSnapshot);
             return;
           }

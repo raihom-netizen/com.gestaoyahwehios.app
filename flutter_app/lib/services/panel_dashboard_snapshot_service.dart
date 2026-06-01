@@ -167,7 +167,8 @@ class PanelDashboardSnapshot {
     return membersTotalCount > 0 ||
         hasBirthdayData ||
         hasHomeLeaders ||
-        hasHomeCorpo;
+        hasHomeCorpo ||
+        hasHomeAvisos;
   }
 
   factory PanelDashboardSnapshot.fromMap(Map<String, dynamic>? raw) {

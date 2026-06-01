@@ -5,30 +5,34 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
-/// Pré-carrega leituras frequentes no **cache persistente do Firestore** (mobile/web)
-/// após o login, para o painel funcionar melhor **sem rede** (dados já visitados +
-/// filas de escrita — ver `configureFirestoreForOfflineAndSpeed` em `firestore_app_config.dart`).
-///
-/// Não substitui servidor: regras de segurança e quotas aplicam-se sempre que online.
-/// Falhas parciais (permissão / índice) são ignoradas — outras coleções já aquecidas ajudam na mesma.
+/// Pré-carrega leituras frequentes no **cache do Firestore** (mobile/web)
+/// após o login — painel, mural, membros, finanças, etc. (padrão Controle Total).
 class ChurchTenantOfflineWarmupService {
   ChurchTenantOfflineWarmupService._();
   static final ChurchTenantOfflineWarmupService instance =
       ChurchTenantOfflineWarmupService._();
 
-  /// Evita repetir o mesmo trabalho ao mudar de aba no shell.
   String? _sessionTenant;
   bool _warmupDoneThisSession = false;
+  bool _warmupRunning = false;
 
-  /// Novo login ou pré-carga antes de abrir o painel — permite aquecer de novo.
   void resetForNewSession() {
     _sessionTenant = null;
     _warmupDoneThisSession = false;
   }
 
-  /// Chamado uma vez ao abrir [IgrejaCleanShell] com rede disponível.
+  /// Ao voltar à app (web/mobile), reaquece coleções críticas sem bloquear UI.
+  void scheduleLightRefreshOnResume(String tenantIdRaw) {
+    final tid = tenantIdRaw.trim();
+    if (tid.isEmpty) return;
+    if (!AppConnectivityService.instance.isOnline) return;
+    if (FirebaseAuth.instance.currentUser == null) return;
+    unawaited(_runWarmup(tid, light: true));
+  }
+
   Future<void> scheduleWarmupAfterLogin(String tenantIdRaw) async {
     final tidIn = tenantIdRaw.trim();
     if (tidIn.isEmpty) return;
@@ -45,86 +49,74 @@ class ChurchTenantOfflineWarmupService {
     unawaited(_runWarmup(tidIn));
   }
 
-  Future<void> _runWarmup(String tenantIdRaw) async {
+  Future<void> _runWarmup(String tenantIdRaw, {bool light = false}) async {
+    if (_warmupRunning) return;
+    _warmupRunning = true;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken();
-    } catch (_) {}
+      await ChurchTenantResilientReads.preparePanelRead();
 
-    String tenantId = tenantIdRaw;
-    try {
-      final r = await TenantResolverService
-          .resolveEffectiveTenantIdPreferringUserBinding(
-        tenantIdRaw,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      );
-      if (r.trim().isNotEmpty) tenantId = r.trim();
-    } catch (_) {}
-
-    final db = FirebaseFirestore.instance;
-    final church = db.collection('igrejas').doc(tenantId);
-
-    Future<void> safe(String label, Future<void> Function() fn) async {
+      String tenantId = tenantIdRaw;
       try {
-        await fn();
-      } catch (e, st) {
-        if (kDebugMode) {
-          debugPrint('OfflineWarmup[$label] $e\n$st');
+        final r = await TenantResolverService
+            .resolveEffectiveTenantIdPreferringUserBinding(
+          tenantIdRaw,
+          userUid: FirebaseAuth.instance.currentUser?.uid,
+        );
+        if (r.trim().isNotEmpty) tenantId = r.trim();
+      } catch (_) {}
+
+      Future<void> safe(String label, Future<void> Function() fn) async {
+        try {
+          await fn();
+        } catch (e, st) {
+          if (kDebugMode) {
+            debugPrint('OfflineWarmup[$label] $e\n$st');
+          }
         }
       }
-    }
 
-    await Future.wait([
-      safe('igreja_doc', () async {
-        await church.get();
-      }),
-      safe('membros', () async {
-        await church
-            .collection('membros')
-            .orderBy('updatedAt', descending: true)
-            .limit(200)
-            .get();
-      }),
-      safe('members_legacy', () async {
-        await church.collection('members').limit(120).get();
-      }),
-      safe('avisos', () async {
-        await church
-            .collection('avisos')
-            .orderBy('createdAt', descending: true)
-            .limit(60)
-            .get();
-      }),
-      safe('noticias', () async {
-        try {
-          await church
-              .collection('noticias')
-              .orderBy('startAt', descending: true)
-              .limit(60)
-              .get();
-        } catch (_) {
-          await church.collection('noticias').limit(60).get();
-        }
-      }),
-      safe('finance_recent', () async {
-        await church
-            .collection('finance')
-            .orderBy('createdAt', descending: true)
-            .limit(250)
-            .get();
-      }),
-      safe('patrimonio', () async {
-        await church.collection('patrimonio').limit(250).get();
-      }),
-      safe('users_tenant', () async {
-        await db
-            .collection('users')
-            .where(Filter.or(
-              Filter('tenantId', isEqualTo: tenantId),
-              Filter('igrejaId', isEqualTo: tenantId),
-            ))
-            .limit(200)
-            .get();
-      }),
-    ]);
+      final tasks = <Future<void>>[
+        safe('igreja_doc', () => ChurchTenantResilientReads.churchDocument(tenantId)),
+        safe('panel_cache', () => ChurchTenantResilientReads.panelCacheSummary(tenantId)),
+        safe('membros', () => ChurchTenantResilientReads.membrosRecent(tenantId, limit: 220)),
+        safe('avisos', () => ChurchTenantResilientReads.avisosFeed(tenantId, limit: 80)),
+        safe('noticias', () => ChurchTenantResilientReads.noticiasByStartAt(tenantId, limit: 200)),
+      ];
+
+      if (!light) {
+        tasks.addAll([
+          safe('departamentos', () => ChurchTenantResilientReads.departamentos(tenantId)),
+          safe('visitantes', () => ChurchTenantResilientReads.visitantes(tenantId)),
+          safe('pedidos_oracao', () => ChurchTenantResilientReads.pedidosOracao(tenantId)),
+          safe('event_categories', () => ChurchTenantResilientReads.eventCategories(tenantId)),
+          safe('finance', () => ChurchTenantResilientReads.financeRecent(tenantId)),
+          safe('patrimonio', () => ChurchTenantResilientReads.patrimonio(tenantId)),
+          safe('fornecedores', () => ChurchTenantResilientReads.fornecedores(tenantId)),
+          safe('escalas', () => ChurchTenantResilientReads.escalasRecent(tenantId)),
+          safe('users_tenant', () async {
+            await FirebaseFirestore.instance
+                .collection('users')
+                .where(Filter.or(
+                  Filter('tenantId', isEqualTo: tenantId),
+                  Filter('igrejaId', isEqualTo: tenantId),
+                ))
+                .limit(200)
+                .get();
+          }),
+          safe('members_legacy', () async {
+            await FirebaseFirestore.instance
+                .collection('igrejas')
+                .doc(tenantId)
+                .collection('members')
+                .limit(120)
+                .get();
+          }),
+        ]);
+      }
+
+      await Future.wait(tasks);
+    } finally {
+      _warmupRunning = false;
+    }
   }
 }

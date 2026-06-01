@@ -353,14 +353,20 @@ class _AuthGateState extends State<AuthGate> {
     final cached = await AuthProfileCacheService.instance.load(user.uid);
     if (repairDepth == 0 &&
         cached != null &&
-        (cached['igrejaId'] ?? '').toString().trim().isNotEmpty &&
-        cached['church'] is Map &&
-        (cached['church'] as Map).isNotEmpty) {
+        (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
       return cached;
+    }
+    if (repairDepth == 0 && AppConnectivityService.instance.isOnline) {
+      final fast = await _loadProfileOnlineFast(user, cached);
+      if (fast != null) {
+        await AuthProfileCacheService.instance.save(user.uid, fast);
+        unawaited(_enrichProfileWithMemberAsync(user, fast));
+        return fast;
+      }
     }
     try {
       final db = FirebaseFirestore.instance;
-      const loadTimeout = Duration(seconds: 14);
+      const loadTimeout = Duration(seconds: 10);
 
       // `false` = não força refresh na rede; permite abrir com sessão persistida sem internet.
       late final IdTokenResult token;
@@ -477,35 +483,17 @@ class _AuthGateState extends State<AuthGate> {
       } else if (cached != null && cached['church'] is Map) {
         churchData = Map<String, dynamic>.from(cached['church'] as Map);
       } else if (repairDepth < 1 && AppConnectivityService.instance.isOnline) {
-        if (await ChurchBindingRepairCoordinator.shouldSkipRepairDueToRecentSuccess(
-            user.uid)) {
-          try {
-            await user.getIdToken(true);
-            final retried =
-                await _loadProfile(user, repairDepth: repairDepth + 1);
-            if (retried != null) return retried;
-          } catch (_) {}
-        }
-        try {
-          final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
-              .httpsCallable(
-            'repairMyChurchBinding',
-            options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
-          );
-          await fn
-              .call(<String, dynamic>{})
-              .timeout(const Duration(seconds: 46));
-          await user.getIdToken(true);
-          await ChurchBindingRepairCoordinator.recordRepairSuccess(user.uid);
-          return _loadProfile(user, repairDepth: repairDepth + 1);
-        } catch (_) {}
+        unawaited(_scheduleChurchBindingRepair(user));
+        churchData = cached?['church'] is Map
+            ? Map<String, dynamic>.from(cached!['church'] as Map)
+            : <String, dynamic>{'id': igrejaId};
       }
       if (churchData == null &&
           cached != null &&
           (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
         churchData = cached['church'] is Map
             ? Map<String, dynamic>.from(cached['church'] as Map)
-            : <String, dynamic>{};
+            : <String, dynamic>{'id': igrejaId};
       }
       if (churchData == null) {
         return null;
@@ -700,17 +688,107 @@ class _AuthGateState extends State<AuthGate> {
     return null;
   }
 
-  Future<Map<String, dynamic>?> _loadProfileViaCallable(User user) async {
+  /// Uma ida ao servidor (users + subscription + igreja) — evita dezenas de leituras no cliente.
+  Future<Map<String, dynamic>?> _loadProfileOnlineFast(
+    User user,
+    Map<String, dynamic>? cached,
+  ) async {
     try {
-      final fn = FirebaseFunctions.instance.httpsCallable('getUserProfile');
-      final res = await fn.call<Map<String, dynamic>>(<String, dynamic>{});
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable(
+        'getUserProfile',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 12)),
+      );
+      final res = await fn
+          .call<Map<String, dynamic>>(<String, dynamic>{})
+          .timeout(const Duration(seconds: 13));
       final data = res.data;
       final profile = data['profile'];
-      if (profile == null || profile is! Map<String, dynamic>) return null;
-      return Map<String, dynamic>.from(profile);
+      if (profile == null || profile is! Map) return null;
+      final p = Map<String, dynamic>.from(profile);
+      final igrejaId = (p['igrejaId'] ?? '').toString().trim();
+      if (igrejaId.isEmpty) return null;
+
+      Map<String, dynamic>? churchData;
+      if (p['church'] is Map) {
+        churchData = Map<String, dynamic>.from(p['church'] as Map);
+      } else if (cached?['church'] is Map) {
+        churchData = Map<String, dynamic>.from(cached!['church'] as Map);
+      } else {
+        try {
+          final ch = await FirebaseFirestore.instance
+              .collection('igrejas')
+              .doc(igrejaId)
+              .get(const GetOptions(source: Source.cache));
+          if (ch.exists) churchData = ch.data();
+        } catch (_) {}
+      }
+      churchData ??= <String, dynamic>{'id': igrejaId};
+
+      final permissions = AppPermissions.normalizePermissions(
+        p['permissions'] ?? cached?['permissions'],
+      );
+      return {
+        'igrejaId': igrejaId,
+        'role': (p['role'] ?? cached?['role'] ?? '').toString(),
+        'cpf': (p['cpf'] ?? cached?['cpf'] ?? '').toString(),
+        'active': p['active'] == true || cached?['active'] == true,
+        'memberStatusPending':
+            p['memberStatusPending'] == true || cached?['memberStatusPending'] == true,
+        'mustChangePass': p['mustChangePass'] == true,
+        'mustCompleteRegistration': p['mustCompleteRegistration'] == true,
+        'subscription': p['subscription'] is Map
+            ? Map<String, dynamic>.from(p['subscription'] as Map)
+            : cached?['subscription'],
+        'church': churchData,
+        'podeVerFinanceiro': p['podeVerFinanceiro'] ?? cached?['podeVerFinanceiro'],
+        'podeVerPatrimonio': p['podeVerPatrimonio'] ?? cached?['podeVerPatrimonio'],
+        'podeVerFornecedores':
+            p['podeVerFornecedores'] ?? cached?['podeVerFornecedores'],
+        'podeEmitirRelatoriosCompletos': p['podeEmitirRelatoriosCompletos'] ??
+            cached?['podeEmitirRelatoriosCompletos'],
+        'permissions': permissions,
+      };
     } catch (_) {
       return null;
     }
+  }
+
+  Future<void> _scheduleChurchBindingRepair(User user) async {
+    if (!AppConnectivityService.instance.isOnline) return;
+    if (await ChurchBindingRepairCoordinator.shouldSkipRepairDueToRecentSuccess(
+        user.uid)) {
+      return;
+    }
+    try {
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(
+        'repairMyChurchBinding',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
+      );
+      await fn.call(<String, dynamic>{}).timeout(const Duration(seconds: 46));
+      await user.getIdToken(true);
+      await ChurchBindingRepairCoordinator.recordRepairSuccess(user.uid);
+      final fresh = await _loadProfile(user, repairDepth: 1);
+      if (fresh != null) {
+        await AuthProfileCacheService.instance.save(user.uid, fresh);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _enrichProfileWithMemberAsync(
+    User user,
+    Map<String, dynamic> base,
+  ) async {
+    try {
+      final enriched = await _loadProfile(user, repairDepth: 1);
+      if (enriched != null) {
+        await AuthProfileCacheService.instance.save(user.uid, enriched);
+      }
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>?> _loadProfileViaCallable(User user) async {
+    return _loadProfileOnlineFast(user, null);
   }
 
   @override
@@ -789,6 +867,11 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
   late Future<bool> _biometricFuture;
   late Future<(Map<String, dynamic>?, bool)> _readyFuture;
 
+  /// Perfil em RAM/disco — pinta o shell no 1.º frame sem esperar rede.
+  Map<String, dynamic>? _bootstrapProfile;
+
+  Timer? _emergencyBootstrapTimer;
+
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocRoleSub;
   Timer? _userRoleSigDebounce;
   String? _userRoleSig;
@@ -831,10 +914,82 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
     } catch (_) {}
   }
 
+  /// Evita ecrã em branco com spinner quando o cache em disco ainda não carregou.
+  Future<void> _tryEmergencyBootstrapFromLocalFirestore() async {
+    if (!mounted || _bootstrapProfile != null) return;
+    try {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.user.uid)
+          .get(const GetOptions(source: Source.cache));
+      final userData = userDoc.data() ?? {};
+      var igrejaId = (userData['igrejaId'] ?? userData['tenantId'] ?? '')
+          .toString()
+          .trim();
+      if (igrejaId.isEmpty) {
+        final token = await widget.user
+            .getIdTokenResult(false)
+            .timeout(const Duration(seconds: 4));
+        final claims = token.claims ?? {};
+        igrejaId = (claims['igrejaId'] ?? claims['tenantId'] ?? '')
+            .toString()
+            .trim();
+      }
+      if (igrejaId.isEmpty || !mounted) return;
+      Map<String, dynamic> churchData = <String, dynamic>{'id': igrejaId};
+      try {
+        final ch = await FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(igrejaId)
+            .get(const GetOptions(source: Source.cache));
+        final chData = ch.data();
+        if (ch.exists && chData != null) {
+          churchData = Map<String, dynamic>.from(chData);
+        }
+      } catch (_) {}
+      final stub = <String, dynamic>{
+        'igrejaId': igrejaId,
+        'role': (userData['role'] ?? '').toString(),
+        'cpf': (userData['cpf'] ?? '').toString(),
+        'active': userData['ativo'] == true,
+        'memberStatusPending': false,
+        'mustChangePass': userData['mustChangePass'] == true,
+        'mustCompleteRegistration':
+            userData['mustCompleteRegistration'] == true,
+        'church': churchData,
+        'permissions': AppPermissions.normalizePermissions(
+          userData['permissions'] ?? userData['permissoes'],
+        ),
+      };
+      await AuthProfileCacheService.instance.save(widget.user.uid, stub);
+      if (mounted) setState(() => _bootstrapProfile = stub);
+      unawaited(
+        ChurchAutoSessionService.preheatPanelCachesCoordinated(
+          tenantIdHint: igrejaId,
+        ),
+      );
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
     unawaited(SessionRestoreService.tryRestoreIfNeeded());
+    final peek = AuthProfileCacheService.instance.peek(widget.user.uid);
+    if (peek != null && (peek['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+      _bootstrapProfile = peek;
+    }
+    unawaited(() async {
+      final c = await AuthProfileCacheService.instance.load(widget.user.uid);
+      if (!mounted) return;
+      if (c != null && (c['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+        setState(() => _bootstrapProfile = c);
+      }
+    }());
+    _emergencyBootstrapTimer = Timer(
+      const Duration(seconds: 4),
+      () => unawaited(_tryEmergencyBootstrapFromLocalFirestore()),
+    );
     _profileFuture = _profileFutureCacheFirst();
     // Biometric em paralelo ao perfil para não somar tempo de espera no mobile
     _biometricFuture = kIsWeb
@@ -843,7 +998,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
     _readyFuture = Future.wait([_profileFuture, _biometricFuture])
         .then((list) => (list[0] as Map<String, dynamic>?, list[1] as bool))
         .timeout(
-          const Duration(seconds: 22),
+          const Duration(seconds: 12),
           onTimeout: () async {
             final c =
                 await AuthProfileCacheService.instance.load(widget.user.uid);
@@ -900,6 +1055,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
 
   @override
   void dispose() {
+    _emergencyBootstrapTimer?.cancel();
     _userRoleSigDebounce?.cancel();
     _userDocRoleSub?.cancel();
     super.dispose();
@@ -933,12 +1089,112 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
         msg.contains('channel-error');
   }
 
+  Widget _buildPanelShellFromProfile(Map<String, dynamic> p) {
+    final user = widget.user;
+    final active = p['active'] == true;
+    final mustChangePass = p['mustChangePass'] == true;
+    final igrejaId = (p['igrejaId'] ?? '').toString();
+    final cpf = (p['cpf'] ?? '').toString();
+    final sub = (p['subscription'] as Map<String, dynamic>?);
+    final church = p['church'] as Map<String, dynamic>?;
+
+    if (!active) {
+      if (p['memberStatusPending'] == true) {
+        return _AguardandoAprovacaoPage(user: user);
+      }
+      return _ContaDesativadaPage(user: user);
+    }
+
+    if (mustChangePass) {
+      return ChangePasswordPage(
+        tenantId: igrejaId,
+        cpf: cpf,
+        force: true,
+      );
+    }
+
+    final mustCompleteRegistration = p['mustCompleteRegistration'] == true;
+    if (mustCompleteRegistration) {
+      return CompletarCadastroMembroPage(
+        tenantId: igrejaId,
+        cpf: cpf,
+        onComplete: () =>
+            Navigator.pushNamedAndRemoveUntil(context, '/painel', (_) => false),
+      );
+    }
+
+    final expired = AppConnectivityService.instance.isOnline
+        ? LicenseAccessPolicy.licenseAccessBlocked(
+            subscription: sub,
+            church: church,
+          )
+        : false;
+
+    final roleTxt = (p['role'] ?? '').toString().toLowerCase();
+
+    if (!kIsWeb) {
+      FcmService.instance.configure(
+        uid: user.uid,
+        tenantId: igrejaId,
+        cpf: cpf,
+        role: roleTxt,
+        onForegroundMessage: (msg) {
+          unawaited(() async {
+            if (!context.mounted) return;
+            if (await ChurchChatNotificationPrefs.shouldSuppressForegroundSnack(
+              msg,
+            )) {
+              return;
+            }
+            final showedChatBanner =
+                await ChurchChatAlertNotificationService.instance
+                    .showForegroundAlertIfNeeded(msg);
+            if (!context.mounted) return;
+            final isChat =
+                ChurchChatNotificationPrefs.looksLikeChatNotification(msg);
+            if (!(isChat && showedChatBanner)) {
+              showGestaoForegroundNotificationSnackBar(context, msg);
+            }
+          }());
+        },
+      );
+    }
+    final dashboard = IgrejaCleanShell(
+      tenantId: igrejaId,
+      cpf: cpf,
+      role: roleTxt,
+      trialExpired: expired,
+      subscription: sub,
+      podeVerFinanceiro: p['podeVerFinanceiro'] == true,
+      podeVerPatrimonio: p['podeVerPatrimonio'] == true,
+      podeVerFornecedores: p['podeVerFornecedores'] == true,
+      podeEmitirRelatoriosCompletos:
+          p['podeEmitirRelatoriosCompletos'] == true,
+      permissions: AppPermissions.normalizePermissions(p['permissions']),
+      initialOpenMemberDocId: widget.initialOpenMemberDocId,
+      initialShellIndex: widget.initialShellIndex,
+    );
+    return GlobalAnnouncementOverlay(child: dashboard);
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<(Map<String, dynamic>?, bool)>(
       future: _readyFuture,
       builder: (context, snap) {
-        if (snap.connectionState != ConnectionState.done) {
+        final done = snap.connectionState == ConnectionState.done;
+        Map<String, dynamic>? p;
+        if (done && !snap.hasError) {
+          p = snap.data?.$1;
+        } else {
+          p = _bootstrapProfile;
+        }
+
+        if (p != null && !done) {
+          return _buildPanelShellFromProfile(p);
+        }
+
+        if (!done) {
           return Scaffold(
             backgroundColor: const Color(0xFFF0F4FF),
             body: Center(
@@ -1031,92 +1287,9 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader> {
         }
 
         final pair = snap.data;
-        final p = pair?.$1;
-        if (p == null) return _IgrejaNaoVinculadaPage(user: widget.user);
-
-        final user = widget.user;
-        final active = p['active'] == true;
-        final mustChangePass = p['mustChangePass'] == true;
-        final igrejaId = (p['igrejaId'] ?? '').toString();
-        final cpf = (p['cpf'] ?? '').toString();
-        final sub = (p['subscription'] as Map<String, dynamic>?);
-        final church = p['church'] as Map<String, dynamic>?;
-
-        if (!active) {
-          if (p['memberStatusPending'] == true) {
-            return _AguardandoAprovacaoPage(user: user);
-          }
-          return _ContaDesativadaPage(user: user);
-        }
-
-        if (mustChangePass) {
-          return ChangePasswordPage(
-            tenantId: igrejaId,
-            cpf: cpf,
-            force: true,
-          );
-        }
-
-        final mustCompleteRegistration = p['mustCompleteRegistration'] == true;
-        if (mustCompleteRegistration) {
-          return CompletarCadastroMembroPage(
-            tenantId: igrejaId,
-            cpf: cpf,
-            onComplete: () => Navigator.pushNamedAndRemoveUntil(context, '/painel', (_) => false),
-          );
-        }
-
-        final expired = AppConnectivityService.instance.isOnline
-            ? LicenseAccessPolicy.licenseAccessBlocked(subscription: sub, church: church)
-            : false;
-
-        final roleTxt = (p['role'] ?? '').toString().toLowerCase();
-
-        if (!kIsWeb) {
-          FcmService.instance.configure(
-            uid: user.uid,
-            tenantId: igrejaId,
-            cpf: cpf,
-            role: roleTxt,
-            onForegroundMessage: (msg) {
-              unawaited(() async {
-                if (!context.mounted) return;
-                if (await ChurchChatNotificationPrefs.shouldSuppressForegroundSnack(
-                  msg,
-                )) {
-                  return;
-                }
-                final showedChatBanner =
-                    await ChurchChatAlertNotificationService.instance
-                        .showForegroundAlertIfNeeded(msg);
-                if (!context.mounted) return;
-                final isChat = ChurchChatNotificationPrefs.looksLikeChatNotification(msg);
-                if (!(isChat && showedChatBanner)) {
-                  showGestaoForegroundNotificationSnackBar(context, msg);
-                }
-              }());
-            },
-          );
-        }
-        final dashboard = IgrejaCleanShell(
-          tenantId: igrejaId,
-          cpf: cpf,
-          role: roleTxt,
-          trialExpired: expired,
-          subscription: sub,
-          podeVerFinanceiro: p['podeVerFinanceiro'] == true,
-          podeVerPatrimonio: p['podeVerPatrimonio'] == true,
-          podeVerFornecedores: p['podeVerFornecedores'] == true,
-          podeEmitirRelatoriosCompletos:
-              p['podeEmitirRelatoriosCompletos'] == true,
-          permissions: AppPermissions.normalizePermissions(p['permissions']),
-          initialOpenMemberDocId: widget.initialOpenMemberDocId,
-          initialShellIndex: widget.initialShellIndex,
-        );
-        final withAnnouncement =
-            GlobalAnnouncementOverlay(child: dashboard);
-        // Biometria só na tela de login — não bloquear o painel/chat ao voltar da galeria ou câmera.
-        return withAnnouncement;
+        final resolved = pair?.$1;
+        if (resolved == null) return _IgrejaNaoVinculadaPage(user: widget.user);
+        return _buildPanelShellFromProfile(resolved);
       },
     );
   }

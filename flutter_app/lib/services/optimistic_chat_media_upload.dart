@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 
+import 'package:gestao_yahweh/services/church_chat_media_upload_coordinator.dart';
 import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 
@@ -103,48 +104,29 @@ abstract final class OptimisticChatMediaUpload {
 
     try {
       logFirebaseAppsBeforeOperation('chat_media_flush', module: pending.kind);
-      await runFirebaseBackgroundTask<void>(
-
-        () => _flushCore(
-
-          pending: pending,
-
-          tenantId: tenantId,
-
-          threadId: threadId,
-
-          bytes: bytes,
-
-          localPath: localPath,
-
-          replyTo: replyTo,
-
-          onProgress: onProgress,
-
-          onFailed: onFailed,
-
-          onSuccess: onSuccess,
-
-          onReplyCleared: onReplyCleared,
-
-          onWaitingForNetwork: onWaitingForNetwork,
-
-          uploadDocId: uploadDocId,
-
-        ).timeout(
-
-          _flushTimeoutFor(pending.kind),
-
-          onTimeout: () => throw TimeoutException(
-
-            'Envio demorou demais. Verifique a rede e tente de novo.',
-
+      await ChurchChatMediaUploadCoordinator.run(
+        () => runFirebaseBackgroundTask<void>(
+          () => _flushCore(
+            pending: pending,
+            tenantId: tenantId,
+            threadId: threadId,
+            bytes: bytes,
+            localPath: localPath,
+            replyTo: replyTo,
+            onProgress: onProgress,
+            onFailed: onFailed,
+            onSuccess: onSuccess,
+            onReplyCleared: onReplyCleared,
+            onWaitingForNetwork: onWaitingForNetwork,
+            uploadDocId: uploadDocId,
+          ).timeout(
+            _flushTimeoutFor(pending.kind),
+            onTimeout: () => throw TimeoutException(
+              'Envio demorou demais. Verifique a rede e tente de novo.',
+            ),
           ),
-
+          debugLabel: 'chat_media_flush',
         ),
-
-        debugLabel: 'chat_media_flush',
-
       );
 
     } on TimeoutException catch (e) {

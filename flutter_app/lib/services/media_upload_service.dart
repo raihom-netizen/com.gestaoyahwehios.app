@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/analytics_service.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
@@ -111,7 +112,9 @@ class MediaUploadService {
     /// JPEG do chat: preset mais leve (menos CPU + menos bytes → upload mais rápido).
     bool chatJpegFast = false,
   }) async {
-    await ensureUploadBootstrapForStoragePath(storagePath);
+    if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+      await ensureUploadBootstrapForStoragePath(storagePath);
+    }
     final trace = _uploadTraceName(
       contentType: contentType,
       chatJpegFast: chatJpegFast,

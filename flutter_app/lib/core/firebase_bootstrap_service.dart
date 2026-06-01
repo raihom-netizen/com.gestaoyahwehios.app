@@ -321,17 +321,41 @@ abstract final class FirebaseBootstrapService {
     await ensureReadyForStorageUpload(requireAuth: false);
   }
 
+  static DateTime? _storageUploadBootstrapAt;
+
+  /// Evita `getIdToken` + init repetidos em cada foto do lote (eventos, membros, chat).
+  static bool get isStorageUploadBootstrapFresh {
+    final at = _storageUploadBootstrapAt;
+    if (at == null) return false;
+    return DateTime.now().difference(at) < const Duration(minutes: 3);
+  }
+
   /// Controle Total: `initializeApp` + token JWT — **sem** health check FCM/Functions
   /// nem `_assertFirestoreReachable` (bloqueava upload de fotos no nativo).
   static Future<void> ensureReadyForStorageUpload({
     bool requireAuth = true,
   }) async {
+    if (isStorageUploadBootstrapFresh) {
+      if (!requireAuth) return;
+      final user = auth.currentUser;
+      if (user == null || user.isAnonymous) {
+        _throwSessionExpired();
+      }
+      try {
+        await user.getIdToken(false).timeout(const Duration(seconds: 8));
+      } catch (_) {}
+      return;
+    }
+
     await FirebaseBootstrap.ensureInitialized();
     if (!_hasApp()) {
       final r = await initialize();
       if (!r.isReady && r.failure != null) throw r.failure!;
     }
-    if (!requireAuth) return;
+    if (!requireAuth) {
+      _storageUploadBootstrapAt = DateTime.now();
+      return;
+    }
 
     final user = auth.currentUser;
     if (user == null || user.isAnonymous) {
@@ -340,8 +364,9 @@ abstract final class FirebaseBootstrapService {
     try {
       await user.getIdToken(false).timeout(const Duration(seconds: 10));
     } catch (_) {
-      await user.getIdToken(true).timeout(const Duration(seconds: 15));
+      await user.getIdToken(true).timeout(const Duration(seconds: 12));
     }
+    _storageUploadBootstrapAt = DateTime.now();
   }
 
   /// Publicar aviso/evento ou enviar mídia — alias do bootstrap leve de Storage.

@@ -12,6 +12,17 @@ class AuthProfileCacheService {
 
   static const _keyPrefix = 'auth_gate_profile_json_v1_';
 
+  final Map<String, Map<String, dynamic>> _memory = {};
+
+  /// Leitura síncrona após `load`/`save` — evita spinner no 1.º frame do AuthGate.
+  Map<String, dynamic>? peek(String uid) {
+    final u = uid.trim();
+    if (u.isEmpty) return null;
+    final m = _memory[u];
+    if (m == null || m.isEmpty) return null;
+    return Map<String, dynamic>.from(m);
+  }
+
   static dynamic _fromJsonSafe(dynamic v) {
     if (v == null) return null;
     if (v is Map) {
@@ -27,6 +38,7 @@ class AuthProfileCacheService {
   Future<void> save(String uid, Map<String, dynamic> profile) async {
     final u = uid.trim();
     if (u.isEmpty) return;
+    _memory[u] = Map<String, dynamic>.from(profile);
     try {
       final enc = firestoreToJsonSafe(profile);
       final prefs = await SharedPreferences.getInstance();
@@ -37,6 +49,10 @@ class AuthProfileCacheService {
   Future<Map<String, dynamic>?> load(String uid) async {
     final u = uid.trim();
     if (u.isEmpty) return null;
+    final mem = peek(u);
+    if (mem != null && (mem['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+      return mem;
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString('$_keyPrefix$u');
@@ -46,7 +62,11 @@ class AuthProfileCacheService {
       final m = Map<String, dynamic>.from(
         _fromJsonSafe(decoded) as Map<dynamic, dynamic>,
       );
-      return _restoreFirestoreTimestampsDeep(m) as Map<String, dynamic>;
+      final restored = _restoreFirestoreTimestampsDeep(m) as Map<String, dynamic>;
+      if ((restored['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+        _memory[u] = restored;
+      }
+      return restored;
     } catch (_) {
       return null;
     }
@@ -89,6 +109,7 @@ class AuthProfileCacheService {
   Future<void> clear(String uid) async {
     final u = uid.trim();
     if (u.isEmpty) return;
+    _memory.remove(u);
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('$_keyPrefix$u');

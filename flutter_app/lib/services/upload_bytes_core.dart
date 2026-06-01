@@ -11,6 +11,7 @@ import 'dart:typed_data';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 
@@ -47,27 +48,17 @@ Future<String> uploadStoragePutDataWithRetry({
   String? localFilePathForRetry,
 
 }) async {
-
-  return YahwehMediaUploadPipeline.uploadBytes(
-
+  if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+    await ensureUploadBootstrapForStoragePath(storagePath);
+  }
+  return YahwehMediaUploadPipeline.uploadPreparedBytes(
     storagePath: storagePath,
-
     bytes: bytes,
-
     contentType: contentType,
-
     maxAttempts: maxAttempts,
-
     onProgress: onProgress,
-
     onUploadTaskCreated: onTaskStarted,
-
-    useOfflineQueue: useOfflineQueue,
-
-    localFilePathForRetry: localFilePathForRetry,
-
   );
-
 }
 
 
@@ -95,8 +86,9 @@ Future<String> uploadStoragePutFileWithRetry({
   bool useOfflineQueue = false,
 
 }) async {
-
-  await ensureUploadBootstrapForStoragePath(storagePath);
+  if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+    await ensureUploadBootstrapForStoragePath(storagePath);
+  }
 
   final byteLen = await file.length();
 

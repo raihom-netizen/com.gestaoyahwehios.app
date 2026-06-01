@@ -5817,25 +5817,66 @@ export const getUserProfile = functions
       if (!role) role = String(userData.role || "").trim();
       if (!igrejaId) return { profile: null };
 
-      const subSnap = await db
-        .collection("subscriptions")
-        .where("igrejaId", "==", igrejaId)
-        .orderBy("createdAt", "desc")
-        .limit(1)
-        .get();
+      const [subSnap, churchSnap, memberSnap] = await Promise.all([
+        db
+          .collection("subscriptions")
+          .where("igrejaId", "==", igrejaId)
+          .orderBy("createdAt", "desc")
+          .limit(1)
+          .get(),
+        db.collection("igrejas").doc(igrejaId).get(),
+        db.collection("igrejas").doc(igrejaId).collection("membros").doc(uid).get(),
+      ]);
 
       let subData: Record<string, unknown> | null = null;
       if (!subSnap.empty && subSnap.docs[0]) subData = subSnap.docs[0].data() as Record<string, unknown>;
+
+      const churchData = churchSnap.exists ? churchSnap.data() || {} : {};
+
+      let active = userData.ativo === true;
+      let memberStatusPending = false;
+      let podeVerFinanceiro: boolean | undefined;
+      let podeVerPatrimonio: boolean | undefined;
+      let podeVerFornecedores: boolean | undefined;
+      let podeEmitirRelatoriosCompletos: boolean | undefined;
+      const permissions: string[] = [];
+
+      if (memberSnap.exists) {
+        const memberData = memberSnap.data() || {};
+        const status = String(memberData.STATUS || memberData.status || "").toLowerCase();
+        if (status === "ativo") active = true;
+        if (status === "pendente") {
+          active = false;
+          memberStatusPending = true;
+        }
+        podeVerFinanceiro = memberData.podeVerFinanceiro === true;
+        podeVerPatrimonio = memberData.podeVerPatrimonio === true;
+        podeVerFornecedores = memberData.podeVerFornecedores === true;
+        podeEmitirRelatoriosCompletos =
+          memberData.podeEmitirRelatoriosCompletos === true;
+        const mp = memberData.permissions || memberData.permissoes;
+        if (Array.isArray(mp)) {
+          for (const x of mp) permissions.push(String(x));
+        }
+        if (!role) role = String(memberData.role || memberData.ROLE || "").trim();
+      }
 
       return {
         profile: {
           igrejaId,
           role,
           cpf: String(userData.cpf || ""),
-          active: userData.ativo === true,
+          active,
+          memberStatusPending,
           mustChangePass: userData.mustChangePass === true,
           mustCompleteRegistration: userData.mustCompleteRegistration === true,
           subscription: subData,
+          church: churchData,
+          podeVerFinanceiro,
+          podeVerPatrimonio,
+          podeVerFornecedores,
+          podeEmitirRelatoriosCompletos,
+          permissions,
         },
       };
     } catch (e: any) {

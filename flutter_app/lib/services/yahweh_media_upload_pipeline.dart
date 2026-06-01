@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/analytics_service.dart';
@@ -238,7 +239,9 @@ abstract final class YahwehMediaUploadPipeline {
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
-    await ensureUploadBootstrapForStoragePath(storagePath);
+    if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+      await ensureUploadBootstrapForStoragePath(storagePath);
+    }
     return _putDataDirect(
       storagePath: storagePath,
       bytes: bytes,

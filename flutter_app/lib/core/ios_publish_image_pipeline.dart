@@ -7,6 +7,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
+import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
+    show bytesLookLikeWebp;
 import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
@@ -136,7 +138,12 @@ abstract final class IosPublishImagePipeline {
     if (localPath != null && localPath.isNotEmpty) {
       prepared = await compressForPublishFromPath(localPath);
     } else if (bytes != null && bytes.isNotEmpty) {
-      prepared = await compressForPublishBytes(bytes);
+      // Web: fotos já vêm em WebP do picker — não recomprimir (lentidão + erros).
+      if (kIsWeb && bytesLookLikeWebp(bytes)) {
+        prepared = bytes;
+      } else {
+        prepared = await compressForPublishBytes(bytes);
+      }
     } else {
       throw StateError('Sem imagem para enviar.');
     }
@@ -151,9 +158,13 @@ abstract final class IosPublishImagePipeline {
       slotIndex: slotIndex,
     );
 
+    final contentType =
+        bytesLookLikeWebp(prepared) ? 'image/webp' : 'image/jpeg';
+
     final url = await UnifiedUploadService.uploadImage(
       storagePath: storagePath,
       bytes: prepared,
+      contentType: contentType,
       localPath: localPath,
       module: postType == 'aviso'
           ? YahwehUploadModule.aviso

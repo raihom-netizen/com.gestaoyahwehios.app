@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -73,9 +74,16 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadPedidos() async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    await Future.delayed(const Duration(milliseconds: 150));
-    return _getQuery().get();
+    bool? respondida;
+    if (_filtroStatus == 'Respondidas') {
+      respondida = true;
+    } else if (_filtroStatus == 'Não Respondidas') {
+      respondida = false;
+    }
+    return ChurchTenantResilientReads.pedidosOracao(
+      widget.tenantId,
+      respondidaFilter: respondida,
+    );
   }
 
   void _refreshPedidos() {
@@ -1243,25 +1251,12 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
               ),
             ),
             Expanded(
-              child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              child: ResilientPanelQueryFutureBuilder(
                 future: _pedidosFuture,
-                builder: (context, snap) {
-                  if (snap.hasError) {
-                    return Padding(
-                      padding: ThemeCleanPremium.pagePadding(context),
-                      child: ChurchPanelErrorBody(
-                        title: 'Não foi possível carregar os pedidos de oração',
-                        error: snap.error,
-                        onRetry: _refreshPedidos,
-                      ),
-                    );
-                  }
-                  if (snap.connectionState == ConnectionState.waiting &&
-                      !snap.hasData) {
-                    return const ChurchPanelLoadingBody();
-                  }
-
-                  final docs = snap.data?.docs ?? [];
+                errorTitle: 'Não foi possível carregar os pedidos de oração',
+                onRetry: _refreshPedidos,
+                builder: (context, snap, {required bool showingStaleCache}) {
+                  final docs = snap.docs;
                   final visibleDocs =
                       docs.where((d) => _canSee(d.data())).toList();
 

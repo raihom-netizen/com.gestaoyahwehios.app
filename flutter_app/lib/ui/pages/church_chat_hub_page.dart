@@ -43,6 +43,8 @@ import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 
 enum _HubConversasFilter { all, unread, favorites, archived }
 
@@ -82,7 +84,13 @@ String _chatHubFmtThreadTime(dynamic ts) {
   return '${d.day}/${d.month}';
 }
 
-/// Lista estilo WhatsApp — DM + grupos por departamento (só vínculos do membro).
+/// Gestor, administrador, pastor e equivalentes — vê todos os grupos (departamentos) e lista de contatos.
+bool _chatHubLeadershipFullAccess(String role, List<String>? permissions) {
+  return AppRoles.isFullAccess(role) ||
+      AppPermissions.canEditDepartments(role, permissions: permissions);
+}
+
+/// Lista estilo WhatsApp — DM + grupos por departamento (membro: só os seus; liderança: todos).
 /// DM na aba «Conversas»: dados do documento em `chat_threads` (sem segundo stream por linha),
 /// foto de perfil a partir de `membros`, primeiro nome + prévia; presença só em `chat_presence`.
 class ChurchChatHubPage extends StatefulWidget {
@@ -112,6 +120,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   String? _resolvedTenantId;
   List<_DeptEntry> _departments = [];
+  bool _departmentsLoading = false;
   /// Stream único de `chat_threads` (reconexão automática em [ChurchChatService]).
   Stream<QuerySnapshot<Map<String, dynamic>>>? _chatThreadsStream;
   /// Evita lista de conversas «a piscar»: mantém o último snapshot válido se o stream falhar de momento.
@@ -574,9 +583,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     unawaited(_loadChatNotifPrefs());
     unawaited(_pruneStaleChatUploads(tid));
     unawaited(_warmMemberDirectoryForChat(tid));
-    await _primeConversasListFromFallback(tid);
-    await _reloadLocalConversations();
-    if (!mounted) return;
+    unawaited(_primeConversasListFromFallback(tid));
+    unawaited(_reloadLocalConversations());
     unawaited(_syncMemberDepartments(tid));
     unawaited(_silentSyncConversasIndex(tid, force: true));
     if (mounted) {
@@ -716,9 +724,49 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
   }
 
+  Future<void> _syncAllDepartmentsForLeadership(String tid, String uid) async {
+    try {
+      await ChurchTenantResilientReads.preparePanelRead();
+      final snap = await ChurchTenantResilientReads.departamentos(tid, limit: 120);
+      final entries = <_DeptEntry>[];
+      for (final doc in snap.docs) {
+        final name = churchDepartmentNameFromData(doc.data(), docId: doc.id);
+        entries.add(_DeptEntry(
+          id: doc.id,
+          name: name,
+          deptData: doc.data(),
+        ));
+        await ChurchChatService.ensureDepartmentThread(
+          tenantId: tid,
+          departmentId: doc.id,
+          departmentName: name,
+          participantUids: [uid],
+        );
+      }
+      entries.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+      await ChurchChatService.syncUserChatProfile(
+        tenantId: tid,
+        departmentIds: entries.map((e) => e.id).toList(),
+      );
+      if (!mounted) return;
+      setState(() => _departments = entries);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _departments = const []);
+    }
+  }
+
   Future<void> _syncMemberDepartments(String tid) async {
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return;
+    if (mounted) setState(() => _departmentsLoading = true);
+    try {
+      if (_chatHubLeadershipFullAccess(widget.role, widget.permissions)) {
+        await _syncAllDepartmentsForLeadership(tid, uid);
+        return;
+      }
     final digits = widget.cpf.replaceAll(RegExp(r'\D'), '');
     final base =
         FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('membros');
@@ -793,6 +841,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
     if (!mounted) return;
     setState(() => _departments = entries);
+    } finally {
+      if (mounted) setState(() => _departmentsLoading = false);
+    }
   }
 
   /// Ordenação «última atividade primeiro» (alinhado ao comportamento dos grupos na lista).
@@ -2007,12 +2058,19 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
                 SizedBox(height: MediaQuery.sizeOf(context).height * 0.18),
+                if (_departmentsLoading)
+                  const Center(child: CircularProgressIndicator()),
                 Padding(
                   padding: const EdgeInsets.all(28),
                   child: Text(
-                    _departments.isEmpty
-                        ? 'Sem grupos — faça parte de um departamento na sua ficha de membro.'
-                        : 'Nenhum grupo corresponde à pesquisa.',
+                    _departmentsLoading
+                        ? 'A carregar grupos…'
+                        : _departments.isEmpty
+                            ? (_chatHubLeadershipFullAccess(
+                                    widget.role, widget.permissions)
+                                ? 'Nenhum departamento cadastrado na igreja.'
+                                : 'Sem grupos — faça parte de um departamento na sua ficha de membro.')
+                            : 'Nenhum grupo corresponde à pesquisa.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: ThemeCleanPremium.onSurfaceVariant,
@@ -3217,6 +3275,8 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   List<_ChatDirectoryMemberRow> _rows = const [];
   bool _loading = true;
   bool _loadFailed = false;
+  Map<String, bool> _presenceOnlineByUid = {};
+  Timer? _presencePollTimer;
 
   void _onFilterChanged() => setState(() {});
 
@@ -3230,7 +3290,36 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   @override
   void dispose() {
     widget.filterCtrl.removeListener(_onFilterChanged);
+    _presencePollTimer?.cancel();
     super.dispose();
+  }
+
+  void _schedulePresencePoll() {
+    _presencePollTimer?.cancel();
+    final authUids = <String>{};
+    for (final row in _rows) {
+      final auth = _authUidFromMemberData(row.docId, row.data);
+      if (auth == null || auth.isEmpty || auth == widget.myUid) continue;
+      authUids.add(auth);
+    }
+    if (authUids.isEmpty) {
+      _presenceOnlineByUid = {};
+      return;
+    }
+    Future<void> poll() async {
+      final online = await ChurchChatService.fetchPresenceOnlineMap(
+        tenantId: widget.tenantId,
+        authUids: authUids,
+      );
+      if (!mounted) return;
+      setState(() => _presenceOnlineByUid = online);
+    }
+
+    unawaited(poll());
+    _presencePollTimer = Timer.periodic(
+      const Duration(seconds: 22),
+      (_) => unawaited(poll()),
+    );
   }
 
   static String? _authUidFromMemberData(String docId, Map<String, dynamic> d) {
@@ -3263,72 +3352,64 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       _loading = true;
       _loadFailed = false;
     });
+    var rows = <_ChatDirectoryMemberRow>[];
     try {
-      await FirebaseBootstrap.ensureInitialized();
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
+      await ChurchTenantResilientReads.preparePanelRead();
 
-      var rows = <_ChatDirectoryMemberRow>[];
-      final directory =
-          await MembersDirectorySnapshotService.readOnce(widget.tenantId);
-      if (directory.hasEntries) {
-        rows = _rowsFromDirectory(directory);
+      try {
+        final directory =
+            await MembersDirectorySnapshotService.readOnce(widget.tenantId);
+        if (directory.hasEntries) {
+          rows = _rowsFromDirectory(directory);
+        }
+      } catch (_) {}
+
+      if (rows.isEmpty) {
+        try {
+          final snap = await ChurchTenantResilientReads.membrosRecent(
+            widget.tenantId,
+            limit: 600,
+          );
+          rows = snap.docs
+              .map((d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()))
+              .toList();
+        } catch (_) {}
       }
 
       if (rows.isEmpty) {
-        final col = FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(widget.tenantId)
-            .collection('membros');
-        QuerySnapshot<Map<String, dynamic>> snap;
         try {
-          snap = await col
-              .limit(600)
-              .get(const GetOptions(source: Source.serverAndCache));
-        } catch (_) {
-          snap = await col.limit(600).get(const GetOptions(source: Source.cache));
-        }
-        rows = snap.docs
-            .map((d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()))
-            .toList();
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _rows = rows;
-        _loading = false;
-        _loadFailed = false;
-      });
-
-      if (rows.isNotEmpty) {
-        final refs = rows
-            .map((r) {
-              final auth = _authUidFromMemberData(r.docId, r.data);
-              if (auth == null) return null;
-              return churchChatMemberRefFromMemberDoc(r.docId, r.data);
-            })
-            .whereType<ChurchChatMemberRef>()
-            .toList();
-        ChurchGalleryPhotoWarmup.warmBytesForChatRefs(
-          widget.tenantId,
-          refs,
-        );
-      } else {
-        unawaited(
-          MembersDirectorySnapshotService.warmFromCallableIfStale(
+          final warmed =
+              await MembersDirectorySnapshotService.warmFromCallableIfStale(
             widget.tenantId,
-          ).then((warmed) {
-            if (!mounted || !warmed.hasEntries) return;
-            setState(() => _rows = _rowsFromDirectory(warmed));
-          }),
-        );
+          );
+          if (warmed.hasEntries) {
+            rows = _rowsFromDirectory(warmed);
+          }
+        } catch (_) {}
       }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _rows = const [];
-        _loading = false;
-        _loadFailed = true;
-      });
+    } catch (_) {}
+
+    if (!mounted) return;
+    setState(() {
+      _rows = rows;
+      _loading = false;
+      _loadFailed = rows.isEmpty;
+    });
+
+    if (rows.isNotEmpty) {
+      _schedulePresencePoll();
+      final refs = rows
+          .map((r) {
+            final auth = _authUidFromMemberData(r.docId, r.data);
+            if (auth == null) return null;
+            return churchChatMemberRefFromMemberDoc(r.docId, r.data);
+          })
+          .whereType<ChurchChatMemberRef>()
+          .toList();
+      ChurchGalleryPhotoWarmup.warmBytesForChatRefs(
+        widget.tenantId,
+        refs,
+      );
     }
   }
 
@@ -3359,13 +3440,9 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
 
   List<_ChatDirectoryMemberRow> _sortMembersOnlineFirst(
     List<_ChatDirectoryMemberRow> members,
-    Map<String, Timestamp> presenceByUid,
+    Map<String, bool> presenceOnlineByUid,
   ) {
-    bool online(String uid) {
-      final ts = presenceByUid[uid];
-      if (ts == null) return false;
-      return DateTime.now().difference(ts.toDate()).inSeconds < 45;
-    }
+    bool online(String uid) => presenceOnlineByUid[uid] ?? false;
 
     final copy = List<_ChatDirectoryMemberRow>.from(members);
     copy.sort((a, b) {
@@ -3401,24 +3478,14 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
     if (_loading) {
       return YahwehSkeletonLoading.chatThreads(count: 8);
     }
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('chat_presence')
-          .snapshots(),
-      builder: (context, presSnap) {
-        final presenceByUid = <String, Timestamp>{};
-        for (final p in presSnap.data?.docs ?? []) {
-          final ts = p.data()['lastSeenAt'];
-          if (ts is Timestamp) presenceByUid[p.id] = ts;
-        }
-        final rows =
-            _sortMembersOnlineFirst(_filteredMemberRows(), presenceByUid);
-        final dpr = MediaQuery.devicePixelRatioOf(context);
-        final cachePx = (40 * dpr).round().clamp(96, 240);
+    final rows = _sortMembersOnlineFirst(
+      _filteredMemberRows(),
+      _presenceOnlineByUid,
+    );
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final cachePx = (40 * dpr).round().clamp(96, 240);
 
-        return RefreshIndicator(
+    return RefreshIndicator(
           onRefresh: _load,
           child: rows.isEmpty
               ? ListView(
@@ -3453,9 +3520,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
                     final nome =
                         (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
                     final label = nome.isEmpty ? auth : nome;
-                    final ts = presenceByUid[auth];
-                    final on = ts != null &&
-                        DateTime.now().difference(ts.toDate()).inSeconds < 45;
+                    final on = _presenceOnlineByUid[auth] ?? false;
                     final photoUrl = imageUrlFromMap(d);
                     return Material(
                       color: on

@@ -108,7 +108,7 @@ class MediaHandlerService {
   Future<XFile?> pickAndProcessLogoFromCamera() =>
       pickAndProcessLogoImage(source: ImageSource.camera);
 
-  /// Mural / avisos / eventos: web/Android = recorte premium (Confirmar em baixo); iOS = confirmar foto.
+  /// Mural / avisos / eventos: web = encode automático; mobile = recorte/confirmar conforme plataforma.
   /// [webpOutputQuality]: use [kPremiumMuralFeedWebpQuality] (ou [kHighResWebpQuality]).
   Future<XFile?> pickCropEncodeFeedImageWebp({
     required ImageSource source,
@@ -152,6 +152,15 @@ class MediaHandlerService {
     );
     if (list.isEmpty) return [];
     onGalleryPicked?.call(list);
+    if (kIsWeb) {
+      return pickMultiEncodeFeedWebAuto(
+        list,
+        webpOutputQuality: webpOutputQuality,
+        onPickedBeforeEncode: onPickedBeforeEncode,
+        onEachReady: onEachReady,
+        onEncodeSkipped: onEncodeSkipped,
+      );
+    }
     // ignore: use_build_context_synchronously
     if (kMediaTurboMobilePreset && !kIsWeb) {
       return pickMultiEncodeFeedTurboFast(

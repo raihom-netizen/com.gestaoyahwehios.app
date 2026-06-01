@@ -30,8 +30,9 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart'
+    show kMaxPatrimonioPhotosPerItem;
 import 'package:gestao_yahweh/services/image_helper.dart';
-import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
@@ -6917,7 +6918,7 @@ class _PatrimonioFormPage extends StatefulWidget {
 }
 
 class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
-  static const int _maxFotosPorItem = 5;
+  static const int _maxFotosPorItem = kMaxPatrimonioPhotosPerItem;
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nome,
       _desc,
@@ -7035,8 +7036,12 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
   void _showLimiteFotosSnack() {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-          content: Text(
-              'Limite de $_maxFotosPorItem fotos por item (inventário digital)')),
+        content: Text(
+          'Limite de $_maxFotosPorItem fotos por bem (móvel, equipamento, etc.). '
+          'Remova uma para adicionar outra.',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -7129,24 +7134,28 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _showLimiteFotosSnack();
       return;
     }
-    final files =
-        await MediaHandlerService.instance.pickAndProcessMultipleImages();
     final vagas = _maxFotosPorItem - _fotoCountAtual;
-    if (files.length > vagas) {
+    if (vagas <= 0) {
       _showLimiteFotosSnack();
+      return;
     }
-    final selecionadas = files.take(vagas).toList();
+    final list = await ImagePicker().pickMultiImage(limit: vagas);
+    if (list.isEmpty || !mounted) return;
     final novosBytes = <Uint8List>[];
     final novosNomes = <String>[];
-    for (final f in selecionadas) {
-      novosBytes.add(await f.readAsBytes());
-      novosNomes.add(f.name);
+    for (final f in list) {
+      if (_fotoCountAtual + novosBytes.length >= _maxFotosPorItem) break;
+      final raw = await f.readAsBytes();
+      novosBytes.add(await ImageHelper.compressPatrimonioPhotoForUpload(raw));
+      novosNomes.add(f.name.isNotEmpty ? f.name : 'foto_${novosBytes.length}.webp');
     }
-    if (novosBytes.isNotEmpty && mounted) {
-      setState(() {
-        _newImages.addAll(novosBytes);
-        _newNames.addAll(novosNomes);
-      });
+    if (novosBytes.isEmpty || !mounted) return;
+    setState(() {
+      _newImages.addAll(novosBytes);
+      _newNames.addAll(novosNomes);
+    });
+    if (list.length > novosBytes.length) {
+      _showLimiteFotosSnack();
     }
   }
 
@@ -7155,15 +7164,14 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _showLimiteFotosSnack();
       return;
     }
-    final file = await MediaHandlerService.instance
-        .pickAndProcessImage(source: ImageSource.camera);
-    if (file != null) {
-      final bytes = await file.readAsBytes();
-      setState(() {
-        _newImages.add(bytes);
-        _newNames.add(file.name);
-      });
-    }
+    final file = await ImagePicker().pickImage(source: ImageSource.camera);
+    if (file == null || !mounted) return;
+    final raw = await file.readAsBytes();
+    final bytes = await ImageHelper.compressPatrimonioPhotoForUpload(raw);
+    setState(() {
+      _newImages.add(bytes);
+      _newNames.add(file.name.isNotEmpty ? file.name : 'camera.webp');
+    });
   }
 
   Future<void> _save() async {
@@ -7293,7 +7301,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           setState(() => _uploadProgress = sum.clamp(0.0, 1.0));
         }
 
-        const uploadConcurrency = 6;
+        const uploadConcurrency = 3;
         final results = <MediaUploadResult>[];
         for (var batchStart = 0;
             batchStart < nBatch;
@@ -7658,7 +7666,8 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Até $_maxFotosPorItem fotos por bem. Envio em WebP comprimido para abrir rápido na lista.',
+                                  'Até $_maxFotosPorItem fotos por bem (móvel, equipamento, veículo, etc.). '
+                                  'Galeria permite várias de uma vez. Envio em WebP para abrir rápido.',
                                   style: TextStyle(
                                     fontSize: 13,
                                     height: 1.35,

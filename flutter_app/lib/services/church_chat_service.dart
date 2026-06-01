@@ -1289,14 +1289,14 @@ class ChurchChatService {
     } catch (_) {}
   }
 
-  /// Marca mensagens do outro participante como `delivered` (✓✓ cinza) ao abrir a conversa.
+  /// Marca mensagens recebidas como `delivered` (✓✓ cinza no remetente) ao abrir a conversa.
   static Future<void> markInboundMessagesDelivered({
     required String tenantId,
     required String threadId,
     int limit = 40,
   }) async {
     final uid = firebaseDefaultAuth.currentUser?.uid;
-    if (uid == null || !threadId.startsWith('dm_')) return;
+    if (uid == null) return;
     try {
       final snap = await messagesCol(tenantId, threadId)
           .orderBy('createdAt', descending: true)
@@ -1312,6 +1312,42 @@ class ChurchChatService {
         batch.update(doc.reference, {'deliveryStatus': deliveryDelivered});
         n++;
         if (n >= 25) break;
+      }
+      if (n > 0) await batch.commit();
+    } catch (_) {}
+  }
+
+  /// DM: quando o parceiro abriu a conversa, marca as **suas** mensagens como `read` (✓✓ azul).
+  static Future<void> markOutboundMessagesReadUpTo({
+    required String tenantId,
+    required String threadId,
+    required DateTime peerSeenAt,
+  }) async {
+    final uid = firebaseDefaultAuth.currentUser?.uid;
+    if (uid == null || !threadId.startsWith('dm_')) return;
+    final seenMs = peerSeenAt.millisecondsSinceEpoch;
+    try {
+      final snap = await messagesCol(tenantId, threadId)
+          .orderBy('createdAt', descending: true)
+          .limit(40)
+          .get();
+      final batch = _db.batch();
+      var n = 0;
+      for (final doc in snap.docs) {
+        final d = doc.data();
+        if ((d['senderUid'] ?? '').toString() != uid) continue;
+        final ct = d['createdAt'];
+        if (ct is! Timestamp) continue;
+        if (ct.millisecondsSinceEpoch > seenMs) continue;
+        final ds = (d['deliveryStatus'] ?? '').toString();
+        if (ds == deliveryRead) continue;
+        if (ds == deliverySent ||
+            ds == deliveryDelivered ||
+            ds.isEmpty) {
+          batch.update(doc.reference, {'deliveryStatus': deliveryRead});
+          n++;
+          if (n >= 25) break;
+        }
       }
       if (n > 0) await batch.commit();
     } catch (_) {}

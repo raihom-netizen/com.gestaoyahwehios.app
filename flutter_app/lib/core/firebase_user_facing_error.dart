@@ -71,6 +71,9 @@ String formatFirebaseErrorForUser(
   }
 
   final raw = error.toString();
+  if (raw.contains('INTERNAL ASSERTION')) {
+    return 'Ligação com o servidor instável. Atualize a página (Ctrl+F5) ou toque em Tentar de novo.';
+  }
   if (_isNoFirebaseAppError(error)) {
     return 'Firebase não disponível: $raw';
   }

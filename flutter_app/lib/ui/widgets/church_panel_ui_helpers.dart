@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
@@ -65,6 +66,118 @@ class ChurchPanelErrorBody extends StatelessWidget {
           'Verifique sua conexão ou tente novamente em instantes.',
       onRetry: onRetry,
       retryLabel: retryLabel,
+    );
+  }
+}
+
+/// Faixa quando a lista vem do cache / última leitura boa (rede instável).
+class ChurchPanelOfflineStaleBanner extends StatelessWidget {
+  const ChurchPanelOfflineStaleBanner({
+    super.key,
+    this.message =
+        'Modo offline — a mostrar os últimos dados guardados. Puxe para atualizar.',
+  });
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.orange.shade50,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(Icons.cloud_off_rounded, size: 20, color: Colors.orange.shade800),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.orange.shade900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// [FutureBuilder] com fallback à última query bem-sucedida (sistema completo).
+class ResilientPanelQueryFutureBuilder extends StatefulWidget {
+  const ResilientPanelQueryFutureBuilder({
+    super.key,
+    required this.future,
+    required this.errorTitle,
+    required this.onRetry,
+    required this.builder,
+    this.offlineMessage,
+  });
+
+  final Future<QuerySnapshot<Map<String, dynamic>>> future;
+  final String errorTitle;
+  final VoidCallback onRetry;
+  final Widget Function(
+    BuildContext context,
+    QuerySnapshot<Map<String, dynamic>> snap, {
+    required bool showingStaleCache,
+  }) builder;
+  final String? offlineMessage;
+
+  @override
+  State<ResilientPanelQueryFutureBuilder> createState() =>
+      _ResilientPanelQueryFutureBuilderState();
+}
+
+class _ResilientPanelQueryFutureBuilderState
+    extends State<ResilientPanelQueryFutureBuilder> {
+  QuerySnapshot<Map<String, dynamic>>? _lastGood;
+  bool _stale = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      future: widget.future,
+      builder: (context, snap) {
+        if (snap.hasError) {
+          final fallback = _lastGood;
+          if (fallback != null && fallback.docs.isNotEmpty) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: ChurchPanelOfflineStaleBanner(
+                    message: widget.offlineMessage ??
+                        'Modo offline — a mostrar os últimos dados guardados.',
+                  ),
+                ),
+                Expanded(child: widget.builder(context, fallback, showingStaleCache: true)),
+              ],
+            );
+          }
+          return ChurchPanelErrorBody(
+            title: widget.errorTitle,
+            error: snap.error,
+            onRetry: widget.onRetry,
+          );
+        }
+        if (snap.connectionState != ConnectionState.done || !snap.hasData) {
+          final fallback = _lastGood;
+          if (fallback != null && fallback.docs.isNotEmpty) {
+            return widget.builder(context, fallback, showingStaleCache: _stale);
+          }
+          return const ChurchPanelLoadingBody();
+        }
+        _lastGood = snap.data;
+        _stale = false;
+        return widget.builder(context, snap.data!, showingStaleCache: false);
+      },
     );
   }
 }

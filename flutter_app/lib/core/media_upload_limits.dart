@@ -16,6 +16,12 @@ const Duration kMediaVideoMaxDuration = Duration(seconds: 60); // legado / outro
 /// Chat igreja — vídeo até 90 s (estilo WhatsApp).
 const Duration kMediaChatVideoMaxDuration = Duration(seconds: 90);
 
+/// Uploads de mídia no chat em paralelo (fotos/vídeos do lote).
+const int kChatMaxConcurrentMediaUploads = 2;
+
+/// Património — até 5 fotos por bem (móvel, equipamento, veículo, etc.).
+const int kMaxPatrimonioPhotosPerItem = 5;
+
 /// Eventos (editor + galeria) — vídeo até 90 s.
 const int kMediaEventVideoMaxSeconds = 90;
 

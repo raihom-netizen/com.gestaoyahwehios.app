@@ -254,6 +254,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         _scrollToCorpoAdministrativo;
     final tidBoot = widget.tenantId.trim();
     if (tidBoot.isNotEmpty) {
+      _effectiveTenantId = tidBoot;
       try {
         _attachPanelFeedStreams(tidBoot);
       } catch (_) {}
@@ -343,6 +344,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       );
 
   bool get _panelCanPaintWithoutSkeleton =>
+      _effectiveTenantId.trim().isNotEmpty &&
       _avisosStream != null &&
       _noticiasPainelStream != null;
 
@@ -376,13 +378,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       ]);
       if (!mounted) return;
       final quickPanel = quick[0] as PanelDashboardSnapshot;
-      final instant = quickPanel.isFreshForInstantPanel ||
-          quickPanel.hasHomeLeaders ||
-          quickPanel.hasHomeCorpo ||
-          quickPanel.hasBirthdayData;
-      if (!instant && quickPanel.membersTotalCount <= 0) {
-        return;
-      }
       _attachPanelFeedStreams(tid);
       setState(() {
         _effectiveTenantId = tid;
@@ -414,12 +409,13 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       unawaited(_paintPanelFromLocalCacheFirst(resolved));
     }
 
-    final firebaseReady = ensureFirebaseReadyForPanelRead().catchError((e, st) {
-      if (mounted) {
-        debugPrint('Painel: Firebase indisponível: $e\n$st');
-      }
-    });
-    await firebaseReady;
+    unawaited(
+      ensureFirebaseReadyForPanelRead().catchError((e, st) {
+        if (mounted) {
+          debugPrint('Painel: Firebase indisponível: $e\n$st');
+        }
+      }),
+    );
     if (!mounted) return;
 
     resolved = widget.tenantId.trim();

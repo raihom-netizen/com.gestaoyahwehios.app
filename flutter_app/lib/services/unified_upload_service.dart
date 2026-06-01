@@ -7,6 +7,9 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
+    show bytesLookLikeWebp;
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
@@ -27,11 +30,19 @@ abstract final class UnifiedUploadService {
   }
 
   static Future<void> _ensureReady({String? module}) async {
+    if (FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+      try {
+        await firebaseDefaultAuth.currentUser
+            ?.getIdToken(false)
+            .timeout(const Duration(seconds: 6));
+      } catch (_) {}
+      return;
+    }
     final chatModule = module == YahwehUploadModule.chat.name;
     if (chatModule) {
       await ensureFirebaseReadyForChatSend();
     } else {
-      await ensureFirebaseReadyForPublishUpload();
+      await FirebaseBootstrapService.ensureReadyForStorageUpload();
     }
     logFirebaseAppsBeforeOperation('ensure_ready', module: module);
   }
@@ -215,13 +226,8 @@ abstract final class UnifiedUploadService {
   }
 
   static String _guessImageContentType(Uint8List bytes, bool skipClientPrepare) {
-    if (skipClientPrepare && bytes.length >= 12) {
-      if (bytes[0] == 0x52 &&
-          bytes[1] == 0x49 &&
-          bytes[2] == 0x46 &&
-          bytes[3] == 0x46) {
-        return 'image/webp';
-      }
+    if (skipClientPrepare && bytesLookLikeWebp(bytes)) {
+      return 'image/webp';
     }
     return 'image/jpeg';
   }

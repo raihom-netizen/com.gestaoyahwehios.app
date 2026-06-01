@@ -60,8 +60,8 @@ const int kAvisoFeedWebpQuality = kPremiumMuralFeedWebpQuality;
 
 /// Seleciona imagem → recorte nativo ([image_cropper]) → WebP.
 ///
-/// **Feed (eventos/avisos):** web/Android = [PremiumFeedImageCropScreen] (Confirmar em baixo);
-/// iOS = [IosFeedPhotoConfirmScreen] (sem crop nativo — crash TestFlight).
+/// **Feed (eventos/avisos):** web = foto inteira + WebP automático (Controle Total);
+/// Android = [PremiumFeedImageCropScreen]; iOS = [IosFeedPhotoConfirmScreen].
 Future<XFile?> pickCropEncodeWebp({
   required ImageSource source,
   required HighResCropProfile profile,
@@ -220,6 +220,64 @@ Future<XFile?> _encodeFeedImageFile(String pathIn) async {
   }
 }
 
+/// Web: galeria mural — WebP automático (foto inteira, sem modal de recorte).
+Future<List<XFile>> pickMultiEncodeFeedWebAuto(
+  List<XFile> picked, {
+  int webpOutputQuality = kPremiumMuralFeedWebpQuality,
+  void Function(XFile picked, int index, int total)? onPickedBeforeEncode,
+  void Function(XFile encoded, int index, int total)? onEachReady,
+  void Function(int index, int total)? onEncodeSkipped,
+}) async {
+  if (picked.isEmpty) return const [];
+  final out = <XFile>[];
+  final batch = kEffectiveFeedCropParallel.clamp(1, 6);
+  for (var start = 0; start < picked.length; start += batch) {
+    final chunk = picked.skip(start).take(batch).toList();
+    final encoded = await Future.wait(
+      chunk.asMap().entries.map((entry) async {
+        final globalIndex = start + entry.key;
+        onPickedBeforeEncode?.call(entry.value, globalIndex, picked.length);
+        return encodeFeedPickedWebAuto(
+          entry.value,
+          webpOutputQuality: webpOutputQuality,
+        );
+      }),
+    );
+    for (var j = 0; j < encoded.length; j++) {
+      final file = encoded[j];
+      final globalIndex = start + j;
+      if (file != null) {
+        out.add(file);
+        onEachReady?.call(file, globalIndex, picked.length);
+      } else {
+        onEncodeSkipped?.call(globalIndex, picked.length);
+      }
+    }
+  }
+  return out;
+}
+
+/// Uma foto do feed na web — proporção original, compressão WebP.
+Future<XFile?> encodeFeedPickedWebAuto(
+  XFile picked, {
+  int webpOutputQuality = kPremiumMuralFeedWebpQuality,
+}) async {
+  try {
+    final rawBytes = await picked.readAsBytes();
+    if (rawBytes.isEmpty) return null;
+    final edge = kEffectiveFeedEncodeMaxEdgePx;
+    return _bytesToWebpXFile(
+      rawBytes,
+      quality: webpOutputQuality,
+      encodeMaxWidth: edge,
+      encodeMaxHeight: edge,
+    );
+  } catch (e) {
+    if (kDebugMode) debugPrint('encodeFeedPickedWebAuto: $e');
+    return null;
+  }
+}
+
 /// Galeria mural (turbo mobile): WebP em paralelo **sem** ecrã de recorte por foto — alinhado à PWA.
 Future<List<XFile>> pickMultiEncodeFeedTurboFast(
   List<XFile> picked, {
@@ -324,31 +382,11 @@ Future<XFile?> cropEncodePickedToWebp(
   }
   final square = profile == HighResCropProfile.memberSquare;
 
-  /// Mural feed: recorte Flutter premium **só na web**. iOS/Android usam [image_cropper]
-  /// nativo (Confirmar/Cancelar) — o ecrã em RAM com `crop_your_image` causa OOM/crash no iPhone.
-  if (profile == HighResCropProfile.feedFree &&
-      webCropContext != null &&
-      kIsWeb) {
-    final rawBytes = await working.readAsBytes();
-    if (rawBytes.isEmpty) return null;
-    // ignore: use_build_context_synchronously
-    if (!webCropContext.mounted) return null;
-    final previewBytes = await _downscaleBytesForFeedCropUi(rawBytes);
-    // ignore: use_build_context_synchronously
-    final croppedBytes = await Navigator.of(webCropContext, rootNavigator: true)
-        .push<Uint8List?>(
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => PremiumFeedImageCropScreen(imageBytes: previewBytes),
-      ),
-    );
-    if (croppedBytes == null || croppedBytes.isEmpty) return null;
-    final edge = kEffectiveFeedEncodeMaxEdgePx;
-    return _bytesToWebpXFile(
-      croppedBytes,
-      quality: webpOutputQuality,
-      encodeMaxWidth: edge,
-      encodeMaxHeight: edge,
+  /// Web + feed: foto inteira automática (sem ecrã «Ajustar enquadramento»).
+  if (profile == HighResCropProfile.feedFree && kIsWeb) {
+    return encodeFeedPickedWebAuto(
+      working,
+      webpOutputQuality: webpOutputQuality,
     );
   }
 

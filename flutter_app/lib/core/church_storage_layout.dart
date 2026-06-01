@@ -360,7 +360,7 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
   }
 
-  /// Foto do patrimônio por **slot** (0–4 = 5 fotos): `galeria_01.webp` … `galeria_05.webp` (upload WebP 80%).
+  /// Foto do patrimônio por **slot** (0–4 = [kMaxPatrimonioPhotosPerItem] fotos): `galeria_01.webp` … `galeria_05.webp`.
   /// Ficheiros legados `.jpg` na mesma pasta continuam válidos até substituição.
   static String patrimonioPhotoPath(String tenantId, String itemDocId, int slot) {
     final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
