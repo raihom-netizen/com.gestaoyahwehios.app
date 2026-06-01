@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
@@ -36,13 +35,9 @@ abstract final class AppFinalizeBootstrap {
     try {
       if (!FirebaseBootstrapService.isReady()) {
         await FirebaseBootstrapService.initialize();
-      } else {
-        try {
-          await FirebaseBootstrapService.healthCheck(logLabel: 'app_resume');
-        } catch (_) {
-          await FirebaseBootstrapService.reconnect();
-        }
       }
+      // Controle Total: ao voltar do background só renova token — não `reconnect()`
+      // (resetava Firebase e quebrava upload de foto/áudio da câmara ou galeria).
       await _refreshAuthTokenSilently();
       bindOnColdStart();
     } catch (e) {

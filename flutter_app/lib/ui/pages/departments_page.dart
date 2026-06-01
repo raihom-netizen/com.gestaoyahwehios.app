@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show
@@ -2963,7 +2964,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   // Só stream de departamentos — hub mais leve (sem escutar `membros`).
                   return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     key: ValueKey<String>('dept_stream_$_tid'),
-                    stream: _col.snapshots(),
+                    stream: FirestoreStreamUtils.resilientQuery(_col.snapshots()),
                     builder: (context, deptSnap) {
                       final streamFailed = deptSnap.hasError;
                       final hasHydratedNonEmpty = _hydratedDeptDocs != null &&
@@ -3835,7 +3836,9 @@ class _DepartmentHubSheet extends StatelessWidget {
               const SizedBox(height: 4),
               Expanded(
                 child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  stream: deptRef.snapshots(),
+                  stream: FirestoreStreamUtils.resilientDocument(
+                    deptRef.snapshots(),
+                  ),
                   builder: (context, dSnap) {
                     if (dSnap.hasError) {
                       return Center(child: Text('Erro: ${dSnap.error}'));
@@ -3844,9 +3847,11 @@ class _DepartmentHubSheet extends StatelessWidget {
                     final leaderCpfs = ChurchDepartmentLeaders.cpfsFromDepartmentData(
                         deptData);
                     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: membersCol
-                          .where('DEPARTAMENTOS', arrayContains: deptId)
-                          .snapshots(),
+                      stream: FirestoreStreamUtils.resilientQuery(
+                        membersCol
+                            .where('DEPARTAMENTOS', arrayContains: deptId)
+                            .snapshots(),
+                      ),
                       builder: (context, mSnap) {
                         if (mSnap.hasError) {
                           return Center(child: Text('Erro: ${mSnap.error}'));

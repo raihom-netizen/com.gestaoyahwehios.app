@@ -40,25 +40,19 @@ Future<void> ensureFirebaseReadyForPublishUpload() =>
 Future<void> ensureFirebaseReadyForChatSend() =>
     FirebaseBootstrapService.ensureReadyForChatSend();
 
-/// Upload Storage: chat usa bootstrap leve; resto mantém verificação completa.
+/// Upload Storage — bootstrap único (Controle Total): init + token, sem health FCM.
 Future<void> ensureUploadBootstrapForStoragePath(String storagePath) async {
-  final p = storagePath.toLowerCase();
-  if (p.contains('chat_media') || p.contains('/chat/')) {
-    await ensureFirebaseReadyForChatSend();
-  } else {
-    await ensureFirebaseReadyForMediaUpload();
-  }
+  await FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true);
 }
 
+/// Tarefas de upload/chat — bootstrap leve + execução directa (sem reconnect em loop).
 Future<T> runFirebaseBackgroundTask<T>(
   Future<T> Function() fn, {
   String? debugLabel,
-}) =>
-    FirebaseBootstrapService.runGuarded(
-      fn,
-      debugLabel: debugLabel,
-      requireAuth: true,
-    );
+}) async {
+  await FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true);
+  return fn();
+}
 
 FirebaseApp get firebaseDefaultApp => FirebaseBootstrapService.defaultApp;
 

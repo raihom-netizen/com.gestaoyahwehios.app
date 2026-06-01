@@ -8,6 +8,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 class FirestoreStreamUtils {
   FirestoreStreamUtils._();
 
+  static bool isStreamAlreadyListened(Object error) {
+    final s = error.toString().toLowerCase();
+    return s.contains('stream has already been listened') ||
+        (s.contains('bad state') && s.contains('listened'));
+  }
+
   static bool isPermissionDenied(Object error) {
     if (error is FirebaseException) {
       return error.code == 'permission-denied';
@@ -36,6 +42,10 @@ class FirestoreStreamUtils {
             sink.add(const MergedFirestoreQuerySnapshot([]));
             return;
           }
+          if (isStreamAlreadyListened(error)) {
+            sink.add(const MergedFirestoreQuerySnapshot([]));
+            return;
+          }
           sink.addError(error, stackTrace);
         },
       ),
@@ -53,6 +63,10 @@ class FirestoreStreamUtils {
         handleData: (data, sink) => sink.add(data),
         handleError: (error, stackTrace, sink) {
           if (isPermissionDenied(error)) {
+            sink.add(_emptyDocumentSnapshot);
+            return;
+          }
+          if (isStreamAlreadyListened(error)) {
             sink.add(_emptyDocumentSnapshot);
             return;
           }

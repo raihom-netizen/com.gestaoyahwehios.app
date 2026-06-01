@@ -15,10 +15,14 @@ String formatFirebaseErrorForUser(
   bool logToCrashlytics = true,
 }) {
   if (error is FirebaseBootstrapException) {
-    logFirebaseDiagnostic(error.cause, error.stackTrace, context: error.code);
+    if (logToCrashlytics) {
+      logFirebaseDiagnostic(error.cause, error.stackTrace, context: error.code);
+    }
     return error.userMessage;
   }
-  logFirebaseDiagnostic(error, stackTrace, context: 'user_facing_error');
+  if (logToCrashlytics) {
+    logFirebaseDiagnostic(error, stackTrace, context: 'user_facing_error');
+  }
 
   if (error is TimeoutException) {
     final m = error.message?.trim();

@@ -78,14 +78,21 @@ import 'package:gestao_yahweh/core/public_web_route_parser.dart';
 import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
 
-/// Erros de carregamento de imagem/rede viram [FlutterError] com mensagem tipo "HTTP request failed..."
-/// e não indicam falha do Firestore. Registrar como **não fatal** evita ruído no Crashlytics.
-bool _crashlyticsFlutterErrorLikelyBenignNetwork(FlutterErrorDetails details) {
+import 'package:gestao_yahweh/services/crashlytics_benign_errors.dart';
+
+/// Erros que não devem contar como crash fatal no Crashlytics (rede, sessão, streams).
+bool _crashlyticsFlutterErrorLikelyBenign(FlutterErrorDetails details) {
   final ex = details.exception;
+  if (CrashlyticsBenignErrors.isBenign(ex)) return true;
   if (ex is NetworkImageLoadException) return true;
   final msg = details.exceptionAsString().toLowerCase();
   if (msg.contains('http request failed')) return true;
   if (msg.contains('http request') && msg.contains('statuscode')) return true;
+  if (msg.contains('bad state:') && msg.contains('stream has already been listened')) {
+    return true;
+  }
+  if (msg.contains('sessão expirada')) return true;
+  if (msg.contains('firebasebootstrapexception')) return true;
   return false;
 }
 
@@ -531,13 +538,13 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
               '${details.exceptionAsString()} | crashlytics_report: $e',
             ),
             details.stack ?? st,
-            fatal: !_crashlyticsFlutterErrorLikelyBenignNetwork(details),
+            fatal: !_crashlyticsFlutterErrorLikelyBenign(details),
           );
         } catch (_) {}
       }
 
       try {
-        if (_crashlyticsFlutterErrorLikelyBenignNetwork(details)) {
+        if (_crashlyticsFlutterErrorLikelyBenign(details)) {
           FirebaseCrashlytics.instance
               .recordFlutterError(details, fatal: false)
               .catchError((Object e, StackTrace st) {
@@ -555,8 +562,13 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       }
     };
     PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+      final benign = CrashlyticsBenignErrors.isBenign(error);
       try {
-        FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+        FirebaseCrashlytics.instance.recordError(
+          error,
+          stack,
+          fatal: !benign,
+        );
       } catch (e) {
         try {
           FirebaseCrashlytics.instance.recordError(

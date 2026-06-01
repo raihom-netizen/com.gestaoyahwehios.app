@@ -9,7 +9,9 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart'
     show debugPrint, kDebugMode, kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/firebase_options.dart';
+import 'package:gestao_yahweh/services/crashlytics_benign_errors.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 
 /// Falha estruturada — expõe causa original (não mensagem genérica).
@@ -60,6 +62,12 @@ class FirebaseBootstrapException implements Exception {
     String code,
     FirebaseHealthReport? health,
   ) {
+    if (code == 'auth_session_expired' ||
+        code == 'auth_no_user' ||
+        code == 'auth_anonymous') {
+      if (e is StateError && e.message.trim().isNotEmpty) return e.message;
+      return 'Sessão expirada. Saia e entre de novo no painel antes de publicar.';
+    }
     if (e is StateError && e.message.contains('Sessão expirada')) {
       return e.message;
     }
@@ -225,6 +233,16 @@ abstract final class FirebaseBootstrapService {
 
   static Reference storageRef(String path) => storage.ref(path);
 
+  static Never _throwSessionExpired() {
+    throw FirebaseBootstrapException.from(
+      StateError(
+        'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
+      ),
+      StackTrace.current,
+      code: 'auth_session_expired',
+    );
+  }
+
   /// Arranque obrigatório — chamar em [main] **antes** de [runApp].
   static Future<FirebaseBootstrapResult> initialize() async {
     if (_initCompleter != null) {
@@ -238,7 +256,10 @@ abstract final class FirebaseBootstrapService {
     }
     if (_hasApp() && _healthOkAt != null) {
       try {
-        final h = await healthCheck(requireAuthSession: false);
+        final h = await healthCheck(
+          requireAuthSession: false,
+          skipFcmProbe: true,
+        );
         return FirebaseBootstrapResult.ready(h);
       } catch (e, st) {
         _lastFailure = FirebaseBootstrapException.from(e, st);
@@ -258,7 +279,10 @@ abstract final class FirebaseBootstrapService {
           );
         }
         _cachedApp = Firebase.app();
-        final health = await healthCheck(requireAuthSession: false);
+        final health = await healthCheck(
+          requireAuthSession: false,
+          skipFcmProbe: true,
+        );
         _lastHealth = health;
         _lastFailure = null;
         _healthOkAt = DateTime.now();
@@ -266,6 +290,9 @@ abstract final class FirebaseBootstrapService {
         if (kDebugMode) {
           debugPrint('FirebaseBootstrapService: OK ${health.checkedAt}');
         }
+        try {
+          configureFirestoreForOfflineAndSpeed();
+        } catch (_) {}
         return FirebaseBootstrapResult.ready(health);
       } catch (e, st) {
         last = e;
@@ -283,66 +310,43 @@ abstract final class FirebaseBootstrapService {
     final fail = FirebaseBootstrapException.from(last!, lastSt);
     _lastFailure = fail;
     if (!c.isCompleted) c.completeError(fail, lastSt);
-    unawaited(CrashlyticsService.record(fail, lastSt, reason: 'firebase_init'));
+    if (CrashlyticsService.shouldReport(fail)) {
+      unawaited(CrashlyticsService.record(fail, lastSt, reason: 'firebase_init'));
+    }
     return FirebaseBootstrapResult.failed(fail);
   }
 
-  /// Sonda Firestore (cache) — confirma que `core/no-app` não voltará no `set`/`get`.
-  static Future<void> _assertFirestoreReachable() async {
-    try {
-      await firestore
-          .collection('_health')
-          .doc('client_ping')
-          .get(const GetOptions(source: Source.cache));
-    } catch (e) {
-      if (_isNoFirebaseApp(e)) {
-        await reconnect(requireAuthSession: false);
-        return;
-      }
-      if (e is FirebaseException &&
-          (e.code == 'permission-denied' || e.code == 'unavailable')) {
-        return;
-      }
-      rethrow;
-    }
-  }
-
-  /// Leituras do painel / mural — init completo sem exigir token fresco.
+  /// Leituras do painel / mural — init + Firestore (sem FCM/Functions).
   static Future<void> ensureReadyForPanelRead() async {
-    if (!isReady() || !_hasApp()) {
-      final r = await initialize();
-      if (!r.isReady && r.failure != null) throw r.failure!;
-    } else {
-      await FirebaseBootstrap.ensureInitialized();
-    }
-    await _assertFirestoreReachable();
+    await ensureReadyForStorageUpload(requireAuth: false);
   }
 
-  /// Publicar aviso/evento ou enviar mídia — init + sessão, sem health check FCM.
-  static Future<void> ensureReadyForPublishUpload() async {
-    if (!isReady() || !_hasApp()) {
+  /// Controle Total: `initializeApp` + token JWT — **sem** health check FCM/Functions
+  /// nem `_assertFirestoreReachable` (bloqueava upload de fotos no nativo).
+  static Future<void> ensureReadyForStorageUpload({
+    bool requireAuth = true,
+  }) async {
+    await FirebaseBootstrap.ensureInitialized();
+    if (!_hasApp()) {
       final r = await initialize();
       if (!r.isReady && r.failure != null) throw r.failure!;
-    } else {
-      await FirebaseBootstrap.ensureInitialized();
     }
-    await _assertFirestoreReachable();
+    if (!requireAuth) return;
+
     final user = auth.currentUser;
-    if (user == null) {
-      throw StateError(
-        'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
-      );
-    }
-    if (user.isAnonymous) {
-      throw StateError(
-        'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
-      );
+    if (user == null || user.isAnonymous) {
+      _throwSessionExpired();
     }
     try {
-      await user.getIdToken(false).timeout(const Duration(seconds: 12));
+      await user.getIdToken(false).timeout(const Duration(seconds: 10));
     } catch (_) {
       await user.getIdToken(true).timeout(const Duration(seconds: 15));
     }
+  }
+
+  /// Publicar aviso/evento ou enviar mídia — alias do bootstrap leve de Storage.
+  static Future<void> ensureReadyForPublishUpload() async {
+    await ensureReadyForStorageUpload(requireAuth: true);
   }
 
   /// Verificação Auth + Firestore + Storage (+ sessão se [requireAuthSession]).
@@ -393,16 +397,12 @@ abstract final class FirebaseBootstrapService {
         if (user == null) {
           authOk = false;
           authDetail = 'no_user';
-          throw StateError(
-            'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
-          );
+          _throwSessionExpired();
         }
         if (user.isAnonymous) {
           authOk = false;
           authDetail = 'anonymous';
-          throw StateError(
-            'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
-          );
+          _throwSessionExpired();
         }
         try {
           await user.getIdToken(false).timeout(const Duration(seconds: 20));
@@ -412,6 +412,10 @@ abstract final class FirebaseBootstrapService {
         }
       }
     } catch (e) {
+      if (e is FirebaseBootstrapException &&
+          e.code == 'auth_session_expired') {
+        rethrow;
+      }
       if (e is StateError && e.message.contains('Sessão')) rethrow;
       authOk = false;
       authDetail ??= e.toString();
@@ -492,7 +496,11 @@ abstract final class FirebaseBootstrapService {
     }
     final ex = FirebaseBootstrapException.from(last!, lastSt);
     _lastFailure = ex;
-    unawaited(CrashlyticsService.record(ex, lastSt, reason: 'firebase_reconnect'));
+    if (CrashlyticsService.shouldReport(ex)) {
+      unawaited(
+        CrashlyticsService.record(ex, lastSt, reason: 'firebase_reconnect'),
+      );
+    }
     throw ex;
   }
 
@@ -541,47 +549,15 @@ abstract final class FirebaseBootstrapService {
   }
 
   static Future<void> ensureReadyForMediaUpload({bool force = false}) async {
-    try {
-      if (force) {
-        await ensureReady(requireAuthSession: true, forceHealthCheck: true);
-      } else {
-        await ensureReadyForPublishUpload();
-      }
-    } catch (e, st) {
-      if (e is FirebaseBootstrapException) rethrow;
-      throw FirebaseBootstrapException.from(e, st);
+    if (force) {
+      await ensureReady(requireAuthSession: true, forceHealthCheck: false);
     }
+    await ensureReadyForStorageUpload(requireAuth: true);
   }
 
-  /// Envio de mensagens no chat — init + token (sem health check FCM/Functions).
+  /// Chat — mesmo bootstrap leve que avisos/eventos (paridade Controle Total).
   static Future<void> ensureReadyForChatSend() async {
-    await FirebaseBootstrap.ensureInitialized();
-    if (!_hasApp()) {
-      try {
-        final r = await initialize();
-        if (!r.isReady && r.failure != null) throw r.failure!;
-      } catch (e, st) {
-        if (!_hasApp()) {
-          throw FirebaseBootstrapException.from(e, st);
-        }
-      }
-    }
-    final user = auth.currentUser;
-    if (user == null) {
-      throw StateError(
-        'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
-      );
-    }
-    if (user.isAnonymous) {
-      throw StateError(
-        'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
-      );
-    }
-    try {
-      await user.getIdToken(false).timeout(const Duration(seconds: 12));
-    } catch (_) {
-      await user.getIdToken(true).timeout(const Duration(seconds: 15));
-    }
+    await ensureReadyForStorageUpload(requireAuth: true);
   }
 
   static bool _isChatGuardLabel(String? debugLabel) {
@@ -624,13 +600,16 @@ abstract final class FirebaseBootstrapService {
       } catch (e, st) {
         last = e;
         lastSt = st;
-        unawaited(
-          CrashlyticsService.record(
-            e,
-            st,
-            reason: debugLabel ?? 'firebase_guarded',
-          ),
-        );
+        if (CrashlyticsService.shouldReport(e)) {
+          unawaited(
+            CrashlyticsService.record(
+              e,
+              st,
+              reason: debugLabel ?? 'firebase_guarded',
+            ),
+          );
+        }
+        if (CrashlyticsBenignErrors.isBenign(e)) break;
         if (attempt >= maxAttempts) break;
         if (chatOp || mediaPublishOp) {
           await Future.delayed(Duration(milliseconds: 350 * attempt));

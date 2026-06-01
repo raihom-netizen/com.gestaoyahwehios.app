@@ -144,6 +144,7 @@ abstract final class YahwehMediaUploadPipeline {
           maxAttempts: maxAttempts,
           onProgress: onProgress,
           onTaskStarted: onUploadTaskCreated,
+          skipBootstrap: true,
         );
       } catch (e) {
         if (useOfflineQueue &&
@@ -236,15 +237,18 @@ abstract final class YahwehMediaUploadPipeline {
     int maxAttempts = 4,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
-  }) =>
-      _putDataDirect(
-        storagePath: storagePath,
-        bytes: bytes,
-        contentType: contentType,
-        maxAttempts: maxAttempts,
-        onProgress: onProgress,
-        onTaskStarted: onUploadTaskCreated,
-      );
+  }) async {
+    await ensureUploadBootstrapForStoragePath(storagePath);
+    return _putDataDirect(
+      storagePath: storagePath,
+      bytes: bytes,
+      contentType: contentType,
+      maxAttempts: maxAttempts,
+      onProgress: onProgress,
+      onTaskStarted: onUploadTaskCreated,
+      skipBootstrap: true,
+    );
+  }
 
   static Future<String> _putDataDirect({
     required String storagePath,
@@ -254,8 +258,11 @@ abstract final class YahwehMediaUploadPipeline {
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onTaskStarted,
     String cacheControl = 'public, max-age=31536000',
+    bool skipBootstrap = false,
   }) async {
-    await ensureUploadBootstrapForStoragePath(storagePath);
+    if (!skipBootstrap) {
+      await ensureUploadBootstrapForStoragePath(storagePath);
+    }
     Object? lastError;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {

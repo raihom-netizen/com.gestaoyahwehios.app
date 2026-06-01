@@ -629,12 +629,14 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     String tenantId,
     int lim,
   ) {
-    return db
-        .collection('igrejas')
-        .doc(tenantId)
-        .collection('membros')
-        .limit(lim)
-        .snapshots();
+    return FirestoreStreamUtils.resilientQuery(
+      db
+          .collection('igrejas')
+          .doc(tenantId)
+          .collection('membros')
+          .limit(lim)
+          .snapshots(),
+    );
   }
 
   /// Mesmo padrão de [membros]: slug/alias pode ter vários docs em `igrejas/` — departamentos devem agregar todos.
@@ -648,12 +650,14 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       );
     }
     if (allIds.length == 1) {
-      return db
-          .collection('igrejas')
-          .doc(allIds.first)
-          .collection('departamentos')
-          .limit(_dashboardDepartmentsLimit)
-          .snapshots();
+      return FirestoreStreamUtils.resilientQuery(
+        db
+            .collection('igrejas')
+            .doc(allIds.first)
+            .collection('departamentos')
+            .limit(_dashboardDepartmentsLimit)
+            .snapshots(),
+      );
     }
     return Stream<QuerySnapshot<Map<String, dynamic>>>.multi((ctrl) {
       final latest = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
@@ -2770,7 +2774,9 @@ class _DashboardInstitutionalVideoStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('igrejas').doc(tenantId).snapshots(),
+      stream: FirestoreStreamUtils.resilientDocument(
+        firebaseDefaultFirestore.collection('igrejas').doc(tenantId).snapshots(),
+      ),
       builder: (context, snap) {
         final data = snap.data?.data();
         if (data == null || !mapHasInstitutionalVideo(data)) {

@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -67,7 +68,6 @@ import 'widgets/gestor_welcome_dialog.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_lazy_module_policy.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
-import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_shell_nav_icon.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/app_theme.dart';
@@ -188,51 +188,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   bool get _isMobile => MediaQuery.sizeOf(context).width < _breakpointDesktop;
   bool get _isPhone => MediaQuery.sizeOf(context).width < _breakpointPhone;
 
-  /// Módulos em ecrã completo no telemóvel (sem rodapé; Voltar na barra do módulo ou shell).
-  bool _isMobileFullscreenModule(int index) {
-    if (!_isMobile || index == ChurchShellIndices.painel) return false;
-    return true;
-  }
-
-  /// Já trazem [ChurchEmbeddedModuleBar] ou cabeçalho próprio — evita barra duplicada.
-  static const Set<int> _shellModulesWithOwnMobileBar = {
-    ChurchShellIndices.membros,
-    ChurchShellIndices.muralAvisos,
-    ChurchShellIndices.muralEventos,
-    ChurchShellIndices.chatIgreja,
-    ChurchShellIndices.cartaoMembro,
-    ChurchShellIndices.financeiro,
-    ChurchShellIndices.patrimonio,
-    ChurchShellIndices.fornecedores,
-  };
-
-  Widget _wrapShellMobileModule(int index, Widget page) {
-    if (!_isMobile ||
-        index == ChurchShellIndices.painel ||
-        _shellBackToPainel == null ||
-        _shellModulesWithOwnMobileBar.contains(index)) {
-      return page;
-    }
-    final entry = kChurchShellNavEntries[index];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        ChurchEmbeddedModuleBar(
-          title: entry.label,
-          icon: entry.icon,
-          accent: entry.accent,
-          onBack: _shellBackToPainel!,
-          subtitle: _shellUserGreetingName(),
-        ),
-        Expanded(child: page),
-      ],
-    );
-  }
-
-  VoidCallback? get _shellBackToPainel =>
-      _isMobile && _selectedIndex != ChurchShellIndices.painel
-          ? () => setState(() => _selectedIndex = ChurchShellIndices.painel)
-          : null;
+  Widget _wrapShellMobileModule(int index, Widget page) => page;
 
   Future<void> _openUpgradePlans() async {
     if (!mounted) return;
@@ -258,7 +214,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
-    if (_isMobileFullscreenModule(_selectedIndex)) return null;
     // Rodapé + atalhos coloridos Super Premium (cores alinhadas a [kChurchShellNavEntries]).
     // Painel, Membros, Eventos, Avisos, Chat — o drawer continua acessível pelo menu no topo.
     final shortcuts = <_ChurchShellFooterShortcut>[
@@ -1962,7 +1917,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           linkedCpf: widget.cpf.trim().isEmpty ? null : widget.cpf,
           permissions: widget.permissions,
           embeddedInShell: true,
-          onShellBack: _shellBackToPainel,
           initialSearchQuery: bootMember,
           initialOpenMemberDocId: bootOpenId,
         );
@@ -1997,8 +1951,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             tenantId: widget.tenantId,
             role: widget.role,
             permissions: widget.permissions,
-            embeddedInShell: true,
-            onShellBack: _shellBackToPainel);
+            embeddedInShell: true);
       case 8:
         final bootEvent = _shellBootstrapEventSearch;
         if (bootEvent != null) {
@@ -2014,7 +1967,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             role: widget.role,
             permissions: widget.permissions,
             embeddedInShell: true,
-            onShellBack: _shellBackToPainel,
             initialFeedSearchQuery: bootEvent);
       case 9:
         return PrayerRequestsPage(
@@ -2052,7 +2004,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           embeddedInShell: true,
           cnhFullscreenOnly:
               AppPermissions.isRestrictedMember(widget.role),
-          onShellBack: _shellBackToPainel,
           onNavigateToMembers: AppPermissions.isRestrictedMember(widget.role)
               ? null
               : () => setState(
@@ -2111,7 +2062,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           podeVerFinanceiro: widget.podeVerFinanceiro,
           permissions: widget.permissions,
           embeddedInShell: true,
-          onShellBack: _shellBackToPainel,
         );
       case 21:
         final bootPat = _shellBootstrapPatrimonioSearch;
@@ -2130,7 +2080,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           permissions: widget.permissions,
           initialSearchQuery: bootPat,
           embeddedInShell: true,
-          onShellBack: _shellBackToPainel,
         );
       case 22:
         return FornecedoresPage(
@@ -2141,7 +2090,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           podeVerFornecedores: widget.podeVerFornecedores,
           permissions: widget.permissions,
           embeddedInShell: true,
-          onShellBack: _shellBackToPainel,
         );
       case 23:
         if (IosPaymentsGate.isIosNative) {
@@ -2165,7 +2113,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           cpf: widget.cpf,
           role: widget.role,
           embeddedInShell: true,
-          onShellBack: _shellBackToPainel,
           permissions: widget.permissions,
         );
       default:
@@ -2375,10 +2322,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       },
       child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         key: ValueKey('tenant_stream_$_tenantStreamRetry'),
-        stream: firebaseDefaultFirestore
-            .collection('igrejas')
-            .doc(widget.tenantId)
-            .snapshots(),
+        stream: FirestoreStreamUtils.resilientDocument(
+          firebaseDefaultFirestore
+              .collection('igrejas')
+              .doc(widget.tenantId)
+              .snapshots(),
+        ),
         builder: (context, tenantSnap) {
           if (tenantSnap.hasError) {
             return Scaffold(
@@ -2495,8 +2444,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                 /// Fornecedores / Financeiro: UI própria em ecrã completo (abas pill / resumo) — sem título duplicado.
                                 if (_selectedIndex != 0 &&
                                     _selectedIndex != 21 &&
-                                    _selectedIndex != 20 &&
-                                    !_isMobileFullscreenModule(_selectedIndex))
+                                    _selectedIndex != 20)
                                   ModuleHeaderPremium(
                                     title: _items[_selectedIndex].label,
                                     icon: _items[_selectedIndex].icon,
@@ -2597,10 +2545,12 @@ class _HeaderLocalizacao extends StatelessWidget {
   Widget build(BuildContext context) {
     if (tenantId.isEmpty) return const SizedBox.shrink();
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
-          .snapshots(),
+      stream: FirestoreStreamUtils.resilientDocument(
+        firebaseDefaultFirestore
+            .collection('igrejas')
+            .doc(tenantId)
+            .snapshots(),
+      ),
       builder: (context, snap) {
         final line = _lineFromChurch(snap.data?.data());
         if (line == null || line.isEmpty) return const SizedBox.shrink();
@@ -2645,10 +2595,12 @@ class _HeaderVencimento extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
-          .snapshots(),
+      stream: FirestoreStreamUtils.resilientDocument(
+        firebaseDefaultFirestore
+            .collection('igrejas')
+            .doc(tenantId)
+            .snapshots(),
+      ),
       builder: (context, snap) {
         final textColor = light ? Colors.white70 : const Color(0xFF64748B);
         if (!snap.hasData)

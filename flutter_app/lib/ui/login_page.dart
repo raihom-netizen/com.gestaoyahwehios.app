@@ -292,18 +292,11 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// Sessão Firebase já válida — biometria só confirma identidade (CT); senão entra directo.
+  /// Sessão Firebase no disco — painel directo (Controle Total: digital só no botão ou ao voltar do background).
   Future<void> _tryReturningUserAutoAccessOnLogin() async {
     if (!mounted || _loading) return;
     final existing = FirebaseAuth.instance.currentUser;
     if (existing == null || existing.isAnonymous) return;
-
-    final bioOn = await BiometricService().isEnabled();
-    if (bioOn && _nativeChurchLogin) {
-      await _continueWithSavedSessionBiometric();
-      return;
-    }
-
     await _enterPainelAfterRestoredSession();
   }
 
@@ -585,7 +578,7 @@ class _LoginPageState extends State<LoginPage> {
           u = FirebaseAuth.instance.currentUser;
         }
         if (u == null || u.isAnonymous) return;
-        await _tryAutoBiometricLoginOnce();
+        await _enterPainelAfterRestoredSession();
       });
     });
   }

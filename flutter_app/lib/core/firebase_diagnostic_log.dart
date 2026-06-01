@@ -14,7 +14,9 @@ void logFirebaseDiagnostic(
     debugPrint('[$label] $error');
     if (stack != null) debugPrint(stack.toString());
   }
-  unawaited(CrashlyticsService.record(error, stack, reason: label));
+  if (CrashlyticsService.shouldReport(error)) {
+    unawaited(CrashlyticsService.record(error, stack, reason: label));
+  }
 }
 
 /// Fases de publicação avisos/eventos (upload → Firestore).
@@ -27,7 +29,7 @@ void logFirebasePublishPhase(
   if (kDebugMode) {
     debugPrint('[$phase] $context${error != null ? ' | $error' : ''}');
   }
-  if (error != null) {
+  if (error != null && CrashlyticsService.shouldReport(error)) {
     unawaited(
       CrashlyticsService.record(error, stack, reason: '${phase}_$context'),
     );
