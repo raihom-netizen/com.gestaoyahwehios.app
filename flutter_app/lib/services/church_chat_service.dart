@@ -22,7 +22,9 @@ import 'church_chat_local_conversations.dart';
 import 'church_chat_member_prefs.dart';
 import 'church_chat_threads_list_cache.dart';
 import 'firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'analytics_service.dart';
 import 'media_upload_service.dart';
 import 'upload_storage_task.dart' show formatUploadErrorForUser;
@@ -1427,16 +1429,18 @@ class ChurchChatService {
     required String titleB,
   }) async {
     final id = dmThreadId(uidA, uidB);
-    await threadRef(tenantId, id).set(
-      {
-        'type': 'dm',
-        'participantUids': [uidA, uidB],
-        'titlesByUid': {uidA: titleA, uidB: titleB},
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    await runFirestorePublishWithRecovery<void>(() async {
+      await threadRef(tenantId, id).set(
+        {
+          'type': 'dm',
+          'participantUids': [uidA, uidB],
+          'titlesByUid': {uidA: titleA, uidB: titleB},
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    });
   }
 
   /// Atalhos do painel / membros — bootstrap + até 3 tentativas antes de abrir o hub.
@@ -1449,22 +1453,25 @@ class ChurchChatService {
   }) async {
     await ensureFirebaseReadyForChatSend().catchError((_) {});
     Object? lastError;
-    for (var attempt = 0; attempt < 3; attempt++) {
+    for (var attempt = 0; attempt < 5; attempt++) {
       try {
+        if (kIsWeb && attempt > 0) {
+          await FirestoreWebGuard.recoverFirestoreWebSession();
+        }
         await ensureDmThread(
           tenantId: tenantId,
           uidA: uidA,
           uidB: uidB,
           titleA: titleA,
           titleB: titleB,
-        ).timeout(const Duration(seconds: 14));
+        ).timeout(const Duration(seconds: 18));
         return true;
       } on TimeoutException catch (e) {
         lastError = e;
       } catch (e) {
         lastError = e;
       }
-      if (attempt < 2) {
+      if (attempt < 4) {
         await Future<void>.delayed(Duration(milliseconds: 350 * (attempt + 1)));
       }
     }

@@ -32,7 +32,10 @@ import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_strict.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/services/immediate_feed_photo_attach.dart';
+import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
@@ -3132,6 +3135,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   final List<Uint8List> _newImages = [];
   final List<String> _newImagePaths = [];
   final List<String> _newNames = [];
+  DocumentReference<Map<String, dynamic>>? _lazyPostRef;
+  bool _draftStubEnsured = false;
+  int _inFlightPhotoUploads = 0;
+
+  DocumentReference<Map<String, dynamic>> get _editorPostRef =>
+      widget.doc?.reference ?? (_lazyPostRef ??= widget.postsCollection.doc());
 
   int get _newPhotoCount => kIsWeb ? _newImages.length : _newImagePaths.length;
 
@@ -3140,33 +3149,111 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   int get _maxPhotosPerPost => churchPostMaxFeedPhotos(widget.type);
 
   Future<void> _addEncodedFeedPhoto(XFile encoded) async {
+    final displayName = encoded.name.isNotEmpty
+        ? encoded.name
+        : (kIsWeb ? 'foto.webp' : 'foto.jpg');
+    Uint8List? webBytes;
+    String? mobilePath;
     if (kIsWeb) {
-      final bytes = await encoded.readAsBytes();
+      webBytes = await encoded.readAsBytes();
       if (!mounted) return;
       setState(() {
-        _newImages.add(bytes);
-        _newNames.add(encoded.name);
+        _newImages.add(webBytes!);
+        _newNames.add(displayName);
       });
-      return;
-    }
-    final path = await FeedEditorMediaService.persistXFileToTemp(encoded);
-    if (path == null || !File(path).existsSync()) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.errorSnackBarWithRetry(
-            'Não foi possível preparar a foto. Tente outra imagem.',
-          ),
-        );
+    } else {
+      mobilePath = await FeedEditorMediaService.persistXFileToTemp(encoded);
+      if (mobilePath == null || !File(mobilePath).existsSync()) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.errorSnackBarWithRetry(
+              'Não foi possível preparar a foto. Tente outra imagem.',
+            ),
+          );
+        }
+        return;
       }
-      return;
+      if (!mounted) return;
+      setState(() {
+        _newImagePaths.add(mobilePath!);
+        _newNames.add(
+          displayName.isNotEmpty ? displayName : mobilePath!.split('/').last,
+        );
+      });
     }
     if (!mounted) return;
-    setState(() {
-      _newImagePaths.add(path);
-      _newNames.add(
-        encoded.name.isNotEmpty ? encoded.name : path.split('/').last,
+    ImmediateMediaAttachFeedback.showArquivoAnexado(context, displayName);
+    unawaited(
+      _uploadAttachedFeedPhotoInBackground(
+        webBytes: webBytes,
+        mobilePath: mobilePath,
+      ),
+    );
+  }
+
+  void _removePendingPhotoFromLists({Uint8List? webBytes, String? mobilePath}) {
+    if (webBytes != null) {
+      final i = _newImages.indexOf(webBytes);
+      if (i >= 0) {
+        _newImages.removeAt(i);
+        if (i < _newNames.length) _newNames.removeAt(i);
+      }
+    } else if (mobilePath != null) {
+      final i = _newImagePaths.indexOf(mobilePath);
+      if (i >= 0) {
+        _newImagePaths.removeAt(i);
+        if (i < _newNames.length) _newNames.removeAt(i);
+      }
+    }
+  }
+
+  Future<void> _uploadAttachedFeedPhotoInBackground({
+    Uint8List? webBytes,
+    String? mobilePath,
+  }) async {
+    if (!mounted) return;
+    final slot = _existingUrls.length + _inFlightPhotoUploads;
+    _inFlightPhotoUploads++;
+    try {
+      final ref = _editorPostRef;
+      if (widget.doc == null && !_draftStubEnsured) {
+        await ImmediateFeedPhotoAttach.ensureDraftPost(
+          docRef: ref,
+          isNewDoc: true,
+          tenantId: widget.tenantId,
+          postType: widget.type,
+          title: _title.text,
+        );
+        _draftStubEnsured = true;
+      }
+      final url = await ImmediateFeedPhotoAttach.uploadSingleSlot(
+        tenantId: widget.tenantId,
+        postType: widget.type,
+        postId: ref.id,
+        slotIndex: slot,
+        bytes: webBytes,
+        localPath: mobilePath,
       );
-    });
+      if (!mounted) return;
+      if (url != null && url.isNotEmpty) {
+        setState(() {
+          _removePendingPhotoFromLists(
+            webBytes: webBytes,
+            mobilePath: mobilePath,
+          );
+          _existingUrls.add(url);
+        });
+        if (mounted) {
+          ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _inFlightPhotoUploads--);
+      } else {
+        _inFlightPhotoUploads--;
+      }
+    }
   }
 
   Future<List<Uint8List>> _copyNewImagesForPublish() async {
@@ -3232,7 +3319,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(FastMediaPublishBootstrap.warmForFeedPublish());
+    unawaited(ImmediateMediaWarm.warmFeed());
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
     _bodyDescription = TextEditingController(
@@ -3857,9 +3944,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
+      await ImmediateMediaWarm.drainInFlight(() => _inFlightPhotoUploads);
       try {
-        await FastMediaPublishBootstrap.warmForFeedPublish()
-            .timeout(const Duration(seconds: 25));
+        await ImmediateMediaWarm.warmFeed();
       } catch (e) {
         if (isFirebaseNoAppError(e)) {
           await ensureFirebaseReadyForPublishUpload().catchError((_) {});
@@ -3869,8 +3956,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           rethrow;
         }
       }
-      final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
-      final isNewDoc = widget.doc == null;
+      final docRef = _editorPostRef;
+      final isNewDoc = widget.doc == null && !_draftStubEnsured;
       final hasNewImages = _newPhotoCount > 0;
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
@@ -3988,8 +4075,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     setState(() => _saving = true);
     try {
       await ensureFirebaseReadyForPublishUpload();
-      final docRef = widget.doc?.reference ?? widget.postsCollection.doc();
-      final isNewDoc = widget.doc == null;
+      final docRef = _editorPostRef;
+      final isNewDoc = widget.doc == null && !_draftStubEnsured;
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
       if (existingUrls.isNotEmpty) {

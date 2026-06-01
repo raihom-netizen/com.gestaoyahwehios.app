@@ -112,6 +112,8 @@ class AppPermissions {
   }
 
   /// Criar/editar/excluir avisos, eventos (feed) e agenda interna.
+  /// Alinhado a [canWriteMuralFeed] no Firestore: gestor/admin, pastoral, secretário,
+  /// tesoureiro e líder de departamento — não membro comum nem permissão `eventos` isolada.
   static bool canManageChurchMuralEventsAgenda(
     String role, {
     List<String>? permissions,
@@ -129,12 +131,6 @@ class AppPermissions {
         !hasModulePermission(permissions, 'agenda_edicao')) {
       return false;
     }
-    if (hasModulePermission(permissions, 'eventos') ||
-        hasModulePermission(permissions, 'eventos_avisos_edicao') ||
-        hasModulePermission(permissions, 'mural_avisos_edicao') ||
-        hasModulePermission(permissions, 'agenda_edicao')) {
-      return true;
-    }
     if (isRestrictedMember(role)) return false;
     final n = ChurchRolePermissions.normalize(role);
     if (ChurchRolePermissions.isDepartmentLeaderRoleKey(n)) return true;
@@ -142,11 +138,8 @@ class AppPermissions {
         n == ChurchRoleKeys.pastorAuxiliar ||
         n == ChurchRoleKeys.pastorPresidente ||
         n == ChurchRoleKeys.secretario ||
-        n == ChurchRoleKeys.presbitero ||
         n == ChurchRoleKeys.tesoureiro ||
-        n == ChurchRoleKeys.tesouraria ||
-        n == ChurchRoleKeys.diacono ||
-        n == ChurchRoleKeys.evangelista) {
+        n == ChurchRoleKeys.tesouraria) {
       return true;
     }
     return AppRoles.isFullAccess(role);
@@ -340,6 +333,21 @@ class AppPermissions {
   /// Papel [membro] só altera o próprio cadastro (UI + fluxo "Meu cadastro").
   static bool canEditAnyChurchMember(String role) {
     return ChurchRolePermissions.snapshotFor(role).editAnyMember;
+  }
+
+  /// Trocar foto de perfil de qualquer membro no módulo Membros (alinhado a [canStaffEditAnyMemberRecord] no Firestore).
+  static bool canStaffEditAnyMemberProfilePhoto(String role) {
+    if (AppRoles.isFullAccess(role)) return true;
+    final n = ChurchRolePermissions.normalize(role);
+    if (n == ChurchRoleKeys.pastor ||
+        n == ChurchRoleKeys.pastorAuxiliar ||
+        n == ChurchRoleKeys.pastorPresidente ||
+        n == ChurchRoleKeys.secretario ||
+        n == ChurchRoleKeys.tesoureiro ||
+        n == ChurchRoleKeys.tesouraria) {
+      return true;
+    }
+    return false;
   }
 
   // Módulo escalas (Escala Geral — membro não vê; só "Minha Escala" do departamento dele)

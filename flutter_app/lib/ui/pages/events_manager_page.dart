@@ -73,7 +73,10 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
+import 'package:gestao_yahweh/services/immediate_feed_photo_attach.dart';
+import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
@@ -153,7 +156,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   final GlobalKey<_FeedTabState> _feedTabKey = GlobalKey<_FeedTabState>();
   final GlobalKey<_FixosTabState> _fixosTabKey = GlobalKey<_FixosTabState>();
 
-  /// Alinhado às regras Firestore [canWriteMuralFeed]: equipe + permissão `eventos` + líder de departamento.
+  /// Alinhado às regras Firestore [canWriteMuralFeed]: gestor, pastoral, secretário, tesoureiro, líder depto.
   bool get _canWrite => AppPermissions.canManageChurchMuralEventsAgenda(
         widget.role,
         permissions: widget.permissions,
@@ -5394,40 +5397,122 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   final List<Uint8List> _newImages = [];
   final List<String> _newImagePaths = [];
   final List<String> _newNames = [];
+  int _inFlightPhotoUploads = 0;
+  bool _eventDraftEnsured = false;
 
   int get _newPhotoCount => kIsWeb ? _newImages.length : _newImagePaths.length;
 
   Future<void> _addEncodedEventPhoto(XFile encoded) async {
+    final displayName = encoded.name.isNotEmpty
+        ? encoded.name
+        : (kIsWeb ? 'foto.webp' : 'foto.jpg');
+    Uint8List? webBytes;
+    String? mobilePath;
     if (kIsWeb) {
-      final bytes = await encoded.readAsBytes();
+      webBytes = await encoded.readAsBytes();
       if (!mounted) return;
       setState(() {
-        _newImages.add(bytes);
-        _newNames.add(encoded.name);
+        _newImages.add(webBytes!);
+        _newNames.add(displayName);
       });
-      return;
-    }
-    final path = await FeedEditorMediaService.persistXFileToTemp(
-      encoded,
-      prefix: 'gy_event',
-    );
-    if (path == null || !File(path).existsSync()) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.errorSnackBarWithRetry(
-            'Não foi possível preparar a foto. Tente outra imagem.',
-          ),
-        );
+    } else {
+      mobilePath = await FeedEditorMediaService.persistXFileToTemp(
+        encoded,
+        prefix: 'gy_event',
+      );
+      if (mobilePath == null || !File(mobilePath).existsSync()) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.errorSnackBarWithRetry(
+              'Não foi possível preparar a foto. Tente outra imagem.',
+            ),
+          );
+        }
+        return;
       }
-      return;
+      if (!mounted) return;
+      setState(() {
+        _newImagePaths.add(mobilePath!);
+        _newNames.add(
+          displayName.isNotEmpty ? displayName : mobilePath!.split('/').last,
+        );
+      });
     }
     if (!mounted) return;
-    setState(() {
-      _newImagePaths.add(path);
-      _newNames.add(
-        encoded.name.isNotEmpty ? encoded.name : path.split('/').last,
+    ImmediateMediaAttachFeedback.showArquivoAnexado(context, displayName);
+    unawaited(
+      _uploadAttachedEventPhotoInBackground(
+        webBytes: webBytes,
+        mobilePath: mobilePath,
+      ),
+    );
+  }
+
+  void _removePendingEventPhotoFromLists({
+    Uint8List? webBytes,
+    String? mobilePath,
+  }) {
+    if (webBytes != null) {
+      final i = _newImages.indexOf(webBytes);
+      if (i >= 0) {
+        _newImages.removeAt(i);
+        if (i < _newNames.length) _newNames.removeAt(i);
+      }
+    } else if (mobilePath != null) {
+      final i = _newImagePaths.indexOf(mobilePath);
+      if (i >= 0) {
+        _newImagePaths.removeAt(i);
+        if (i < _newNames.length) _newNames.removeAt(i);
+      }
+    }
+  }
+
+  Future<void> _uploadAttachedEventPhotoInBackground({
+    Uint8List? webBytes,
+    String? mobilePath,
+  }) async {
+    if (!mounted) return;
+    final slot = _existingUrls.length + _inFlightPhotoUploads;
+    _inFlightPhotoUploads++;
+    try {
+      if (widget.doc == null && !_eventDraftEnsured) {
+        await ImmediateFeedPhotoAttach.ensureDraftPost(
+          docRef: _eventDocRef,
+          isNewDoc: true,
+          tenantId: widget.tenantId,
+          postType: 'evento',
+          title: _title.text,
+        );
+        _eventDraftEnsured = true;
+      }
+      final url = await ImmediateFeedPhotoAttach.uploadSingleSlot(
+        tenantId: widget.tenantId,
+        postType: 'evento',
+        postId: _eventDocRef.id,
+        slotIndex: slot,
+        bytes: webBytes,
+        localPath: mobilePath,
       );
-    });
+      if (!mounted) return;
+      if (url != null && url.isNotEmpty) {
+        setState(() {
+          _removePendingEventPhotoFromLists(
+            webBytes: webBytes,
+            mobilePath: mobilePath,
+          );
+          _existingUrls.add(url);
+        });
+        if (mounted) {
+          ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _inFlightPhotoUploads--);
+      } else {
+        _inFlightPhotoUploads--;
+      }
+    }
   }
 
   Future<List<Uint8List>> _copyNewImagesForPublish() async {
@@ -5695,7 +5780,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(FastMediaPublishBootstrap.warmForFeedPublish());
+    unawaited(ImmediateMediaWarm.warmFeed());
     _eventDocRef = widget.doc?.reference ?? widget.noticias.doc();
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
@@ -6681,16 +6766,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       return;
     }
     setState(() => _saving = true);
+    await ImmediateMediaWarm.drainInFlight(() => _inFlightPhotoUploads);
     final docRef = _eventDocRef;
     final postId = docRef.id;
-    final isNewDoc = widget.doc == null;
+    final isNewDoc = widget.doc == null && !_eventDraftEnsured;
     try {
       try {
-        await FastMediaPublishBootstrap.warmForFeedPublish();
+        await ImmediateMediaWarm.warmFeed();
       } catch (e) {
         if (isFirebaseNoAppError(e)) {
           await FirebaseBootstrapService.reconnect(requireAuthSession: true);
-          await FastMediaPublishBootstrap.warmForFeedPublish();
+          await ImmediateMediaWarm.warmFeed();
         } else {
           rethrow;
         }
@@ -6969,7 +7055,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     setState(() => _saving = true);
     final docRef = _eventDocRef;
-    final isNewDoc = widget.doc == null;
+    final isNewDoc = widget.doc == null && !_eventDraftEnsured;
     try {
       await runFirebaseBackgroundTask(() async {
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);

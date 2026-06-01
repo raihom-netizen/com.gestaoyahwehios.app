@@ -132,6 +132,41 @@ service cloud.firestore {
         && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid);
     }
     /// CPF 11 dígitos em `users` (cpf / CPF / linkedCpf / cpfDigits) → doc `membros/{cpf}`.
+    function memberDocIdFromUserData(d) {
+      return ('memberDocId' in d && d.memberDocId is string && d.memberDocId.size() > 0)
+        ? d.memberDocId
+        : (('member_doc_id' in d && d.member_doc_id is string && d.member_doc_id.size() > 0)
+            ? d.member_doc_id : '');
+    }
+    /// O utilizador autenticado é o titular desta ficha (`membros/{memberId}`), incluindo doc id = CPF.
+    function requesterOwnsMemberDoc(tenantId, memberId) {
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(memberId);
+      let rootU = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && exists(p) && (
+        memberId == request.auth.uid
+        || get(p).data.authUid == request.auth.uid
+        || get(p).data.firebaseUid == request.auth.uid
+        || (exists(rootU) && memberDocIdFromUserData(get(rootU).data) == memberId
+          && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid))
+        || (exists(rootU) && cpf11MembroDocLinksAuth(tenantId, get(rootU).data)
+          && memberId.matches('^[0-9]{11}$'))
+      );
+    }
+    /// Gestor, pastoral, secretariado ou tesouraria — editar ficha/foto de qualquer membro no módulo Membros.
+    function canStaffEditAnyMemberRecord(tenantId) {
+      return isMaster() || isAdminPanel() || canWriteTenant(tenantId)
+        || (canAccessTenant(tenantId) && (
+          canManageChurch()
+          || isPastoralOrSecretariatRole()
+          || isPastorAuxiliarRole()
+          || isTreasurer()
+        ))
+        || (emailMatchesTenant(tenantId) && (
+          isPastoralOrSecretariatRole()
+          || isPastorAuxiliarRole()
+          || isTreasurer()
+        ));
+    }
     function cpf11MembroDocLinksAuth(tenantId, d) {
       let c1 = ('cpf' in d && d.cpf is string) ? d.cpf : '';
       let c2 = ('CPF' in d && d.CPF is string) ? d.CPF : '';
@@ -148,24 +183,25 @@ service cloud.firestore {
         && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid);
     }
     /// Papéis em arrays `roles` (root `users` ou `igrejas/{tenant}/users`) — o app grava listas; [role()] só tratavia MASTER/ADM/GESTOR na lista.
+    /// Mural avisos/eventos: gestor, pastoral, secretariado, tesouraria, líder de departamento (sem diácono/evangelista/presbítero).
     function muralRolesArrayMatches(roles) {
       return roles is list && roles.hasAny([
+        'GESTOR', 'gestor', 'Gestor',
+        'ADMIN', 'ADM', 'admin', 'adm', 'Adm', 'Admin',
+        'administrador', 'administradora', 'Administrador', 'Administradora',
         'PASTOR', 'pastor', 'PASTORA', 'pastora', 'Pastor', 'Pastora',
         'pastor_presidente', 'PASTOR_PRESIDENTE', 'Pastor Presidente',
         'pastora_presidente', 'pastora presidente',
         'pastor_auxiliar', 'PASTOR_AUXILIAR', 'Pastor Auxiliar',
         'ministerial', 'pastor_auxiliar_ministerial',
         'SECRETARIO', 'secretario', 'Secretário', 'SECRETÁRIO', 'Secretario', 'secretária', 'Secretaria',
-        'PRESBITERO', 'presbitero', 'PRESBITERA', 'presbitera', 'Presbitero', 'Presbitera',
-        'lider', 'LIDER', 'Lider',
+        'lider', 'LIDER', 'Lider', 'líder', 'LÍDER', 'Líder',
         'lider_departamento', 'LIDER_DEPARTAMENTO', 'Lider Departamento',
         'lider_depto', 'LIDER_DEPTO', 'lider_de_departamento', 'lider_ministerio',
         'Líder de Departamento', 'líder de departamento',
         'lider_grupo', 'LIDER_GRUPO', 'Lider grupo', 'Lider Grupo',
         'Líder de grupo', 'líder de grupo', 'Lider de grupo', 'LIDER DE GRUPO', 'lider de grupo',
         'lider_de_grupo', 'LIDER_DE_GRUPO',
-        'diacono', 'DIACONO', 'Diácono', 'Diaconisa', 'diaconisa',
-        'evangelista', 'EVANGELISTA', 'Evangelista',
         'tesoureiro', 'TESOUREIRO', 'Tesoureiro',
         'tesouraria', 'TESOURARIA', 'Tesouraria'
       ]);
@@ -184,15 +220,12 @@ service cloud.firestore {
         r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar' ||
         r == 'ministerial' || r == 'pastor_auxiliar_ministerial' ||
         r == 'SECRETARIO' || r == 'secretario' || r == 'Secretário' || r == 'SECRETÁRIO' || r == 'Secretario' || r == 'secretária' || r == 'Secretaria' ||
-        r == 'PRESBITERO' || r == 'presbitero' || r == 'PRESBITERA' || r == 'presbitera' || r == 'Presbitero' || r == 'Presbitera' ||
         r == 'lider' || r == 'LIDER' || r == 'Lider' || r == 'líder' || r == 'LÍDER' || r == 'Líder' ||
         r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento' ||
         r == 'lider_depto' || r == 'LIDER_DEPTO' || r == 'lider_de_departamento' || r == 'lider_ministerio' ||
         r == 'lider_grupo' || r == 'LIDER_GRUPO' || r == 'Lider grupo' || r == 'Lider Grupo' ||
         r == 'Líder de grupo' || r == 'líder de grupo' || r == 'Lider de grupo' || r == 'LIDER DE GRUPO' || r == 'lider de grupo' ||
         r == 'lider_de_grupo' || r == 'LIDER_DE_GRUPO' ||
-        r == 'diacono' || r == 'DIACONO' || r == 'Diácono' || r == 'Diaconisa' || r == 'diaconisa' ||
-        r == 'evangelista' || r == 'EVANGELISTA' || r == 'Evangelista' ||
         r == 'tesoureiro' || r == 'TESOUREIRO' || r == 'Tesoureiro' ||
         r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria' ||
         r == 'GESTOR' || r == 'gestor' || r == 'Gestor' ||
@@ -302,9 +335,7 @@ service cloud.firestore {
     }
     function memberMembroDataAllowsMural(d) {
       return muralSingleRoleAllowsMural(memberMembroRoleString(d))
-        || (d.roles is list && muralRolesArrayMatches(d.roles))
-        || ('permissions' in d && muralPermissionKeysMatch(d.permissions))
-        || ('PERMISSIONS' in d && muralPermissionKeysMatch(d.PERMISSIONS));
+        || (d.roles is list && muralRolesArrayMatches(d.roles));
     }
     /// Edição de fichas / diretório: `membros` (legado) ou `membros_edicao` — não usar só `membros_ver` (leitura).
     function hasTenantMembrosDirectoryEditPermission(tenantId) {
@@ -343,7 +374,7 @@ service cloud.firestore {
         || hasTenantModulePermission(tenantId, 'certificados')
       );
     }
-    /// Diácono, evangelista, líder, tesouraria — mesmo critério do app ([EventsManagerPage] `_canWrite`).
+    /// Tesouraria e líder de departamento no token `users.role` (sem diácono/evangelista).
     function isEventosMuralEditorRole() {
       let r = role();
       return r != null && (
@@ -354,56 +385,46 @@ service cloud.firestore {
         r == 'lider_grupo' || r == 'LIDER_GRUPO' || r == 'Lider grupo' || r == 'Lider Grupo' ||
         r == 'Líder de grupo' || r == 'líder de grupo' || r == 'Lider de grupo' || r == 'LIDER DE GRUPO' ||
         r == 'lider_de_grupo' || r == 'LIDER_DE_GRUPO' ||
-        r == 'diacono' || r == 'DIACONO' || r == 'Diácono' || r == 'Diaconisa' || r == 'diaconisa' ||
-        r == 'evangelista' || r == 'EVANGELISTA' || r == 'Evangelista' ||
         r == 'tesoureiro' || r == 'TESOUREIRO' || r == 'Tesoureiro' ||
         r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria'
+      );
+    }
+    /// Pastor/secretário no token — mural (sem presbítero; certificados usam [isPastoralOrSecretariatRole]).
+    function isPastoralOrSecretariatMuralRole() {
+      let r = role();
+      return r != null && (
+        r == 'PASTOR' || r == 'pastor' || r == 'PASTORA' || r == 'pastora' || r == 'Pastor' || r == 'Pastora' ||
+        r == 'pastor_presidente' || r == 'PASTOR_PRESIDENTE' || r == 'Pastor Presidente' || r == 'pastora_presidente' ||
+        r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar' ||
+        r == 'ministerial' || r == 'pastor_auxiliar_ministerial' ||
+        r == 'SECRETARIO' || r == 'secretario' || r == 'Secretário' || r == 'SECRETÁRIO' || r == 'Secretario' ||
+        r == 'secretária' || r == 'Secretaria'
       );
     }
     /// Alguns cadastros guardam papel em `igrejas/{tenant}/users/{uid}.role` (string), sem popular `users/{uid}.role`.
     function tenantUserRoleAllowsMural(tenantId) {
       let p = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
       let r = exists(p) && get(p).data.role is string ? get(p).data.role : '';
-      return [
-        'GESTOR', 'gestor', 'Gestor',
-        'ADMIN', 'ADM', 'admin', 'adm', 'Adm', 'Admin',
-        'administrador', 'administradora', 'Administrador', 'Administradora',
-        'PASTOR', 'pastor', 'PASTORA', 'pastora', 'Pastor', 'Pastora',
-        'pastor_presidente', 'PASTOR_PRESIDENTE', 'Pastor Presidente', 'pastora_presidente',
-        'SECRETARIO', 'secretario', 'Secretário', 'SECRETÁRIO', 'Secretario', 'secretária', 'Secretaria',
-        'PRESBITERO', 'presbitero', 'PRESBITERA', 'presbitera', 'Presbitero', 'Presbitera',
-        'lider', 'LIDER', 'Lider', 'líder', 'LÍDER', 'Líder',
-        'lider_departamento', 'LIDER_DEPARTAMENTO', 'Lider Departamento',
-        'lider_depto', 'LIDER_DEPTO', 'lider_de_departamento', 'lider_ministerio',
-        'lider_grupo', 'LIDER_GRUPO', 'Lider grupo', 'Lider Grupo',
-        'Líder de grupo', 'líder de grupo', 'Lider de grupo', 'LIDER DE GRUPO', 'lider de grupo',
-        'lider_de_grupo', 'LIDER_DE_GRUPO',
-        'diacono', 'DIACONO', 'Diácono', 'Diaconisa', 'diaconisa',
-        'evangelista', 'EVANGELISTA', 'Evangelista',
-        'tesoureiro', 'TESOUREIRO', 'Tesoureiro',
-        'tesouraria', 'TESOURARIA', 'Tesouraria'
-      ].hasAny([r]);
+      return muralSingleRoleAllowsMural(r);
     }
-    /// Mural: eventos (`noticias`) e avisos — alinhado ao botão Publicar no app (sem exigir só gestor).
+    /// Mural: avisos/eventos/agenda — gestor, pastor, admin, secretário, tesoureiro, líder de departamento.
+    /// Membro comum e permissão granular `eventos` isolada não publicam (chat continua aberto a todos).
     function canWriteMuralFeed(tenantId) {
       return isAdminPanel() || canWriteTenant(tenantId)
         || muralRoleFromMemberDoc(tenantId)
         || muralRoleFromLinkedMemberDoc(tenantId)
         || muralRoleFromTenantUserDoc(tenantId)
-        || (isSignedIn() && memberLinkedToTenant(tenantId) && hasTenantMuralEventosPermission(tenantId))
         || (canAccessTenant(tenantId) && (
-          isPastoralOrSecretariatRole()
+          isPastoralOrSecretariatMuralRole()
           || isEventosMuralEditorRole()
           || muralRoleFromRolesArrays(tenantId)
           || tenantUserRoleAllowsMural(tenantId)
-          || hasTenantMuralEventosPermission(tenantId)
         ))
         || (emailMatchesTenant(tenantId) && (
-          isPastoralOrSecretariatRole()
+          isPastoralOrSecretariatMuralRole()
           || isEventosMuralEditorRole()
           || muralRoleFromRolesArrays(tenantId)
           || tenantUserRoleAllowsMural(tenantId)
-          || hasTenantMuralEventosPermission(tenantId)
         ));
     }
 
@@ -421,9 +442,9 @@ service cloud.firestore {
       );
     }
 
-    /// Finalização de fotos em segundo plano (`publishState` uploading → published/failed) — evita `canWriteMuralFeed` (vários get).
+    /// Finalização de fotos em segundo plano (`publishState` uploading → published/failed).
     function muralPostPublishFinalizeAllowed(tenantId) {
-      return chatTenantMemberFast(tenantId)
+      return canWriteMuralFeed(tenantId)
         && resource.data.publishState == 'uploading'
         && request.resource.data.publishState is string
         && (request.resource.data.publishState == 'published'
@@ -516,23 +537,19 @@ service cloud.firestore {
           && request.resource.data.FILIACAO is string
           && request.resource.data.DEPARTAMENTOS is list);
 
-        // Gravação: não basta estar logado — precisa ser da igreja (gestão) ou pastoral/secretariado,
-        // ou o próprio membro (authUid) para atualizar a própria ficha. Cadastro público pendente mantido.
-        // Pastor auxiliar / ministerial: no app pode aprovar cadastros ([approvePendingMembers]) mas não entra em isPastoralOrSecretariatRole().
+        // Gravação: equipe (gestor, pastoral, secretário, tesoureiro) ou o próprio membro (ficha/CPF/authUid).
+        // Foto de perfil: membro altera a sua; equipe altera qualquer uma no módulo Membros (Storage + estes campos).
         allow update: if (request.auth == null
               && resource.data.PUBLIC_SIGNUP == true
               && resource.data.STATUS == 'pendente'
               && request.resource.data.STATUS == 'pendente')
           || (request.auth != null && (
               isMaster()
-              || canWriteTenant(id)
-              || (canAccessTenant(id) && isPastoralOrSecretariatRole())
-              || (canAccessTenant(id) && isPastorAuxiliarRole())
+              || canStaffEditAnyMemberRecord(id)
               || (canAccessTenant(id) && isDepartmentLeaderRole())
               || (canAccessTenant(id) && deptLeaderFromRolesArrays(id))
               || (canAccessTenant(id) && hasTenantMembrosDirectoryEditPermission(id))
-              || (canAccessTenant(id) && resource.data.authUid == request.auth.uid)
-              || (canAccessTenant(id) && memberId == request.auth.uid)
+              || requesterOwnsMemberDoc(id, memberId)
               || (canAccessTenant(id) && escalaIndisponibilidadeUpdateOnly() && memberEmailMatchesAuth())
             ));
         allow delete: if request.auth != null
@@ -726,7 +743,7 @@ service cloud.firestore {
         allow write: if isAdminPanel() || canWriteTenant(id);
       }
       // Horários/capas de cultos fixos no site público (visitante sem login).
-      // Escrita: mesmo critério do mural (`canWriteMuralFeed`) — permissão `eventos` + papéis, não só gestor.
+      // Escrita: mesmo critério do mural (`canWriteMuralFeed`) — liderança da igreja, não membro comum.
       match /event_templates/{docId} {
         allow read: if isMaster() || canAccessTenant(id)
           || !resource.data.keys().hasAll(['active']) || resource.data.active == true;
@@ -1283,8 +1300,9 @@ service cloud.firestore {
       }
 
       match /chat_presence/{uid} {
-        allow read: if canAccessTenant(id);
-        allow create, update: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
+        allow read: if canAccessTenant(id) || memberLinkedToTenant(id);
+        allow create, update: if isSignedIn() && request.auth.uid == uid
+          && (canAccessTenant(id) || memberLinkedToTenant(id));
         allow delete: if false;
       }
 

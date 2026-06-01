@@ -42,6 +42,7 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart'
     show avatarColorForMember;
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
@@ -51,6 +52,7 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
@@ -1699,6 +1701,25 @@ class _MembersPageState extends State<MembersPage> {
   bool _canEditMemberRecord(_MemberDoc member) =>
       _canManage || _isSelfMember(member);
 
+  /// Foto de perfil: membro altera a sua; gestor, pastoral, secretário e tesoureiro alteram qualquer uma.
+  bool _canChangeMemberPhoto(_MemberDoc member) =>
+      _isSelfMember(member) ||
+      AppPermissions.canStaffEditAnyMemberProfilePhoto(widget.role);
+
+  Future<void> _openMemberProfilePhotoEditor(
+    BuildContext context,
+    _MemberDoc member,
+  ) async {
+    final result = await showMemberProfilePhotoEditorSheet(
+      context,
+      tenantId: _effectiveTenantId,
+      memberDocId: member.id,
+      initialData: member.data,
+    );
+    if (!mounted || result == null) return;
+    _refreshMembers(forceServer: true);
+  }
+
   /// Carteirinha digital: gestão vê todos; membro/visitante só a própria ficha.
   bool _canOpenCarteirinhaFor(_MemberDoc member) =>
       _canManage || _isSelfMember(member);
@@ -2338,6 +2359,16 @@ class _MembersPageState extends State<MembersPage> {
                         await _aprovarMembrosPorIds({member.id});
                       },
                     ),
+                  if (_canChangeMemberPhoto(member))
+                    _ActionChip(
+                      icon: Icons.photo_camera_rounded,
+                      label: 'Alterar foto',
+                      color: const Color(0xFF0284C7),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        unawaited(_openMemberProfilePhotoEditor(context, member));
+                      },
+                    ),
                   if (_canEditMemberRecord(member))
                     _ActionChip(
                         icon: Icons.edit_rounded,
@@ -2743,6 +2774,14 @@ class _MembersPageState extends State<MembersPage> {
                                   // Sempre em memória: XFile pós-WebP pode ser fromData sem path válido no disco.
                                   newPhotoBytes = await picked.readAsBytes();
                                   newPhoto = picked;
+                                  if (ctx.mounted) {
+                                    ImmediateMediaAttachFeedback.showArquivoAnexado(
+                                      ctx,
+                                      picked.name.isNotEmpty
+                                          ? picked.name
+                                          : 'foto_perfil.webp',
+                                    );
+                                  }
                                 }
                               } finally {
                                 if (!ctx.mounted) return;
@@ -5516,6 +5555,7 @@ class _MembersPageState extends State<MembersPage> {
                                   ),
                                 ),
                                 if (_canEditMemberRecord(docs[i]) ||
+                                    _canChangeMemberPhoto(docs[i]) ||
                                     (_canApprovePending && isPendingRow))
                                   PopupMenuButton<String>(
                                     icon: const Icon(Icons.more_vert_rounded,
@@ -5530,6 +5570,10 @@ class _MembersPageState extends State<MembersPage> {
                                         borderRadius:
                                             BorderRadius.circular(12)),
                                     onSelected: (v) {
+                                      if (v == 'photo') {
+                                        unawaited(_openMemberProfilePhotoEditor(
+                                            context, docs[i]));
+                                      }
                                       if (v == 'edit')
                                         _editMember(context, docs[i]);
                                       if (v == 'delete')
@@ -5578,6 +5622,21 @@ class _MembersPageState extends State<MembersPage> {
                                             Text('Aprovar cadastro',
                                                 style: TextStyle(
                                                     color: Color(0xFF059669),
+                                                    fontWeight:
+                                                        FontWeight.w600))
+                                          ]),
+                                        ),
+                                      if (_canChangeMemberPhoto(docs[i]))
+                                        const PopupMenuItem(
+                                          value: 'photo',
+                                          child: Row(children: [
+                                            Icon(Icons.photo_camera_rounded,
+                                                size: 18,
+                                                color: Color(0xFF0284C7)),
+                                            SizedBox(width: 8),
+                                            Text('Alterar foto',
+                                                style: TextStyle(
+                                                    color: Color(0xFF0284C7),
                                                     fontWeight:
                                                         FontWeight.w600))
                                           ]),
@@ -5830,6 +5889,7 @@ class _MembersPageState extends State<MembersPage> {
                             ),
                           ),
                           if (_canEditMemberRecord(member) ||
+                              _canChangeMemberPhoto(member) ||
                               (_canApprovePending && isPendingRow))
                             PopupMenuButton<String>(
                               icon:
@@ -5841,6 +5901,10 @@ class _MembersPageState extends State<MembersPage> {
                               shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12)),
                               onSelected: (v) {
+                                if (v == 'photo') {
+                                  unawaited(_openMemberProfilePhotoEditor(
+                                      context, member));
+                                }
                                 if (v == 'edit') _editMember(context, member);
                                 if (v == 'delete')
                                   _deleteMember(context, member);
@@ -5888,6 +5952,19 @@ class _MembersPageState extends State<MembersPage> {
                                       Text('Aprovar cadastro',
                                           style: TextStyle(
                                               color: Color(0xFF059669),
+                                              fontWeight: FontWeight.w600))
+                                    ]),
+                                  ),
+                                if (_canChangeMemberPhoto(member))
+                                  const PopupMenuItem(
+                                    value: 'photo',
+                                    child: Row(children: [
+                                      Icon(Icons.photo_camera_rounded,
+                                          size: 18, color: Color(0xFF0284C7)),
+                                      SizedBox(width: 8),
+                                      Text('Alterar foto',
+                                          style: TextStyle(
+                                              color: Color(0xFF0284C7),
                                               fontWeight: FontWeight.w600))
                                     ]),
                                   ),

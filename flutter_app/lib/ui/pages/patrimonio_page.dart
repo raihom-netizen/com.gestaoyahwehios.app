@@ -29,6 +29,8 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
+import 'package:gestao_yahweh/services/immediate_media_warm.dart';
+import 'package:gestao_yahweh/services/immediate_patrimonio_photo_attach.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
     show kMaxPatrimonioPhotosPerItem;
@@ -37,6 +39,7 @@ import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -6935,6 +6938,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
   final List<Uint8List> _newImages = [];
   final List<String> _newNames = [];
   late List<String> _categoriasOpcoes;
+  late final DocumentReference<Map<String, dynamic>> _itemRef;
+  bool _itemStubEnsured = false;
+  int _inFlightPhotoUploads = 0;
   bool _saving = false;
   double _uploadProgress = 0;
 
@@ -6962,6 +6968,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
   @override
   void initState() {
     super.initState();
+    _itemRef = widget.doc?.reference ?? widget.col.doc();
     final data = widget.doc?.data() ?? {};
     _nome = TextEditingController(text: (data['nome'] ?? '').toString());
     _desc = TextEditingController(text: (data['descricao'] ?? '').toString());
@@ -7003,7 +7010,56 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     final urls = _fotoUrlsFromData(data);
     _existingUrls.addAll(
         urls.length > _maxFotosPorItem ? urls.sublist(0, _maxFotosPorItem) : urls);
-    unawaited(FastMediaPublishBootstrap.warmForPatrimonioSave());
+    unawaited(ImmediateMediaWarm.warmPatrimonio());
+  }
+
+  void _removePendingPatrimonioBytes(Uint8List bytes) {
+    final i = _newImages.indexOf(bytes);
+    if (i >= 0) {
+      _newImages.removeAt(i);
+      if (i < _newNames.length) _newNames.removeAt(i);
+    }
+  }
+
+  Future<void> _uploadPatrimonioPhotoInBackground(Uint8List bytes) async {
+    if (!mounted) return;
+    final slot = _existingUrls.length + _inFlightPhotoUploads;
+    _inFlightPhotoUploads++;
+    try {
+      final tenantId = widget.col.parent!.id;
+      if (widget.doc == null && !_itemStubEnsured) {
+        await ImmediatePatrimonioPhotoAttach.ensureItemStub(
+          itemRef: _itemRef,
+          isNewItem: true,
+          nome: _nome.text,
+          categoria: _categoria,
+          status: _status,
+        );
+        _itemStubEnsured = true;
+      }
+      final url = await ImmediatePatrimonioPhotoAttach.uploadSingleSlot(
+        tenantId: tenantId,
+        itemDocId: _itemRef.id,
+        slotIndex: slot,
+        rawBytes: bytes,
+      );
+      if (!mounted) return;
+      if (url != null && url.isNotEmpty) {
+        setState(() {
+          _removePendingPatrimonioBytes(bytes);
+          _existingUrls.add(url);
+        });
+        if (mounted) {
+          ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _inFlightPhotoUploads--);
+      } else {
+        _inFlightPhotoUploads--;
+      }
+    }
   }
 
   @override
@@ -7154,6 +7210,17 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _newImages.addAll(novosBytes);
       _newNames.addAll(novosNomes);
     });
+    if (mounted) {
+      ImmediateMediaAttachFeedback.showArquivoAnexado(
+        context,
+        novosNomes.length == 1
+            ? novosNomes.first
+            : '${novosNomes.length} fotos',
+      );
+    }
+    for (final b in novosBytes) {
+      unawaited(_uploadPatrimonioPhotoInBackground(b));
+    }
     if (list.length > novosBytes.length) {
       _showLimiteFotosSnack();
     }
@@ -7172,6 +7239,13 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _newImages.add(bytes);
       _newNames.add(file.name.isNotEmpty ? file.name : 'camera.webp');
     });
+    if (mounted) {
+      ImmediateMediaAttachFeedback.showArquivoAnexado(
+        context,
+        file.name.isNotEmpty ? file.name : 'camera.webp',
+      );
+    }
+    unawaited(_uploadPatrimonioPhotoInBackground(bytes));
   }
 
   Future<void> _save() async {
@@ -7189,8 +7263,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _uploadProgress = 0;
     });
     try {
+      await ImmediateMediaWarm.drainInFlight(() => _inFlightPhotoUploads);
       try {
-        await FastMediaPublishBootstrap.warmForPatrimonioSave();
+        await ImmediateMediaWarm.warmPatrimonio();
       } catch (e) {
         if (isFirebaseNoAppError(e)) {
           await FirebaseBootstrapService.reconnect(requireAuthSession: true);
@@ -7200,9 +7275,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         }
       }
       final tenantId = widget.col.parent!.id;
-      final DocumentReference<Map<String, dynamic>> itemRef =
-          widget.doc != null ? widget.col.doc(widget.doc!.id) : widget.col.doc();
+      final itemRef = _itemRef;
       final itemId = itemRef.id;
+      final isNewItem = widget.doc == null && !_itemStubEnsured;
 
       final allUrls = List<String>.from(_existingUrls);
       final prev = widget.doc?.data();
@@ -7271,9 +7346,10 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           List<String>.from(_existingUrls),
           List<String>.from(allPaths),
         );
-        if (widget.doc == null) {
+        if (isNewItem) {
           early['criadoEm'] = FieldValue.serverTimestamp();
           await itemRef.set(early);
+          _itemStubEnsured = true;
         } else {
           early['imageVariants'] = FieldValue.delete();
           early['fotoVariants'] = FieldValue.delete();

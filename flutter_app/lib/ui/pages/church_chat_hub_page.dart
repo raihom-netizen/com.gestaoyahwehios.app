@@ -134,7 +134,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   QuerySnapshot<Map<String, dynamic>>? _lastGoodChatThreadsSnap;
   bool _chatPushEnabled = true;
   _HubConversasFilter _conversasFilter = _HubConversasFilter.all;
-  bool _conversasFiltersExpanded = false;
   final _searchCtrl = TextEditingController();
   final _membersFilterCtrl = TextEditingController();
   final _deptFilterCtrl = TextEditingController();
@@ -1282,33 +1281,29 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   }
 
   Widget _buildDmSelectionToolbar(int visibleCount) {
+    if (!_dmSelectMode) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
+      padding: const EdgeInsets.only(bottom: 4),
       child: Row(
         children: [
           Expanded(
             child: Text(
-              _dmSelectMode
-                  ? 'Modo seleção — toque para marcar'
-                  : 'Mantenha premido ou use o menu para opções',
+              'Toque para marcar conversas',
               style: TextStyle(
-                fontSize: 11.5,
+                fontSize: 11,
                 fontWeight: FontWeight.w600,
                 color: ThemeCleanPremium.onSurfaceVariant,
               ),
             ),
           ),
-          TextButton.icon(
+          TextButton(
             onPressed: visibleCount == 0 ? null : _toggleDmSelectMode,
-            icon: Icon(
-              _dmSelectMode ? Icons.close_rounded : Icons.checklist_rounded,
-              size: 18,
-            ),
-            label: Text(_dmSelectMode ? 'Cancelar' : 'Selecionar'),
             style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
               foregroundColor: ThemeCleanPremium.primary,
               textStyle: const TextStyle(fontWeight: FontWeight.w800),
             ),
+            child: const Text('Cancelar'),
           ),
         ],
       ),
@@ -1588,6 +1583,25 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     return email.isNotEmpty ? email : null;
   }
 
+  Future<void> _onChatHubProfilePhotoTap(String tid, String uidMe) async {
+    await showChurchChatProfilePhotoSheet(
+      context,
+      tenantId: tid,
+      cpfDigits: widget.cpf,
+    );
+    if (!mounted || uidMe.isEmpty) return;
+    unawaited(_refreshPeerProfilesForAuthUids(tid, {uidMe}));
+  }
+
+  Future<void> _onChatHubMuteTap(String tid) async {
+    final next = !_chatPushEnabled;
+    await ChurchChatNotificationPrefs.setChatPushEnabled(
+      enabled: next,
+      tenantId: tid,
+    );
+    if (mounted) setState(() => _chatPushEnabled = next);
+  }
+
   @override
   Widget build(BuildContext context) {
     final tid = _resolvedTenantId;
@@ -1609,72 +1623,49 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         children: [
           if (shellFullscreen)
             ChurchEmbeddedModuleBar(
-              title: 'Chat da igreja',
+              title: 'Chat',
               icon: kChurchShellNavEntries[24].icon,
               accent: kChurchShellNavEntries[24].accent,
               onBack: widget.onShellBack!,
               subtitle: _chatHubModuleBarSubtitle(),
-            ),
-          if (shellFullscreen)
-            _CompactChatHubToolbar(
-              chatPushEnabled: _chatPushEnabled,
-              onMuteTap: () async {
-                final next = !_chatPushEnabled;
-                await ChurchChatNotificationPrefs.setChatPushEnabled(
-                  enabled: next,
-                  tenantId: tid,
-                );
-                if (mounted) setState(() => _chatPushEnabled = next);
-              },
-              onNewDm: () => _openPickPeer(context, tid, uid),
-              onAlertModeTap: _openChatAlertModeSheet,
-              onProfilePhotoTap: () async {
-                final uidMe = uid;
-                await showChurchChatProfilePhotoSheet(
-                  context,
-                  tenantId: tid,
-                  cpfDigits: widget.cpf,
-                );
-                if (!mounted || uidMe.isEmpty) return;
-                unawaited(_refreshPeerProfilesForAuthUids(tid, {uidMe}));
-              },
+              actions: [
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Nova conversa',
+                  onPressed: () => _openPickPeer(context, tid, uid),
+                  icon: const Icon(Icons.add_comment_rounded,
+                      color: Colors.white, size: 22),
+                ),
+                _ChatHubOverflowMenu(
+                  chatPushEnabled: _chatPushEnabled,
+                  onMuteTap: () => _onChatHubMuteTap(tid),
+                  onAlertModeTap: _openChatAlertModeSheet,
+                  onProfilePhotoTap: () =>
+                      _onChatHubProfilePhotoTap(tid, uid),
+                  iconColor: Colors.white,
+                ),
+              ],
             )
           else
-            _PremiumChatHeader(
+            _WhatsAppStyleChatHubHeader(
               chatPushEnabled: _chatPushEnabled,
-              onMuteTap: () async {
-                final next = !_chatPushEnabled;
-                await ChurchChatNotificationPrefs.setChatPushEnabled(
-                  enabled: next,
-                  tenantId: tid,
-                );
-                if (mounted) setState(() => _chatPushEnabled = next);
-              },
+              onMuteTap: () => _onChatHubMuteTap(tid),
               onNewDm: () => _openPickPeer(context, tid, uid),
               onAlertModeTap: _openChatAlertModeSheet,
-              onProfilePhotoTap: () async {
-                final uidMe = uid;
-                await showChurchChatProfilePhotoSheet(
-                  context,
-                  tenantId: tid,
-                  cpfDigits: widget.cpf,
-                );
-                if (!mounted || uidMe.isEmpty) return;
-                unawaited(_refreshPeerProfilesForAuthUids(tid, {uidMe}));
-              },
+              onProfilePhotoTap: () => _onChatHubProfilePhotoTap(tid, uid),
             ),
           ChurchChatPendingStatusBanner(
             tenantId: tid,
             compact: true,
-            alwaysOfferClear: true,
+            alwaysOfferClear: false,
             role: widget.role,
             permissions: widget.permissions,
           ),
           Padding(
-            padding: EdgeInsets.fromLTRB(12, shellFullscreen ? 4 : 8, 12, 0),
+            padding: const EdgeInsets.fromLTRB(8, 2, 8, 0),
             child: _PremiumHubTabBar(
               controller: _hubTabController,
-              dense: shellFullscreen,
+              dense: true,
             ),
           ),
           AnimatedBuilder(
@@ -1860,16 +1851,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 }
 
                 threads.add(
-                  _CollapsibleConversasFilters(
-                    expanded: _conversasFiltersExpanded,
+                  _CompactConversasFilterDropdown(
                     selected: _conversasFilter,
-                    onToggleExpand: () => setState(
-                      () => _conversasFiltersExpanded = !_conversasFiltersExpanded,
-                    ),
-                    onSelected: (f) => setState(() {
-                      _conversasFilter = f;
-                      _conversasFiltersExpanded = false;
-                    }),
+                    onSelected: (f) => setState(() => _conversasFilter = f),
                   ),
                 );
 
@@ -3015,9 +2999,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
 class _ChatSearchBar extends StatefulWidget {
   final TextEditingController controller;
+  final bool compact;
 
   const _ChatSearchBar({
     required this.controller,
+    this.compact = true,
   });
 
   @override
@@ -3041,56 +3027,57 @@ class _ChatSearchBarState extends State<_ChatSearchBar> {
 
   @override
   Widget build(BuildContext context) {
-    final innerR = BorderRadius.circular(ThemeCleanPremium.radiusMd);
-    final outerR = BorderRadius.circular(ThemeCleanPremium.radiusMd + 1.5);
+    final compact = widget.compact;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-      child: Container(
-        padding: const EdgeInsets.all(1.25),
-        decoration: BoxDecoration(
-          borderRadius: outerR,
-          gradient: churchChatWhatsPremiumLinearGradient,
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF2563EB).withValues(alpha: 0.22),
-              blurRadius: 14,
-              offset: const Offset(0, 5),
-            ),
-          ],
+      padding: EdgeInsets.fromLTRB(8, 0, 8, compact ? 4 : 10),
+      child: TextField(
+        controller: widget.controller,
+        style: TextStyle(
+          color: ThemeCleanPremium.onSurface,
+          fontWeight: FontWeight.w500,
+          fontSize: compact ? 14 : 15,
         ),
-        child: ClipRRect(
-          borderRadius: innerR,
-          child: ColoredBox(
-            color: ThemeCleanPremium.cardBackground,
-            child: TextField(
-              controller: widget.controller,
-              style: TextStyle(
-                color: ThemeCleanPremium.onSurface,
-                fontWeight: FontWeight.w500,
-              ),
-              decoration: InputDecoration(
-                hintText: 'Pesquisar conversas e grupos',
-                hintStyle:
-                    TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
-                prefixIcon: const Icon(
-                  Icons.search_rounded,
-                  color: Color(0xFF2563EB),
-                ),
-                suffixIcon: widget.controller.text.isNotEmpty
-                    ? IconButton(
-                        tooltip: 'Limpar',
-                        icon: Icon(
-                          Icons.clear_rounded,
-                          color: ThemeCleanPremium.onSurfaceVariant,
-                        ),
-                        onPressed: widget.controller.clear,
-                      )
-                    : null,
-                border: InputBorder.none,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-              ),
-            ),
+        decoration: InputDecoration(
+          hintText: 'Pesquisar',
+          hintStyle: TextStyle(
+            color: ThemeCleanPremium.onSurfaceVariant,
+            fontSize: compact ? 14 : 15,
+          ),
+          prefixIcon: Icon(
+            Icons.search_rounded,
+            size: compact ? 20 : 24,
+            color: const Color(0xFF128C7E),
+          ),
+          suffixIcon: widget.controller.text.isNotEmpty
+              ? IconButton(
+                  tooltip: 'Limpar',
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(
+                    Icons.clear_rounded,
+                    size: compact ? 20 : 22,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
+                  onPressed: widget.controller.clear,
+                )
+              : null,
+          filled: true,
+          fillColor: ThemeCleanPremium.cardBackground,
+          isDense: compact,
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: compact ? 8 : 12,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(compact ? 10 : 14),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(compact ? 10 : 14),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(compact ? 10 : 14),
+            borderSide: const BorderSide(color: Color(0xFF128C7E), width: 1.5),
           ),
         ),
       ),
@@ -3117,7 +3104,7 @@ class _PremiumHubTabBar extends StatelessWidget {
         ? (narrow ? 15.0 : 16.0)
         : (narrow ? 16.0 : 17.0);
     final tabH = dense
-        ? (narrow ? 34.0 : 36.0)
+        ? (narrow ? 30.0 : 32.0)
         : (narrow ? 42.0 : 46.0);
 
     Widget tabContent(IconData icon, String label) {
@@ -3135,21 +3122,19 @@ class _PremiumHubTabBar extends StatelessWidget {
       );
     }
 
-    final outerPad = dense ? 1.0 : 1.5;
-    final outerRadius = dense ? 14.0 : 17.5;
+    final outerPad = dense ? 0.0 : 1.5;
+    final outerRadius = dense ? 10.0 : 17.5;
     return Container(
       padding: EdgeInsets.all(outerPad),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(outerRadius),
-        gradient: churchChatWhatsPremiumLinearGradient,
+        color: dense ? ThemeCleanPremium.cardBackground : null,
+        gradient: dense ? null : churchChatWhatsPremiumLinearGradient,
+        border: dense
+            ? Border.all(color: Colors.grey.shade300, width: 0.8)
+            : null,
         boxShadow: dense
-            ? [
-                BoxShadow(
-                  color: const Color(0xFF2563EB).withValues(alpha: 0.18),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ]
+            ? null
             : [
                 BoxShadow(
                   color: const Color(0xFF2563EB).withValues(alpha: 0.28),
@@ -3164,10 +3149,10 @@ class _PremiumHubTabBar extends StatelessWidget {
               ],
       ),
       child: Container(
-        padding: const EdgeInsets.all(4),
+        padding: EdgeInsets.all(dense ? 2 : 4),
         decoration: BoxDecoration(
-          color: ThemeCleanPremium.cardBackground,
-          borderRadius: BorderRadius.circular(16),
+          color: dense ? Colors.transparent : ThemeCleanPremium.cardBackground,
+          borderRadius: BorderRadius.circular(dense ? 10 : 16),
         ),
         child: TabBar(
           controller: controller,
@@ -3175,15 +3160,18 @@ class _PremiumHubTabBar extends StatelessWidget {
           tabAlignment: TabAlignment.fill,
           indicatorSize: TabBarIndicatorSize.tab,
           indicator: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: churchChatWhatsPremiumLinearGradient,
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF2563EB).withValues(alpha: 0.42),
-                blurRadius: 14,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            borderRadius: BorderRadius.circular(dense ? 8 : 12),
+            color: dense ? const Color(0xFF128C7E) : null,
+            gradient: dense ? null : churchChatWhatsPremiumLinearGradient,
+            boxShadow: dense
+                ? null
+                : [
+                    BoxShadow(
+                      color: const Color(0xFF2563EB).withValues(alpha: 0.42),
+                      blurRadius: 14,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
           ),
           labelColor: Colors.white,
           unselectedLabelColor: ThemeCleanPremium.onSurfaceVariant,
@@ -3248,57 +3236,53 @@ class _HubScopedSearchBarState extends State<_HubScopedSearchBar> {
 
   @override
   Widget build(BuildContext context) {
-    final innerR = BorderRadius.circular(ThemeCleanPremium.radiusMd);
-    final outerR = BorderRadius.circular(ThemeCleanPremium.radiusMd + 1.5);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 4, 14, 10),
-      child: Container(
-        padding: const EdgeInsets.all(1.25),
-        decoration: BoxDecoration(
-          borderRadius: outerR,
-          gradient: churchChatWhatsPremiumLinearGradient,
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF2563EB).withValues(alpha: 0.22),
-              blurRadius: 14,
-              offset: const Offset(0, 5),
-            ),
-          ],
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+      child: TextField(
+        controller: widget.controller,
+        style: TextStyle(
+          color: ThemeCleanPremium.onSurface,
+          fontWeight: FontWeight.w500,
+          fontSize: 14,
         ),
-        child: ClipRRect(
-          borderRadius: innerR,
-          child: ColoredBox(
-            color: ThemeCleanPremium.cardBackground,
-            child: TextField(
-              controller: widget.controller,
-              style: TextStyle(
-                color: ThemeCleanPremium.onSurface,
-                fontWeight: FontWeight.w500,
-              ),
-              decoration: InputDecoration(
-                hintText: widget.hintText,
-                hintStyle:
-                    TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
-                prefixIcon:
-                    Icon(widget.icon, color: const Color(0xFF2563EB)),
-                suffixIcon: widget.controller.text.isNotEmpty
-                    ? IconButton(
-                        tooltip: 'Limpar',
-                        icon: Icon(
-                          Icons.clear_rounded,
-                          color: ThemeCleanPremium.onSurfaceVariant,
-                        ),
-                        onPressed: () {
-                          widget.controller.clear();
-                          setState(() {});
-                        },
-                      )
-                    : null,
-                border: InputBorder.none,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-              ),
-            ),
+        decoration: InputDecoration(
+          hintText: widget.hintText,
+          hintStyle: TextStyle(
+            color: ThemeCleanPremium.onSurfaceVariant,
+            fontSize: 14,
+          ),
+          prefixIcon: Icon(widget.icon, size: 20, color: const Color(0xFF128C7E)),
+          suffixIcon: widget.controller.text.isNotEmpty
+              ? IconButton(
+                  tooltip: 'Limpar',
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(
+                    Icons.clear_rounded,
+                    size: 20,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
+                  onPressed: () {
+                    widget.controller.clear();
+                    setState(() {});
+                  },
+                )
+              : null,
+          filled: true,
+          fillColor: ThemeCleanPremium.cardBackground,
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: Colors.grey.shade300),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: const BorderSide(color: Color(0xFF128C7E), width: 1.5),
           ),
         ),
       ),
@@ -3977,113 +3961,13 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
   }
 }
 
-/// Barra de ações fina (shell full screen) — abaixo de [ChurchEmbeddedModuleBar].
-class _CompactChatHubToolbar extends StatelessWidget {
-  final bool chatPushEnabled;
-  final VoidCallback onMuteTap;
-  final VoidCallback onNewDm;
-  final VoidCallback onAlertModeTap;
-  final VoidCallback onProfilePhotoTap;
-
-  const _CompactChatHubToolbar({
-    required this.chatPushEnabled,
-    required this.onMuteTap,
-    required this.onNewDm,
-    required this.onAlertModeTap,
-    required this.onProfilePhotoTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: churchChatWhatsPremiumLinearGradient,
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF25D366).withValues(alpha: 0.18),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 0),
-        child: Row(
-          children: [
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: 'Minha foto de perfil',
-              onPressed: onProfilePhotoTap,
-              icon: const Icon(Icons.account_circle_outlined,
-                  color: Colors.white, size: 22),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: 'Modo de alerta',
-              onPressed: onAlertModeTap,
-              icon: const Icon(Icons.tune_rounded, color: Colors.white, size: 22),
-            ),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              tooltip: chatPushEnabled
-                  ? 'Silenciar notificações'
-                  : 'Ativar notificações',
-              onPressed: onMuteTap,
-              icon: Icon(
-                chatPushEnabled
-                    ? Icons.notifications_active_rounded
-                    : Icons.notifications_off_rounded,
-                color: Colors.white,
-                size: 22,
-              ),
-            ),
-            const Spacer(),
-            Material(
-              color: Colors.white.withValues(alpha: 0.22),
-              borderRadius: BorderRadius.circular(20),
-              child: InkWell(
-                onTap: onNewDm,
-                borderRadius: BorderRadius.circular(20),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.add_comment_rounded,
-                          color: Colors.white, size: 20),
-                      SizedBox(width: 6),
-                      Text(
-                        'Nova',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CollapsibleConversasFilters extends StatelessWidget {
-  const _CollapsibleConversasFilters({
-    required this.expanded,
+class _CompactConversasFilterDropdown extends StatelessWidget {
+  const _CompactConversasFilterDropdown({
     required this.selected,
-    required this.onToggleExpand,
     required this.onSelected,
   });
 
-  final bool expanded;
   final _HubConversasFilter selected;
-  final VoidCallback onToggleExpand;
   final ValueChanged<_HubConversasFilter> onSelected;
 
   static String _label(_HubConversasFilter f) => switch (f) {
@@ -4093,92 +3977,47 @@ class _CollapsibleConversasFilters extends StatelessWidget {
         _HubConversasFilter.archived => 'Arquivadas',
       };
 
-  static IconData _icon(_HubConversasFilter f) => switch (f) {
-        _HubConversasFilter.all => Icons.chat_rounded,
-        _HubConversasFilter.unread => Icons.mark_chat_unread_rounded,
-        _HubConversasFilter.favorites => Icons.star_rounded,
-        _HubConversasFilter.archived => Icons.inventory_2_outlined,
-      };
-
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Material(
-            color: const Color(0xFFF0FDF4),
-            borderRadius: BorderRadius.circular(10),
-            child: InkWell(
-              onTap: onToggleExpand,
-              borderRadius: BorderRadius.circular(10),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                child: Row(
-                  children: [
-                    Icon(_icon(selected),
-                        size: 18, color: const Color(0xFF059669)),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _label(selected),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                          color: Color(0xFF065F46),
-                        ),
-                      ),
-                    ),
-                    Icon(
-                      expanded
-                          ? Icons.expand_less_rounded
-                          : Icons.expand_more_rounded,
-                      size: 22,
-                      color: const Color(0xFF059669),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+      padding: const EdgeInsets.only(bottom: 4),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<_HubConversasFilter>(
+          isDense: true,
+          isExpanded: true,
+          value: selected,
+          icon: const Icon(Icons.expand_more_rounded, size: 20),
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF065F46),
           ),
-          if (expanded) ...[
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: _HubConversasFilter.values.map((f) {
-                final on = f == selected;
-                return FilterChip(
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  selected: on,
-                  showCheckmark: false,
-                  avatar: Icon(_icon(f), size: 16),
-                  label: Text(_label(f),
-                      style: const TextStyle(fontSize: 12.5)),
-                  onSelected: (_) => onSelected(f),
-                  selectedColor: const Color(0xFF25D366).withValues(alpha: 0.22),
-                  backgroundColor: Colors.grey.shade100,
-                );
-              }).toList(),
-            ),
+          dropdownColor: ThemeCleanPremium.cardBackground,
+          items: [
+            for (final f in _HubConversasFilter.values)
+              DropdownMenuItem(
+                value: f,
+                child: Text(_label(f)),
+              ),
           ],
-        ],
+          onChanged: (v) {
+            if (v != null) onSelected(v);
+          },
+        ),
       ),
     );
   }
 }
 
-class _PremiumChatHeader extends StatelessWidget {
+/// Cabeçalho fino estilo WhatsApp — título + nova conversa + menu (⋮).
+class _WhatsAppStyleChatHubHeader extends StatelessWidget {
   final bool chatPushEnabled;
   final VoidCallback onMuteTap;
   final VoidCallback onNewDm;
   final VoidCallback onAlertModeTap;
   final VoidCallback onProfilePhotoTap;
 
-  const _PremiumChatHeader({
+  const _WhatsAppStyleChatHubHeader({
     required this.chatPushEnabled,
     required this.onMuteTap,
     required this.onNewDm,
@@ -4188,113 +4027,115 @@ class _PremiumChatHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: churchChatWhatsPremiumLinearGradient,
-        boxShadow: [
-          BoxShadow(
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.42),
-            blurRadius: 22,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
+    return Material(
+      color: const Color(0xFF128C7E),
       child: SafeArea(
         bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 4, 18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        child: SizedBox(
+          height: 48,
+          child: Row(
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(11),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.35),
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.forum_rounded,
-                      color: Colors.white,
-                      size: 26,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Chat da igreja',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 22,
-                            letterSpacing: -0.4,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Mensagens, fotos, vídeos e grupos por departamento',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.92),
-                            fontSize: 12.5,
-                            height: 1.35,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Minha foto de perfil (chat e cadastro)',
-                    onPressed: onProfilePhotoTap,
-                    icon: const Icon(
-                      Icons.account_circle_outlined,
-                      color: Colors.white,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Modo de alerta (som/vibrar/silencioso)',
-                    onPressed: onAlertModeTap,
-                    icon: const Icon(
-                      Icons.tune_rounded,
-                      color: Colors.white,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: chatPushEnabled
-                        ? 'Silenciar notificações do chat'
-                        : 'Ativar notificações do chat',
-                    onPressed: onMuteTap,
-                    icon: Icon(
-                      chatPushEnabled
-                          ? Icons.notifications_active_rounded
-                          : Icons.notifications_off_rounded,
-                      color: Colors.white,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Nova conversa',
-                    onPressed: onNewDm,
-                    icon: const Icon(
-                      Icons.add_comment_rounded,
-                      color: Colors.white,
-                      size: 26,
-                    ),
-                  ),
-                ],
+              const SizedBox(width: 12),
+              const Text(
+                'Conversas',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                  letterSpacing: -0.2,
+                ),
               ),
+              const Spacer(),
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Nova conversa',
+                onPressed: onNewDm,
+                icon: const Icon(Icons.add_comment_rounded,
+                    color: Colors.white, size: 24),
+              ),
+              _ChatHubOverflowMenu(
+                chatPushEnabled: chatPushEnabled,
+                onMuteTap: onMuteTap,
+                onAlertModeTap: onAlertModeTap,
+                onProfilePhotoTap: onProfilePhotoTap,
+                iconColor: Colors.white,
+              ),
+              const SizedBox(width: 2),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ChatHubOverflowMenu extends StatelessWidget {
+  final bool chatPushEnabled;
+  final VoidCallback onMuteTap;
+  final VoidCallback onAlertModeTap;
+  final VoidCallback onProfilePhotoTap;
+  final Color iconColor;
+
+  const _ChatHubOverflowMenu({
+    required this.chatPushEnabled,
+    required this.onMuteTap,
+    required this.onAlertModeTap,
+    required this.onProfilePhotoTap,
+    this.iconColor = Colors.white,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Mais opções',
+      icon: Icon(Icons.more_vert_rounded, color: iconColor, size: 24),
+      onSelected: (value) {
+        switch (value) {
+          case 'profile':
+            onProfilePhotoTap();
+          case 'alerts':
+            onAlertModeTap();
+          case 'mute':
+            onMuteTap();
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'profile',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.account_circle_outlined),
+            title: Text('Minha foto de perfil'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        const PopupMenuItem(
+          value: 'alerts',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.tune_rounded),
+            title: Text('Modo de alerta'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        PopupMenuItem(
+          value: 'mute',
+          child: ListTile(
+            dense: true,
+            leading: Icon(
+              chatPushEnabled
+                  ? Icons.notifications_off_rounded
+                  : Icons.notifications_active_rounded,
+            ),
+            title: Text(
+              chatPushEnabled
+                  ? 'Silenciar notificações'
+                  : 'Ativar notificações',
+            ),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+      ],
     );
   }
 }

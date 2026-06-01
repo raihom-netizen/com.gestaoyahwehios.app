@@ -326,7 +326,7 @@ abstract final class ChurchMemberContactChat {
     if (!ensured && context.mounted) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Rede lenta — abrindo o chat da igreja mesmo assim.',
+          'A sincronizar o chat — a conversa abre na mesma.',
         ),
       );
     }

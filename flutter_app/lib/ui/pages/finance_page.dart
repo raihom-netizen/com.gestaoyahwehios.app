@@ -38,6 +38,7 @@ import 'package:gestao_yahweh/ui/pages/relatorios_page.dart'
 import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
 import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Categorias padrão (seed quando coleções vazias)
@@ -8278,6 +8279,12 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                     if (xfile != null) {
                       comprovanteFile = xfile;
                       setDlgState(() {});
+                      if (ctx.mounted) {
+                        ImmediateMediaAttachFeedback.showArquivoAnexado(
+                          ctx,
+                          xfile.name,
+                        );
+                      }
                     }
                   },
                   icon: Icon(
@@ -8633,6 +8640,7 @@ Future<void> uploadFinanceComprovanteForLancamento(
   if (xfile == null) return;
 
   if (!context.mounted) return;
+  ImmediateMediaAttachFeedback.showArquivoAnexado(context, xfile.name);
   ScaffoldMessenger.of(context)
       .showSnackBar(const SnackBar(content: Text('Enviando comprovante...')));
 

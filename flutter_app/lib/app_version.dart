@@ -1,4 +1,7 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1713: Deploy completo — foto perfil (membro própria; gestor/secretário/tesoureiro qualquer); regras mural; web/AAB/iOS.
+/// 11.2.295+1712: Deploy completo — regras mural (liderança) + chat aberto membros; web, AAB Play, iOS Codemagic.
+/// 11.2.295+1711: Firestore Web (Controle Total) — sem mensagens falsas de «rede lenta»; retry + recuperação INTERNAL ASSERTION; publicar avisos/chat estável em 5G.
 /// 11.2.295+1710: Estabilidade global (web/iOS/Android) — sessão, master, divulgação, painel, chat.
 /// 11.2.295+1709: Chat thread rápido/estável — mensagens cache+retry (padrão Controle Total), stream resiliente.
 /// 11.2.295+1708: Sessão estável (web/iOS/Android) — não desloga ao trocar de aba; painel com cache.
@@ -229,7 +232,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1710';
+const String appBuildNumber = '1713';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

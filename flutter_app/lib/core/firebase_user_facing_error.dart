@@ -7,6 +7,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Mensagens para o utilizador com o **erro real** (não genérico).
 String formatFirebaseErrorForUser(
@@ -71,8 +72,11 @@ String formatFirebaseErrorForUser(
   }
 
   final raw = error.toString();
-  if (raw.contains('INTERNAL ASSERTION')) {
-    return 'Ligação com o servidor instável. Atualize a página (Ctrl+F5) ou toque em Tentar de novo.';
+  if (FirestoreWebGuard.isInternalAssertionError(error) ||
+      raw.contains('WatchChangeAggregator') ||
+      raw.contains('PersistentListenStream')) {
+    return 'Sincronização com o servidor em curso. '
+        'Aguarde alguns segundos e toque em Tentar de novo.';
   }
   if (_isNoFirebaseAppError(error)) {
     return 'Firebase não disponível: $raw';

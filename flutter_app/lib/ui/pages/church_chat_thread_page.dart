@@ -28,8 +28,10 @@ import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
+import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
@@ -202,7 +204,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     super.initState();
     logYahwehModuleScreen('chat_thread');
     unawaited(
-      FastMediaPublishBootstrap.warmForChatSend().catchError((_) {}),
+      ImmediateMediaWarm.warmFeed().catchError((_) {}),
     );
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
@@ -294,29 +296,39 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
   }
 
-  /// Controle Total: `.get()` com cache/retry — não fica no skeleton se o stream falhar.
+  /// Controle Total: `.get()` com cache/retry — não culpa a rede do utilizador.
   Future<void> _primeRecentMessagesFromCacheOrServer({bool silent = false}) async {
     if (_messagesPrimeInFlight) return;
     _messagesPrimeInFlight = true;
     try {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
-      final docs = await ChurchChatService.fetchRecentMessagesPage(
-        tenantId: widget.tenantId,
-        threadId: widget.threadId,
-      );
-      if (!mounted) return;
-      if (docs.isEmpty && _latestRecentDocs.isNotEmpty) return;
-      setState(() => _latestRecentDocs = docs);
-    } catch (_) {
+      const rounds = 4;
+      for (var round = 0; round < rounds; round++) {
+        try {
+          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: round > 0);
+          final docs = await ChurchChatService.fetchRecentMessagesPage(
+            tenantId: widget.tenantId,
+            threadId: widget.threadId,
+          );
+          if (!mounted) return;
+          if (docs.isEmpty && _latestRecentDocs.isNotEmpty) return;
+          setState(() => _latestRecentDocs = docs);
+          return;
+        } catch (_) {
+          if (round < rounds - 1) {
+            await Future<void>.delayed(
+              Duration(milliseconds: 180 + round * 220),
+            );
+            continue;
+          }
+        }
+      }
       if (!silent && mounted && _latestRecentDocs.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
-              'Rede lenta — a mostrar o que estiver em cache. '
-              'Puxe para atualizar ou tente enviar de novo.',
+              'A carregar mensagens — puxe para atualizar ou toque em Tentar de novo.',
             ),
             behavior: SnackBarBehavior.floating,
-            backgroundColor: Colors.orange.shade800,
             duration: const Duration(seconds: 4),
           ),
         );
@@ -1439,6 +1451,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       maxHeight: mediaChatImageMaxHeight.toDouble(),
     );
     if (x == null) return;
+    if (mounted) {
+      ImmediateMediaAttachFeedback.showArquivoAnexado(
+        context,
+        x.name.isNotEmpty ? x.name : 'foto.jpg',
+      );
+    }
     await _sendPickedImageFile(
       x,
       previewBeforeSend: kIsWeb || source == ImageSource.camera,

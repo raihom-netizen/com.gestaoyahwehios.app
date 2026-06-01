@@ -37,11 +37,19 @@ void configureFirestoreForOfflineAndSpeed() {
   } catch (e, st) {
     debugPrint('configureFirestoreForOfflineAndSpeed: $e\n$st');
     try {
-      db.settings = Settings(
-        persistenceEnabled: true,
-        cacheSizeBytes: 200 * 1024 * 1024,
-        ignoreUndefinedProperties: true,
-      );
+      if (kIsWeb) {
+        db.settings = const Settings(
+          persistenceEnabled: false,
+          ignoreUndefinedProperties: true,
+          webExperimentalForceLongPolling: true,
+        );
+      } else {
+        db.settings = Settings(
+          persistenceEnabled: true,
+          cacheSizeBytes: 200 * 1024 * 1024,
+          ignoreUndefinedProperties: true,
+        );
+      }
     } catch (e2) {
       debugPrint('configureFirestoreForOfflineAndSpeed fallback: $e2');
     }

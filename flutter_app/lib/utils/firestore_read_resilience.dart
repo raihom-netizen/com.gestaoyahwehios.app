@@ -1,5 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Leituras Firestore estáveis (padrão Controle Total): cache local → rede com retry → último snapshot bom.
 class FirestoreReadResilience {
@@ -21,6 +24,7 @@ class FirestoreReadResilience {
           return true;
       }
     }
+    if (FirestoreWebGuard.isInternalAssertionError(error)) return true;
     final s = error.toString().toLowerCase();
     return s.contains('failed to fetch') ||
         s.contains('network') ||
@@ -31,7 +35,10 @@ class FirestoreReadResilience {
         s.contains('channel-error') ||
         s.contains('client is offline') ||
         s.contains('timeout') ||
-        s.contains('internal assertion');
+        s.contains('internal assertion') ||
+        s.contains('unexpected state') ||
+        s.contains('watchchangeaggregator') ||
+        s.contains('persistentlistenstream');
   }
 
   static final Map<String, DocumentSnapshot<Map<String, dynamic>>>
@@ -87,8 +94,8 @@ class FirestoreReadResilience {
   static Future<QuerySnapshot<Map<String, dynamic>>> getQuery(
     Query<Map<String, dynamic>> query, {
     required String cacheKey,
-    int maxAttempts = 3,
-    Duration attemptTimeout = const Duration(seconds: 18),
+    int maxAttempts = 5,
+    Duration attemptTimeout = const Duration(seconds: 22),
   }) async {
     final key = cacheKey.trim();
     QuerySnapshot<Map<String, dynamic>>? localSnap;
@@ -111,8 +118,15 @@ class FirestoreReadResilience {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
             force: attempt > 1,
           );
+          if (kIsWeb && attempt >= 2) {
+            try {
+              await FirestoreWebGuard.recoverFirestoreWebSession();
+            } catch (_) {}
+          }
         }
-        final snap = await query.get().timeout(attemptTimeout);
+        final snap = kIsWeb
+            ? await firestoreQueryGetReliable(query).timeout(attemptTimeout)
+            : await query.get().timeout(attemptTimeout);
         if (key.isNotEmpty) _lastGoodByKey[key] = snap;
         return snap;
       } catch (e) {

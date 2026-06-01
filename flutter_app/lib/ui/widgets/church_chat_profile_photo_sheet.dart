@@ -1,13 +1,60 @@
+import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
+import 'package:gestao_yahweh/services/immediate_media_warm.dart';
+import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:image_picker/image_picker.dart';
+
+/// Folha para trocar foto de um membro (próprio ou equipe no módulo Membros).
+Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
+  BuildContext context, {
+  required String tenantId,
+  required String memberDocId,
+  Map<String, dynamic>? initialData,
+}) async {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null || uid.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Faça login para alterar a foto.')),
+    );
+    return null;
+  }
+  Map<String, dynamic> data = Map<String, dynamic>.from(initialData ?? {});
+  if (data.isEmpty) {
+    final snap = await FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(tenantId)
+        .collection('membros')
+        .doc(memberDocId)
+        .get();
+    if (!context.mounted) return null;
+    if (!snap.exists) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cadastro de membro não encontrado.')),
+      );
+      return null;
+    }
+    data = snap.data() ?? {};
+  }
+  if (!context.mounted) return null;
+  return showModalBottomSheet<MemberProfilePhotoUpdateResult>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => _ChurchChatProfilePhotoSheet(
+      tenantId: tenantId,
+      memberId: memberDocId,
+      initialData: data,
+    ),
+  );
+}
 
 /// Folha para trocar a foto de perfil — actualiza o cadastro do membro e o chat (iOS/Android/web).
 Future<MemberProfilePhotoUpdateResult?> showChurchChatProfilePhotoSheet(
@@ -39,15 +86,11 @@ Future<MemberProfilePhotoUpdateResult?> showChurchChatProfilePhotoSheet(
     return null;
   }
 
-  return showModalBottomSheet<MemberProfilePhotoUpdateResult>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (ctx) => _ChurchChatProfilePhotoSheet(
-      tenantId: tenantId,
-      memberId: mem.id,
-      initialData: mem.data() ?? {},
-    ),
+  return showMemberProfilePhotoEditorSheet(
+    context,
+    tenantId: tenantId,
+    memberDocId: mem.id,
+    initialData: mem.data() ?? {},
   );
 }
 
@@ -70,6 +113,45 @@ class _ChurchChatProfilePhotoSheet extends StatefulWidget {
 class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoSheet> {
   Uint8List? _previewBytes;
   bool _uploading = false;
+  MemberProfilePhotoUpdateResult? _uploadedResult;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(ImmediateMediaWarm.warmFeed());
+  }
+
+  Future<void> _uploadInBackground(Uint8List bytes) async {
+    if (_uploading) return;
+    setState(() => _uploading = true);
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('membros')
+          .doc(widget.memberId)
+          .get();
+      final data = snap.data() ?? widget.initialData;
+      final result = await MemberProfilePhotoUpdateService.uploadAndPatchMember(
+        tenantId: widget.tenantId,
+        memberDocId: widget.memberId,
+        memberData: data,
+        rawBytes: bytes,
+      );
+      if (!mounted) return;
+      setState(() {
+        _uploadedResult = result;
+        _uploading = false;
+      });
+      ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _uploading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar('Erro ao enviar foto: $e'),
+      );
+    }
+  }
 
   Future<void> _pick(ImageSource source) async {
     if (_uploading) return;
@@ -85,6 +167,11 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
       final bytes = await file.readAsBytes();
       if (!mounted) return;
       setState(() => _previewBytes = bytes);
+      ImmediateMediaAttachFeedback.showArquivoAnexado(
+        context,
+        file.name.isNotEmpty ? file.name : 'foto_perfil.jpg',
+      );
+      unawaited(_uploadInBackground(bytes));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -94,6 +181,17 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
   }
 
   Future<void> _save() async {
+    final done = _uploadedResult;
+    if (done != null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Foto actualizada no chat e no cadastro de membro.',
+        ),
+      );
+      Navigator.pop(context, done);
+      return;
+    }
     final bytes = _previewBytes;
     if (bytes == null || bytes.isEmpty || _uploading) return;
     setState(() => _uploading = true);
