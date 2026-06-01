@@ -316,6 +316,8 @@ class InstagramMuralState extends State<InstagramMural> {
       await _loadTenant();
     }
     await _startFeedLiveSync();
+    // Controle Total: leitura cache-first em paralelo — feed não fica no skeleton se o stream demorar.
+    unawaited(_loadFeedPage(reset: true));
   }
 
   Future<void> _loadTenant() async {
@@ -3246,6 +3248,15 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         if (mounted) {
           ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
         }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(formatUploadErrorForUser(e)),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } finally {
       if (mounted) {

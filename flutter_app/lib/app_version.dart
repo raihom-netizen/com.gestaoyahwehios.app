@@ -1,4 +1,11 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1720: Deploy completo — Firestore Web estável (CT), painel/chat/mural/patrimônio resilientes.
+/// 11.2.295+1719: Firestore Web estável (CT) — sem terminate automático; patrimônio/doação/cartão/mural resilientes.
+/// 11.2.295+1718: Programação painel estável (CT) — disco+RAM, noticias resilientes, sem cartão vermelho na web.
+/// 11.2.295+1717: Painel/chat/membros instantâneo — cache-first warmup, contatos sem skeleton, fotos perfil sem getDownloadURL mobile.
+/// 11.2.295+1716: Exibição rápida — URL do Firestore directa (sem getDownloadURL); feed/galeria/painel warmup.
+/// 11.2.295+1715: Chat — Limpar/Reenviar reais; banner só ficheiros recuperáveis; purge legacy pending_uploads.
+/// 11.2.295+1714: Storage imediato (Controle Total) — reconnect core/no-app; chat sem fila fantasma; avisos/eventos/património/perfil.
 /// 11.2.295+1713: Deploy completo — foto perfil (membro própria; gestor/secretário/tesoureiro qualquer); regras mural; web/AAB/iOS.
 /// 11.2.295+1712: Deploy completo — regras mural (liderança) + chat aberto membros; web, AAB Play, iOS Codemagic.
 /// 11.2.295+1711: Firestore Web (Controle Total) — sem mensagens falsas de «rede lenta»; retry + recuperação INTERNAL ASSERTION; publicar avisos/chat estável em 5G.
@@ -232,7 +239,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1713';
+const String appBuildNumber = '1720';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

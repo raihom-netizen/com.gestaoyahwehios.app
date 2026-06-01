@@ -1,33 +1,42 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 
 /// Resultado resiliente da programação no painel (agenda + cultos fixos).
 class PanelProgramacaoLoadOutcome {
   final List<Map<String, dynamic>> items;
   final bool fromStaleRamCache;
+  final bool fromDiskCache;
   final Object? error;
 
   const PanelProgramacaoLoadOutcome({
     required this.items,
     this.fromStaleRamCache = false,
+    this.fromDiskCache = false,
     this.error,
   });
 
-  bool get showSoftStaleHint => fromStaleRamCache && items.isNotEmpty;
+  bool get showSoftStaleHint =>
+      (fromStaleRamCache || fromDiskCache) && items.isNotEmpty;
   bool get showHardError => items.isEmpty && error != null;
 }
 
-/// Cache RAM + leituras Firestore cache-first (padrão Controle Total).
+/// Cache RAM + disco + leituras Firestore cache-first (padrão Controle Total).
 abstract final class PanelProgramacaoLoader {
   PanelProgramacaoLoader._();
 
   static final Map<String, _RamEntry> _ram = {};
   static const Duration _ramTtl = Duration(minutes: 12);
+  static const Duration _diskMaxAge = Duration(days: 7);
 
   static String _ramKey(String tenantId, int rangeDays) =>
       '${tenantId.trim()}|$rangeDays';
+
+  static String _diskBucket(int rangeDays) => 'panel_programacao_$rangeDays';
 
   static List<Map<String, dynamic>>? peekRam(String tenantId, int rangeDays) {
     final e = _ram[_ramKey(tenantId, rangeDays)];
@@ -42,53 +51,145 @@ abstract final class PanelProgramacaoLoader {
     List<Map<String, dynamic>> items,
   ) {
     if (items.isEmpty) return;
+    final copy = items.map(_deserializeForUi).toList();
     _ram[_ramKey(tenantId, rangeDays)] = _RamEntry(
-      List<Map<String, dynamic>>.from(items),
+      List<Map<String, dynamic>>.from(copy),
+      DateTime.now(),
+    );
+    unawaited(_persistDisk(tenantId, rangeDays, copy));
+  }
+
+  /// Hidrata RAM a partir do disco — 1.º frame do painel sem skeleton longo.
+  static Future<void> hydrateRamFromDisk(String tenantId, int rangeDays) async {
+    if (peekRam(tenantId, rangeDays) != null) return;
+    final disk = await readDisk(tenantId, rangeDays);
+    if (disk.isEmpty) return;
+    _ram[_ramKey(tenantId, rangeDays)] = _RamEntry(
+      List<Map<String, dynamic>>.from(disk),
       DateTime.now(),
     );
   }
 
-  /// Executa [loader] com token refresh, timeout, retries implícitos no Firestore e RAM stale.
+  static Future<List<Map<String, dynamic>>> readDisk(
+    String tenantId,
+    int rangeDays,
+  ) async {
+    final raw = await YahwehLocalSnapshotStore.readJsonList(
+      tenantId,
+      _diskBucket(rangeDays),
+      maxAge: _diskMaxAge,
+    );
+    if (raw.isEmpty) return const [];
+    return raw.map(_deserializeForUi).toList();
+  }
+
+  static Future<void> _persistDisk(
+    String tenantId,
+    int rangeDays,
+    List<Map<String, dynamic>> items,
+  ) async {
+    final serial = items.map(_serializeForDisk).toList();
+    await YahwehLocalSnapshotStore.saveJsonList(
+      tenantId,
+      _diskBucket(rangeDays),
+      serial,
+    );
+  }
+
+  static Map<String, dynamic> _serializeForDisk(Map<String, dynamic> m) {
+    final copy = Map<String, dynamic>.from(m);
+    copy.remove('_doc');
+    final st = copy['startAt'];
+    if (st is Timestamp) {
+      copy['startAtMs'] = st.millisecondsSinceEpoch;
+      copy.remove('startAt');
+    }
+    return copy;
+  }
+
+  static Map<String, dynamic> _deserializeForUi(Map<String, dynamic> m) {
+    final copy = Map<String, dynamic>.from(m);
+    final ms = copy.remove('startAtMs');
+    if (ms is num && !copy.containsKey('startAt')) {
+      copy['startAt'] = Timestamp.fromMillisecondsSinceEpoch(ms.toInt());
+    }
+    return copy;
+  }
+
+  /// Executa [loader] com bootstrap CT, timeout generoso, RAM/disco stale — sem cartão vermelho à toa.
   static Future<PanelProgramacaoLoadOutcome> loadResilient({
     required String tenantId,
     required int rangeDays,
     required Future<List<Map<String, dynamic>>> Function() loader,
   }) async {
-    final stale = peekRam(tenantId, rangeDays);
+    final tid = tenantId.trim();
+    final staleRam = peekRam(tid, rangeDays);
+    final staleDisk = staleRam == null ? await readDisk(tid, rangeDays) : null;
+
     try {
+      await ChurchTenantResilientReads.preparePanelRead();
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
       try {
         await FirebaseFirestore.instance.enableNetwork();
       } catch (_) {}
-      final items = await loader().timeout(const Duration(seconds: 28));
-      rememberRam(tenantId, rangeDays, items);
-      return PanelProgramacaoLoadOutcome(items: items);
+      List<Map<String, dynamic>> items = const [];
+      try {
+        items = await loader().timeout(const Duration(seconds: 42));
+      } catch (_) {}
+      if (items.isNotEmpty) {
+        rememberRam(tid, rangeDays, items);
+        return PanelProgramacaoLoadOutcome(items: items);
+      }
+      return _outcomeOnFailure(staleRam, staleDisk, null);
     } on TimeoutException catch (e) {
-      return _outcomeOnFailure(stale, e);
+      return _outcomeOnFailure(staleRam, staleDisk, e);
     } catch (e) {
-      return _outcomeOnFailure(stale, e);
+      return _outcomeOnFailure(staleRam, staleDisk, e);
     }
   }
 
   static PanelProgramacaoLoadOutcome _outcomeOnFailure(
-    List<Map<String, dynamic>>? stale,
-    Object error,
+    List<Map<String, dynamic>>? staleRam,
+    List<Map<String, dynamic>>? staleDisk,
+    Object? error,
   ) {
-    if (stale != null && stale.isNotEmpty) {
+    if (staleRam != null && staleRam.isNotEmpty) {
       return PanelProgramacaoLoadOutcome(
-        items: stale,
+        items: staleRam,
         fromStaleRamCache: true,
         error: error,
       );
     }
-    return PanelProgramacaoLoadOutcome(items: const [], error: error);
+    if (staleDisk != null && staleDisk.isNotEmpty) {
+      return PanelProgramacaoLoadOutcome(
+        items: staleDisk,
+        fromDiskCache: true,
+        error: error,
+      );
+    }
+    if (error != null) {
+      return PanelProgramacaoLoadOutcome(items: const [], error: error);
+    }
+    return const PanelProgramacaoLoadOutcome(items: []);
   }
 
-  /// Query Firestore: cache → servidor (até 3 tentativas) → cache vazio.
+  /// Query Firestore: cache → servidor (FirestoreReadResilience no caminho crítico).
   static Future<QuerySnapshot<Map<String, dynamic>>> queryCacheFirst(
     Query<Map<String, dynamic>> query, {
+    String? cacheKey,
     Duration serverTimeout = const Duration(seconds: 18),
   }) async {
+    if (cacheKey != null && cacheKey.trim().isNotEmpty) {
+      try {
+        return await FirestoreReadResilience.getQuery(
+          query,
+          cacheKey: cacheKey.trim(),
+          maxAttempts: 4,
+          attemptTimeout: serverTimeout,
+        );
+      } catch (_) {}
+    }
+
     QuerySnapshot<Map<String, dynamic>>? cached;
     try {
       cached = await query

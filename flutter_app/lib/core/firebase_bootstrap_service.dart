@@ -325,15 +325,46 @@ abstract final class FirebaseBootstrapService {
 
   /// Evita `getIdToken` + init repetidos em cada foto do lote (eventos, membros, chat).
   static bool get isStorageUploadBootstrapFresh {
+    if (!_hasApp()) return false;
     final at = _storageUploadBootstrapAt;
     if (at == null) return false;
     return DateTime.now().difference(at) < const Duration(minutes: 3);
+  }
+
+  static void invalidateStorageUploadBootstrap() {
+    _storageUploadBootstrapAt = null;
+    _cachedApp = null;
   }
 
   /// Controle Total: `initializeApp` + token JWT — **sem** health check FCM/Functions
   /// nem `_assertFirestoreReachable` (bloqueava upload de fotos no nativo).
   static Future<void> ensureReadyForStorageUpload({
     bool requireAuth = true,
+  }) async {
+    Object? last;
+    StackTrace? lastSt;
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await _ensureReadyForStorageUploadOnce(requireAuth: requireAuth);
+        return;
+      } catch (e, st) {
+        last = e;
+        lastSt = st;
+        if (_isNoFirebaseApp(e) && attempt < 2) {
+          invalidateStorageUploadBootstrap();
+          await reconnect(requireAuthSession: requireAuth);
+          continue;
+        }
+        rethrow;
+      }
+    }
+    if (last != null) {
+      Error.throwWithStackTrace(last, lastSt ?? StackTrace.current);
+    }
+  }
+
+  static Future<void> _ensureReadyForStorageUploadOnce({
+    required bool requireAuth,
   }) async {
     if (isStorageUploadBootstrapFresh) {
       if (!requireAuth) return;
@@ -343,7 +374,29 @@ abstract final class FirebaseBootstrapService {
       }
       try {
         await user.getIdToken(false).timeout(const Duration(seconds: 8));
-      } catch (_) {}
+      } catch (e) {
+        if (_isNoFirebaseApp(e)) {
+          invalidateStorageUploadBootstrap();
+          rethrow;
+        }
+        try {
+          await user.getIdToken(true).timeout(const Duration(seconds: 12));
+        } catch (e2) {
+          if (_isNoFirebaseApp(e2)) {
+            invalidateStorageUploadBootstrap();
+          }
+          rethrow;
+        }
+      }
+      try {
+        // ignore: unnecessary_statements
+        storage.bucket;
+      } catch (e) {
+        if (_isNoFirebaseApp(e)) {
+          invalidateStorageUploadBootstrap();
+          rethrow;
+        }
+      }
       return;
     }
 
@@ -363,8 +416,21 @@ abstract final class FirebaseBootstrapService {
     }
     try {
       await user.getIdToken(false).timeout(const Duration(seconds: 10));
-    } catch (_) {
+    } catch (e) {
+      if (_isNoFirebaseApp(e)) {
+        invalidateStorageUploadBootstrap();
+        rethrow;
+      }
       await user.getIdToken(true).timeout(const Duration(seconds: 12));
+    }
+    try {
+      // ignore: unnecessary_statements
+      storage.bucket;
+    } catch (e) {
+      if (_isNoFirebaseApp(e)) {
+        invalidateStorageUploadBootstrap();
+      }
+      rethrow;
     }
     _storageUploadBootstrapAt = DateTime.now();
   }
@@ -636,6 +702,13 @@ abstract final class FirebaseBootstrapService {
         }
         if (CrashlyticsBenignErrors.isBenign(e)) break;
         if (attempt >= maxAttempts) break;
+        if (_isNoFirebaseApp(e)) {
+          invalidateStorageUploadBootstrap();
+          try {
+            await reconnect(requireAuthSession: requireAuth);
+          } catch (_) {}
+          continue;
+        }
         if (chatOp || mediaPublishOp) {
           final raw = e.toString();
           if (raw.contains('INTERNAL ASSERTION') && attempt < maxAttempts) {
@@ -654,6 +727,11 @@ abstract final class FirebaseBootstrapService {
           try {
             await auth.currentUser?.getIdToken(true);
           } catch (_) {}
+          if (attempt >= maxAttempts - 1) {
+            try {
+              await reconnect(requireAuthSession: requireAuth);
+            } catch (_) {}
+          }
           continue;
         }
         try {

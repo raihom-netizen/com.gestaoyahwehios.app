@@ -22,9 +22,11 @@ Future<void> prepareFirestorePublishAttempt({
     );
   }
   await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: attempt > 0);
-  if (kIsWeb && attempt >= 2) {
+  if (kIsWeb && attempt >= 1) {
     try {
-      await FirestoreWebGuard.recoverFirestoreWebSession();
+      await FirestoreWebGuard.recoverFirestoreWebSession(
+        allowHardReconnect: attempt >= 2,
+      );
     } catch (_) {}
   }
   if (allowReconnect) {

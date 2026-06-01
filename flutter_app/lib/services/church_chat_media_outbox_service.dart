@@ -21,15 +21,72 @@ abstract final class ChurchChatMediaOutboxService {
   static const _prefsKey = 'church_chat_media_outbox_v1';
   static bool _connectivityBound = false;
 
-  static Future<int> pendingJobCount() async {
+  static Future<int> pendingJobCount() async =>
+      recoverablePendingJobCount();
+
+  /// Só jobs com ficheiro/bytes — evita banner «28 pendentes» fantasma.
+  static Future<int> recoverablePendingJobCount({String? tenantId}) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_prefsKey);
     if (raw == null || raw.isEmpty) return 0;
     try {
-      return (jsonDecode(raw) as List).length;
+      final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+      final tid = tenantId?.trim() ?? '';
+      var n = 0;
+      for (final m in list) {
+        if (tid.isNotEmpty && (m['tenantId'] ?? '').toString() != tid) {
+          continue;
+        }
+        if (await _jobIsRecoverable(m)) n++;
+      }
+      return n;
     } catch (_) {
       return 0;
     }
+  }
+
+  static Future<bool> _jobIsRecoverable(Map<String, dynamic> m) async {
+    final tenantId = (m['tenantId'] ?? '').toString();
+    final threadId = (m['threadId'] ?? '').toString();
+    final localId = (m['localId'] ?? '').toString();
+    if (tenantId.isEmpty || threadId.isEmpty || localId.isEmpty) {
+      return false;
+    }
+    final localPath = (m['localPath'] ?? '').toString();
+    final pathOk =
+        !kIsWeb && localPath.isNotEmpty && File(localPath).existsSync();
+    if (pathOk) return true;
+    if (m['hasBytes'] == true) {
+      final bytes = await ChurchChatPendingMediaCache.get(
+        tenantId: tenantId,
+        threadId: threadId,
+        localId: localId,
+      );
+      if (bytes != null && bytes.isNotEmpty) return true;
+    }
+    return false;
+  }
+
+  /// Apaga toda a fila local (SharedPreferences) — botão Limpar no hub.
+  static Future<int> wipeAllLocalJobs({String? tenantId}) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsKey);
+    if (raw == null || raw.isEmpty) return 0;
+    final tid = tenantId?.trim() ?? '';
+    if (tid.isEmpty) {
+      await prefs.remove(_prefsKey);
+      return (jsonDecode(raw) as List).length;
+    }
+    final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+    final kept =
+        list.where((e) => (e['tenantId'] ?? '').toString() != tid).toList();
+    final removed = list.length - kept.length;
+    if (kept.isEmpty) {
+      await prefs.remove(_prefsKey);
+    } else {
+      await prefs.setString(_prefsKey, jsonEncode(kept));
+    }
+    return removed;
   }
 
   static Future<void> registerJob({
@@ -290,6 +347,21 @@ abstract final class ChurchChatMediaOutboxService {
       final threadId = (m['threadId'] ?? '').toString();
       final localId = (m['localId'] ?? '').toString();
       if (tenantId.isEmpty || threadId.isEmpty || localId.isEmpty) continue;
+      final attempts = m['attempts'] is num
+          ? (m['attempts'] as num).toInt()
+          : int.tryParse('${m['attempts']}') ?? 0;
+      if (attempts >= _maxAttemptsPerJob) {
+        removed++;
+        await clearJob(
+          tenantId: tenantId,
+          threadId: threadId,
+          localId: localId,
+          uploadDocId: (m['uploadDocId'] ?? '').toString().isEmpty
+              ? null
+              : (m['uploadDocId'] ?? '').toString(),
+        );
+        continue;
+      }
       final hasBytes = m['hasBytes'] == true;
       final localPath = (m['localPath'] ?? '').toString();
       final pathOk =

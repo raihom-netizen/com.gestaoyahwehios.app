@@ -2,10 +2,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 
-/// Blindagem Web (padrão Controle Total): `INTERNAL ASSERTION FAILED` /
-/// `WatchChangeAggregator` com listeners `snapshots()` + cache IndexedDB.
+/// Blindagem Web (padrão Controle Total): **nunca** `terminate()` em retry automático
+/// (mata o singleton → `failed-precondition: client has already been terminated` em Doação,
+/// Patrimônio, Cartão membro, Mural, etc.).
 class FirestoreWebGuard {
   FirestoreWebGuard._();
 
@@ -16,6 +18,18 @@ class FirestoreWebGuard {
         msg.contains('WatchChangeAggregator') ||
         msg.contains('PersistentListenStream') ||
         msg.contains('__PRIVATE__TargetState');
+  }
+
+  /// Cliente Firestore morto após `terminate()` antigo ou corrida entre abas.
+  static bool isClientTerminated(Object e) {
+    final msg = e.toString().toLowerCase();
+    if (msg.contains('client has already been terminated')) return true;
+    if (e is FirebaseException &&
+        e.code == 'failed-precondition' &&
+        msg.contains('terminated')) {
+      return true;
+    }
+    return false;
   }
 
   static void applyWebFirestoreSettings() {
@@ -48,36 +62,50 @@ class FirestoreWebGuard {
     await Future<void>.delayed(const Duration(milliseconds: 140));
   }
 
-  /// Recupera estado corrompido do SDK JS (terminate + limpar persistência + long-polling).
-  static Future<void> recoverFirestoreWebSession() async {
+  /// Recuperação **suave** (Controle Total): token + rede — **sem** `terminate`/`clearPersistence`.
+  static Future<void> recoverFirestoreWebSession({bool allowHardReconnect = false}) async {
     if (!kIsWeb) return;
+    await stabilizeAfterWebSignIn();
     try {
       await firebaseDefaultFirestore.disableNetwork();
-    } catch (_) {}
-    try {
-      await firebaseDefaultFirestore.terminate();
-    } catch (_) {}
-    try {
-      await firebaseDefaultFirestore.clearPersistence();
-    } catch (_) {}
-    applyWebFirestoreSettings();
-    try {
+      await Future<void>.delayed(const Duration(milliseconds: 80));
       await firebaseDefaultFirestore.enableNetwork();
-    } catch (_) {}
-    await Future<void>.delayed(const Duration(milliseconds: 160));
-    await stabilizeAfterWebSignIn();
+    } catch (e) {
+      if (isClientTerminated(e) && allowHardReconnect) {
+        await _reconnectFirestoreAfterTerminated();
+      }
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 100));
   }
 
-  /// Executa [fn]; em erro interno do Firestore Web, recupera e tenta de novo (1x).
+  /// Só quando o cliente já foi terminado — `reconnect` do bootstrap (sem `terminate` de novo).
+  static Future<void> _reconnectFirestoreAfterTerminated() async {
+    try {
+      debugPrint('FirestoreWebGuard: reconnect após cliente terminado…');
+      await FirebaseBootstrapService.reconnect(requireAuthSession: false);
+      applyWebFirestoreSettings();
+      try {
+        await firebaseDefaultFirestore.enableNetwork();
+      } catch (_) {}
+    } catch (e) {
+      debugPrint('FirestoreWebGuard: reconnect falhou: $e');
+    }
+  }
+
+  /// Executa [fn]; em assert interno ou cliente terminado, recupera **suave** e tenta 1x.
   static Future<T> runWithWebRecovery<T>(Future<T> Function() fn) async {
     try {
       return await fn();
     } catch (e, st) {
-      if (!kIsWeb || !isInternalAssertionError(e)) {
+      final recoverable = kIsWeb &&
+          (isInternalAssertionError(e) || isClientTerminated(e));
+      if (!recoverable) {
         Error.throwWithStackTrace(e, st);
       }
-      debugPrint('FirestoreWebGuard: recuperando sessão Web após assert…');
-      await recoverFirestoreWebSession();
+      debugPrint('FirestoreWebGuard: recuperação suave Web…');
+      await recoverFirestoreWebSession(
+        allowHardReconnect: isClientTerminated(e),
+      );
       return await fn();
     }
   }

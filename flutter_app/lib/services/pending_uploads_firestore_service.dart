@@ -260,6 +260,9 @@ abstract final class PendingUploadsFirestoreService {
   static Stream<QuerySnapshot<Map<String, dynamic>>> watchOpenForTenant(
     String tenantId,
   ) {
+    if (!FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+      return const Stream.empty();
+    }
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (tenantId.isEmpty || uid.isEmpty) {
       return const Stream.empty();
@@ -269,6 +272,44 @@ abstract final class PendingUploadsFirestoreService {
         .where('status', whereIn: ['pending', 'failed', 'uploading', 'queued'])
         .limit(25)
         .snapshots();
+  }
+
+  /// Remove registos antigos de `pending_uploads` (builds com fila Firestore ligada).
+  static Future<int> purgeAllLegacyOpenForTenant(String tenantId) async {
+    if (tenantId.isEmpty) return 0;
+    await _ensureReady();
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    if (uid.isEmpty) return 0;
+    var total = 0;
+    for (var wave = 0; wave < 30; wave++) {
+      QuerySnapshot<Map<String, dynamic>> snap;
+      try {
+        snap = await _col(tenantId)
+            .where('ownerUid', isEqualTo: uid)
+            .limit(100)
+            .get();
+      } catch (_) {
+        break;
+      }
+      if (snap.docs.isEmpty) break;
+      await _abandonChatStubsFromPendingDocs(tenantId, snap.docs);
+      var batch = firebaseDefaultFirestore.batch();
+      var ops = 0;
+      for (final doc in snap.docs) {
+        batch.delete(doc.reference);
+        ops++;
+        total++;
+        if (ops >= 400) {
+          await batch.commit();
+          batch = firebaseDefaultFirestore.batch();
+          ops = 0;
+        }
+        unawaited(_mirrorGlobal(tenantId, doc.id, {}, delete: true));
+      }
+      if (ops > 0) await batch.commit();
+      if (snap.docs.length < 100) break;
+    }
+    return total;
   }
 
   /// Índice global — operador Master vê todos; utilizador só os seus.

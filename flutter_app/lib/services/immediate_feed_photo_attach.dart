@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
+import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
@@ -35,7 +36,7 @@ abstract final class ImmediateFeedPhotoAttach {
     });
   }
 
-  /// Envia uma foto para o slot; devolve URL pública ou null se falhar (mantém preview local).
+  /// Envia uma foto para o slot; devolve URL pública (erro visível se Firebase/Storage falhar).
   static Future<String?> uploadSingleSlot({
     required String tenantId,
     required String postType,
@@ -45,10 +46,13 @@ abstract final class ImmediateFeedPhotoAttach {
     String? localPath,
   }) async {
     try {
+      await ImmediateStorageUploadGuard.ensureReady(debugLabel: 'feed_photo_slot');
       await ImmediateMediaWarm.warmFeed();
       if (kIsWeb) {
         final b = bytes;
-        if (b == null || b.isEmpty) return null;
+        if (b == null || b.isEmpty) {
+          throw StateError('Sem dados da imagem para enviar.');
+        }
         final urls = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
           tenantId: tenantId,
           postType: postType,
@@ -56,10 +60,15 @@ abstract final class ImmediateFeedPhotoAttach {
           newImages: [b],
           startSlotIndex: slotIndex,
         );
-        return urls.isEmpty ? null : urls.first;
+        if (urls.isEmpty) {
+          throw StateError('Upload da foto não devolveu URL.');
+        }
+        return urls.first;
       }
       final path = localPath?.trim() ?? '';
-      if (path.isEmpty) return null;
+      if (path.isEmpty) {
+        throw StateError('Caminho da foto inválido.');
+      }
       final urls =
           await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
         tenantId: tenantId,
@@ -68,10 +77,13 @@ abstract final class ImmediateFeedPhotoAttach {
         localPaths: [path],
         startSlotIndex: slotIndex,
       );
-      return urls.isEmpty ? null : urls.first;
+      if (urls.isEmpty) {
+        throw StateError('Upload da foto não devolveu URL.');
+      }
+      return urls.first;
     } catch (e, st) {
       debugPrint('ImmediateFeedPhotoAttach.uploadSingleSlot: $e\n$st');
-      return null;
+      ImmediateStorageUploadGuard.rethrowAsUserError(e, st);
     }
   }
 }

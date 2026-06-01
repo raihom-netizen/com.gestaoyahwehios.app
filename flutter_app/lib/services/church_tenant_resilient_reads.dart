@@ -204,6 +204,19 @@ abstract final class ChurchTenantResilientReads {
         cacheKey: _key(tenantId, 'patrimonio_$limit'),
       );
 
+  static Future<QuerySnapshot<Map<String, dynamic>>> contas(
+    String tenantId, {
+    int limit = 80,
+  }) =>
+      _orderedQuery(
+        tenantId,
+        'contas',
+        'nome',
+        descending: false,
+        limit: limit,
+        cacheSuffix: 'contas_$limit',
+      );
+
   static Future<QuerySnapshot<Map<String, dynamic>>> fornecedores(
     String tenantId, {
     int limit = 200,

@@ -4,6 +4,8 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/network_media_quality_policy.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show imageUrlFromMap;
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 
@@ -118,7 +120,8 @@ abstract final class MemberProfileVariantsService {
         if (s.isNotEmpty) return s;
       }
     }
-    return null;
+    final full = imageUrlFromMap(data);
+    return full.isNotEmpty ? full : null;
   }
 
   /// URL para ecrã de perfil / carteirinha.

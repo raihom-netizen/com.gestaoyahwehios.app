@@ -40,6 +40,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_list_preview.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
+import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
@@ -615,10 +616,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   Future<void> _pruneStaleChatUploads(String tenantId) async {
     if (tenantId.isEmpty) return;
     try {
-      await PendingUploadsFirestoreService.pruneUnrecoverableOpenForTenant(
+      await PendingUploadsFirestoreService.purgeAllLegacyOpenForTenant(
         tenantId,
       );
       await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
+      await ChurchChatMediaOutboxService.wipeAllLocalJobs(tenantId: tenantId);
+      StorageUploadQueueService.instance.clearPending();
     } catch (_) {}
   }
 
@@ -3346,7 +3349,36 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       if (!mounted) return;
       setState(() => _prefs = ChurchChatMemberPrefs.parse(snap));
     });
-    _load();
+    unawaited(_loadInstantFromCache());
+    unawaited(_load());
+  }
+
+  /// Nomes + fotos do `_panel_cache/members_directory` — sem esperar `membrosRecent(600)`.
+  Future<void> _loadInstantFromCache() async {
+    try {
+      final directory =
+          await MembersDirectorySnapshotService.readOnce(widget.tenantId);
+      if (!mounted || !directory.hasEntries) return;
+      final rows = _rowsFromDirectory(directory);
+      setState(() {
+        _rows = rows;
+        _loading = false;
+        _loadFailed = false;
+      });
+      _schedulePresencePoll();
+      final refs = rows
+          .map((r) {
+            final auth = _authUidFromMemberData(r.docId, r.data);
+            if (auth == null) return null;
+            return churchChatMemberRefFromMemberDoc(r.docId, r.data);
+          })
+          .whereType<ChurchChatMemberRef>()
+          .toList();
+      ChurchGalleryPhotoWarmup.warmBytesForChatRefs(
+        widget.tenantId,
+        refs,
+      );
+    } catch (_) {}
   }
 
   @override
@@ -3422,10 +3454,13 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _loadFailed = false;
-    });
+    final hadRows = _rows.isNotEmpty;
+    if (!hadRows) {
+      setState(() {
+        _loading = true;
+        _loadFailed = false;
+      });
+    }
     var rows = <_ChatDirectoryMemberRow>[];
     var fetchFailed = false;
     try {

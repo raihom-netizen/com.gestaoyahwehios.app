@@ -74,9 +74,14 @@ abstract final class ChurchChatStuckCleanupService {
         await PendingUploadsFirestoreService.pruneUnrecoverableOpenForTenant(tid);
     queueDocs += await _purgeAllPendingUploadsDocsForCurrentUser(tid);
     queueDocs += await _purgeOpenChatUploads(tid);
+    queueDocs += await ChurchChatMediaOutboxService.wipeAllLocalJobs(
+      tenantId: tid,
+    );
     queueDocs += await ChurchChatMediaOutboxService.clearAllJobsWithFirestore(
       tenantId: tid,
     );
+    queueDocs +=
+        await PendingUploadsFirestoreService.purgeAllLegacyOpenForTenant(tid);
     StorageUploadQueueService.instance.clearPending();
 
     final messages = await _purgeStuckMessagesInThreads(tid);

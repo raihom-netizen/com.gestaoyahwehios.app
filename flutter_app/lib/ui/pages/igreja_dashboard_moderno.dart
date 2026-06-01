@@ -36,6 +36,7 @@ import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/panel_programacao_loader.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_dashboard_current_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
@@ -63,7 +64,10 @@ import 'package:gestao_yahweh/ui/widgets/church_public_event_detail_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_post_card.dart'
     show yahwehPostGalleryRefs;
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
-    show showYahwehFullscreenZoomableImage, YahwehPremiumFeedShimmer;
+    show
+        scheduleFeedMediaWarmup,
+        showYahwehFullscreenZoomableImage,
+        YahwehPremiumFeedShimmer;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
@@ -6491,6 +6495,16 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
             })
             .toList();
         if (docs.isEmpty) return const SizedBox.shrink();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
+          unawaited(
+            scheduleFeedMediaWarmup(
+              context,
+              docs.take(6).map((d) => d.data()).toList(),
+              maxDocs: 6,
+            ),
+          );
+        });
         return _CleanCard(
           title: 'Eventos em destaque',
           icon: Icons.event_rounded,
@@ -6585,33 +6599,24 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   if (tid.isEmpty) tid = tenantId.trim();
   if (tid.isEmpty) return const [];
 
-  final noticiasRef =
-      FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('noticias');
-  final templatesRef =
-      FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('event_templates');
+  await ChurchTenantResilientReads.preparePanelRead();
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> realDocs;
+  final churchRef = FirebaseFirestore.instance.collection('igrejas').doc(tid);
+  final noticiasRef = churchRef.collection('noticias');
+  final templatesRef = churchRef.collection('event_templates');
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> realDocs = const [];
   try {
-    final snap = await PanelProgramacaoLoader.queryCacheFirst(
-      noticiasRef
-          .where('type', isEqualTo: 'evento')
-          .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
-          .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
-          .orderBy('startAt')
-          .limit(80),
-    );
-    realDocs = snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
-  } catch (_) {
-    final snap = await PanelProgramacaoLoader.queryCacheFirst(
-      noticiasRef.limit(150),
-    );
+    final snap = await ChurchTenantResilientReads.noticiasByStartAt(tid, limit: 220);
     realDocs = snap.docs
         .where((d) => (d.data()['type'] ?? '').toString() == 'evento')
         .where((d) {
           try {
             final dt = (d.data()['startAt'] as Timestamp).toDate();
             return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
-          } catch (_) { return false; }
+          } catch (_) {
+            return false;
+          }
         })
         .toList();
     realDocs.sort((a, b) {
@@ -6619,8 +6624,37 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
         final ta = (a.data()['startAt'] as Timestamp).toDate();
         final tb = (b.data()['startAt'] as Timestamp).toDate();
         return ta.compareTo(tb);
-      } catch (_) { return 0; }
+      } catch (_) {
+        return 0;
+      }
     });
+  } catch (_) {
+    try {
+      final snap = await PanelProgramacaoLoader.queryCacheFirst(
+        noticiasRef.limit(150),
+        cacheKey: 'panel_${tid}_noticias_plain',
+      );
+      realDocs = snap.docs
+          .where((d) => (d.data()['type'] ?? '').toString() == 'evento')
+          .where((d) {
+            try {
+              final dt = (d.data()['startAt'] as Timestamp).toDate();
+              return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
+            } catch (_) {
+              return false;
+            }
+          })
+          .toList();
+      realDocs.sort((a, b) {
+        try {
+          final ta = (a.data()['startAt'] as Timestamp).toDate();
+          final tb = (b.data()['startAt'] as Timestamp).toDate();
+          return ta.compareTo(tb);
+        } catch (_) {
+          return 0;
+        }
+      });
+    } catch (_) {}
   }
 
   if (apenasRotinaGerada) {
@@ -6663,17 +6697,20 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
     } catch (_) {}
   }
 
-  QuerySnapshot<Map<String, dynamic>> templatesSnap;
+  QuerySnapshot<Map<String, dynamic>> templatesSnap =
+      const MergedFirestoreQuerySnapshot([]);
   try {
     templatesSnap = await PanelProgramacaoLoader.queryCacheFirst(
       templatesRef.where('active', isEqualTo: true),
+      cacheKey: 'panel_${tid}_event_templates_active',
     );
   } catch (_) {
     try {
-      templatesSnap = await PanelProgramacaoLoader.queryCacheFirst(templatesRef);
-    } catch (_) {
-      templatesSnap = const MergedFirestoreQuerySnapshot([]);
-    }
+      templatesSnap = await PanelProgramacaoLoader.queryCacheFirst(
+        templatesRef,
+        cacheKey: 'panel_${tid}_event_templates_all',
+      );
+    } catch (_) {}
   }
   final templates = templatesSnap.docs.where((d) => d.data()['active'] != false).toList();
 
@@ -6709,13 +6746,12 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
 
   try {
     final agSnap = await PanelProgramacaoLoader.queryCacheFirst(
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
+      churchRef
           .collection('agenda')
           .where('startTime',
               isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
           .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd)),
+      cacheKey: 'panel_${tid}_agenda_range',
     );
     for (final d in agSnap.docs) {
       final m = d.data();
@@ -6768,8 +6804,11 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
 void _prewarmPanelProgramacao(String tenantId) {
   final tid = tenantId.trim();
   if (tid.isEmpty) return;
+  for (final days in const [7, 15, 30]) {
+    unawaited(PanelProgramacaoLoader.hydrateRamFromDisk(tid, days));
+  }
   final now = DateTime.now();
-  for (final days in const [7, 15]) {
+  for (final days in const [7, 15, 30]) {
     unawaited(
       PanelProgramacaoLoader.loadResilient(
         tenantId: tid,
@@ -6965,6 +7004,12 @@ class _EventosSemanalCard extends StatefulWidget {
 
 class _EventosSemanalCardState extends State<_EventosSemanalCard> {
   bool _expanded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(PanelProgramacaoLoader.hydrateRamFromDisk(widget.tenantId, 7));
+  }
 
   Future<PanelProgramacaoLoadOutcome> _loadOutcome() {
     return PanelProgramacaoLoader.loadResilient(
@@ -7522,6 +7567,12 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
   bool _expanded = false;
   int _selectedDays = 7;
 
+  @override
+  void initState() {
+    super.initState();
+    unawaited(PanelProgramacaoLoader.hydrateRamFromDisk(widget.tenantId, 7));
+  }
+
   Future<PanelProgramacaoLoadOutcome> _loadOutcome() {
     return PanelProgramacaoLoader.loadResilient(
       tenantId: widget.tenantId,
@@ -7583,7 +7634,15 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
                     return ChurchPanelPeriodDaysChip(
                       days: days,
                       selected: selected,
-                      onTap: () => setState(() => _selectedDays = days),
+                      onTap: () {
+                        unawaited(
+                          PanelProgramacaoLoader.hydrateRamFromDisk(
+                            widget.tenantId,
+                            days,
+                          ),
+                        );
+                        setState(() => _selectedDays = days);
+                      },
                     );
                   }).toList(),
                 ),
@@ -7625,7 +7684,15 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
               return ChurchPanelPeriodDaysChip(
                 days: days,
                 selected: selected,
-                onTap: () => setState(() => _selectedDays = days),
+                onTap: () {
+                  unawaited(
+                    PanelProgramacaoLoader.hydrateRamFromDisk(
+                      widget.tenantId,
+                      days,
+                    ),
+                  );
+                  setState(() => _selectedDays = days);
+                },
               );
             }).toList(),
           ),
@@ -7929,7 +7996,7 @@ class _PainelDestaqueMediaCarouselState
                       fit: BoxFit.contain,
                       memCacheWidth: memW,
                       memCacheHeight: memH,
-                      skipFreshDisplayUrl: false,
+                      skipFreshDisplayUrl: true,
                       placeholder: Center(
                         child: Icon(
                           Icons.photo_outlined,
@@ -8265,7 +8332,7 @@ class _DestaqueCard extends StatefulWidget {
                     fit: BoxFit.contain,
                     memCacheWidth: memW,
                     memCacheHeight: memH,
-                    skipFreshDisplayUrl: false,
+                    skipFreshDisplayUrl: true,
                     placeholder: ph,
                     errorWidget: videoThumbUrl != null && videoThumbUrl.isNotEmpty
                         ? FreshFirebaseStorageImage(

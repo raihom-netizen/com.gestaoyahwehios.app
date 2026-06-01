@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
+import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
@@ -40,6 +41,7 @@ abstract final class ImmediatePatrimonioPhotoAttach {
     required Uint8List rawBytes,
   }) async {
     try {
+      await ImmediateStorageUploadGuard.ensureReady(debugLabel: 'patrimonio_photo');
       await ImmediateMediaWarm.warmPatrimonio();
       final path =
           ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemDocId, slotIndex);
@@ -47,9 +49,13 @@ abstract final class ImmediatePatrimonioPhotoAttach {
         storagePath: path,
         rawBytes: rawBytes,
       );
-      return result.downloadUrl;
-    } catch (_) {
-      return null;
+      final url = result.downloadUrl.trim();
+      if (url.isEmpty) {
+        throw StateError('Upload do património não devolveu URL.');
+      }
+      return url;
+    } catch (e, st) {
+      ImmediateStorageUploadGuard.rethrowAsUserError(e, st);
     }
   }
 }

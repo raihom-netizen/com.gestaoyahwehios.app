@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 bool _isFirestoreTransient(Object e) {
+  if (FirestoreWebGuard.isClientTerminated(e)) return true;
   if (e is FirebaseException) {
     const codes = {
       'unavailable',
@@ -34,6 +36,13 @@ Future<T> runFirestoreWithRetry<T>(
       final retry = _isFirestoreTransient(e) && attempt < maxAttempts - 1;
       if (!retry) {
         Error.throwWithStackTrace(e, st);
+      }
+      if (kIsWeb &&
+          (FirestoreWebGuard.isClientTerminated(e) ||
+              FirestoreWebGuard.isInternalAssertionError(e))) {
+        await FirestoreWebGuard.recoverFirestoreWebSession(
+          allowHardReconnect: FirestoreWebGuard.isClientTerminated(e),
+        );
       }
       await Future<void>.delayed(initialDelay * (1 << attempt));
     }

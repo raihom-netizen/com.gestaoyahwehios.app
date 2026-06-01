@@ -1,5 +1,5 @@
 import 'dart:async';
-
+import 'dart:io' show File;
 import 'dart:typed_data';
 
 
@@ -305,28 +305,42 @@ abstract final class OptimisticChatMediaUpload {
 
     }
 
+    Uint8List? cached = pending.previewBytes;
+    if (cached == null || cached.isEmpty) {
+      final lp = pending.localPath?.trim() ?? '';
+      if (lp.isNotEmpty && !kIsWeb) {
+        final raw = await churchChatReadFileBytes(lp);
+        if (raw != null && raw.isNotEmpty) {
+          cached = raw is Uint8List ? raw : Uint8List.fromList(raw);
+          pending.previewBytes = cached;
+        }
+      }
+    }
+    final pathOk = !kIsWeb &&
+        (pending.localPath?.trim().isNotEmpty ?? false) &&
+        File(pending.localPath!).existsSync();
+    final hasData = cached != null && cached.isNotEmpty;
+    if (!hasData && !pathOk) {
+      await _abandonStub(pending, tenantId, threadId, uploadDocId);
+      onFailed(
+        'Não foi possível reenviar — o ficheiro já não está no aparelho. '
+        'Envie de novo.',
+      );
+      return;
+    }
+
     await ChurchChatMediaOutboxService.registerJob(
-
       tenantId: tenantId,
-
       threadId: threadId,
-
       localId: pending.localId,
-
       kind: pending.kind,
-
       fileName: pending.fileName,
-
       mime: pending.mime,
-
       firestoreMessageId: pending.firestoreMessageId,
-
       storagePath: pending.storagePath,
-
       localPath: pending.localPath,
-
+      bytes: cached,
       uploadDocId: uploadDocId,
-
     );
 
     if (onWaitingForNetwork != null) {

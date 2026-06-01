@@ -12,6 +12,7 @@ class FirestoreReadResilience {
       {};
 
   static bool isTransient(Object error) {
+    if (FirestoreWebGuard.isClientTerminated(error)) return true;
     if (error is FirebaseException) {
       switch (error.code) {
         case 'unavailable':
@@ -118,9 +119,13 @@ class FirestoreReadResilience {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
             force: attempt > 1,
           );
-          if (kIsWeb && attempt >= 2) {
+          if (kIsWeb && attempt >= 1) {
             try {
-              await FirestoreWebGuard.recoverFirestoreWebSession();
+              await FirestoreWebGuard.recoverFirestoreWebSession(
+                allowHardReconnect: attempt >= 2 &&
+                    lastError != null &&
+                    FirestoreWebGuard.isClientTerminated(lastError!),
+              );
             } catch (_) {}
           }
         }

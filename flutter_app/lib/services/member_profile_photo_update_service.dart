@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         isValidImageUrl,
         sanitizeImageUrl;
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart';
@@ -106,6 +107,9 @@ class MemberProfilePhotoUpdateService {
     required Map<String, dynamic> memberData,
     required Uint8List rawBytes,
   }) async {
+    await ImmediateStorageUploadGuard.ensureReady(
+      debugLabel: 'member_profile_photo',
+    );
     final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
     final authUid = (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
         .toString()

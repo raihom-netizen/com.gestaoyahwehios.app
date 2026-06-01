@@ -18,7 +18,9 @@ import 'package:gestao_yahweh/services/church_chat_album_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_album_grid.dart';
 import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
-import 'package:gestao_yahweh/services/church_chat_fs.dart';
+import 'package:gestao_yahweh/services/church_chat_fs.dart'
+    show churchChatReadFileBytes;
+import 'package:gestao_yahweh/services/church_chat_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
@@ -2013,6 +2015,35 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
   }
 
+  Future<List<int>?> _bytesForPendingUpload({
+    required ChurchChatOutboundPending pending,
+    required List<int>? bytes,
+    required String? localPath,
+  }) async {
+    if (bytes != null && bytes.isNotEmpty) {
+      return bytes;
+    }
+    final path = localPath?.trim() ?? pending.localPath?.trim() ?? '';
+    if (path.isEmpty || kIsWeb) return null;
+    final raw = await churchChatReadFileBytes(path);
+    if (raw == null || raw.isEmpty) return null;
+    final u8 = raw is Uint8List ? raw : Uint8List.fromList(raw);
+    if (pending.kind == 'image') {
+      pending.previewBytes = u8;
+    }
+    if (u8.length <= 48 * 1024 * 1024) {
+      unawaited(
+        ChurchChatPendingMediaCache.put(
+          tenantId: widget.tenantId,
+          threadId: widget.threadId,
+          localId: pending.localId,
+          bytes: u8,
+        ),
+      );
+    }
+    return u8;
+  }
+
   Future<void> _enqueueAndUploadPending({
     required ChurchChatOutboundPending pending,
     required List<int>? bytes,
@@ -2020,20 +2051,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }) async {
     _enqueuePending(pending);
     _setPendingProgress(pending.localId, 0.02);
-    final bytesCopy = bytes != null && bytes.isNotEmpty
-        ? (bytes is Uint8List ? bytes : Uint8List.fromList(bytes))
-        : pending.previewBytes;
     unawaited(
       runFirebaseBackgroundTask<void>(() async {
-        await ChurchChatMediaOutboxService.registerJob(
-          tenantId: widget.tenantId,
-          threadId: widget.threadId,
-          localId: pending.localId,
-          kind: pending.kind,
-          fileName: pending.fileName,
-          mime: pending.mime,
-          localPath: localPath ?? pending.localPath,
-          bytes: bytesCopy,
+        final uploadBytes = await _bytesForPendingUpload(
+          pending: pending,
+          bytes: bytes,
+          localPath: localPath,
         );
         try {
           await _startPendingFirestoreStub(pending);
@@ -2042,7 +2065,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         }
         await _flushPendingUpload(
           pending: pending,
-          bytes: bytes,
+          bytes: uploadBytes,
           localPath: localPath,
         );
       }, debugLabel: 'chat_media_enqueue').catchError((Object e) {

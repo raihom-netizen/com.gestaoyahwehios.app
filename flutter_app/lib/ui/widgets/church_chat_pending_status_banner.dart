@@ -1,14 +1,17 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_chat_stuck_cleanup_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
-import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
-import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Faixa no hub/thread do chat: uploads pendentes, outbox local e fila em memória.
+/// Faixa no hub/thread: só envios **recuperáveis** (com ficheiro/bytes no aparelho).
 class ChurchChatPendingStatusBanner extends StatefulWidget {
   const ChurchChatPendingStatusBanner({
     super.key,
@@ -23,8 +26,6 @@ class ChurchChatPendingStatusBanner extends StatefulWidget {
   final bool compact;
   final String role;
   final List<String>? permissions;
-
-  /// Mostra «Limpar» mesmo sem fila visível (mensagens presas só no Firestore).
   final bool alwaysOfferClear;
 
   @override
@@ -34,36 +35,53 @@ class ChurchChatPendingStatusBanner extends StatefulWidget {
 
 class _ChurchChatPendingStatusBannerState
     extends State<ChurchChatPendingStatusBanner> {
-  int _chatOutbox = 0;
-  int _muralOutbox = 0;
+  int _recoverableChat = 0;
   int _memoryQueue = 0;
+  bool _purgedLegacy = false;
 
   @override
   void initState() {
     super.initState();
-    _refreshLocalCounts();
+    _refreshCounts();
+    unawaited(_purgeLegacyOnce());
   }
 
-  Future<void> _refreshLocalCounts() async {
-    final chat = await ChurchChatMediaOutboxService.pendingJobCount();
-    final mural = await MuralPublishOutboxService.pendingJobCount();
+  Future<void> _purgeLegacyOnce() async {
+    if (_purgedLegacy) return;
+    _purgedLegacy = true;
+    final tid = widget.tenantId.trim();
+    if (tid.isEmpty) return;
+    try {
+      await PendingUploadsFirestoreService.purgeAllLegacyOpenForTenant(tid);
+      await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
+      await _refreshCounts();
+    } catch (_) {}
+  }
+
+  Future<void> _refreshCounts() async {
+    final tid = widget.tenantId.trim();
+    final chat = await ChurchChatMediaOutboxService.recoverablePendingJobCount(
+      tenantId: tid.isEmpty ? null : tid,
+    );
     final mem = StorageUploadQueueService.instance.pendingCount;
     if (!mounted) return;
     setState(() {
-      _chatOutbox = chat;
-      _muralOutbox = mural;
+      _recoverableChat = chat;
       _memoryQueue = mem;
     });
   }
 
+  int get _displayTotal => _recoverableChat + _memoryQueue;
+
   Future<void> _clearStuckQueue() async {
     final tid = widget.tenantId.trim();
     if (tid.isEmpty) {
+      await ChurchChatMediaOutboxService.wipeAllLocalJobs();
       StorageUploadQueueService.instance.clearPending();
-      await _refreshLocalCounts();
+      await _refreshCounts();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nada pendente para limpar.')),
+        const SnackBar(content: Text('Fila local limpa.')),
       );
       return;
     }
@@ -133,6 +151,9 @@ class _ChurchChatPendingStatusBannerState
       }
     }
 
+    await ChurchChatMediaOutboxService.wipeAllLocalJobs(tenantId: tid);
+    StorageUploadQueueService.instance.clearPending();
+
     final result = await ChurchChatStuckCleanupService.purgeAllForTenant(
       tid,
       includeEntireDatabase: wipeAllDb,
@@ -140,16 +161,16 @@ class _ChurchChatPendingStatusBannerState
       permissions: widget.permissions,
     );
     await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
-    await _refreshLocalCounts();
+    await _refreshCounts();
     if (!mounted) return;
     final total = result.messages + result.queueDocs;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           total > 0
-              ? 'Limpeza concluída: ${result.messages} mensagem(ns) removida(s) do Firestore '
-                  '· ${result.queueDocs} fila(s)/upload(s) apagado(s).'
-              : 'Nada pendente para limpar no banco.',
+              ? 'Limpeza concluída: ${result.messages} mensagem(ns) removida(s) · '
+                  '${result.queueDocs} registo(s) de fila apagado(s). O contador deve ficar em zero.'
+              : 'Nada pendente — fila e envios presos removidos.',
         ),
       ),
     );
@@ -157,26 +178,48 @@ class _ChurchChatPendingStatusBannerState
 
   Future<void> _retryAll() async {
     final tid = widget.tenantId.trim();
-    var pruned = await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
-    if (tid.isNotEmpty) {
-      pruned += await PendingUploadsFirestoreService.pruneUnrecoverableOpenForTenant(
-        tid,
+    if (_recoverableChat <= 0 && _memoryQueue <= 0) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Não há envios com ficheiro no aparelho para reenviar. '
+            'Use Limpar para remover mensagens presas antigas.',
+          ),
+        ),
       );
+      return;
     }
-    if (tid.isNotEmpty) {
+    try {
+      await runFirebaseBackgroundTask<void>(
+        () async {},
+        debugLabel: 'chat_retry_all',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(formatUploadErrorForUser(e))),
+      );
+      return;
+    }
+    var pruned = await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
+    if (tid.isNotEmpty &&
+        FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+      pruned += await PendingUploadsFirestoreService
+          .pruneUnrecoverableOpenForTenant(tid);
       await PendingUploadsFirestoreService.resumeAllForTenant(tid);
     }
-    YahwehMediaUploadPipeline.bindOnAppStart();
     ChurchChatMediaOutboxService.resumePendingOnAppStart();
-    MuralPublishOutboxService.resumePendingOnAppStart();
-    await _refreshLocalCounts();
+    await _refreshCounts();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          pruned > 0
-              ? 'Reenvio iniciado ($pruned inválidos removidos da fila).'
-              : 'Reenvio de uploads pendente iniciado.',
+          _recoverableChat > 0
+              ? 'A reenviar $_recoverableChat ficheiro(s)…'
+              : pruned > 0
+                  ? 'Fila ajustada ($pruned inválidos removidos).'
+                  : 'Reenvio iniciado.',
         ),
       ),
     );
@@ -184,73 +227,85 @@ class _ChurchChatPendingStatusBannerState
 
   @override
   Widget build(BuildContext context) {
+    final useFirestoreStream =
+        FirebaseUploadPolicy.firestorePendingQueueEnabled;
+
+    Widget buildBar(int extraFirestore) {
+      final total = _displayTotal + extraFirestore;
+      if (total <= 0 && !widget.alwaysOfferClear) {
+        return const SizedBox.shrink();
+      }
+
+      final label = total <= 0
+          ? (widget.compact
+              ? 'Limpar envios antigos presos no banco'
+              : 'Remover mensagens de upload antigas (stubs) e filas')
+          : (widget.compact
+              ? '$total envio(s) pendente(s)'
+              : '$total envio(s) com ficheiro no aparelho (reenviar agora)');
+
+      return Material(
+        color: const Color(0xFFFFF7ED),
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: widget.compact ? 6 : 10,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.cloud_upload_rounded,
+                size: widget.compact ? 18 : 22,
+                color: const Color(0xFFD97706),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: widget.compact ? 12 : 13,
+                    fontWeight: FontWeight.w600,
+                    color: ThemeCleanPremium.onSurface,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: _clearStuckQueue,
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: Colors.grey.shade700,
+                ),
+                child: const Text('Limpar'),
+              ),
+              if (total > 0)
+                TextButton(
+                  onPressed: _retryAll,
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: const Color(0xFFD97706),
+                  ),
+                  child: const Text('Reenviar'),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!useFirestoreStream) {
+      return buildBar(0);
+    }
+
     return StreamBuilder(
       stream: PendingUploadsFirestoreService.watchOpenForTenant(widget.tenantId),
       builder: (context, snap) {
         final firestoreCount = snap.data?.docs.length ?? 0;
-        final localExtra = _chatOutbox + _muralOutbox + _memoryQueue;
-        final total = firestoreCount + localExtra;
-        if (total <= 0 && !widget.alwaysOfferClear) {
-          return const SizedBox.shrink();
+        if (snap.hasData) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _refreshCounts();
+          });
         }
-
-        final label = total <= 0
-            ? (widget.compact
-                ? 'Limpar envios antigos presos no banco'
-                : 'Remover mensagens de upload antigas (stubs) e filas no Firestore')
-            : (widget.compact
-                ? '$total envio(s) pendente(s)'
-                : 'Há $total upload(s) por concluir (Firestore: $firestoreCount · '
-                    'chat: $_chatOutbox · mural: $_muralOutbox · fila: $_memoryQueue)');
-
-        return Material(
-          color: const Color(0xFFFFF7ED),
-          child: InkWell(
-            onTap: _retryAll,
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: widget.compact ? 6 : 10,
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.cloud_upload_rounded,
-                    size: widget.compact ? 18 : 22,
-                    color: const Color(0xFFD97706),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: widget.compact ? 12 : 13,
-                        fontWeight: FontWeight.w600,
-                        color: ThemeCleanPremium.onSurface,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: _clearStuckQueue,
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      foregroundColor: Colors.grey.shade700,
-                    ),
-                    child: const Text('Limpar'),
-                  ),
-                  TextButton(
-                    onPressed: _retryAll,
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      foregroundColor: const Color(0xFFD97706),
-                    ),
-                    child: const Text('Reenviar'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
+        return buildBar(firestoreCount);
       },
     );
   }

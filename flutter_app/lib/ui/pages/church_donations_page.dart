@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/widgets/donation_kind_selector_grid.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
 import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 
 /// Dízimos, ofertas e contribuições via PIX ou cartão (Checkout Pro Mercado Pago da igreja).
 /// Só contas tesouraria **Mercado Pago** (323) entram na conciliação desta tela.
@@ -155,12 +156,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       _erro = null;
     });
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('contas')
-          .orderBy('nome')
-          .get();
+      await ChurchTenantResilientReads.preparePanelRead();
+      final snap = await ChurchTenantResilientReads.contas(widget.tenantId);
       final list = snap.docs
           .where((d) => d.data()['ativo'] != false)
           .where((d) => _isMercadoPagoTreasuryAccount(d.data()))

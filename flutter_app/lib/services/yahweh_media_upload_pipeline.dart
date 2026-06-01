@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/analytics_service.dart';
@@ -289,6 +290,14 @@ abstract final class YahwehMediaUploadPipeline {
         lastError = e;
         final isCanceled = e is FirebaseException && e.code == 'canceled';
         if (isCanceled) break;
+        if (isFirebaseNoAppError(e) && attempt < maxAttempts) {
+          FirebaseBootstrapService.invalidateStorageUploadBootstrap();
+          try {
+            await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+            await ensureUploadBootstrapForStoragePath(storagePath);
+          } catch (_) {}
+          continue;
+        }
         if (attempt >= maxAttempts) break;
         onProgress?.call(0);
         await Future.delayed(

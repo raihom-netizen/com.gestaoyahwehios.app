@@ -6,11 +6,8 @@ abstract final class FastMediaPublishBootstrap {
   FastMediaPublishBootstrap._();
 
   static Future<void> warmForFeedPublish() async {
-    await Future.wait([
-      FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true)
-          .catchError((_) {}),
-      FeedPostMediaUpload.warmAuthToken().catchError((_) {}),
-    ]);
+    await FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true);
+    await FeedPostMediaUpload.warmAuthToken();
   }
 
   static Future<void> warmForChatSend() async {

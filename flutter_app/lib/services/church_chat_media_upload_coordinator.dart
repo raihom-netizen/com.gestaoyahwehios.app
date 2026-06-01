@@ -4,7 +4,7 @@ import 'dart:async';
 abstract final class ChurchChatMediaUploadCoordinator {
   ChurchChatMediaUploadCoordinator._();
 
-  static const int maxConcurrent = 2;
+  static const int maxConcurrent = 3;
 
   static int _active = 0;
   static final List<Completer<void>> _waiters = [];

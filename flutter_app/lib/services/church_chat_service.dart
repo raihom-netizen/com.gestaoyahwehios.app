@@ -1456,7 +1456,10 @@ class ChurchChatService {
     for (var attempt = 0; attempt < 5; attempt++) {
       try {
         if (kIsWeb && attempt > 0) {
-          await FirestoreWebGuard.recoverFirestoreWebSession();
+          await FirestoreWebGuard.recoverFirestoreWebSession(
+            allowHardReconnect: lastError != null &&
+                FirestoreWebGuard.isClientTerminated(lastError!),
+          );
         }
         await ensureDmThread(
           tenantId: tenantId,

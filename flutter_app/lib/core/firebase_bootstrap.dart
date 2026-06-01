@@ -45,14 +45,16 @@ Future<void> ensureUploadBootstrapForStoragePath(String storagePath) async {
   await FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true);
 }
 
-/// Tarefas de upload/chat — bootstrap leve + execução directa (sem reconnect em loop).
+/// Tarefas de upload/chat — bootstrap + reconnect automático em `core/no-app`.
 Future<T> runFirebaseBackgroundTask<T>(
   Future<T> Function() fn, {
   String? debugLabel,
-}) async {
-  await FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true);
-  return fn();
-}
+}) =>
+    FirebaseBootstrapService.runGuarded(
+      fn,
+      debugLabel: debugLabel ?? 'storage_background',
+      requireAuth: true,
+    );
 
 FirebaseApp get firebaseDefaultApp => FirebaseBootstrapService.defaultApp;
 

@@ -45,6 +45,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableChurchLogo;
 import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/certificado_digital_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
@@ -412,11 +413,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }
 
   Future<List<_MemberItem>> _loadMemberItemsForPicker({int limit = 120}) async {
-    final db = FirebaseFirestore.instance;
     final tid = await _effectiveIgrejaDocId();
-    final membersCol =
-        db.collection('igrejas').doc(tid).collection('membros');
-    final membersSnap = await membersCol.limit(limit).get();
+    await ChurchTenantResilientReads.preparePanelRead();
+    final membersSnap =
+        await ChurchTenantResilientReads.membrosRecent(tid, limit: limit);
     final list = <_MemberItem>[];
     for (final d in membersSnap.docs) {
       final data = Map<String, dynamic>.from(d.data());

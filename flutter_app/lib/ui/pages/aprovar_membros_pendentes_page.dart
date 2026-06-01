@@ -1,9 +1,13 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
@@ -49,6 +53,17 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     _tabCtrl.addListener(() {
       if (mounted) setState(() {});
     });
+    unawaited(_warmPendentesCache());
+  }
+
+  Future<void> _warmPendentesCache() async {
+    try {
+      await ChurchTenantResilientReads.preparePanelRead();
+      await FirestoreReadResilience.getQuery(
+        _membersCol.where('status', isEqualTo: 'pendente').limit(120),
+        cacheKey: '${widget.tenantId}_membros_pendente_warm',
+      );
+    } catch (_) {}
   }
 
   @override
@@ -59,8 +74,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
 
   Future<Map<String, String>> _getTenantLinkage() async {
     if (_tenantLinkageCache != null) return _tenantLinkageCache!;
-    final snap =
-        await FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).get();
+    final snap = await ChurchTenantResilientReads.churchDocument(widget.tenantId);
     final d = snap.data();
     final id = snap.id;
     final alias = (d?['alias'] ?? d?['slug'] ?? id).toString().trim();
@@ -453,7 +467,9 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             key: ValueKey('pendentes_$_pendentesStreamKey'),
-            stream: _membersCol.where('status', isEqualTo: 'pendente').snapshots(),
+            stream: ChurchTenantResilientReads.querySnapshotsResilient(
+              _membersCol.where('status', isEqualTo: 'pendente'),
+            ),
             builder: (context, snap) {
               if (snap.hasError) {
                 return Padding(

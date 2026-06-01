@@ -21,9 +21,14 @@ Future<QuerySnapshot<Map<String, dynamic>>> firestoreQueryGetReliable(
           return await query.get(GetOptions(source: src));
         } catch (e) {
           lastError = e;
-          if (!FirestoreWebGuard.isInternalAssertionError(e)) rethrow;
-          if (kIsWeb && attempt == 2) {
-            await FirestoreWebGuard.recoverFirestoreWebSession();
+          if (!FirestoreWebGuard.isInternalAssertionError(e) &&
+              !FirestoreWebGuard.isClientTerminated(e)) {
+            rethrow;
+          }
+          if (kIsWeb && attempt >= 1) {
+            await FirestoreWebGuard.recoverFirestoreWebSession(
+              allowHardReconnect: FirestoreWebGuard.isClientTerminated(e),
+            );
           }
           await Future<void>.delayed(
             Duration(milliseconds: 120 * (1 << attempt)),

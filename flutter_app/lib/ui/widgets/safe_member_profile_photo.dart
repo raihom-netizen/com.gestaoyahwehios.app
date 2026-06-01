@@ -150,8 +150,8 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
       });
     }
     if (!needsFresh) return;
-    // URL com token do Firestore — getData no decode; evita getDownloadURL em listas (iOS/Android/web).
-    if (firebaseStorageDownloadUrlLooksTokenized(norm)) {
+    // Mobile: URL https do Firestore — exibir já; decode via getData (sem getDownloadURL).
+    if (!kIsWeb && isValidImageUrl(norm)) {
       if (mounted) setState(() => _resolving = false);
       return;
     }
@@ -500,7 +500,9 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
       final s = sanitizeImageUrl(raw);
       if (s.isNotEmpty) {
         if (isValidImageUrl(s)) {
-          if (!kIsWeb && firebaseStorageDownloadUrlLooksTokenized(s)) {
+          if (!kIsWeb &&
+              isValidImageUrl(s) &&
+              StorageMediaService.isFirebaseStorageMediaUrl(s)) {
             return s;
           }
           try {

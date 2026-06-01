@@ -9,6 +9,7 @@ import 'package:video_compress/video_compress.dart';
 
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 
 import 'firebase_storage_cleanup_service.dart';
@@ -66,7 +67,7 @@ class VideoHandlerService implements IVideoHandlerService {
     final path = localPath;
     if (path.isEmpty || !File(path).existsSync()) return null;
 
-    await ensureFirebaseReadyForMediaUpload();
+    await ImmediateStorageUploadGuard.ensureReady(debugLabel: 'evento_video');
 
     try {
       final lower = path.toLowerCase();

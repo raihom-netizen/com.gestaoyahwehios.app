@@ -38,6 +38,8 @@ import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
+    show scheduleFeedMediaWarmup;
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/performance_service.dart';
@@ -1280,11 +1282,29 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
         (isFirebaseStorageHttpUrl(coverRef) ||
             firebaseStorageMediaUrlLooksLike(coverRef) ||
             coverRef.toLowerCase().startsWith('gs://'));
+    final directHttps = isValidImageUrl(coverRef) &&
+        (coverRef.startsWith('http://') || coverRef.startsWith('https://'));
 
     final media = Stack(
       fit: StackFit.expand,
       children: [
-        if ((coverPath != null && coverPath.trim().isNotEmpty) || storageLikeRef)
+        if (directHttps)
+          SafeNetworkImage(
+            imageUrl: coverRef,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            memCacheWidth: kEventoAvisoFeedMemCacheMaxPx,
+            memCacheHeight: kEventoAvisoFeedMemCacheMaxPx,
+            skipFreshDisplayUrl: true,
+            placeholder: const ColoredBox(color: Color(0xFFF1F5F9)),
+            errorWidget: const ColoredBox(
+              color: Color(0xFFF1F5F9),
+              child: Center(child: Icon(Icons.photo_library_outlined)),
+            ),
+          )
+        else if ((coverPath != null && coverPath.trim().isNotEmpty) ||
+            storageLikeRef)
           StableStorageImage(
             storagePath: (coverPath != null && coverPath.trim().isNotEmpty)
                 ? coverPath
@@ -1297,6 +1317,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
             memCacheWidth: kEventoAvisoFeedMemCacheMaxPx,
             memCacheHeight: kEventoAvisoFeedMemCacheMaxPx,
             placeholder: const ColoredBox(color: Color(0xFFF1F5F9)),
+            skipFreshDisplayUrl: true,
             errorWidget: const ColoredBox(
               color: Color(0xFFF1F5F9),
               child: Center(child: Icon(Icons.photo_library_outlined)),
@@ -1308,6 +1329,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
             fit: BoxFit.cover,
             memCacheWidth: kEventoAvisoFeedMemCacheMaxPx,
             memCacheHeight: kEventoAvisoFeedMemCacheMaxPx,
+            skipFreshDisplayUrl: true,
             errorWidget: const ColoredBox(
               color: Color(0xFFF1F5F9),
               child: Center(child: Icon(Icons.photo_library_outlined)),
@@ -1452,8 +1474,11 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
             .where((u) => u.isNotEmpty)
             .toList();
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (context.mounted && archivePreloadUrls.isNotEmpty) {
-            preloadNetworkImages(context, archivePreloadUrls, maxItems: 8);
+          if (!context.mounted) return;
+          final maps = docs.take(16).map((d) => d.data()).toList();
+          unawaited(scheduleFeedMediaWarmup(context, maps, maxDocs: 16));
+          if (archivePreloadUrls.isNotEmpty) {
+            preloadNetworkImages(context, archivePreloadUrls, maxItems: 16);
           }
         });
         final categories = <String>{
@@ -2600,8 +2625,11 @@ class _FeedTabState extends State<_FeedTab> {
             .where((u) => u.isNotEmpty)
             .toList();
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (context.mounted && preloadUrls.isNotEmpty) {
-            preloadNetworkImages(context, preloadUrls, maxItems: 6);
+          if (!context.mounted) return;
+          final maps = docs.take(10).map((d) => d.data()).toList();
+          unawaited(scheduleFeedMediaWarmup(context, maps, maxDocs: 10));
+          if (preloadUrls.isNotEmpty) {
+            preloadNetworkImages(context, preloadUrls, maxItems: 12);
           }
         });
 
@@ -3756,6 +3784,21 @@ class _EventoPostState extends State<_EventoPost>
     final path = origIdx != null
         ? eventNoticiaPhotoStoragePathAt(data, origIdx)
         : null;
+    if (isValidImageUrl(displayUrl) &&
+        (displayUrl.startsWith('http://') || displayUrl.startsWith('https://'))) {
+      return SafeNetworkImage(
+        key: ValueKey('evt_direct_$displayUrl'),
+        imageUrl: displayUrl,
+        fit: BoxFit.contain,
+        width: w,
+        height: h,
+        memCacheWidth: memW,
+        memCacheHeight: memH,
+        placeholder: ph,
+        errorWidget: err,
+        skipFreshDisplayUrl: true,
+      );
+    }
     if (path != null && path.trim().isNotEmpty) {
       return StableStorageImage(
         key: ValueKey('evt_st_${path}_$displayUrl'),
@@ -3769,6 +3812,7 @@ class _EventoPostState extends State<_EventoPost>
         memCacheHeight: memH,
         placeholder: ph,
         errorWidget: err,
+        skipFreshDisplayUrl: true,
       );
     }
     final storageLike = url.isNotEmpty &&
@@ -3797,7 +3841,7 @@ class _EventoPostState extends State<_EventoPost>
         memCacheHeight: memH,
         placeholder: ph,
         errorWidget: err,
-        skipFreshDisplayUrl: false,
+        skipFreshDisplayUrl: true,
       );
     }
     return err;
@@ -5505,6 +5549,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         if (mounted) {
           ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
         }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(formatUploadErrorForUser(e)),
+            backgroundColor: ThemeCleanPremium.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } finally {
       if (mounted) {

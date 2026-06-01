@@ -30,6 +30,8 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/immediate_patrimonio_photo_attach.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
@@ -2266,8 +2268,26 @@ class _BensTabState extends State<_BensTab> {
     _future = _loadBensFirstPaint();
   }
 
-  /// Cache local primeiro (lista aparece rápido); depois atualiza do servidor em segundo plano.
+  String get _tenantId => widget.col.parent?.id ?? '';
+
+  /// Leitura resiliente (Controle Total) — evita `client has already been terminated` na web.
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioResilient() async {
+    final tid = _tenantId;
+    if (tid.isEmpty) {
+      return const MergedFirestoreQuerySnapshot([]);
+    }
+    return ChurchTenantResilientReads.patrimonio(tid, limit: 400);
+  }
+
+  /// Cache Firestore + rede com retry; refresh em background.
   Future<QuerySnapshot<Map<String, dynamic>>> _loadBensFirstPaint() async {
+    try {
+      final snap = await _loadPatrimonioResilient();
+      if (snap.docs.isNotEmpty) {
+        unawaited(_refreshBensFromServer());
+        return snap;
+      }
+    } catch (_) {}
     try {
       final cached = await widget.col
           .orderBy('nome')
@@ -2277,27 +2297,19 @@ class _BensTabState extends State<_BensTab> {
         return cached;
       }
     } catch (_) {}
-    return widget.col
-        .orderBy('nome')
-        .get(const GetOptions(source: Source.server));
+    return _loadPatrimonioResilient();
   }
 
   Future<void> _refreshBensFromServer() async {
     try {
-      final server = await widget.col
-          .orderBy('nome')
-          .get(const GetOptions(source: Source.server));
+      final server = await _loadPatrimonioResilient();
       if (!mounted) return;
       setState(() => _future = Future.value(server));
     } catch (_) {}
   }
 
   void refresh() {
-    setState(() {
-      _future = widget.col
-          .orderBy('nome')
-          .get(const GetOptions(source: Source.server));
-    });
+    setState(() => _future = _loadPatrimonioResilient());
   }
 
   /// Busca + filtros como slivers: rolagem única evita scroll “travado” (web / shell / mobile).

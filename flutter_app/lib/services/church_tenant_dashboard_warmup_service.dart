@@ -58,25 +58,34 @@ abstract final class ChurchTenantDashboardWarmupService {
       if (r.trim().isNotEmpty) tenantId = r.trim();
     } catch (_) {}
 
-    // Prioridade: 1) KPIs dashboard  2) caches leves  3) imagens (após texto)
-    await PanelDashboardSnapshotService.warmFromCallableIfStale(tenantId);
-    await _warmPerformanceCaches(tenantId);
-
-    if (!context.mounted) return;
-
+    // 1) Cache Firestore local primeiro (líderes/membros/avisos aparecem já).
     final panel = await PanelDashboardSnapshotService.readOnce(tenantId);
+    final membersDir = await MembersDirectorySnapshotService.readOnce(tenantId);
     if (!context.mounted) return;
 
-    final prefetch = await PanelMediaPrefetchService.readOnce(tenantId);
-    unawaited(
-      ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(tenantId, prefetch),
-    );
     unawaited(
       ChurchGalleryPhotoWarmup.warmBytesForPanel(
         tenantId: tenantId,
         panel: panel,
       ),
     );
+    if (membersDir.hasEntries && context.mounted) {
+      ChurchGalleryPhotoWarmup.scheduleMembersDirectory(
+        context: context,
+        tenantId: tenantId,
+        directory: membersDir,
+        maxMembers: 120,
+      );
+    }
+
+    final prefetch = await PanelMediaPrefetchService.readOnce(tenantId);
+    unawaited(
+      ChurchGalleryPhotoWarmup.warmBytesFromMediaPrefetch(tenantId, prefetch),
+    );
+
+    // Callable em background — não bloqueia fotos do painel/chat.
+    unawaited(PanelDashboardSnapshotService.warmFromCallableIfStale(tenantId));
+    unawaited(_warmPerformanceCaches(tenantId));
     if (context.mounted) {
       ChurchGalleryPhotoWarmup.schedulePanelHome(
         context: context,

@@ -134,9 +134,16 @@ class AppStorageImageService {
     if (urlImmediate.isNotEmpty) {
       final s0 = sanitizeImageUrl(urlImmediate);
       if (isValidImageUrl(s0) &&
-          StorageMediaService.isFirebaseStorageMediaUrl(s0) &&
-          firebaseStorageDownloadUrlLooksTokenized(s0)) {
-        return _firebaseStorageDisplayUrlPreferFresh(s0);
+          (s0.startsWith('http://') || s0.startsWith('https://'))) {
+        // Mobile: URL já está no Firestore — exibir já (sem getDownloadURL por card).
+        if (!kIsWeb) return s0;
+        if (StorageMediaService.isFirebaseStorageMediaUrl(s0) &&
+            firebaseStorageDownloadUrlLooksTokenized(s0)) {
+          return _firebaseStorageDisplayUrlPreferFresh(s0);
+        }
+        if (!StorageMediaService.isFirebaseStorageMediaUrl(s0)) {
+          return s0;
+        }
       }
     }
 
