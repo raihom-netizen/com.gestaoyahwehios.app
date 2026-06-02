@@ -1,4 +1,4 @@
-import 'dart:async' show StreamSubscription, Timer, unawaited;
+﻿import 'dart:async' show StreamSubscription, Timer, unawaited;
 import 'dart:io' show File;
 import 'dart:typed_data';
 import 'dart:convert' show jsonDecode;
@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
@@ -29,7 +30,7 @@ import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
-import 'package:gestao_yahweh/services/feed_media_publish_strict.dart';
+import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/immediate_feed_photo_attach.dart';
@@ -197,7 +198,7 @@ class InstagramMuralState extends State<InstagramMural> {
   Future<void> refreshFeed() => _loadFeedPage(reset: true);
 
   Map<String, dynamic>? _tenantData;
-  static const int _feedPageSize = 15;
+  static const int _feedPageSize = 20;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> _feedRawDocs = [];
   DocumentSnapshot<Map<String, dynamic>>? _feedLastCursor;
   bool _isFeedInitialLoading = true;
@@ -247,7 +248,7 @@ class InstagramMuralState extends State<InstagramMural> {
       firebaseDefaultFirestore
           .collection('igrejas')
           .doc(widget.tenantId)
-          .collection(ChurchTenantPostsCollections.noticias);
+          .collection(ChurchTenantPostsCollections.eventos);
 
   CollectionReference<Map<String, dynamic>> get _avisos =>
       firebaseDefaultFirestore
@@ -3955,18 +3956,17 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await ImmediateMediaWarm.drainInFlight(() => _inFlightPhotoUploads);
-      try {
-        await ImmediateMediaWarm.warmFeed();
-      } catch (e) {
-        if (isFirebaseNoAppError(e)) {
-          await ensureFirebaseReadyForPublishUpload().catchError((_) {});
-          await FastMediaPublishBootstrap.warmForFeedPublish()
-              .timeout(const Duration(seconds: 25));
-        } else {
-          rethrow;
-        }
+      await AppFinalizeBootstrap.ensureSessionForPublish(
+        logLabel: 'mural_${widget.type}_save',
+      );
+      if (widget.type == 'evento') {
+        ChurchPublishFlowLog.eventoStart();
+      } else {
+        ChurchPublishFlowLog.avisoStart();
       }
+      await FeedPublishPreflight.prepareForFirestoreSave(
+        inFlightCount: () => _inFlightPhotoUploads,
+      );
       final docRef = _editorPostRef;
       final isNewDoc = widget.doc == null && !_draftStubEnsured;
       final hasNewImages = _newPhotoCount > 0;
@@ -4037,6 +4037,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         docRef: docRef,
         payload: payload,
         isNewDoc: isNewDoc,
+        postType: widget.type,
       );
       if (mounted) {
         _schedulePostPublishCacheWarmup();
@@ -4046,6 +4047,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         Navigator.pop(context, true);
       }
     } catch (e, st) {
+      ChurchPublishFlowLog.logCatch(e, st, label: 'mural_save');
       await CrashlyticsService.record(e, st, reason: 'avisos_publish');
       try {
         final failRef = widget.doc?.reference ?? widget.postsCollection.doc();
@@ -4053,7 +4055,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           docRef: failRef,
           error: e,
         );
-      } catch (_) {}
+      } catch (e2, st2) {
+        ChurchPublishFlowLog.logCatch(e2, st2, label: 'markPublishFailed');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.errorSnackBarWithRetry(

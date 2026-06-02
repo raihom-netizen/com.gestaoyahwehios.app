@@ -61,14 +61,17 @@ Avaliado no arranque do singleton = risco de `instance` antes de `initializeApp`
 
 **Correção:** `firebaseDefaultFirestore` (getter após bootstrap no `main`).
 
-### E) Publicação principal (já estava alinhada)
+### E) Publicação principal (build 1726+ — Firestore primeiro)
 
 | Ficheiro | Fluxo |
 |----------|--------|
-| `feed_media_publish_strict.dart` | `runGuarded` + upload → URLs → Firestore |
-| `IosPublishImagePipeline` | `compute` (só compressão) → `UnifiedUploadService` |
+| `feed_media_publish_fast.dart` | Firestore stub → UI fecha → `MuralFastPublishService` (upload background) |
+| `feed_media_publish_strict.dart` | **Deprecated** — delega ao fast |
+| `IosPublishImagePipeline` | `compute` (só compressão) → upload na thread principal |
 
-A falha do utilizador muitas vezes **não** era este caminho, e sim **B** ou upload paralelo (template/vídeo).
+A falha do utilizador muitas vezes **não** era Storage em si, e sim **B**, anexo paralelo (`ImmediateFeedPhotoAttach`), ou retry legado **upload→set** em `events_manager_page` (removido).
+
+Ver também: [AUDITORIA_PUBLICACAO_AVISOS_EVENTOS_CHAT.md](./AUDITORIA_PUBLICACAO_AVISOS_EVENTOS_CHAT.md).
 
 ---
 

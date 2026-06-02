@@ -90,7 +90,7 @@ exports.onIgrejaMembroDeleteCleanupStorage = functions
 /** Chat igreja: ao apagar mensagem (ex.: «para todos»), remove ficheiro em `storagePath`. */
 exports.onIgrejaChatMessageDeleteCleanupStorage = functions
     .region("us-central1")
-    .firestore.document("igrejas/{tenantId}/chat_threads/{threadId}/messages/{msgId}")
+    .firestore.document("igrejas/{tenantId}/chats/{threadId}/messages/{msgId}")
     .onDelete(async (snap) => {
     const d = snap.data();
     const path = String(d?.storagePath || "").trim();
@@ -100,7 +100,7 @@ exports.onIgrejaChatMessageDeleteCleanupStorage = functions
 /** Post do mural (evento ou aviso): pastas canónicas + prefixo legado noticias/. */
 exports.onIgrejaNoticiaDeleteCleanupStorage = functions
     .region("us-central1")
-    .firestore.document("igrejas/{tenantId}/noticias/{postId}")
+    .firestore.document("igrejas/{tenantId}/eventos/{postId}")
     .onDelete(async (_snap, ctx) => {
     const tenantId = safeSeg(ctx.params.tenantId);
     const postId = safeSeg(ctx.params.postId);
@@ -108,7 +108,7 @@ exports.onIgrejaNoticiaDeleteCleanupStorage = functions
         return;
     await deleteByPrefix(`igrejas/${tenantId}/eventos/${postId}`);
     await deleteByPrefix(`igrejas/${tenantId}/avisos/${postId}`);
-    await deleteByPrefix(`igrejas/${tenantId}/noticias/${postId}`);
+    await deleteByPrefix(`igrejas/${tenantId}/eventos/${postId}`);
 });
 /** Património: pasta `patrimonio/{id}/` + ficheiros planos `{id}_{slot}.jpg` (legado). */
 exports.onIgrejaPatrimonioDeleteCleanupStorage = functions

@@ -3,8 +3,12 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
+import 'package:gestao_yahweh/core/entity_publish_status.dart';
+import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_data_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
@@ -78,7 +82,9 @@ abstract final class MuralFastPublishService {
               startSlotIndex: startSlotIndex,
               hasVideo: hasVideo,
             );
-          } catch (_) {}
+          } catch (e, st) {
+            ChurchPublishFlowLog.uploadError(e, st);
+          }
           await uploadImagesAndFinalizePost(
             docRef: docRef,
             tenantId: tenantId,
@@ -174,7 +180,9 @@ abstract final class MuralFastPublishService {
                 }
               }
             }
-          } catch (_) {}
+          } catch (e, st) {
+            ChurchPublishFlowLog.uploadError(e, st);
+          }
           await uploadImagesAndFinalizePostFromPaths(
             docRef: docRef,
             tenantId: tenantId,
@@ -230,6 +238,15 @@ abstract final class MuralFastPublishService {
   }) async {
     await ensureFirebaseReadyForPublishUpload();
     try {
+      await docRef.set(
+        {
+          'publishState': EntityPublishStatus.uploading,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (_) {}
+    try {
       await FeedPostMediaUpload.warmAuthToken().timeout(const Duration(seconds: 25));
       Map<String, dynamic>? firstVariants;
       final maxConc = _feedUploadConcurrency(newImages.length);
@@ -271,6 +288,7 @@ abstract final class MuralFastPublishService {
         message: 'Tempo esgotado ao enviar fotos. Toque em «Tentar de novo».',
       );
     } catch (e, st) {
+      ChurchPublishFlowLog.uploadError(e, st);
       await CrashlyticsService.record(
         e,
         st,
@@ -365,6 +383,7 @@ abstract final class MuralFastPublishService {
         message: 'Tempo esgotado ao enviar fotos. Toque em «Tentar de novo».',
       );
     } catch (e, st) {
+      ChurchPublishFlowLog.uploadError(e, st);
       await CrashlyticsService.record(
         e,
         st,
@@ -420,7 +439,12 @@ abstract final class MuralFastPublishService {
     for (var attempt = 1; attempt <= 5; attempt++) {
       try {
         await ensureFirebaseReadyForPublishUpload();
-        await docRef.set(patch, SetOptions(merge: true));
+        await ChurchDataService.instance.setTenantDocument(
+          ref: docRef,
+          data: patch,
+          merge: true,
+          module: 'mural_finalize',
+        );
         lastFinalize = null;
         break;
       } catch (e) {
@@ -430,6 +454,7 @@ abstract final class MuralFastPublishService {
       }
     }
     if (lastFinalize != null) throw lastFinalize;
+    ChurchPublishFlowLog.moduleUploadOk(isEvento: postType != 'aviso');
     await MuralPostPendingMediaCache.remove(
       tenantId: tenantId,
       postId: postId,
@@ -449,10 +474,13 @@ abstract final class MuralFastPublishService {
         postDocId: postId,
       );
     }
+    ChurchPublishFlowLog.moduleFinalOk(isEvento: postType != 'aviso');
     if (onPublished != null) {
       try {
         await onPublished();
-      } catch (_) {}
+      } catch (e, st) {
+        ChurchPublishFlowLog.logCatch(e, st, label: 'mural_onPublished');
+      }
     }
   }
 
@@ -464,12 +492,21 @@ abstract final class MuralFastPublishService {
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
         await ensureFirebaseReadyForPublishUpload();
-        await docRef.update({
-          'imageUrls': FieldValue.arrayUnion([url]),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+        await ChurchDataService.instance.updateTenantDocument(
+          ref: docRef,
+          data: <String, dynamic>{
+            'imageUrls': FieldValue.arrayUnion([url]),
+          },
+          module: 'mural_append_url',
+        );
         return;
-      } catch (_) {
+      } catch (e, st) {
+        ChurchTenantWriteLog.firestoreUpdateFail(
+          docRef.path,
+          e,
+          stack: st,
+          module: 'mural_append_url',
+        );
         if (attempt >= 3) return;
         await Future.delayed(Duration(milliseconds: 200 * attempt));
       }
@@ -490,16 +527,24 @@ abstract final class MuralFastPublishService {
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
         await ensureFirebaseReadyForPublishUpload();
-        await docRef.set(
-          {
+        await ChurchDataService.instance.setTenantDocument(
+          ref: docRef,
+          data: <String, dynamic>{
             'publishState': stateFailed,
             'publishError':
                 userMsg.length > 400 ? userMsg.substring(0, 400) : userMsg,
           },
-          SetOptions(merge: true),
+          merge: true,
+          module: 'mural_failed',
         );
         return;
-      } catch (_) {
+      } catch (e, st) {
+        ChurchTenantWriteLog.firestoreUpdateFail(
+          docRef.path,
+          e,
+          stack: st,
+          module: 'mural_failed',
+        );
         if (attempt >= 3) return;
         await Future.delayed(Duration(milliseconds: 200 * attempt));
       }

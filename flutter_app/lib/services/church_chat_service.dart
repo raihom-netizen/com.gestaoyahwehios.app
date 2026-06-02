@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io' show File;
 import 'dart:typed_data';
 
@@ -10,6 +10,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart'
@@ -62,7 +63,7 @@ class ChurchChatService {
     return _db
         .collection('igrejas')
         .doc(tenantId)
-        .collection('chat_threads')
+        .collection('chats')
         .doc(threadId);
   }
 
@@ -167,7 +168,7 @@ class ChurchChatService {
     return _db
         .collection('igrejas')
         .doc(tenantId)
-        .collection('chat_threads')
+        .collection('chats')
         .where('participantUids', arrayContains: uid)
         .orderBy('lastMessageAt', descending: true)
         .limit(400);
@@ -181,7 +182,7 @@ class ChurchChatService {
     return _db
         .collection('igrejas')
         .doc(tenantId)
-        .collection('chat_threads')
+        .collection('chats')
         .where('participantUids', arrayContains: uid)
         .limit(220);
   }
@@ -546,7 +547,7 @@ class ChurchChatService {
     }
 
     final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    final col = _db.collection('igrejas').doc(tenantId).collection('chat_threads');
+    final col = _db.collection('igrejas').doc(tenantId).collection('chats');
     for (final id in threadIds) {
       try {
         final snap =
@@ -1494,7 +1495,7 @@ class ChurchChatService {
     String? senderDisplayName,
     List<String>? mentionedUids,
   }) async {
-    final begun = await beginTextMessage(
+    final r = await writeTextMessageFirestoreOnce(
       tenantId: tenantId,
       threadId: threadId,
       text: text,
@@ -1503,20 +1504,87 @@ class ChurchChatService {
       senderDisplayName: senderDisplayName,
       mentionedUids: mentionedUids,
     );
-    if (!begun.allowed) return false;
-    await finalizeTextMessage(
-      tenantId: tenantId,
-      threadId: threadId,
-      messageId: begun.messageId,
-      text: text,
-      replyTo: replyTo,
-      forwardedFrom: forwardedFrom,
-    );
+    if (!r.allowed) return false;
     unawaited(AnalyticsService.logMessage());
     return true;
   }
 
-  /// Stub de texto (`deliveryStatus: sending`) — aparece na thread e indexa a conversa na hora.
+  /// Texto: **uma** gravação Firestore (`status: sent`) — sem fila intermédia.
+  static Future<({String messageId, bool allowed})> writeTextMessageFirestoreOnce({
+    required String tenantId,
+    required String threadId,
+    required String text,
+    Map<String, dynamic>? replyTo,
+    Map<String, dynamic>? forwardedFrom,
+    String? senderDisplayName,
+    List<String>? mentionedUids,
+  }) async {
+    ChurchPublishFlowLog.chatStart();
+    await ensureFirebaseReadyForChatSend();
+    if (!await ChurchChatMemberPrefs.canSendToDmThread(
+      tenantId: tenantId,
+      threadId: threadId,
+    )) {
+      return (messageId: '', allowed: false);
+    }
+    await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
+      tenantId: tenantId,
+      threadId: threadId,
+    );
+    final uid = firebaseDefaultAuth.currentUser!.uid;
+    final expiresAt =
+        Timestamp.fromDate(DateTime.now().add(textRetention));
+    final msgRef = messagesCol(tenantId, threadId).doc();
+    final nr = normalizeReplyTo(replyTo);
+    final nf = normalizeForwardedFrom(forwardedFrom);
+    final label = (senderDisplayName ?? '').trim();
+    final mentions = (mentionedUids ?? const <String>[])
+        .map((e) => e.trim())
+        .where((e) => e.length > 4)
+        .toSet()
+        .take(24)
+        .toList();
+    final preview = nf != null
+        ? '↪ ${nf['preview']}'
+        : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
+    try {
+      await _commitMessageAndThreadIndex(
+        tenantId: tenantId,
+        threadId: threadId,
+        msgRef: msgRef,
+        messageData: {
+          'senderUid': uid,
+          'senderId': uid,
+          'type': 'text',
+          'text': text,
+          'deliveryStatus': deliverySent,
+          'status': deliverySent,
+          'createdAt': FieldValue.serverTimestamp(),
+          'expiresAt': expiresAt,
+          if (nr != null) 'replyTo': nr,
+          if (nf != null) 'forwardedFrom': nf,
+          if (label.isNotEmpty) ...{
+            'senderDisplayName':
+                label.length > 100 ? label.substring(0, 100) : label,
+            'senderName':
+                label.length > 100 ? label.substring(0, 100) : label,
+          },
+          if (mentions.isNotEmpty) 'mentionedUids': mentions,
+        },
+        preview: preview,
+        senderUid: uid,
+        messageType: 'text',
+      );
+      ChurchPublishFlowLog.chatMessageCreated();
+      ChurchPublishFlowLog.chatSuccess();
+      return (messageId: msgRef.id, allowed: true);
+    } catch (e, st) {
+      ChurchPublishFlowLog.firestoreError(e, st);
+      rethrow;
+    }
+  }
+
+  /// Stub de texto (`deliveryStatus: sending`) — mídia ou UI que precisa de 2 fases.
   static Future<({String messageId, bool allowed})> beginTextMessage({
     required String tenantId,
     required String threadId,
@@ -1526,6 +1594,7 @@ class ChurchChatService {
     String? senderDisplayName,
     List<String>? mentionedUids,
   }) async {
+    ChurchPublishFlowLog.chatStart();
     await ensureFirebaseReadyForChatSend();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
@@ -1559,22 +1628,28 @@ class ChurchChatService {
       msgRef: msgRef,
       messageData: {
         'senderUid': uid,
+        'senderId': uid,
         'type': 'text',
         'text': text,
         'deliveryStatus': deliverySending,
+        'status': deliverySending,
         'createdAt': FieldValue.serverTimestamp(),
         'expiresAt': expiresAt,
         if (nr != null) 'replyTo': nr,
         if (nf != null) 'forwardedFrom': nf,
-        if (label.isNotEmpty)
+        if (label.isNotEmpty) ...{
           'senderDisplayName':
               label.length > 100 ? label.substring(0, 100) : label,
+          'senderName':
+              label.length > 100 ? label.substring(0, 100) : label,
+        },
         if (mentions.isNotEmpty) 'mentionedUids': mentions,
       },
       preview: preview,
       senderUid: uid,
       messageType: 'text',
     );
+    ChurchPublishFlowLog.chatMessageCreated();
     return (messageId: msgRef.id, allowed: true);
   }
 
@@ -1597,6 +1672,7 @@ class ChurchChatService {
       try {
         await messagesCol(tenantId, threadId).doc(messageId).update({
           'deliveryStatus': deliverySent,
+          'status': deliverySent,
         });
         await threadRef(tenantId, threadId).set(
           threadLastMessageIndexPatch(
@@ -1606,6 +1682,8 @@ class ChurchChatService {
           ),
           SetOptions(merge: true),
         );
+        ChurchPublishFlowLog.chatMessageUpdated();
+        ChurchPublishFlowLog.chatFinalOk();
         unawaited(
           ChurchChatLocalConversations.recordFromOutbound(
             tenantId: tenantId,
@@ -1995,8 +2073,10 @@ class ChurchChatService {
       msgRef: msgRef,
       messageData: {
         'senderUid': uid,
+        'senderId': uid,
         'type': kind,
         'deliveryStatus': deliveryUploading,
+        'status': deliveryUploading,
         'uploadProgress': 0,
         'createdAt': FieldValue.serverTimestamp(),
         'expiresAt': expiresAt,
@@ -2009,14 +2089,18 @@ class ChurchChatService {
           'albumIndex': albumIndex,
           'albumCount': aCount,
         },
-        if (label.isNotEmpty)
+        if (label.isNotEmpty) ...{
           'senderDisplayName':
               label.length > 100 ? label.substring(0, 100) : label,
+          'senderName':
+              label.length > 100 ? label.substring(0, 100) : label,
+        },
       },
       preview: preview,
       senderUid: uid,
       messageType: kind,
     );
+    ChurchPublishFlowLog.chatMessageCreated();
     return (messageId: msgRef.id, storagePath: storagePath);
   }
 
@@ -2032,8 +2116,10 @@ class ChurchChatService {
   }) async {
     final patch = <String, dynamic>{
       'mediaUrl': downloadUrl,
+      'fileUrl': downloadUrl,
       'storagePath': storagePath,
       'deliveryStatus': deliverySent,
+      'status': deliverySent,
       'uploadProgress': 1,
     };
     if (thumbUrl != null && thumbUrl.trim().isNotEmpty) {

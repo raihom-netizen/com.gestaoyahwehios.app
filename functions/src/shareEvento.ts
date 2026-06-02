@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Página leve para rastreadores (WhatsApp, Telegram, etc.): Open Graph com capa do evento/aviso.
  * O app compartilha só /s/evento?c=&e= — sem URLs longas do Firebase Storage na mensagem.
  */
@@ -575,7 +575,7 @@ export const shareEvento = functions
 
     let snap: DocumentSnapshot;
     try {
-      snap = await db.doc(`igrejas/${tenantId}/noticias/${e}`).get();
+      snap = await db.doc(`igrejas/${tenantId}/eventos/${e}`).get();
       if (!snap.exists) {
         snap = await db.doc(`igrejas/${tenantId}/avisos/${e}`).get();
       }

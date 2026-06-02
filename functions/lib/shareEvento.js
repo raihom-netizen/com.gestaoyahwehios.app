@@ -606,7 +606,7 @@ exports.shareEvento = functions
     }
     let snap;
     try {
-        snap = await db.doc(`igrejas/${tenantId}/noticias/${e}`).get();
+        snap = await db.doc(`igrejas/${tenantId}/eventos/${e}`).get();
         if (!snap.exists) {
             snap = await db.doc(`igrejas/${tenantId}/avisos/${e}`).get();
         }

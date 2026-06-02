@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -631,7 +631,7 @@ class ChurchChatMemberPrefs {
         await FirebaseFirestore.instance
             .collection('igrejas')
             .doc(tenantId)
-            .collection('chat_threads')
+            .collection('chats')
             .doc(threadId)
             .get();
     final peers = thread.data()?['participantUids'];

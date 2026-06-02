@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions/v1";
+﻿import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 
 function canManageChurchChatPurge(role: string): boolean {
@@ -62,7 +62,7 @@ export const purgeChurchChatMessagesAdmin = functions
     const threadsSnap = await db
       .collection("igrejas")
       .doc(tenantId)
-      .collection("chat_threads")
+      .collection("chats")
       .get();
 
     let deletedMessages = 0;

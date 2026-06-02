@@ -1,11 +1,12 @@
 import 'dart:async' show unawaited;
 
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 
 /// Chat estilo WhatsApp: mensagem no Firestore primeiro (`sending`), finalize em background.
 ///
-/// Caminhos: `igrejas/{tenantId}/chat_threads/{threadId}/messages`.
+/// Caminhos: `igrejas/{tenantId}/chats/{threadId}/messages`.
 abstract final class ChurchChatInstantSendService {
   ChurchChatInstantSendService._();
 
@@ -27,47 +28,32 @@ abstract final class ChurchChatInstantSendService {
   }) {
     unawaited(
       runFirebaseBackgroundTask<void>(() async {
-      var messageId = '';
-      try {
-        final begun = await ChurchChatService.beginTextMessage(
-          tenantId: tenantId,
-          threadId: threadId,
-          text: text,
-          replyTo: replyTo,
-          forwardedFrom: forwardedFrom,
-          senderDisplayName: senderDisplayName,
-          mentionedUids: mentionedUids,
-        );
-        if (!begun.allowed) {
-          onComplete?.call(false);
-          onError?.call(
-            'Não é possível enviar — desbloqueie o contacto nas opções da conversa.',
-          );
-          return;
-        }
-        messageId = begun.messageId;
-        await ChurchChatService.finalizeTextMessage(
-          tenantId: tenantId,
-          threadId: threadId,
-          messageId: messageId,
-          text: text,
-          replyTo: replyTo,
-          forwardedFrom: forwardedFrom,
-        );
-        onComplete?.call(true);
-      } catch (e) {
-        if (messageId.isNotEmpty) {
-          await ChurchChatService.abandonTextMessage(
+        try {
+          final r = await ChurchChatService.writeTextMessageFirestoreOnce(
             tenantId: tenantId,
             threadId: threadId,
-            messageId: messageId,
+            text: text,
+            replyTo: replyTo,
+            forwardedFrom: forwardedFrom,
+            senderDisplayName: senderDisplayName,
+            mentionedUids: mentionedUids,
           );
+          if (!r.allowed) {
+            onComplete?.call(false);
+            onError?.call(
+              'Não é possível enviar — desbloqueie o contacto nas opções da conversa.',
+            );
+            return;
+          }
+          onComplete?.call(true);
+        } catch (e, st) {
+          YahwehFlowLog.error('CHAT', e, st);
+          onError?.call(ChurchChatService.formatInstantSendError(e));
         }
+      }, debugLabel: 'chat_text_send').catchError((Object e, StackTrace st) {
+        YahwehFlowLog.error('CHAT', e, st);
         onError?.call(ChurchChatService.formatInstantSendError(e));
-      }
-    }, debugLabel: 'chat_text_send').catchError((Object e) {
-      onError?.call(ChurchChatService.formatInstantSendError(e));
-    }),
+      }),
     );
   }
 

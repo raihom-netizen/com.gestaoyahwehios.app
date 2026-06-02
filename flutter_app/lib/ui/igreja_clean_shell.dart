@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+﻿import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -714,7 +714,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                     .collection('igrejas')
                     .doc(tid);
                 await base
-                    .collection('noticias')
+                    .collection('eventos')
                     .orderBy('startAt', descending: true)
                     .limit(24)
                     .get();
@@ -775,7 +775,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 await firebaseDefaultFirestore
                     .collection('igrejas')
                     .doc(tid)
-                    .collection('chat_threads')
+                    .collection('chats')
                     .orderBy('lastMessageAt', descending: true)
                     .limit(16)
                     .get();

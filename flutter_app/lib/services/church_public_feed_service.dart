@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_cursor_pagination.dart';
@@ -40,7 +40,7 @@ abstract final class ChurchPublicFeedService {
     final base = db
         .collection('igrejas')
         .doc(tenantId.trim())
-        .collection(ChurchTenantPostsCollections.noticias)
+        .collection(ChurchTenantPostsCollections.eventos)
         .where('type', isEqualTo: 'evento')
         .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
         .orderBy('startAt', descending: false);

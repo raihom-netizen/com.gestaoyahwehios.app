@@ -63,6 +63,7 @@ Future<void> appGoogleSignOutForAccountPicker() async {
   if (kIsWeb) return;
   try {
     await appGoogleSignIn().signOut();
+    await appGoogleSignIn().disconnect();
   } catch (_) {}
 }
 

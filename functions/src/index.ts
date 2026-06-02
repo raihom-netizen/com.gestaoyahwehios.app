@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions/v1";
+﻿import * as functions from "firebase-functions/v1";
 import { defineString } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import { getFirestore, type DocumentReference, type DocumentData } from "firebase-admin/firestore";
@@ -1393,7 +1393,7 @@ async function runChurchMediaArchive(options?: {
     const postsSnap = await db
       .collection("igrejas")
       .doc(tenantId)
-      .collection("noticias")
+      .collection("eventos")
       .orderBy("createdAt", "asc")
       .limit(maxPostsPerTenant)
       .get();
@@ -1547,13 +1547,13 @@ export const getChurchStorageUsage = functions
     try {
       const [membersSnap, noticiasSnap, usersSnap] = await Promise.all([
         db.collection("tenants").doc(tenantId).collection("members").count().get(),
-        db.collection("igrejas").doc(tenantId).collection("noticias").count().get(),
+        db.collection("igrejas").doc(tenantId).collection("eventos").count().get(),
         db.collection("tenants").doc(tenantId).collection("usersIndex").count().get(),
       ]);
       firestoreCounts.members = membersSnap.data().count ?? 0;
-      firestoreCounts.noticias = noticiasSnap.data().count ?? 0;
+      firestoreCounts.eventos = noticiasSnap.data().count ?? 0;
       firestoreCounts.usersIndex = usersSnap.data().count ?? 0;
-      firestoreTotal = firestoreCounts.members + firestoreCounts.noticias + firestoreCounts.usersIndex + 2; // +2 docs tenant + igreja
+      firestoreTotal = firestoreCounts.members + firestoreCounts.eventos + firestoreCounts.usersIndex + 2; // +2 docs tenant + igreja
     } catch (e: any) {
       console.warn("getChurchStorageUsage firestore counts error", tenantId, e?.message);
     }
@@ -7066,6 +7066,11 @@ export {
 } from "./churchChatDmThreadNormalize";
 
 export { onChurchFinanceWritePanelSummary } from "./panelFinanceSummary";
+
+export {
+  migrateTenantFirestoreCollections,
+  migrateAllTenantsFirestoreCollections,
+} from "./migrateTenantFirestoreCollections";
 
 export {
   optimizeImage,

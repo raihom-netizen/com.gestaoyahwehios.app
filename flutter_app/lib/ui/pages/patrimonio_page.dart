@@ -33,7 +33,10 @@ import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/immediate_patrimonio_photo_attach.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
+import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
     show kMaxPatrimonioPhotosPerItem;
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -7275,15 +7278,17 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _uploadProgress = 0;
     });
     try {
+      YahwehFlowLog.patrimonioStart();
       await ImmediateMediaWarm.drainInFlight(() => _inFlightPhotoUploads);
+      unawaited(ImmediateMediaWarm.warmPatrimonio());
       try {
-        await ImmediateMediaWarm.warmPatrimonio();
-      } catch (e) {
+        await ensureFirebaseReadyForPublishUpload();
+      } catch (e, st) {
         if (isFirebaseNoAppError(e)) {
           await FirebaseBootstrapService.reconnect(requireAuthSession: true);
           await FastMediaPublishBootstrap.warmForPatrimonioSave();
         } else {
-          rethrow;
+          YahwehCatchLog.logAndRethrow(e, st, tag: 'patrimonio_warm');
         }
       }
       final tenantId = widget.col.parent!.id;
@@ -7352,12 +7357,14 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         };
       }
 
-      /// Metadados no Firestore antes do upload — bem aparece na lista na hora.
+      /// Metadados no Firestore antes do upload — UI pode fechar na hora.
       if (nBatch > 0) {
         final early = buildPayload(
           List<String>.from(_existingUrls),
           List<String>.from(allPaths),
         );
+        early[PatrimonioPublishService.photoUploadStateField] =
+            PatrimonioPublishService.stateUploading;
         if (isNewItem) {
           early['criadoEm'] = FieldValue.serverTimestamp();
           await itemRef.set(early);
@@ -7367,62 +7374,47 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           early['fotoVariants'] = FieldValue.delete();
           await itemRef.set(early, SetOptions(merge: true));
         }
-      }
-
-      if (nBatch > 0) {
-        await Future.wait(
-          List.generate(
-            nBatch,
-            (j) => FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-                  tenantId: tenantId,
-                  itemDocId: itemId,
-                  slot: startSlot + j,
-                ),
+        YahwehFlowLog.patrimonioFirestoreOk();
+        final imagesCopy =
+            List<Uint8List>.from(_newImages.take(nBatch));
+        final prevData = widget.doc?.data();
+        PatrimonioPublishService.schedulePhotosAfterFirestoreSave(
+          itemRef: itemRef,
+          tenantId: tenantId,
+          itemId: itemId,
+          newImages: imagesCopy,
+          startSlot: startSlot,
+          existingUrls: List<String>.from(_existingUrls),
+          existingPaths: List<String>.from(allPaths),
+          buildPayload: buildPayload,
+          previousDoc: prevData,
+          onPathsForCleanup: (urls, paths) {
+            unawaited(() async {
+              try {
+                await Future.wait([
+                  for (var s = urls.length; s < _maxFotosPorItem; s++)
+                    FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
+                      tenantId: tenantId,
+                      itemDocId: itemId,
+                      slot: s,
+                    ),
+                ]);
+              } catch (e, st) {
+                YahwehCatchLog.log(e, st, tag: 'patrimonio_slot_cleanup');
+              }
+            }());
+          },
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            widget.doc == null
+                ? 'Bem cadastrado — fotos a concluir em segundo plano.'
+                : 'Patrimônio atualizado — fotos a concluir em segundo plano.',
           ),
         );
-        final progresses = List<double>.filled(nBatch, 0);
-        void bumpUploadProgress() {
-          if (!mounted || nBatch <= 0) {
-            return;
-          }
-          final sum = progresses.fold<double>(0, (a, b) => a + b) / nBatch;
-          setState(() => _uploadProgress = sum.clamp(0.0, 1.0));
-        }
-
-        const uploadConcurrency = 3;
-        final results = <MediaUploadResult>[];
-        for (var batchStart = 0;
-            batchStart < nBatch;
-            batchStart += uploadConcurrency) {
-          final batchEnd = math.min(batchStart + uploadConcurrency, nBatch);
-          final chunk = await Future.wait(
-            List.generate(batchEnd - batchStart, (k) {
-              final j = batchStart + k;
-              final slot = startSlot + j;
-              final path =
-                  ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemId, slot);
-              return PatrimonioMediaUpload.uploadGalleryPhoto(
-                storagePath: path,
-                rawBytes: _newImages[j],
-                onProgress: (p) {
-                  progresses[j] = p.clamp(0.0, 1.0);
-                  bumpUploadProgress();
-                },
-              );
-            }),
-          );
-          results.addAll(chunk);
-        }
-        for (final r in results) {
-          allUrls.add(r.downloadUrl);
-          allPaths.add(r.storagePath);
-        }
-        if (results.isNotEmpty) {
-          await Future.wait([
-            for (final r in results)
-              CachedNetworkImage.evictFromCache(r.downloadUrl),
-          ]);
-        }
+        Navigator.pop(context, true);
+        return;
       }
 
       if (widget.doc != null && prev != null) {
@@ -7464,9 +7456,10 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       if (widget.doc == null && nBatch == 0) {
         payload['criadoEm'] = FieldValue.serverTimestamp();
         await itemRef.set(payload);
-      } else if (nBatch > 0 || widget.doc != null) {
+      } else if (widget.doc != null) {
         await itemRef.set(payload, SetOptions(merge: true));
       }
+      YahwehFlowLog.patrimonioFirestoreOk();
       FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(
         tenantId: tenantId,
         itemDocId: itemId,
@@ -7484,12 +7477,14 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         } catch (_) {}
       }());
       if (!mounted) return;
+      YahwehFlowLog.patrimonioSuccess();
       ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(widget.doc == null
               ? 'Bem cadastrado!'
               : 'Patrimônio atualizado!'));
       Navigator.pop(context, true);
-    } catch (e) {
+    } catch (e, st) {
+      YahwehCatchLog.log(e, st, tag: 'patrimonio_save');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(formatFirebaseErrorForUser(e))),

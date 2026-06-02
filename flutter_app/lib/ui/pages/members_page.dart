@@ -4077,84 +4077,25 @@ class _MembersPageState extends State<MembersPage> {
     if (selfOnlySave) {
       try {
         final targetTenantId = _tenantIdForMemberData(member.data);
-        String? photoUrl;
-        String? photoStoragePath;
+        Uint8List? pendingProfilePhotoBytes;
         final pickedPhotoSelf = newPhoto;
-        String? previousPhotoUrlForEvict;
         if (pickedPhotoSelf != null) {
           try {
-            previousPhotoUrlForEvict =
-                sanitizeImageUrl(imageUrlFromMap(member.data));
             final rawBytes =
                 newPhotoBytes ?? await pickedPhotoSelf.readAsBytes();
             final compressedBytes =
                 await ImageHelper.compressMemberProfileForUpload(rawBytes);
+            pendingProfilePhotoBytes = compressedBytes;
             if (mounted) {
               setState(() {
                 _optimisticProfilePhotoBytes[member.id] = compressedBytes;
               });
-              var nomeFoto = (result['name'] ?? '').toString().trim();
-              if (nomeFoto.isEmpty) {
-                nomeFoto =
-                    (member.data['NOME_COMPLETO'] ?? '').toString().trim();
-              }
-              final authUidFoto =
-                  (member.data['authUid'] ?? '').toString().trim();
-              final photoPath = FirebaseStorageService.memberProfilePhotoPath(
-                tenantId: targetTenantId,
-                memberDocId: member.id,
-                nomeCompleto: nomeFoto,
-                authUid: authUidFoto.isEmpty ? null : authUidFoto,
-              );
-              GlobalUploadProgress.instance.start('A enviar…');
-              try {
-                final upload = await MediaUploadService.uploadBytesDetailed(
-                  storagePath: photoPath,
-                  bytes: compressedBytes,
-                  contentType: bytesLookLikeWebp(compressedBytes)
-                      ? 'image/webp'
-                      : 'image/jpeg',
-                  skipClientPrepare: true,
-                  onProgress: GlobalUploadProgress.instance.update,
-                  deleteFirebaseDownloadUrlsBefore: () {
-                    final prev = previousPhotoUrlForEvict;
-                    if (prev == null || prev.isEmpty) return null;
-                    return <String>[prev];
-                  }(),
-                  useOfflineQueue: false,
-                );
-                photoUrl = upload.downloadUrl;
-                photoStoragePath = upload.storagePath;
-                MemberProfilePhotoUpdateService.invalidateDisplayCaches(
-                  previousDownloadUrl: previousPhotoUrlForEvict,
-                  newDownloadUrl: photoUrl,
-                  storagePath: photoStoragePath,
-                );
-                FirebaseStorageCleanupService
-                    .scheduleCleanupAfterMemberProfilePhotoUpload(
-                  tenantId: targetTenantId,
-                  memberId: FirebaseStorageService.memberProfileStorageFolderId(
-                    member.id,
-                    authUidFoto.isEmpty ? null : authUidFoto,
-                  ),
-                );
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                      ThemeCleanPremium.successSnackBar('Foto enviada.'));
-                }
-              } finally {
-                GlobalUploadProgress.instance.end();
-              }
             }
           } catch (e) {
-            GlobalUploadProgress.instance.end();
             if (mounted) {
-              setState(() {
-                _optimisticProfilePhotoBytes.remove(member.id);
-              });
               ScaffoldMessenger.of(context).showSnackBar(
                   ThemeCleanPremium.feedbackSnackBar(
-                      'Erro ao enviar foto: $e'));
+                      'Erro ao preparar foto: $e'));
             }
           }
         }
@@ -4207,17 +4148,11 @@ class _MembersPageState extends State<MembersPage> {
           updates['DATA_BATISMO'] =
               Timestamp.fromDate(result['dataBatismo'] as DateTime);
         }
-        if (photoUrl != null) {
-          updates['foto_url'] = photoUrl;
-          updates['FOTO_URL_OU_ID'] = photoUrl;
-          updates['fotoUrl'] = photoUrl;
-          updates['photoURL'] = photoUrl;
-          updates['photoVariants'] = FieldValue.delete();
-          updates['fotoUrlCacheRevision'] =
-              DateTime.now().millisecondsSinceEpoch;
+        if (pendingProfilePhotoBytes != null) {
+          updates.addAll(
+            MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
+          );
         }
-        if (photoStoragePath != null)
-          updates['photoStoragePath'] = photoStoragePath;
 
         final linkage = await _getTenantLinkage();
         updates['alias'] = linkage['alias'];
@@ -4272,10 +4207,6 @@ class _MembersPageState extends State<MembersPage> {
               'nome': updates['NOME_COMPLETO'],
               'displayName': updates['NOME_COMPLETO'],
               'email': updates['EMAIL'],
-              if (photoUrl != null) 'foto_url': photoUrl,
-              if (photoUrl != null) 'photoURL': photoUrl,
-              if (photoUrl != null) 'fotoUrl': photoUrl,
-              if (photoUrl != null) 'FOTO_URL_OU_ID': photoUrl,
               'updatedAt': FieldValue.serverTimestamp(),
             }, SetOptions(merge: true));
           } catch (_) {}
@@ -4304,38 +4235,49 @@ class _MembersPageState extends State<MembersPage> {
                 ThemeCleanPremium.successSnackBar(
                     'Seu cadastro foi atualizado.'));
           }
-          if (photoUrl != null) {
-            final u = photoUrl;
+          if (pendingProfilePhotoBytes != null) {
+            final bytes = pendingProfilePhotoBytes;
             final mid = member.id;
-            setState(() {
-              _uploadedPhotoUrls[mid] = u;
-              _optimisticProfilePhotoBytes.remove(mid);
-            });
-            Future.delayed(const Duration(seconds: 20), () {
-              if (!mounted) return;
-              setState(() => _uploadedPhotoUrls.remove(mid));
-            });
-            final ev = previousPhotoUrlForEvict;
-            if (ev != null && ev.isNotEmpty) {
-              unawaited(FirebaseStorageCleanupService.evictImageCaches(ev));
-            }
-            unawaited(FirebaseStorageCleanupService.evictImageCaches(u));
             final mergedSelf = Map<String, dynamic>.from(member.data)
               ..addAll(updates);
-            _invalidateMemberPhotoCaches(targetTenantId, member.id, mergedSelf);
-            final revSelf = updates['fotoUrlCacheRevision'];
-            if (revSelf is int) {
-              unawaited(
-                MemberProfilePhotoUpdateService
-                    .syncChatPeerProfilesAfterPhotoUpdate(
-                  primaryTenantId: targetTenantId,
-                  memberDocId: member.id,
-                  memberData: mergedSelf,
-                  photoUrl: u,
-                  cacheRevision: revSelf,
-                ),
-              );
-            }
+            MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
+              tenantId: targetTenantId,
+              memberDocId: member.id,
+              memberData: mergedSelf,
+              rawBytes: bytes,
+              onSuccess: (result) {
+                if (!mounted) return;
+                final u = result.downloadUrl;
+                setState(() {
+                  _uploadedPhotoUrls[mid] = u;
+                  _optimisticProfilePhotoBytes.remove(mid);
+                });
+                Future.delayed(const Duration(seconds: 20), () {
+                  if (!mounted) return;
+                  setState(() => _uploadedPhotoUrls.remove(mid));
+                });
+                unawaited(FirebaseStorageCleanupService.evictImageCaches(u));
+                _invalidateMemberPhotoCaches(
+                  targetTenantId,
+                  member.id,
+                  mergedSelf,
+                );
+                unawaited(
+                  MemberProfilePhotoUpdateService
+                      .syncChatPeerProfilesAfterPhotoUpdate(
+                    primaryTenantId: targetTenantId,
+                    memberDocId: member.id,
+                    memberData: mergedSelf,
+                    photoUrl: u,
+                    cacheRevision: result.cacheRevision,
+                  ),
+                );
+              },
+              onError: (_) {
+                if (!mounted) return;
+                setState(() => _optimisticProfilePhotoBytes.remove(mid));
+              },
+            );
           }
           _refreshMembers(clearOptimisticMemberOverlayId: member.id);
         }
@@ -4381,83 +4323,27 @@ class _MembersPageState extends State<MembersPage> {
           targetTenantId, funcaoFinal);
     } catch (_) {}
 
-    // Upload foto se necessário (web e app) — usa igreja de destino se estiver transferindo
-    String? photoUrl;
-    String? photoStoragePath;
+    Uint8List? pendingProfilePhotoBytesGestor;
     final pickedPhoto = newPhoto;
-    String? previousPhotoUrlForEvictGestor;
     if (pickedPhoto != null) {
       try {
-        previousPhotoUrlForEvictGestor =
-            sanitizeImageUrl(imageUrlFromMap(member.data));
         final rawBytes = await pickedPhoto.readAsBytes();
         final compressedBytes =
             await ImageHelper.compressMemberProfileForUpload(rawBytes);
+        pendingProfilePhotoBytesGestor = compressedBytes;
         if (mounted) {
           setState(() {
             _optimisticProfilePhotoBytes[member.id] = compressedBytes;
           });
-          var nomeFotoGestor = (result['name'] ?? '').toString().trim();
-          if (nomeFotoGestor.isEmpty) {
-            nomeFotoGestor =
-                (member.data['NOME_COMPLETO'] ?? '').toString().trim();
-          }
-          final authUidGestor =
-              (member.data['authUid'] ?? '').toString().trim();
-          final photoPath = FirebaseStorageService.memberProfilePhotoPath(
-            tenantId: targetTenantId,
-            memberDocId: member.id,
-            nomeCompleto: nomeFotoGestor,
-            authUid: authUidGestor.isEmpty ? null : authUidGestor,
-          );
-          GlobalUploadProgress.instance.start('A enviar…');
-          try {
-            final upload = await MediaUploadService.uploadBytesDetailed(
-              storagePath: photoPath,
-              bytes: compressedBytes,
-              contentType: bytesLookLikeWebp(compressedBytes)
-                  ? 'image/webp'
-                  : 'image/jpeg',
-              skipClientPrepare: true,
-              onProgress: GlobalUploadProgress.instance.update,
-              deleteFirebaseDownloadUrlsBefore: () {
-                final prev = previousPhotoUrlForEvictGestor;
-                if (prev == null || prev.isEmpty) return null;
-                return <String>[prev];
-              }(),
-              useOfflineQueue: false,
-            );
-            photoUrl = upload.downloadUrl;
-            photoStoragePath = upload.storagePath;
-            MemberProfilePhotoUpdateService.invalidateDisplayCaches(
-              previousDownloadUrl: previousPhotoUrlForEvictGestor,
-              newDownloadUrl: photoUrl,
-              storagePath: photoStoragePath,
-            );
-            FirebaseStorageCleanupService
-                .scheduleCleanupAfterMemberProfilePhotoUpload(
-              tenantId: targetTenantId,
-              memberId: FirebaseStorageService.memberProfileStorageFolderId(
-                member.id,
-                authUidGestor.isEmpty ? null : authUidGestor,
-              ),
-            );
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                  ThemeCleanPremium.successSnackBar('Foto enviada.'));
-            }
-          } finally {
-            GlobalUploadProgress.instance.end();
-          }
         }
       } catch (e) {
-        GlobalUploadProgress.instance.end();
         if (mounted) {
           setState(() {
             _optimisticProfilePhotoBytes.remove(member.id);
           });
           ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.feedbackSnackBar('Erro ao enviar foto: $e'));
+              ThemeCleanPremium.feedbackSnackBar(
+                  'Erro ao preparar foto: $e'));
         }
       }
     }
@@ -4524,16 +4410,11 @@ class _MembersPageState extends State<MembersPage> {
     }
     if (nascimento != null)
       updates['DATA_NASCIMENTO'] = Timestamp.fromDate(nascimento!);
-    if (photoUrl != null) {
-      updates['foto_url'] = photoUrl;
-      updates['FOTO_URL_OU_ID'] = photoUrl;
-      updates['fotoUrl'] = photoUrl;
-      updates['photoURL'] = photoUrl;
-      updates['photoVariants'] = FieldValue.delete();
-      updates['fotoUrlCacheRevision'] = DateTime.now().millisecondsSinceEpoch;
+    if (pendingProfilePhotoBytesGestor != null) {
+      updates.addAll(
+        MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
+      );
     }
-    if (photoStoragePath != null)
-      updates['photoStoragePath'] = photoStoragePath;
     if (newAssinaturaBytes != null) {
       try {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -4661,10 +4542,6 @@ class _MembersPageState extends State<MembersPage> {
             'CARGO': funcaoFinal,
             if (isMoveToOtherChurch) 'tenantId': targetTenantId,
             if (isMoveToOtherChurch) 'igrejaId': targetTenantId,
-            if (photoUrl != null) 'foto_url': photoUrl,
-            if (photoUrl != null) 'photoURL': photoUrl,
-            if (photoUrl != null) 'fotoUrl': photoUrl,
-            if (photoUrl != null) 'FOTO_URL_OU_ID': photoUrl,
           }, SetOptions(merge: true));
         } catch (_) {}
         try {
@@ -4682,10 +4559,6 @@ class _MembersPageState extends State<MembersPage> {
             'cargo': funcaoFinal,
             'FUNCOES': funcoesSelecionadasFinal,
             'CARGO': funcaoFinal,
-            if (photoUrl != null) 'foto_url': photoUrl,
-            if (photoUrl != null) 'photoURL': photoUrl,
-            if (photoUrl != null) 'fotoUrl': photoUrl,
-            if (photoUrl != null) 'FOTO_URL_OU_ID': photoUrl,
           }, SetOptions(merge: true));
         } catch (_) {}
         try {
@@ -4779,37 +4652,44 @@ class _MembersPageState extends State<MembersPage> {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('Membro atualizado!'));
       }
-      if (photoUrl != null && mounted) {
-        final u = photoUrl;
+      if (pendingProfilePhotoBytesGestor != null && mounted) {
+        final bytes = pendingProfilePhotoBytesGestor;
         final mid = member.id;
-        setState(() {
-          _uploadedPhotoUrls[mid] = u;
-          _optimisticProfilePhotoBytes.remove(mid);
-        });
         final mergedGestor = Map<String, dynamic>.from(member.data)
           ..addAll(updates);
-        _invalidateMemberPhotoCaches(targetTenantId, mid, mergedGestor);
-        final revGestor = updates['fotoUrlCacheRevision'];
-        if (revGestor is int) {
-          unawaited(
-            MemberProfilePhotoUpdateService.syncChatPeerProfilesAfterPhotoUpdate(
-              primaryTenantId: targetTenantId,
-              memberDocId: mid,
-              memberData: mergedGestor,
-              photoUrl: u,
-              cacheRevision: revGestor,
-            ),
-          );
-        }
-        Future.delayed(const Duration(seconds: 20), () {
-          if (!mounted) return;
-          setState(() => _uploadedPhotoUrls.remove(mid));
-        });
-        final ev = previousPhotoUrlForEvictGestor;
-        if (ev != null && ev.isNotEmpty) {
-          unawaited(FirebaseStorageCleanupService.evictImageCaches(ev));
-        }
-        unawaited(FirebaseStorageCleanupService.evictImageCaches(u));
+        MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
+          tenantId: targetTenantId,
+          memberDocId: mid,
+          memberData: mergedGestor,
+          rawBytes: bytes,
+          onSuccess: (result) {
+            if (!mounted) return;
+            final u = result.downloadUrl;
+            setState(() {
+              _uploadedPhotoUrls[mid] = u;
+              _optimisticProfilePhotoBytes.remove(mid);
+            });
+            _invalidateMemberPhotoCaches(targetTenantId, mid, mergedGestor);
+            unawaited(
+              MemberProfilePhotoUpdateService.syncChatPeerProfilesAfterPhotoUpdate(
+                primaryTenantId: targetTenantId,
+                memberDocId: mid,
+                memberData: mergedGestor,
+                photoUrl: u,
+                cacheRevision: result.cacheRevision,
+              ),
+            );
+            Future.delayed(const Duration(seconds: 20), () {
+              if (!mounted) return;
+              setState(() => _uploadedPhotoUrls.remove(mid));
+            });
+            unawaited(FirebaseStorageCleanupService.evictImageCaches(u));
+          },
+          onError: (_) {
+            if (!mounted) return;
+            setState(() => _optimisticProfilePhotoBytes.remove(mid));
+          },
+        );
       }
       if (mounted) {
         _refreshMembers(clearOptimisticMemberOverlayId: member.id);
@@ -4839,29 +4719,44 @@ class _MembersPageState extends State<MembersPage> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
                 ThemeCleanPremium.successSnackBar('Membro atualizado!'));
-            if (photoUrl != null) {
-              final u = photoUrl;
+            if (pendingProfilePhotoBytesGestor != null) {
+              final bytes = pendingProfilePhotoBytesGestor;
               final mid = member.id;
-              setState(() {
-                _uploadedPhotoUrls[mid] = u;
-                _optimisticProfilePhotoBytes.remove(mid);
-              });
               final mergedRetry = Map<String, dynamic>.from(member.data)
                 ..addAll(updates);
-              _invalidateMemberPhotoCaches(targetTenantId, mid, mergedRetry);
-              final revRetry = updates['fotoUrlCacheRevision'];
-              if (revRetry is int) {
-                unawaited(
-                  MemberProfilePhotoUpdateService
-                      .syncChatPeerProfilesAfterPhotoUpdate(
-                    primaryTenantId: targetTenantId,
-                    memberDocId: mid,
-                    memberData: mergedRetry,
-                    photoUrl: u,
-                    cacheRevision: revRetry,
-                  ),
-                );
-              }
+              MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
+                tenantId: targetTenantId,
+                memberDocId: mid,
+                memberData: mergedRetry,
+                rawBytes: bytes,
+                onSuccess: (result) {
+                  if (!mounted) return;
+                  final u = result.downloadUrl;
+                  setState(() {
+                    _uploadedPhotoUrls[mid] = u;
+                    _optimisticProfilePhotoBytes.remove(mid);
+                  });
+                  _invalidateMemberPhotoCaches(
+                    targetTenantId,
+                    mid,
+                    mergedRetry,
+                  );
+                  unawaited(
+                    MemberProfilePhotoUpdateService
+                        .syncChatPeerProfilesAfterPhotoUpdate(
+                      primaryTenantId: targetTenantId,
+                      memberDocId: mid,
+                      memberData: mergedRetry,
+                      photoUrl: u,
+                      cacheRevision: result.cacheRevision,
+                    ),
+                  );
+                },
+                onError: (_) {
+                  if (!mounted) return;
+                  setState(() => _optimisticProfilePhotoBytes.remove(mid));
+                },
+              );
               Future.delayed(const Duration(seconds: 20), () {
                 if (!mounted) return;
                 setState(() => _uploadedPhotoUrls.remove(mid));

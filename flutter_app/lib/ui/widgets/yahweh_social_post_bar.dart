@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -24,7 +24,7 @@ class YahwehSocialPostBar extends StatefulWidget {
     required this.postId,
     required this.isEvento,
     this.churchSlug = '',
-    this.postsParentCollection = ChurchTenantPostsCollections.noticias,
+    this.postsParentCollection = ChurchTenantPostsCollections.eventos,
   });
 
   @override

@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+﻿import 'dart:async' show unawaited;
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -993,7 +993,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       final resolvedTenantId = await _resolveEffectiveTenantId();
       final ref = FirebaseFirestore.instance.collection('igrejas').doc(resolvedTenantId);
       final membersSnap = await ref.collection('membros').limit(2000).get();
-      final noticiasSnap = await ref.collection('noticias').limit(500).get();
+      final noticiasSnap = await ref.collection('eventos').limit(500).get();
       final data = {
         'tenantId': resolvedTenantId,
         'exportedAt': DateTime.now().toIso8601String(),

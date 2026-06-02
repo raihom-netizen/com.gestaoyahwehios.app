@@ -13,6 +13,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/carteirinha_visual_tokens.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -5994,25 +5995,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           onPressed: () async {
                             Navigator.pop(ctx);
                             try {
+                              YahwehFlowLog.cartaoStart();
                               final nome = selected?.nome;
                               final cargo = selected?.cargo;
                               final url = selected?.assinaturaUrl;
-                              final bytes =
-                                  await _exportCarteirinhaPdfPreferringWalletModel(
-                                context,
-                                data,
-                                _kPdfCr80Export,
-                                cfg,
-                                signatoryNome: nome,
-                                signatoryCargo: cargo,
-                                signatoryCpf: selected?.cpf,
-                                signatoryAssinaturaUrl: url,
-                              );
-                              if (context.mounted)
-                                await showPdfActions(context,
-                                    bytes: bytes,
-                                    filename:
-                                        'carteirinha_${data.memberId}.pdf');
                               if (gravarAssinatura &&
                                   selected != null &&
                                   context.mounted) {
@@ -6033,13 +6019,33 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                           FieldValue.delete(),
                                 }, SetOptions(merge: true));
                                 setState(() => _loadFuture = _load());
-                                if (context.mounted)
+                              }
+                              final bytes =
+                                  await _exportCarteirinhaPdfPreferringWalletModel(
+                                context,
+                                data,
+                                _kPdfCr80Export,
+                                cfg,
+                                signatoryNome: nome,
+                                signatoryCargo: cargo,
+                                signatoryCpf: selected?.cpf,
+                                signatoryAssinaturaUrl: url,
+                              );
+                              if (context.mounted) {
+                                await showPdfActions(context,
+                                    bytes: bytes,
+                                    filename:
+                                        'carteirinha_${data.memberId}.pdf');
+                                YahwehFlowLog.cartaoSuccess();
+                                if (gravarAssinatura && selected != null) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                           content: Text(
-                                              'Assinatura gravada na carteirinha.')));
+                                              'Assinatura gravada; PDF pronto.')));
+                                }
                               }
-                            } catch (e) {
+                            } catch (e, st) {
+                              YahwehFlowLog.error('CARTAO', e, st);
                               if (context.mounted)
                                 ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text('Erro: $e')));

@@ -18,6 +18,10 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         imageUrlFromMap,
         isValidImageUrl,
         sanitizeImageUrl;
+import 'package:gestao_yahweh/core/entity_publish_status.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
@@ -40,6 +44,22 @@ class MemberProfilePhotoUpdateResult {
 /// Sincroniza foto de perfil: Storage + Firestore + invalidação de cache (lista, chat, web).
 class MemberProfilePhotoUpdateService {
   MemberProfilePhotoUpdateService._();
+
+  static const String photoUploadStateField = EntityPublishStatus.photoUploadStateField;
+  static const String stateUploading = EntityPublishStatus.uploading;
+  static const String statePublished = EntityPublishStatus.published;
+  static const String stateError = EntityPublishStatus.error;
+
+  /// Campos para merge imediato no membro (cadastro salvo; foto em background).
+  static Map<String, dynamic> pendingUploadPatchFields({int? revision}) {
+    final rev = revision ?? DateTime.now().millisecondsSinceEpoch;
+    return {
+      photoUploadStateField: stateUploading,
+      'fotoUrlCacheRevision': rev,
+      'photoUploadError': FieldValue.delete(),
+      'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+    };
+  }
 
   /// Remove bytes em RAM / disco e [ImageCache] para a mesma foto após substituição no Storage.
   static void invalidateDisplayCaches({
@@ -100,8 +120,95 @@ class MemberProfilePhotoUpdateService {
     return null;
   }
 
-  /// Envia foto e grava nos mesmos campos do módulo Membros (`fotoUrl`, `fotoUrlCacheRevision`, etc.).
+  /// Firestore primeiro → upload em background (não bloqueia UI).
+  static void scheduleBackgroundPhotoUpload({
+    required String tenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+    required Uint8List rawBytes,
+    void Function(MemberProfilePhotoUpdateResult result)? onSuccess,
+    void Function(Object error)? onError,
+  }) {
+    unawaited(
+      runFirebaseBackgroundTask<void>(
+        () async {
+          final result = await _uploadAndPatchMemberCore(
+            tenantId: tenantId,
+            memberDocId: memberDocId,
+            memberData: memberData,
+            rawBytes: rawBytes,
+          );
+          onSuccess?.call(result);
+        },
+        debugLabel: 'member_profile_photo_bg',
+      ).catchError((Object e, StackTrace st) {
+        YahwehFlowLog.memberPhotoError(e, st);
+        ChurchPublishFlowLog.memberPhotoError(e, st);
+        unawaited(_markPhotoUploadError(
+          tenantId: tenantId,
+          memberDocId: memberDocId,
+          memberData: memberData,
+          error: e,
+        ));
+        onError?.call(e);
+      }),
+    );
+  }
+
+  static Future<void> _markPhotoUploadError({
+    required String tenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+    required Object error,
+  }) async {
+    final patch = {
+      photoUploadStateField: stateError,
+      'photoUploadError': error.toString(),
+      'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+    };
+    var tenantIds =
+        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(tenantId);
+    if (tenantIds.isEmpty) tenantIds = [tenantId];
+    final db = FirebaseFirestore.instance;
+    await Future.wait(
+      tenantIds.map(
+        (tid) => db
+            .collection('igrejas')
+            .doc(tid)
+            .collection('membros')
+            .doc(memberDocId)
+            .set(patch, SetOptions(merge: true)),
+      ),
+    );
+  }
+
+  /// Compatível com chamadas síncronas (chat «Guardar»). Preferir [scheduleBackgroundPhotoUpload].
   static Future<MemberProfilePhotoUpdateResult> uploadAndPatchMember({
+    required String tenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+    required Uint8List rawBytes,
+  }) async {
+    YahwehFlowLog.memberPhotoStart();
+    ChurchPublishFlowLog.memberPhotoStart();
+    try {
+      final r = await _uploadAndPatchMemberCore(
+        tenantId: tenantId,
+        memberDocId: memberDocId,
+        memberData: memberData,
+        rawBytes: rawBytes,
+      );
+      YahwehFlowLog.memberPhotoSuccess();
+      ChurchPublishFlowLog.memberPhotoSuccess();
+      return r;
+    } catch (e, st) {
+      YahwehFlowLog.memberPhotoError(e, st);
+      ChurchPublishFlowLog.memberPhotoError(e, st);
+      rethrow;
+    }
+  }
+
+  static Future<MemberProfilePhotoUpdateResult> _uploadAndPatchMemberCore({
     required String tenantId,
     required String memberDocId,
     required Map<String, dynamic> memberData,
@@ -110,6 +217,8 @@ class MemberProfilePhotoUpdateService {
     await ImmediateStorageUploadGuard.ensureReady(
       debugLabel: 'member_profile_photo',
     );
+    YahwehFlowLog.uploadStart('member_profile');
+    ChurchPublishFlowLog.uploadStart('member_profile');
     final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
     final authUid = (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
         .toString()
@@ -137,8 +246,14 @@ class MemberProfilePhotoUpdateService {
       YahwehPerformanceV4.profileMediumField: uploaded.photoMedium,
       'fotoUrlCacheRevision': revision,
       'photoStoragePath': uploaded.fullStoragePath,
+      photoUploadStateField: statePublished,
+      'photoUploadError': FieldValue.delete(),
       'ATUALIZADO_EM': FieldValue.serverTimestamp(),
     };
+    YahwehFlowLog.memberPhotoUploadOk();
+    ChurchPublishFlowLog.memberPhotoUploadOk();
+    YahwehFlowLog.uploadSuccess('member_profile');
+    ChurchPublishFlowLog.uploadOk('member_profile');
 
     var tenantIds =
         await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(

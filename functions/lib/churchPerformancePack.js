@@ -121,7 +121,7 @@ async function processFeedImage(tenantId, collection, postId, baseName, srcPath)
         const url = await saveWebp(dest, out);
         variants[tier.key] = { url, storagePath: dest, contentType: "image/webp" };
     }
-    const col = collection === "avisos" ? "avisos" : "noticias";
+    const col = collection === "avisos" ? "avisos" : "eventos";
     const ref = db.collection("igrejas").doc(tenantId).collection(col).doc(postId);
     const snap = await ref.get();
     if (!snap.exists)
@@ -221,7 +221,7 @@ exports.compressVideo = functions
     await db
         .collection("igrejas")
         .doc(tenantId)
-        .collection("noticias")
+        .collection("eventos")
         .doc(postId)
         .set({
         videoServerProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -338,7 +338,7 @@ async function refreshPublicFeedCacheForTenant(tenantId) {
             .limit(30)
             .get(),
         churchRef
-            .collection("noticias")
+            .collection("eventos")
             .where("publicSite", "==", true)
             .orderBy("createdAt", "desc")
             .limit(30)
@@ -352,7 +352,7 @@ async function refreshPublicFeedCacheForTenant(tenantId) {
         const data = d.data();
         if (String(data.type ?? "") !== "evento")
             continue;
-        feed.push(lightPublicPost(d.id, "noticias", data));
+        feed.push(lightPublicPost(d.id, "eventos", data));
     }
     feed.sort((a, b) => {
         const ta = a.createdAt?.toMillis?.() ?? 0;
@@ -419,7 +419,7 @@ exports.refreshPublicFeedCacheOnAvisoWrite = functions
     .onWrite((change, ctx) => onPublicPostWrite(ctx.params.tenantId, change.after));
 exports.refreshPublicFeedCacheOnNoticiaWrite = functions
     .region("us-central1")
-    .firestore.document("igrejas/{tenantId}/noticias/{postId}")
+    .firestore.document("igrejas/{tenantId}/eventos/{postId}")
     .onWrite((change, ctx) => onPublicPostWrite(ctx.params.tenantId, change.after));
 /** Warmup explícito pós-publicação: atualiza cache público imediatamente. */
 exports.warmChurchPublicFeedCache = functions

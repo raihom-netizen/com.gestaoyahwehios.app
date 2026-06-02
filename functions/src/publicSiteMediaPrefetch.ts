@@ -335,7 +335,7 @@ export async function recomputePublicSiteMediaPrefetch(tenantId: string): Promis
     }
 
     const churchRefPosts = churchRef.collection(
-      collection === "avisos" ? "avisos" : "noticias",
+      collection === "avisos" ? "avisos" : "eventos",
     );
     const postSnap = await churchRefPosts.doc(postId).get();
     const postData = (postSnap.data() ?? base) as Record<string, unknown>;

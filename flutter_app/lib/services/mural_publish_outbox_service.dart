@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+﻿import 'dart:async' show unawaited;
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -40,7 +40,7 @@ abstract final class MuralPublishOutboxService {
   ) {
     final col = postType == 'aviso'
         ? ChurchTenantPostsCollections.avisos
-        : ChurchTenantPostsCollections.noticias;
+        : ChurchTenantPostsCollections.eventos;
     return firebaseDefaultFirestore
         .collection('igrejas')
         .doc(tenantId)

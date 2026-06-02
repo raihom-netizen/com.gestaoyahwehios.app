@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -125,7 +125,7 @@ Future<void> scheduleYahwehPanelImageWarmup(
     final snaps = await Future.wait([
       base.collection('membros').limit(24).get(),
       base
-          .collection(ChurchTenantPostsCollections.noticias)
+          .collection(ChurchTenantPostsCollections.eventos)
           .orderBy('createdAt', descending: true)
           .limit(16)
           .get(),

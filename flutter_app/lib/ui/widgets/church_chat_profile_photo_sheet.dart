@@ -132,18 +132,34 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
           .doc(widget.memberId)
           .get();
       final data = snap.data() ?? widget.initialData;
-      final result = await MemberProfilePhotoUpdateService.uploadAndPatchMember(
+      await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(widget.tenantId)
+          .collection('membros')
+          .doc(widget.memberId)
+          .set(
+        MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
+        SetOptions(merge: true),
+      );
+      if (!mounted) return;
+      setState(() => _uploading = false);
+      ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
+      MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
         tenantId: widget.tenantId,
         memberDocId: widget.memberId,
         memberData: data,
         rawBytes: bytes,
+        onSuccess: (result) {
+          if (!mounted) return;
+          setState(() => _uploadedResult = result);
+        },
+        onError: (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.feedbackSnackBar('Erro ao enviar foto: $e'),
+          );
+        },
       );
-      if (!mounted) return;
-      setState(() {
-        _uploadedResult = result;
-        _uploading = false;
-      });
-      ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
     } catch (e) {
       if (!mounted) return;
       setState(() => _uploading = false);

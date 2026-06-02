@@ -54,6 +54,7 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
+import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/window_close_handler_stub.dart'
@@ -441,11 +442,7 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS)) {
     try {
-      final restored =
-          await ChurchAutoSessionService.tryRestoreSessionOnColdStart();
-      if (restored) {
-        await ChurchAutoSessionService.markAutoPainelAfterOAuthRestore();
-      }
+      await PersistentAuthSessionService.warmColdStart();
     } catch (_) {}
   }
   if (!kIsWeb &&

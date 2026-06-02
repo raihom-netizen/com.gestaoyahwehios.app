@@ -135,7 +135,7 @@ async function sendNovoEventoNoticiaPush(tenantId, postId, d) {
 }
 exports.onNovoEventoNoticiaPush = functions
     .region("us-central1")
-    .firestore.document("igrejas/{tenantId}/noticias/{id}")
+    .firestore.document("igrejas/{tenantId}/eventos/{id}")
     .onCreate(async (snap, context) => {
     const d = snap.data() || {};
     if (String(d.type || "").toLowerCase() !== "evento")
@@ -154,7 +154,7 @@ exports.onNovoEventoNoticiaPush = functions
 /** Push quando o evento passa de `uploading` → `published` (fotos em segundo plano). */
 exports.onNovoEventoNoticiaPublishedPush = functions
     .region("us-central1")
-    .firestore.document("igrejas/{tenantId}/noticias/{id}")
+    .firestore.document("igrejas/{tenantId}/eventos/{id}")
     .onUpdate(async (change, context) => {
     const before = change.before.data() || {};
     const after = change.after.data() || {};

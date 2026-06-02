@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 
 import 'firestore_stream_utils.dart';
@@ -213,12 +214,26 @@ class PanelDashboardSnapshotService {
   static final _functions =
       FirebaseFunctions.instanceFor(region: 'us-central1');
 
+  /// Spec produção: `dashboard_stats` — no projeto canónico = `_panel_cache/dashboard_summary`.
   static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
     return FirebaseFirestore.instance
         .collection('igrejas')
         .doc(tenantId.trim())
         .collection('_panel_cache')
         .doc('dashboard_summary');
+  }
+
+  /// Alias opcional se existir no tenant (`igrejas/{id}/dashboard_stats/summary`).
+  static DocumentReference<Map<String, dynamic>>? dashboardStatsRef(
+    String tenantId,
+  ) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return null;
+    return FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(tid)
+        .collection('dashboard_stats')
+        .doc('summary');
   }
 
   static Stream<PanelDashboardSnapshot> watch(String tenantId) {
@@ -261,16 +276,41 @@ class PanelDashboardSnapshotService {
   static Future<PanelDashboardSnapshot> readOnce(String tenantId) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const PanelDashboardSnapshot();
+    YahwehFlowLog.dashboardStart();
+    final statsRef = dashboardStatsRef(tid);
+    if (statsRef != null) {
+      try {
+        final statsSnap = await statsRef.get(
+          const GetOptions(source: Source.cache),
+        );
+        if (statsSnap.exists && statsSnap.data() != null) {
+          YahwehFlowLog.dashboardSuccess();
+          return PanelDashboardSnapshot.fromMap(statsSnap.data());
+        }
+      } catch (_) {}
+      try {
+        final statsSnap = await statsRef.get();
+        if (statsSnap.exists && statsSnap.data() != null) {
+          YahwehFlowLog.dashboardSuccess();
+          return PanelDashboardSnapshot.fromMap(statsSnap.data());
+        }
+      } catch (_) {}
+    }
     try {
       final cached = await cacheRef(tid).get(
         const GetOptions(source: Source.cache),
       );
       final fromCache = _fromCacheDoc(cached);
-      if (fromCache.isFreshForInstantPanel) return fromCache;
+      if (fromCache.isFreshForInstantPanel) {
+        YahwehFlowLog.dashboardSuccess();
+        return fromCache;
+      }
     } catch (_) {}
     try {
       final snap = await cacheRef(tid).get();
-      return _fromCacheDoc(snap);
+      final out = _fromCacheDoc(snap);
+      YahwehFlowLog.dashboardSuccess();
+      return out;
     } catch (_) {
       return const PanelDashboardSnapshot();
     }

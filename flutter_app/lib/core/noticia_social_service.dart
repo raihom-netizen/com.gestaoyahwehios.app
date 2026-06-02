@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 
@@ -11,7 +11,7 @@ class NoticiaSocialService {
   static DocumentReference<Map<String, dynamic>> _post(
     String tenantId,
     String postId, {
-    String parentCollection = ChurchTenantPostsCollections.noticias,
+    String parentCollection = ChurchTenantPostsCollections.eventos,
   }) =>
       FirebaseFirestore.instance
           .collection('igrejas')
@@ -27,7 +27,7 @@ class NoticiaSocialService {
     required String memberName,
     String photoUrl = '',
     required bool currentlyLiked,
-    String parentCollection = ChurchTenantPostsCollections.noticias,
+    String parentCollection = ChurchTenantPostsCollections.eventos,
   }) async {
     final postRef = _post(tenantId, postId, parentCollection: parentCollection);
     final likeRef = postRef.collection('curtidas').doc(uid);
@@ -63,7 +63,7 @@ class NoticiaSocialService {
     required String memberName,
     String photoUrl = '',
     required bool currentlyConfirmed,
-    String parentCollection = ChurchTenantPostsCollections.noticias,
+    String parentCollection = ChurchTenantPostsCollections.eventos,
   }) async {
     final postRef = _post(tenantId, postId, parentCollection: parentCollection);
     final confRef = postRef.collection('confirmacoes').doc(uid);

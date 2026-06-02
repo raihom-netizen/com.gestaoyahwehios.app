@@ -2,11 +2,10 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, debugPrint, defaultTargetPlatform, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
+import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
 import 'package:gestao_yahweh/services/session_restore_service.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
@@ -124,20 +123,14 @@ class ChurchAutoSessionService {
   }
 
   /// Android: restaura sessão Google sem UI (após login bem-sucedido anterior).
+  @Deprecated('Use PersistentAuthSessionService.hasPersistedSession')
   static Future<bool> trySilentGoogleRestore() async {
-    return restoreOAuthSessionForQuickUnlock();
+    return PersistentAuthSessionService.hasPersistedSession();
   }
 
-  /// Sessão Firebase expirada mas utilizador já entrou antes — **só** Google/Apple
-  /// silencioso. Nunca abre «Escolha uma conta» (isso é só no botão Entrar com Google
-  /// ou após Configurações → Trocar conta).
+  @Deprecated('Use PersistentAuthSessionService.hasPersistedSession')
   static Future<bool> restoreOAuthSessionForQuickUnlock() async {
-    if (kIsWeb) return false;
-    if (await LoginPreferences.isAccountSwitchPending()) return false;
-    if (!await _shouldAttemptOAuthRestore()) return false;
-
-    final user = await SessionRestoreService.restoreAfterBiometricUnlock();
-    return user != null;
+    return PersistentAuthSessionService.hasPersistedSession();
   }
 
   static Future<bool> _shouldAttemptOAuthRestore() async {
@@ -148,23 +141,13 @@ class ChurchAutoSessionService {
   }
 
   /// `main.dart`: antes de escolher rota inicial — evita ecrã Entrar com sessão Google/Apple no telemóvel.
-  static Future<bool> tryRestoreSessionOnColdStart() async {
-    if (kIsWeb) return false;
-    if (await LoginPreferences.isAccountSwitchPending()) return false;
-    await ensureFirebaseInitialized();
-    if (firebaseDefaultAuth.currentUser != null) return true;
-    if (!await _shouldAttemptOAuthRestore()) return false;
-    final user = await SessionRestoreService.tryRestoreIfNeeded();
-    return user != null;
-  }
+  static Future<bool> tryRestoreSessionOnColdStart() async =>
+      PersistentAuthSessionService.warmColdStart();
 
   /// `main.dart`: abrir direto o painel se já houve login com sucesso.
   static Future<String?> painelRouteIfSessionRestored(String currentRoute) async {
     if (await LoginPreferences.isAccountSwitchPending()) return null;
-    var user = firebaseDefaultAuth.currentUser;
-    if (user == null || user.isAnonymous) {
-      user = await SessionRestoreService.tryRestoreIfNeeded();
-    }
+    var user = await PersistentAuthSessionService.currentPersistedUser();
     if (user == null || user.isAnonymous) return null;
     await ensureAutoPainelFlagForPersistedSession();
 

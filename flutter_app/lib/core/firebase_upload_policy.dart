@@ -2,7 +2,7 @@
 ///
 /// - **Storage:** `putData` / `putFile` directo com retry (sem fila Firestore).
 /// - **Offline (só mobile):** manifesto em disco ([StorageUploadPersistenceService]).
-/// - **Firestore:** metadados nas coleções de negócio (`avisos`, `eventos`, `chat_threads/...`).
+/// - **Firestore:** metadados nas coleções de negócio (`avisos`, `eventos`, `chats/.../messages`).
 abstract final class FirebaseUploadPolicy {
   FirebaseUploadPolicy._();
 

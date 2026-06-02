@@ -29,6 +29,8 @@ class ExpressLoginService {
   /// [onBeforeNativeOAuthUi] é chamado **antes** de abrir UI nativa (Apple ou seletor
   /// Google). Use para desligar spinners/overlays em Flutter — caso contrário a app
   /// pode ficar com barrier escuro por cima do picker do sistema.
+  /// **Não** chamar no arranque da app — só botões «Login expresso» / renovação.
+  /// Arranque: [PersistentAuthSessionService] + `FirebaseAuth.instance.currentUser`.
   static Future<ExpressLoginResult> tryExpressLogin({
     bool allowFallbackToGoogleUi = true,
     void Function()? onBeforeNativeOAuthUi,
@@ -54,7 +56,7 @@ class ExpressLoginService {
       );
     }
 
-    if (!skipSilentPhase) {
+    if (!skipSilentPhase && FirebaseAuth.instance.currentUser == null) {
       final silent = await _signInWithGoogleSilently();
       if (silent != null) {
         return ExpressLoginResult._(
@@ -110,7 +112,9 @@ class ExpressLoginService {
     }
   }
 
+  /// Só para o botão «Continuar com Google» — **não** chamar no arranque da app.
   static Future<UserCredential?> _signInWithGoogleSilently() async {
+    if (FirebaseAuth.instance.currentUser != null) return null;
     try {
       final GoogleSignInAccount? account =
           await appGoogleSignIn().signInSilently();
@@ -129,6 +133,7 @@ class ExpressLoginService {
   }
 
   /// Apenas Google silencioso — 1.ª fase do login expresso sem overlay na UI Flutter.
+  /// Interactivo / botão Google — nunca no cold start ([PersistentAuthSessionService]).
   static Future<UserCredential?> tryGoogleSilentOnly() async {
     if (kIsWeb) return null;
     if (FirebaseAuth.instance.currentUser != null) return null;

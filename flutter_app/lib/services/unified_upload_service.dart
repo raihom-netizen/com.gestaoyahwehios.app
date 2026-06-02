@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
@@ -57,57 +56,69 @@ abstract final class UnifiedUploadService {
     bool skipClientPrepare = false,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
-    int maxAttempts = 4,
+    int maxAttempts = 3,
     bool useOfflineQueue = false,
   }) async {
     await _ensureReady(module: module.name);
     logFirebasePublishPhase('UPLOAD_START', '$platformLabel|${module.name}|$storagePath|image');
     try {
+      Future<T> withUploadTimeout<T>(Future<T> fut) => fut.timeout(
+            const Duration(seconds: 60),
+            onTimeout: () => throw TimeoutException(
+              'Upload excedeu 60s ($storagePath)',
+            ),
+          );
       if (!kIsWeb &&
           localPath != null &&
           localPath.trim().isNotEmpty &&
           await File(localPath).exists() &&
           (skipClientPrepare || module == YahwehUploadModule.chat)) {
-        final url = await MediaUploadService.uploadFileWithRetry(
-          storagePath: storagePath,
-          file: File(localPath),
-          contentType: contentType,
-          maxAttempts: maxAttempts,
-          useOfflineQueue: useOfflineQueue,
-          skipRecompress: skipClientPrepare,
-          chatJpegFast: chatJpegFast,
-          onProgress: onProgress,
-          onUploadTaskCreated: onUploadTaskCreated,
+        final url = await withUploadTimeout(
+          MediaUploadService.uploadFileWithRetry(
+            storagePath: storagePath,
+            file: File(localPath),
+            contentType: contentType,
+            maxAttempts: maxAttempts,
+            useOfflineQueue: useOfflineQueue,
+            skipRecompress: skipClientPrepare,
+            chatJpegFast: chatJpegFast,
+            onProgress: onProgress,
+            onUploadTaskCreated: onUploadTaskCreated,
+          ),
         );
-        logFirebasePublishPhase('UPLOAD_END', '$platformLabel|$storagePath');
+        logFirebasePublishPhase('UPLOAD_SUCCESS', '$platformLabel|$storagePath');
         return url;
       }
 
       final String url;
       if (skipClientPrepare) {
-        url = await YahwehMediaUploadPipeline.uploadPreparedBytes(
-          storagePath: storagePath,
-          bytes: bytes,
-          contentType: contentType,
-          maxAttempts: maxAttempts,
-          onProgress: onProgress,
-          onUploadTaskCreated: onUploadTaskCreated,
+        url = await withUploadTimeout(
+          YahwehMediaUploadPipeline.uploadPreparedBytes(
+            storagePath: storagePath,
+            bytes: bytes,
+            contentType: contentType,
+            maxAttempts: maxAttempts,
+            onProgress: onProgress,
+            onUploadTaskCreated: onUploadTaskCreated,
+          ),
         );
       } else {
-        url = await YahwehMediaUploadPipeline.uploadBytes(
-          storagePath: storagePath,
-          bytes: bytes,
-          contentType: _guessImageContentType(bytes, skipClientPrepare),
-          module: module,
-          localFilePathForRetry: localPath,
-          chatJpegFast: chatJpegFast,
-          useOfflineQueue: useOfflineQueue,
-          onProgress: onProgress,
-          onUploadTaskCreated: onUploadTaskCreated,
-          maxAttempts: maxAttempts,
+        url = await withUploadTimeout(
+          YahwehMediaUploadPipeline.uploadBytes(
+            storagePath: storagePath,
+            bytes: bytes,
+            contentType: _guessImageContentType(bytes, skipClientPrepare),
+            module: module,
+            localFilePathForRetry: localPath,
+            chatJpegFast: chatJpegFast,
+            useOfflineQueue: useOfflineQueue,
+            onProgress: onProgress,
+            onUploadTaskCreated: onUploadTaskCreated,
+            maxAttempts: maxAttempts,
+          ),
         );
       }
-      logFirebasePublishPhase('UPLOAD_END', '$platformLabel|$storagePath');
+      logFirebasePublishPhase('UPLOAD_SUCCESS', '$platformLabel|$storagePath');
       return url;
     } catch (e, st) {
       logFirebasePublishPhase(
@@ -128,7 +139,7 @@ abstract final class UnifiedUploadService {
     required String localPath,
     required String contentType,
     void Function(double progress)? onProgress,
-    int maxAttempts = 4,
+    int maxAttempts = 3,
   }) async {
     await _ensureReady(module: 'video');
     logFirebasePublishPhase('UPLOAD_START', '$platformLabel|$storagePath|video');
@@ -170,7 +181,7 @@ abstract final class UnifiedUploadService {
     required String contentType,
     YahwehUploadModule module = YahwehUploadModule.generic,
     void Function(double progress)? onProgress,
-    int maxAttempts = 4,
+    int maxAttempts = 3,
   }) async {
     await _ensureReady(module: module.name);
     logFirebasePublishPhase('UPLOAD_START', '$platformLabel|$storagePath|file');

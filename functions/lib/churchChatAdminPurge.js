@@ -77,7 +77,7 @@ exports.purgeChurchChatMessagesAdmin = functions
     const threadsSnap = await db
         .collection("igrejas")
         .doc(tenantId)
-        .collection("chat_threads")
+        .collection("chats")
         .get();
     let deletedMessages = 0;
     let clearedThreads = 0;

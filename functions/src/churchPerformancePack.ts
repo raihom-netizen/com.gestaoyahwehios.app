@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Pacote definitivo de performance — Gestão YAHWEH
  * (índices Firestore + processamento Storage + caches agendados)
  *
@@ -105,7 +105,7 @@ async function processFeedImage(
     variants[tier.key] = { url, storagePath: dest, contentType: "image/webp" };
   }
 
-  const col = collection === "avisos" ? "avisos" : "noticias";
+  const col = collection === "avisos" ? "avisos" : "eventos";
   const ref = db.collection("igrejas").doc(tenantId).collection(col).doc(postId);
   const snap = await ref.get();
   if (!snap.exists) return;
@@ -232,7 +232,7 @@ export const compressVideo = functions
     await db
       .collection("igrejas")
       .doc(tenantId)
-      .collection("noticias")
+      .collection("eventos")
       .doc(postId)
       .set(
         {
@@ -365,7 +365,7 @@ export async function refreshPublicFeedCacheForTenant(
       .limit(30)
       .get(),
     churchRef
-      .collection("noticias")
+      .collection("eventos")
       .where("publicSite", "==", true)
       .orderBy("createdAt", "desc")
       .limit(30)
@@ -379,7 +379,7 @@ export async function refreshPublicFeedCacheForTenant(
   for (const d of noticiasSnap.docs) {
     const data = d.data();
     if (String(data.type ?? "") !== "evento") continue;
-    feed.push(lightPublicPost(d.id, "noticias", data));
+    feed.push(lightPublicPost(d.id, "eventos", data));
   }
 
   feed.sort((a, b) => {
@@ -456,7 +456,7 @@ export const refreshPublicFeedCacheOnAvisoWrite = functions
 
 export const refreshPublicFeedCacheOnNoticiaWrite = functions
   .region("us-central1")
-  .firestore.document("igrejas/{tenantId}/noticias/{postId}")
+  .firestore.document("igrejas/{tenantId}/eventos/{postId}")
   .onWrite((change, ctx) =>
     onPublicPostWrite(ctx.params.tenantId as string, change.after),
   );

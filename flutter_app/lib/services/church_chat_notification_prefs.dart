@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -176,7 +176,7 @@ class ChurchChatNotificationPrefs {
       final t = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(tenantId)
-          .collection('chat_threads')
+          .collection('chats')
           .doc(threadId)
           .get();
       final peers = t.data()?['participantUids'];
@@ -200,7 +200,7 @@ class ChurchChatNotificationPrefs {
       final t = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(tenantId)
-          .collection('chat_threads')
+          .collection('chats')
           .doc(threadId)
           .get();
       final id = (t.data()?['departmentId'] ?? '').toString().trim();

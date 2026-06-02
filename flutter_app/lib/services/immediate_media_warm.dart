@@ -19,10 +19,15 @@ abstract final class ImmediateMediaWarm {
         .catchError((_) {});
   }
 
-  /// Espera uploads em segundo plano antes de «Publicar»/«Salvar» (máx. ~40s).
-  static Future<void> drainInFlight(int Function() inFlightCount) async {
+  /// Espera uploads em segundo plano — por defeito **máx. 2s** (Firestore não pode esperar 40s).
+  static Future<void> drainInFlight(
+    int Function() inFlightCount, {
+    Duration maxWait = const Duration(seconds: 2),
+  }) async {
+    if (inFlightCount() <= 0) return;
+    final maxTicks = (maxWait.inMilliseconds / 125).ceil().clamp(1, 320);
     var ticks = 0;
-    while (inFlightCount() > 0 && ticks < 320) {
+    while (inFlightCount() > 0 && ticks < maxTicks) {
       await Future<void>.delayed(const Duration(milliseconds: 125));
       ticks++;
     }

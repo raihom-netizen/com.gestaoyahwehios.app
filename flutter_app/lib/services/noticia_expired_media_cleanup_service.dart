@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart';
@@ -140,7 +140,7 @@ class NoticiaExpiredMediaCleanupService {
   static Future<void> _run(String tenantId) async {
     final base = FirebaseFirestore.instance.collection('igrejas').doc(tenantId);
     await _purgeCollection(
-        base.collection(ChurchTenantPostsCollections.noticias));
+        base.collection(ChurchTenantPostsCollections.eventos));
     await _purgeCollection(base.collection(ChurchTenantPostsCollections.avisos));
   }
 }

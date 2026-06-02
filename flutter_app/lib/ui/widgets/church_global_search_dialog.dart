@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -184,7 +184,7 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
       if (widget.canAccessShellIndex(kChurchShellIndexEvents)) {
         futures.add(
           base
-              .collection(ChurchTenantPostsCollections.noticias)
+              .collection(ChurchTenantPostsCollections.eventos)
               .orderBy('startAt', descending: true)
               .limit(160)
               .get(),

@@ -486,7 +486,7 @@ async function recomputePanelDashboardSummary(tenantId) {
     await lockRef.set({ lastRun: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
     const membrosCol = churchRef.collection("membros");
     const avisosCol = churchRef.collection("avisos");
-    const noticiasCol = churchRef.collection("noticias");
+    const noticiasCol = churchRef.collection("eventos");
     const churchSnap = await churchRef.get();
     const corpoRolesConfigured = configuredCorpoAdminRoles(churchSnap.data());
     const [pendingMembers, newVisitors, openPrayers, membersTotal, avisosSnap, eventosSnap, eventosProximosSnap, membrosSnap, deptSnap, birthdayMonthDocs,] = await Promise.all([
@@ -648,7 +648,7 @@ async function patchRecentEventosInDashboard(tenantId) {
         return;
     const db = admin.firestore();
     const churchRef = db.collection("igrejas").doc(tid);
-    const noticiasCol = churchRef.collection("noticias");
+    const noticiasCol = churchRef.collection("eventos");
     const summaryRef = churchRef.collection("_panel_cache").doc("dashboard_summary");
     const [eventosSnap, eventosProximosSnap] = await Promise.all([
         noticiasCol.orderBy("startAt", "desc").limit(RECENT_EVENTOS).get(),
@@ -678,7 +678,7 @@ async function patchRecentEventosInDashboard(tenantId) {
 }
 exports.onChurchNoticiaWritePanelDashboard = functions
     .region("us-central1")
-    .firestore.document("igrejas/{tenantId}/noticias/{docId}")
+    .firestore.document("igrejas/{tenantId}/eventos/{docId}")
     .onWrite(async (_, context) => {
     const tenantId = context.params.tenantId;
     try {

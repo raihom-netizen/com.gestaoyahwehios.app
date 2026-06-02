@@ -31,7 +31,8 @@ param(
     [string] $CopyTo = 'D:\Temporarios',
     [switch] $SkipGitPush,
     [switch] $ForceFunctions,
-    [switch] $ForceClean
+    [switch] $ForceClean,
+    [switch] $ForceFirestoreRules
 )
 
 $ErrorActionPreference = "Stop"
@@ -83,7 +84,12 @@ finally { Pop-Location }
 # [1/6] Firestore + Storage rules
 # ========================================================================
 Write-Host "`n=== [1/6] Firestore + Storage (regras e indices) ===" -ForegroundColor Cyan
-& (Join-Path $RepoRoot "scripts\deploy_firebase_rules.ps1") -MaxAttempts 20
+# ForcePublish sempre no deploy completo: API firebaserules 503/409 nao pode abortar [1/6].
+$rulesArgs = @{ MaxAttempts = 25; ForcePublish = $true }
+if (-not $ForceFirestoreRules) {
+    Write-Host "   (regras: modo resiliente ForcePublish - padrao no deploy completo)" -ForegroundColor DarkGray
+}
+& (Join-Path $RepoRoot "scripts\deploy_firebase_rules.ps1") @rulesArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # ========================================================================

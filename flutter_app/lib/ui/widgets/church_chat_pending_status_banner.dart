@@ -192,7 +192,7 @@ class _ChurchChatPendingStatusBannerState
     }
     try {
       await runFirebaseBackgroundTask<void>(
-        () async {},
+        ChurchChatMediaOutboxService.resumeRecoverableNow,
         debugLabel: 'chat_retry_all',
       );
     } catch (e) {
@@ -202,14 +202,13 @@ class _ChurchChatPendingStatusBannerState
       );
       return;
     }
-    var pruned = await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
+    var pruned = 0;
     if (tid.isNotEmpty &&
         FirebaseUploadPolicy.firestorePendingQueueEnabled) {
       pruned += await PendingUploadsFirestoreService
           .pruneUnrecoverableOpenForTenant(tid);
       await PendingUploadsFirestoreService.resumeAllForTenant(tid);
     }
-    ChurchChatMediaOutboxService.resumePendingOnAppStart();
     await _refreshCounts();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

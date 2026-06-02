@@ -207,7 +207,7 @@ function previewFromMessage(msg) {
 /** Push aos outros participantes do thread — respeita [users.pushChat] e modos de alerta (som/vibrar/silêncio) em segundo plano. */
 exports.onChurchChatMessageCreated = functions
     .region("us-central1")
-    .firestore.document("igrejas/{tenantId}/chat_threads/{threadId}/messages/{messageId}")
+    .firestore.document("igrejas/{tenantId}/chats/{threadId}/messages/{messageId}")
     .onCreate(async (snap, context) => {
     const tenantId = context.params.tenantId;
     const threadId = context.params.threadId;
@@ -220,7 +220,7 @@ exports.onChurchChatMessageCreated = functions
     const threadSnap = await db
         .collection("igrejas")
         .doc(tenantId)
-        .collection("chat_threads")
+        .collection("chats")
         .doc(threadId)
         .get();
     if (!threadSnap.exists)

@@ -29,6 +29,7 @@ import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 
+import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
@@ -562,6 +563,8 @@ abstract final class OptimisticChatMediaUpload {
 
         reportProgress(0.04);
 
+        ChurchPublishFlowLog.chatStart();
+        ChurchPublishFlowLog.uploadStart('chat_${pending.kind}');
         final begun = await ChurchChatService.beginMediaUploadMessage(
 
           tenantId: tenantId,
@@ -933,6 +936,9 @@ abstract final class OptimisticChatMediaUpload {
       thumbUrl: thumbUrl,
 
     );
+    ChurchPublishFlowLog.chatFileUploaded();
+    ChurchPublishFlowLog.chatMessageUpdated();
+    ChurchPublishFlowLog.chatFinalOk();
 
     if (uploadDocId != null && uploadDocId.isNotEmpty) {
 

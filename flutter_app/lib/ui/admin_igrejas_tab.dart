@@ -1,4 +1,4 @@
-part of 'admin_panel_page.dart';
+﻿part of 'admin_panel_page.dart';
 
 /// Lista de igrejas no painel master — métricas, filtros, gestão de licença e exclusão total.
 class _IgrejasTab extends StatefulWidget {
@@ -143,7 +143,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
         final newsAgg = await db
             .collection('igrejas')
             .doc(churchId)
-            .collection('noticias')
+            .collection('eventos')
             .where('publicSite', isEqualTo: true)
             .where('createdAt', isGreaterThanOrEqualTo: last30)
             .count()

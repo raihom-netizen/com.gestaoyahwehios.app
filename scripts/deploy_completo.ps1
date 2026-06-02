@@ -13,7 +13,8 @@ param(
     [string] $CopyTo = 'D:\Temporarios',
     [switch] $SkipGitPush,
     [switch] $ForceFunctions,
-    [switch] $ForceClean
+    [switch] $ForceClean,
+    [switch] $ForceFirestoreRules
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,8 +29,9 @@ if (-not (Test-Path $release)) {
 # variavel automatica do PowerShell e gera comportamentos inesperados).
 $invokeArgs = @{ CopyTo = $CopyTo }
 if ($SkipGitPush)    { $invokeArgs.SkipGitPush    = $true }
-if ($ForceFunctions) { $invokeArgs.ForceFunctions = $true }
-if ($ForceClean)     { $invokeArgs.ForceClean     = $true }
+if ($ForceFunctions)       { $invokeArgs.ForceFunctions       = $true }
+if ($ForceClean)           { $invokeArgs.ForceClean           = $true }
+if ($ForceFirestoreRules)  { $invokeArgs.ForceFirestoreRules  = $true }
 
 & $release @invokeArgs
 exit $LASTEXITCODE

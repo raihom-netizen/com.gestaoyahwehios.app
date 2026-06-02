@@ -5,16 +5,36 @@ import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 abstract final class FastMediaPublishBootstrap {
   FastMediaPublishBootstrap._();
 
+  static Future<void>? _sessionWarm;
+
+  /// Uma vez por sessão — evita N× warm antes de cada upload (chat/mural/património).
   static Future<void> warmForFeedPublish() async {
-    await FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true);
-    await FeedPostMediaUpload.warmAuthToken();
+    if (FirebaseBootstrapService.isStorageUploadBootstrapFresh) return;
+    if (_sessionWarm != null) {
+      await _sessionWarm;
+      return;
+    }
+    _sessionWarm = _runWarm();
+    try {
+      await _sessionWarm;
+    } catch (_) {
+      _sessionWarm = null;
+      rethrow;
+    }
   }
 
-  static Future<void> warmForChatSend() async {
-    await warmForFeedPublish();
+  static Future<void> _runWarm() async {
+    await FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true)
+        .timeout(const Duration(seconds: 60));
+    await FeedPostMediaUpload.warmAuthToken()
+        .timeout(const Duration(seconds: 30));
   }
 
-  static Future<void> warmForPatrimonioSave() async {
-    await warmForFeedPublish();
+  static void resetSessionWarm() {
+    _sessionWarm = null;
   }
+
+  static Future<void> warmForChatSend() => warmForFeedPublish();
+
+  static Future<void> warmForPatrimonioSave() => warmForFeedPublish();
 }

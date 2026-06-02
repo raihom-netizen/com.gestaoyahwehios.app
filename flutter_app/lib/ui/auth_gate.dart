@@ -25,6 +25,7 @@ import '../services/church_binding_repair_coordinator.dart';
 import '../services/church_chat_alert_notification_service.dart';
 import '../services/church_chat_notification_prefs.dart';
 import '../services/church_auto_session_service.dart';
+import '../services/persistent_auth_session_service.dart';
 import '../services/session_restore_service.dart';
 import '../services/church_sign_out_navigation.dart';
 import '../services/app_session_stability.dart';
@@ -379,7 +380,8 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     _restoreInFlight = true;
     unawaited(() async {
       try {
-        final restored = await AppSessionStability.tryRestoreSession();
+        final restored =
+            await PersistentAuthSessionService.currentPersistedUser();
         if (restored != null && mounted) {
           AppSessionStability.rememberUser(restored);
           _scheduledLoginRedirect = false;
@@ -403,7 +405,8 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         return;
       }
       if (AppSessionStability.hasReturningSessionHints()) {
-        final restored = await AppSessionStability.tryRestoreSession();
+        final restored =
+            await PersistentAuthSessionService.currentPersistedUser();
         if (restored != null && mounted) {
           AppSessionStability.rememberUser(restored);
           _scheduledLoginRedirect = false;
@@ -1078,7 +1081,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(SessionRestoreService.tryRestoreIfNeeded());
+    unawaited(PersistentAuthSessionService.currentPersistedUser());
     final peek = AuthProfileCacheService.instance.peek(widget.user.uid);
     if (peek != null && (peek['igrejaId'] ?? '').toString().trim().isNotEmpty) {
       _bootstrapProfile = peek;

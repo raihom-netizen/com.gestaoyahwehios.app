@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -41,7 +41,7 @@ Future<ChurchProximoCultoSnapshot?> fetchChurchProximoCultoSnapshot(
     final snap = await FirebaseFirestore.instance
         .collection('igrejas')
         .doc(tid)
-        .collection(ChurchTenantPostsCollections.noticias)
+        .collection(ChurchTenantPostsCollections.eventos)
         .where('type', isEqualTo: 'evento')
         .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(now))
         .orderBy('startAt')

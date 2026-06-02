@@ -1,4 +1,5 @@
 import 'dart:async' show Timer, StreamSubscription, unawaited;
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,7 +14,9 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
@@ -8494,29 +8497,26 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   try {
     await _ensureFinanceWriteReady();
     await firebaseDefaultAuth.currentUser?.getIdToken(true);
+    Uint8List? pendingComprovanteBytes;
     if (isEdit) {
       final novoComp = comprovanteFile;
       if (novoComp != null) {
-        final ref = firebaseDefaultStorage
-            .ref('igrejas/$tenantId/comprovantes/${existingDoc.id}.jpg');
         final bytes = await novoComp.readAsBytes();
-        final compressed = await ImageHelper.compressImage(
+        pendingComprovanteBytes = await ImageHelper.compressImage(
           bytes,
           minWidth: 800,
           minHeight: 600,
-          quality: 70,
+          quality: 80,
         );
-        await ref.putData(
-            compressed,
-            SettableMetadata(
-                contentType: 'image/jpeg',
-                cacheControl: 'public, max-age=31536000'));
-        final url = await ref.getDownloadURL();
-        result['comprovanteUrl'] = url;
+        result.remove('comprovanteUrl');
       } else if ((data?['comprovanteUrl'] ?? '').toString().isNotEmpty) {
         result['comprovanteUrl'] = data?['comprovanteUrl'];
       }
       final patch = Map<String, dynamic>.from(result);
+      if (pendingComprovanteBytes != null) {
+        patch[FinanceComprovantePublishService.comprovanteUploadStateField] =
+            EntityPublishStatus.uploading;
+      }
       final tt = (patch['type'] ?? '').toString();
       if (tt == 'entrada') {
         patch['contaOrigemId'] = FieldValue.delete();
@@ -8549,29 +8549,41 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         }
       }
       await existingDoc.reference.update(patch);
+      if (pendingComprovanteBytes != null) {
+        FinanceComprovantePublishService.scheduleComprovanteUpload(
+          tenantId: tenantId,
+          docRef: existingDoc.reference,
+          rawBytes: pendingComprovanteBytes,
+        );
+      }
       if (context.mounted) {
         showFinanceSaveSnackBar(context, message: 'Lançamento atualizado!');
       }
     } else {
-      final docRef = await financeCol.add(result);
       final novoCompAdd = comprovanteFile;
+      Uint8List? pendingAddBytes;
       if (novoCompAdd != null) {
-        final ref = firebaseDefaultStorage
-            .ref('igrejas/$tenantId/comprovantes/${docRef.id}.jpg');
         final bytesNew = await novoCompAdd.readAsBytes();
-        final compressedNew = await ImageHelper.compressImage(
+        pendingAddBytes = await ImageHelper.compressImage(
           bytesNew,
           minWidth: 800,
           minHeight: 600,
-          quality: 70,
+          quality: 80,
         );
-        await ref.putData(
-            compressedNew,
-            SettableMetadata(
-                contentType: 'image/jpeg',
-                cacheControl: 'public, max-age=31536000'));
-        final urlNew = await ref.getDownloadURL();
-        await docRef.update({'comprovanteUrl': urlNew});
+        result.remove('comprovanteUrl');
+      }
+      final docRef = await FinanceComprovantePublishService.saveLancamentoFirst(
+        financeCol: financeCol,
+        payload: result,
+        isEdit: false,
+        hasNewComprovante: pendingAddBytes != null,
+      );
+      if (pendingAddBytes != null) {
+        FinanceComprovantePublishService.scheduleComprovanteUpload(
+          tenantId: tenantId,
+          docRef: docRef,
+          rawBytes: pendingAddBytes,
+        );
       }
       if (context.mounted) {
         showFinanceSaveSnackBar(context, message: 'Lançamento salvo!');
@@ -8641,33 +8653,45 @@ Future<void> uploadFinanceComprovanteForLancamento(
 
   if (!context.mounted) return;
   ImmediateMediaAttachFeedback.showArquivoAnexado(context, xfile.name);
-  ScaffoldMessenger.of(context)
-      .showSnackBar(const SnackBar(content: Text('Enviando comprovante...')));
 
   try {
-    final ref = firebaseDefaultStorage
-        .ref('igrejas/$tenantId/comprovantes/${doc.id}.jpg');
     final bytes = await xfile.readAsBytes();
     final compressed = await ImageHelper.compressImage(
       bytes,
       minWidth: 800,
       minHeight: 600,
-      quality: 70,
+      quality: 80,
     );
-    await ref.putData(
-        compressed,
-        SettableMetadata(
-            contentType: 'image/jpeg',
-            cacheControl: 'public, max-age=31536000'));
-    final url = await ref.getDownloadURL();
-    await doc.reference.update({'comprovanteUrl': url});
+    await doc.reference.set(
+      {
+        FinanceComprovantePublishService.comprovanteUploadStateField:
+            EntityPublishStatus.uploading,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              jaTem ? 'Comprovante atualizado!' : 'Comprovante anexado!',
-              style: const TextStyle(color: Colors.white)),
-          backgroundColor: Colors.green));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Comprovante a enviar em segundo plano…')));
     }
+    FinanceComprovantePublishService.scheduleComprovanteUpload(
+      tenantId: tenantId,
+      docRef: doc.reference,
+      rawBytes: compressed,
+      onSuccess: (_) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                jaTem ? 'Comprovante atualizado!' : 'Comprovante anexado!',
+                style: const TextStyle(color: Colors.white)),
+            backgroundColor: Colors.green));
+      },
+      onError: (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erro ao enviar: $e')));
+      },
+    );
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context)

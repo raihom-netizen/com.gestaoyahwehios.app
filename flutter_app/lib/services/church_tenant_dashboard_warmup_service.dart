@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
@@ -35,25 +35,30 @@ abstract final class ChurchTenantDashboardWarmupService {
     final tid = tenantIdRaw.trim();
     if (tid.isEmpty) return;
     if (!AppConnectivityService.instance.isOnline) return;
-    if (FirebaseAuth.instance.currentUser == null) return;
+    if (firebaseDefaultAuth.currentUser == null) return;
 
     if (_lastTenant != tid) {
       _lastTenant = tid;
       _done = false;
     }
     if (_done) return;
-    _done = true;
 
     unawaited(_run(context, tid));
   }
 
   static Future<void> _run(BuildContext context, String tenantIdRaw) async {
+    try {
+      await FirebaseBootstrap.ensureInitialized();
+      FirebaseBootstrapService.refreshCachedApp();
+    } catch (_) {
+      return;
+    }
     var tenantId = tenantIdRaw;
     try {
       final r = await TenantResolverService
           .resolveEffectiveTenantIdPreferringUserBinding(
         tenantIdRaw,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
       );
       if (r.trim().isNotEmpty) tenantId = r.trim();
     } catch (_) {}
@@ -109,6 +114,7 @@ abstract final class ChurchTenantDashboardWarmupService {
       urls,
       maxItems: 28,
     );
+    _done = true;
   }
 
   static Future<void> _warmPerformanceCaches(String tenantId) async {

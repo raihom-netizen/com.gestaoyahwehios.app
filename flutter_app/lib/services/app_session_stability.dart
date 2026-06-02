@@ -8,7 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
-import 'package:gestao_yahweh/services/session_restore_service.dart';
+import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
@@ -119,7 +119,7 @@ abstract final class AppSessionStability {
   }
 
   static Future<User?> tryRestoreSession() async {
-    return SessionRestoreService.tryRestoreIfNeeded(allowRetry: true);
+    return PersistentAuthSessionService.currentPersistedUser();
   }
 
   // ─── Painel Master (/admin) ─────────────────────────────────────────────

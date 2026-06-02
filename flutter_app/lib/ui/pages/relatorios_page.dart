@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -23,6 +23,9 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/church_data_query.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/church_department_list.dart'
@@ -474,11 +477,15 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
 
   Future<void> _loadDepartamentos() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('departamentos')
-          .get();
+      final snap = await ChurchDataQuery.getRecentPage(
+        collection: FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(widget.tenantId)
+            .collection('departamentos'),
+        orderField: 'nome',
+        descending: false,
+        limit: 100,
+      );
       if (mounted) {
         setState(() {
           _departamentos = snap.docs
@@ -574,25 +581,12 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
 
   Future<List<Map<String, dynamic>>> _fetchMembers() async {
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    final snapM = await _members.limit(500).get();
-    final snapMb = await _membros.limit(500).get();
-    final snapMI = await _membersIgrejas.limit(500).get();
-    final snapMbI = await _membrosIgrejas.limit(500).get();
-    final seen = <String>{};
-    final list = <Map<String, dynamic>>[];
-    for (final d in snapM.docs) {
-      if (seen.add(d.id)) list.add({...d.data(), 'id': d.id});
-    }
-    for (final d in snapMb.docs) {
-      if (seen.add(d.id)) list.add({...d.data(), 'id': d.id});
-    }
-    for (final d in snapMI.docs) {
-      if (seen.add(d.id)) list.add({...d.data(), 'id': d.id});
-    }
-    for (final d in snapMbI.docs) {
-      if (seen.add(d.id)) list.add({...d.data(), 'id': d.id});
-    }
-    return list;
+    final snap = await _members
+        .limit(YahwehPerformanceV4.defaultPageSize * 25)
+        .get();
+    return snap.docs
+        .map((d) => {...d.data(), 'id': d.id})
+        .toList();
   }
 
   String _val(Map<String, dynamic> m, String key) {
@@ -673,6 +667,7 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
       return;
     }
     setState(() => _loading = true);
+    YahwehFlowLog.relatorioStart();
     try {
       var list = await _fetchMembers();
       list = _aplicarFiltros(list);
@@ -733,7 +728,9 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
       );
       final bytes = Uint8List.fromList(await pdf.save());
       if (mounted) await showPdfActions(context, bytes: bytes, filename: 'relatorio_membros.pdf');
-    } catch (e) {
+      YahwehFlowLog.relatorioSuccess();
+    } catch (e, st) {
+      YahwehFlowLog.error('RELATORIO', e, st);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -4320,7 +4317,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
   List<Map<String, dynamic>> _eventos = [];
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
-      FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('noticias');
+      FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('eventos');
 
   Future<void> _carregar() async {
     setState(() {

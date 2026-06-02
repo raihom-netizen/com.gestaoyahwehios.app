@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -123,7 +123,7 @@ class DashboardPage extends StatelessWidget {
     final proximoEventoQuery = FirebaseFirestore.instance
         .collection('igrejas')
         .doc(tenantId)
-        .collection('noticias')
+        .collection('eventos')
         .where('type', isEqualTo: 'evento')
         .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(nowBuild))
         .orderBy('startAt')
@@ -1496,7 +1496,7 @@ class _MuralPreview extends StatelessWidget {
     final col = FirebaseFirestore.instance
         .collection('igrejas')
         .doc(tenantId)
-        .collection('noticias')
+        .collection('eventos')
         .orderBy('createdAt', descending: true)
         .limit(2);
 

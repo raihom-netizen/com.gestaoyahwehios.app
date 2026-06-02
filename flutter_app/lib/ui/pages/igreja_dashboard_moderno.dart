@@ -1,4 +1,4 @@
-import 'dart:async' show StreamSubscription, unawaited;
+﻿import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -363,7 +363,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     );
     _noticiasPainelStream = FirestoreStreamUtils.resilientQuery(
       tenantRef
-          .collection(ChurchTenantPostsCollections.noticias)
+          .collection(ChurchTenantPostsCollections.eventos)
           .orderBy('startAt', descending: true)
           .limit(32)
           .snapshots(),
@@ -515,7 +515,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       );
       _noticiasPainelStream = FirestoreStreamUtils.resilientQuery(
         tenantRef
-            .collection(ChurchTenantPostsCollections.noticias)
+            .collection(ChurchTenantPostsCollections.eventos)
             .orderBy('startAt', descending: true)
             .limit(32)
             .snapshots(),
@@ -6602,7 +6602,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   await ChurchTenantResilientReads.preparePanelRead();
 
   final churchRef = FirebaseFirestore.instance.collection('igrejas').doc(tid);
-  final noticiasRef = churchRef.collection('noticias');
+  final noticiasRef = churchRef.collection('eventos');
   final templatesRef = churchRef.collection('event_templates');
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> realDocs = const [];

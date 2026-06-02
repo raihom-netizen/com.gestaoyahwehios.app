@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -729,7 +729,7 @@ class _CalendarPageState extends State<CalendarPage>
       FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId)
-          .collection('noticias');
+          .collection('eventos');
 
   CollectionReference<Map<String, dynamic>> get _cultos =>
       FirebaseFirestore.instance
@@ -742,7 +742,7 @@ class _CalendarPageState extends State<CalendarPage>
       FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId)
-          .collection('noticias');
+          .collection('eventos');
   CollectionReference<Map<String, dynamic>> get _cultosIgrejas =>
       FirebaseFirestore.instance
           .collection('igrejas')

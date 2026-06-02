@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
@@ -19,12 +20,26 @@ abstract final class AppFinalizeBootstrap {
   /// Arranque da app — já chamado em [main]; idempotente.
   static void bindOnColdStart() {
     YahwehMediaUploadPipeline.bindOnAppStart();
-    MuralPublishOutboxService.resumePendingOnAppStart();
-    ChurchChatMediaOutboxService.resumePendingOnAppStart();
-    unawaited(StorageUploadPersistenceService.resumePendingOnAppStart());
-    unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
-    if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
-      unawaited(PendingUploadsFirestoreService.resumeForCurrentUserTenant());
+    unawaited(_bindQueuesAfterFirebaseCore());
+  }
+
+  static Future<void> _bindQueuesAfterFirebaseCore() async {
+    try {
+      await FirebaseBootstrap.ensureInitialized();
+      FirebaseBootstrapService.refreshCachedApp();
+      await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
+      await ChurchChatAutoRecoveryService.recoverOnSessionStart();
+      MuralPublishOutboxService.resumePendingOnAppStart();
+      ChurchChatMediaOutboxService.resumePendingOnAppStart();
+      await StorageUploadPersistenceService.resumePendingOnAppStart();
+      await PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded();
+      if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+        await PendingUploadsFirestoreService.resumeForCurrentUserTenant();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('AppFinalizeBootstrap.bindOnColdStart: $e');
+      }
     }
   }
 
@@ -33,13 +48,16 @@ abstract final class AppFinalizeBootstrap {
     if (_resumeBusy) return;
     _resumeBusy = true;
     try {
+      await FirebaseBootstrap.ensureInitialized();
+      FirebaseBootstrapService.refreshCachedApp();
       if (!FirebaseBootstrapService.isReady()) {
         await FirebaseBootstrapService.initialize();
+        FirebaseBootstrapService.refreshCachedApp();
       }
       // Controle Total: ao voltar do background só renova token — não `reconnect()`
       // (resetava Firebase e quebrava upload de foto/áudio da câmara ou galeria).
       await _refreshAuthTokenSilently();
-      bindOnColdStart();
+      await _bindQueuesAfterFirebaseCore();
     } catch (e) {
       if (kDebugMode) {
         debugPrint('AppFinalizeBootstrap.onAppResume: $e');

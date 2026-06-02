@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -222,7 +222,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
           .doc(widget.tenantId.trim());
       final futures = <Future<dynamic>>[
         base.collection('escalas').orderBy('date', descending: true).limit(220).get(),
-        base.collection('noticias').orderBy('createdAt', descending: true).limit(120).get(),
+        base.collection('eventos').orderBy('createdAt', descending: true).limit(120).get(),
         base.collection('visitantes').orderBy('createdAt', descending: true).limit(200).get(),
       ];
       if (widget.canViewFinance) {

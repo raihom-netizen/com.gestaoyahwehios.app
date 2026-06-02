@@ -1,4 +1,4 @@
-import 'dart:async' show Stream, StreamSubscription, unawaited;
+﻿import 'dart:async' show Stream, StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -135,7 +135,7 @@ bool _churchPublicDocIsNoticiaEvento(
   QueryDocumentSnapshot<Map<String, dynamic>> d,
 ) =>
     d.reference.path
-        .contains('/${ChurchTenantPostsCollections.noticias}/');
+        .contains('/${ChurchTenantPostsCollections.eventos}/');
 
 /// Site público: oculta após validade ou expiração de aviso (documento excluído some do stream).
 bool _churchPublicDocStillActive(Map<String, dynamic> m, DateTime now) {
@@ -205,7 +205,7 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
     // permission-denied em listas sem filtro — mesmo que o app filtre depois no cliente.
     final base = FirebaseFirestore.instance.collection('igrejas').doc(igrejaId);
     final sub1 = base
-        .collection(ChurchTenantPostsCollections.noticias)
+        .collection(ChurchTenantPostsCollections.eventos)
         .where('publicSite', isEqualTo: true)
         .orderBy('createdAt', descending: true)
         .limit(limit)
@@ -1438,7 +1438,7 @@ Future<_PublicSocialProofStats> _loadPublicSocialProofStats(
     final postsNoticias = await db
         .collection('igrejas')
         .doc(igrejaId)
-        .collection(ChurchTenantPostsCollections.noticias)
+        .collection(ChurchTenantPostsCollections.eventos)
         .where('publicSite', isEqualTo: true)
         .where('createdAt', isGreaterThanOrEqualTo: from)
         .count()
@@ -2711,7 +2711,7 @@ class _PublicNoticiaDeepLinkOpenerState
         snap = await FirebaseFirestore.instance
             .collection('igrejas')
             .doc(widget.igrejaId)
-            .collection(ChurchTenantPostsCollections.noticias)
+            .collection(ChurchTenantPostsCollections.eventos)
             .doc(widget.openNoticiaId)
             .get();
       }
@@ -3517,7 +3517,7 @@ Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
     final noticiasRef = FirebaseFirestore.instance
         .collection('igrejas')
         .doc(igrejaId)
-        .collection('noticias');
+        .collection('eventos');
     final eventosSnap = await noticiasRef
         .where('type', isEqualTo: 'evento')
         .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(now))
@@ -5036,7 +5036,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                     .where((d) =>
                         ChurchTenantPostsCollections.segmentFromPostRef(
                                 d.reference) ==
-                            ChurchTenantPostsCollections.noticias)
+                            ChurchTenantPostsCollections.eventos)
                     .toList();
 
                 Widget sectionTitle(String text, IconData icon) {
@@ -5067,7 +5067,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                   final seg = ChurchTenantPostsCollections.segmentFromPostRef(
                       d.reference);
                   final isEvento =
-                      seg == ChurchTenantPostsCollections.noticias &&
+                      seg == ChurchTenantPostsCollections.eventos &&
                           (p['type'] ?? '').toString() == 'evento';
                   final media = <Widget>[];
 

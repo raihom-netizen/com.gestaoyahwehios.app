@@ -131,7 +131,7 @@ async function repairDmThreadsForTenant(tenantId) {
     const snap = await db
         .collection("igrejas")
         .doc(tenantId)
-        .collection("chat_threads")
+        .collection("chats")
         .get();
     let n = 0;
     const batch = db.batch();
@@ -157,7 +157,7 @@ async function repairDmThreadsForTenant(tenantId) {
 }
 /** Corrige DM antigos sem `lastMessageAt` / `participantUids` (lista do app usa orderBy + arrayContains). */
 exports.onChurchChatDmThreadWrite = functions.firestore
-    .document("igrejas/{tenantId}/chat_threads/{threadId}")
+    .document("igrejas/{tenantId}/chats/{threadId}")
     .onWrite(async (change, context) => {
     const threadId = String(context.params.threadId || "");
     if (!threadId.startsWith("dm_"))
@@ -173,7 +173,7 @@ exports.onChurchChatDmThreadWrite = functions.firestore
 /** Garante `lastMessageAt` + `participantUids` no thread após cada mensagem (lista do hub). */
 exports.onChurchChatMessageIndexThread = functions
     .region("us-central1")
-    .firestore.document("igrejas/{tenantId}/chat_threads/{threadId}/messages/{messageId}")
+    .firestore.document("igrejas/{tenantId}/chats/{threadId}/messages/{messageId}")
     .onCreate(async (snap, context) => {
     const tenantId = String(context.params.tenantId || "");
     const threadId = String(context.params.threadId || "");
@@ -181,7 +181,7 @@ exports.onChurchChatMessageIndexThread = functions
     const threadRef = db
         .collection("igrejas")
         .doc(tenantId)
-        .collection("chat_threads")
+        .collection("chats")
         .doc(threadId);
     const preview = (() => {
         const t = String(msg.type || "text");

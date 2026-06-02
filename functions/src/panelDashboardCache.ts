@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions/v1";
+﻿import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { recomputeMembersDirectoryFromDocs } from "./membersDirectoryCache";
 import { recomputePanelMediaPrefetch } from "./panelMediaPrefetch";
@@ -475,7 +475,7 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
 
   const membrosCol = churchRef.collection("membros");
   const avisosCol = churchRef.collection("avisos");
-  const noticiasCol = churchRef.collection("noticias");
+  const noticiasCol = churchRef.collection("eventos");
 
   const churchSnap = await churchRef.get();
   const corpoRolesConfigured = configuredCorpoAdminRoles(
@@ -670,7 +670,7 @@ async function patchRecentEventosInDashboard(tenantId: string): Promise<void> {
   if (!tid) return;
   const db = admin.firestore();
   const churchRef = db.collection("igrejas").doc(tid);
-  const noticiasCol = churchRef.collection("noticias");
+  const noticiasCol = churchRef.collection("eventos");
   const summaryRef = churchRef.collection("_panel_cache").doc("dashboard_summary");
 
   const [eventosSnap, eventosProximosSnap] = await Promise.all([
@@ -707,7 +707,7 @@ async function patchRecentEventosInDashboard(tenantId: string): Promise<void> {
 
 export const onChurchNoticiaWritePanelDashboard = functions
   .region("us-central1")
-  .firestore.document("igrejas/{tenantId}/noticias/{docId}")
+  .firestore.document("igrejas/{tenantId}/eventos/{docId}")
   .onWrite(async (_, context) => {
     const tenantId = context.params.tenantId as string;
     try {

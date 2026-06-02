@@ -7,8 +7,9 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 abstract final class FeedTenantStorageMap {
   FeedTenantStorageMap._();
 
-  /// Novos uploads de mural (avisos/eventos) usam prefixo `tenants/`.
-  static const bool usePhysicalTenantPaths = true;
+  /// `false` = paths canónicos `igrejas/{id}/avisos|eventos/…` (regras Storage + spec).
+  /// `true` = legado `tenants/{id}/media/…` (só leitura de URLs antigas).
+  static const bool usePhysicalTenantPaths = false;
 
   static String _safeDocId(String id) {
     var s = id.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_').trim();

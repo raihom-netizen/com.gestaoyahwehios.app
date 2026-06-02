@@ -1,4 +1,5 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/church_tenant_list_limits.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -14,7 +15,7 @@ abstract final class ChurchTenantResilientReads {
       '${tenantId.trim()}_$suffix';
 
   static DocumentReference<Map<String, dynamic>> _church(String tenantId) =>
-      FirebaseFirestore.instance.collection('igrejas').doc(tenantId.trim());
+      firebaseDefaultFirestore.collection('igrejas').doc(tenantId.trim());
 
   /// Token + Firestore pronto (leitura do painel, sem health check de upload).
   static Future<void> preparePanelRead({bool refreshToken = false}) async {
@@ -69,7 +70,7 @@ abstract final class ChurchTenantResilientReads {
 
   static Future<QuerySnapshot<Map<String, dynamic>>> avisosFeed(
     String tenantId, {
-    int limit = 60,
+    int limit = ChurchTenantListLimits.defaultPageSize,
   }) =>
       _orderedQuery(
         tenantId,
@@ -82,20 +83,20 @@ abstract final class ChurchTenantResilientReads {
 
   static Future<QuerySnapshot<Map<String, dynamic>>> noticiasByStartAt(
     String tenantId, {
-    int limit = 200,
+    int limit = ChurchTenantListLimits.defaultPageSize,
   }) async {
     final church = _church(tenantId);
     try {
       return await FirestoreReadResilience.getQuery(
         church
-            .collection('noticias')
+            .collection('eventos')
             .orderBy('startAt', descending: true)
             .limit(limit),
         cacheKey: _key(tenantId, 'noticias_start_$limit'),
       );
     } catch (_) {
       return FirestoreReadResilience.getQuery(
-        church.collection('noticias').limit(limit),
+        church.collection('eventos').limit(limit),
         cacheKey: _key(tenantId, 'noticias_plain_$limit'),
       );
     }

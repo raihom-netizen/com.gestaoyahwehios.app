@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -7,6 +7,9 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
+import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
+import 'package:gestao_yahweh/services/feed_media_publish_fast.dart';
+import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_strict.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
@@ -14,9 +17,9 @@ import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 
 /// Publicação unificada — avisos (`avisos`) e eventos (`noticias`).
 ///
-/// **Canónico:** upload Storage → `getDownloadURL` → Firestore `published`
-/// ([FeedMediaPublishStrict.publishWithPhotosFirst]).
-/// O caminho «stub uploading + background» só para reenvio via [MuralPublishOutboxService].
+/// **Canónico (Controle Total):** Firestore primeiro → UI fecha → upload Storage em background
+/// → `update` com URLs ([FeedMediaPublishFast.publishWithPhotosInBackground]).
+/// Reenvio offline: [MuralPublishOutboxService].
 abstract final class FeedMediaPublishService {
   FeedMediaPublishService._();
 
@@ -37,7 +40,7 @@ abstract final class FeedMediaPublishService {
     final db = await FirebaseService.firestore(requireAuth: true);
     final col = postType == 'aviso'
         ? ChurchTenantPostsCollections.avisos
-        : ChurchTenantPostsCollections.noticias;
+        : ChurchTenantPostsCollections.eventos;
     final ref = db
         .collection('igrejas')
         .doc(tenantId)
@@ -78,6 +81,7 @@ abstract final class FeedMediaPublishService {
     required DocumentReference<Map<String, dynamic>> docRef,
     required Map<String, dynamic> payload,
     required bool isNewDoc,
+    String postType = 'aviso',
   }) async {
     await ensureFirebaseReadyForPublishUpload();
     final patch = Map<String, dynamic>.from(payload);
@@ -89,13 +93,19 @@ abstract final class FeedMediaPublishService {
       clearPublishError: true,
     );
     patch['updatedAt'] = FieldValue.serverTimestamp();
-    await runFirestorePublishWithRecovery<void>(() async {
-      if (isNewDoc) {
-        await docRef.set(patch);
-      } else {
-        await docRef.set(patch, SetOptions(merge: true));
-      }
-    });
+    try {
+      await runFirestorePublishWithRecovery<void>(() async {
+        if (isNewDoc) {
+          await docRef.set(patch);
+        } else {
+          await docRef.set(patch, SetOptions(merge: true));
+        }
+      });
+    } catch (e, st) {
+      ChurchPublishFlowLog.firestoreError(e, st);
+      rethrow;
+    }
+    FeedPublishPreflight.firestoreSaveOk(isEvento: postType != 'aviso');
     return docRef.id;
   }
 
@@ -124,7 +134,7 @@ abstract final class FeedMediaPublishService {
     return docRef.id;
   }
 
-  /// Storage + URL antes de Firestore (sem stub `uploading` no feed/site).
+  /// Firestore → background Storage (nunca upload antes do documento).
   static Future<String> publish({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String tenantId,
@@ -138,20 +148,24 @@ abstract final class FeedMediaPublishService {
     List<Uint8List>? newImagesBytes,
     List<String>? newImagePaths,
     Future<void> Function()? onPublished,
-  }) =>
-      FeedMediaPublishStrict.publishWithPhotosFirst(
-        docRef: docRef,
-        tenantId: tenantId,
-        postType: postType,
-        corePayload: corePayload,
-        isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: startSlotIndex,
-        hasVideo: hasVideo,
-        newImagesBytes: newImagesBytes,
-        newImagePaths: newImagePaths,
-        onPublished: onPublished,
-      );
+  }) {
+    final pending =
+        (newImagesBytes?.length ?? newImagePaths?.length ?? 0).clamp(0, 99);
+    return FeedMediaPublishFast.publishWithPhotosInBackground(
+      docRef: docRef,
+      tenantId: tenantId,
+      postType: postType,
+      corePayload: corePayload,
+      isNewDoc: isNewDoc,
+      existingUrls: existingUrls,
+      startSlotIndex: startSlotIndex,
+      hasVideo: hasVideo,
+      pendingPhotoCount: pending,
+      newImagesBytes: newImagesBytes,
+      newImagePaths: newImagePaths,
+      onPublished: onPublished,
+    );
+  }
 
   /// Marca post como falhou (mural) após erro de upload.
   static Future<void> markPublishFailed({
@@ -160,7 +174,8 @@ abstract final class FeedMediaPublishService {
   }) async {
     try {
       await FirebaseBootstrap.ensureInitialized();
-    } catch (_) {
+    } catch (e, st) {
+      ChurchPublishFlowLog.logCatch(e, st, label: 'markPublishFailed_bootstrap');
       return;
     }
     await docRef.set(
@@ -201,16 +216,16 @@ abstract final class FeedMediaPublishService {
         isNewDoc: isNewDoc,
       );
     }
-    return publish(
+    return FeedMediaPublishFast.publishWithPhotosInBackground(
       docRef: docRef,
       tenantId: tenantId,
-      postId: docRef.id,
       postType: postType,
       corePayload: stubPayload,
       isNewDoc: isNewDoc,
       existingUrls: existingUrls,
       startSlotIndex: startSlotIndex,
       hasVideo: hasVideo,
+      pendingPhotoCount: pendingPhotoCount,
       newImagesBytes: newImagesBytes,
       newImagePaths: newImagePaths,
       onPublished: onPublished,

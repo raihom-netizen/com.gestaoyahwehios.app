@@ -1,11 +1,9 @@
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
-import 'package:gestao_yahweh/services/auth_session_service.dart';
-import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
-import 'package:gestao_yahweh/services/session_restore_service.dart';
+import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
 
-/// Rota inicial nativa — sessão Firebase persistida abre o painel sem passar pelo login.
+/// Rota inicial nativa — só [PersistentAuthSessionService] (sem OAuth no arranque).
 abstract final class AppStartupRoute {
   AppStartupRoute._();
 
@@ -17,34 +15,12 @@ abstract final class AppStartupRoute {
   static String get nativeLoginRoute =>
       defaultTargetPlatform == TargetPlatform.iOS ? '/igreja/login' : '/login';
 
-  static const _loginRoutes = {'/login', '/igreja/login'};
-  static const _entryRoutes = {'/', '', '/login', '/igreja/login'};
-
-  /// Sessão ativa → `/painel`; sem sessão → login (nunca painel vazio).
   static Future<String> finalizeNativeRoute(String candidate) async {
     if (!isNativeMobile) return candidate;
-    var route = candidate.trim().isEmpty ? '/' : candidate.trim();
-
-    if (!await AuthSessionService.hasSession() &&
-        !await LoginPreferences.isAccountSwitchPending()) {
-      final restored =
-          await SessionRestoreService.tryRestoreIfNeeded(allowRetry: true);
-      if (restored != null) {
-        await ChurchAutoSessionService.ensureAutoPainelFlagForPersistedSession();
-      }
-    }
-
-    if (await AuthSessionService.hasSession()) {
-      await ChurchAutoSessionService.ensureAutoPainelFlagForPersistedSession();
-      if (_loginRoutes.contains(route) || _entryRoutes.contains(route)) {
-        return '/painel';
-      }
-      return route;
-    }
-
-    if (route == '/painel' || route.startsWith('/painel/')) {
+    if (await LoginPreferences.isAccountSwitchPending()) {
       return nativeLoginRoute;
     }
-    return route;
+    await PersistentAuthSessionService.warmColdStart();
+    return PersistentAuthSessionService.resolveNativeStartupRoute(candidate);
   }
 }

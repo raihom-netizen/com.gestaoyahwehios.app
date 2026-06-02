@@ -1,28 +1,33 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart'
-    show TargetPlatform, debugPrint, defaultTargetPlatform, kDebugMode, kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
-import 'package:gestao_yahweh/services/church_auto_session_service.dart';
-import 'package:gestao_yahweh/services/express_login_service.dart';
-import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 
-/// Restaura sessão Firebase no cold start / após biometria (padrão Controle Total).
+/// Restaura **apenas** a sessão Firebase já persistida no aparelho.
 ///
-/// A sessão **não expira** por timeout da app — só `signOut` em Configurações → trocar conta.
+/// Não chama `GoogleSignIn.signInSilently()` no arranque — evita o erro
+/// «Não foi possível restaurar a sessão Google automaticamente» quando o Firebase
+/// já tem `currentUser`. OAuth silencioso só no botão «Continuar com Google».
 abstract final class SessionRestoreService {
   SessionRestoreService._();
 
   static bool _restoreAttempted = false;
 
-  static const _diskPollAttempts = 12;
-  static const _diskPollDelay = Duration(milliseconds: 50);
-  static const _silentOAuthTimeout = Duration(seconds: 8);
+  static const _diskPollAttempts = 16;
+  static const _diskPollDelay = Duration(milliseconds: 80);
 
-  /// [allowRetry] — ecrã de login após cold start em [main] (flag já consumida).
+  /// Aguarda `currentUser` do Firebase Auth (memória + persistência local).
+  static Future<User?> waitForPersistedFirebaseUser() async {
+    await ensureFirebaseInitialized();
+    final sync = firebaseDefaultAuth.currentUser;
+    if (sync != null && !sync.isAnonymous) return sync;
+    return _pollAuthUserFromDisk();
+  }
+
+  /// Compatível com chamadas antigas — **sem** OAuth silencioso.
   static Future<User?> tryRestoreIfNeeded({bool allowRetry = false}) async {
     await ensureFirebaseInitialized();
 
@@ -30,13 +35,10 @@ abstract final class SessionRestoreService {
     if (sync != null && !sync.isAnonymous) return sync;
 
     if (await LoginPreferences.isAccountSwitchPending()) return null;
-    if (!await _deviceHasReturningLoginHints()) return null;
 
     if (!_restoreAttempted || allowRetry) {
       _restoreAttempted = true;
-      final fromDisk = await _pollAuthUserFromDisk();
-      if (fromDisk != null) return fromDisk;
-      await _silentOAuthRestore(force: allowRetry);
+      return _pollAuthUserFromDisk();
     }
 
     final u = firebaseDefaultAuth.currentUser;
@@ -44,50 +46,20 @@ abstract final class SessionRestoreService {
     return null;
   }
 
-  /// Reconexão Google silenciosa (Controle Total) — sem UI, sem depender da flag de cold start.
+  /// @deprecated Arranque não usa Google silencioso — só Firebase persistido.
   static Future<User?> tryGoogleSilentReconnect() async {
-    if (kIsWeb) return null;
-    await ensureFirebaseInitialized();
-    if (await LoginPreferences.isAccountSwitchPending()) return null;
-
-    final sync = firebaseDefaultAuth.currentUser;
-    if (sync != null && !sync.isAnonymous) return sync;
-
-    final fromDisk = await _pollAuthUserFromDisk();
-    if (fromDisk != null) return fromDisk;
-
-    final last = await LoginPreferences.getLastOAuthProvider();
-    if (last != 'google') return null;
-
-    try {
-      await ExpressLoginService.tryGoogleSilentOnly().timeout(
-        _silentOAuthTimeout,
-        onTimeout: () => null,
+    if (kDebugMode) {
+      debugPrint(
+        'SessionRestoreService.tryGoogleSilentReconnect: ignorado no arranque '
+        '(use FirebaseAuth.currentUser).',
       );
-    } catch (e, st) {
-      if (kDebugMode) {
-        debugPrint('SessionRestoreService.tryGoogleSilentReconnect: $e\n$st');
-      }
     }
-    final u = firebaseDefaultAuth.currentUser;
-    if (u != null && !u.isAnonymous) return u;
-    return null;
+    return waitForPersistedFirebaseUser();
   }
 
-  /// Após biometria OK: disco → Google/Apple silencioso (sem abrir seletor de conta).
+  /// Após biometria OK: só Firebase em disco (sem Google Sign-In).
   static Future<User?> restoreAfterBiometricUnlock() async {
-    await ensureFirebaseInitialized();
-
-    final sync = firebaseDefaultAuth.currentUser;
-    if (sync != null && !sync.isAnonymous) return sync;
-
-    final fromDisk = await _pollAuthUserFromDisk();
-    if (fromDisk != null) return fromDisk;
-
-    await _silentOAuthRestore(force: true);
-    final u = firebaseDefaultAuth.currentUser;
-    if (u != null && !u.isAnonymous) return u;
-    return null;
+    return waitForPersistedFirebaseUser();
   }
 
   static Future<User?> _pollAuthUserFromDisk() async {
@@ -99,40 +71,21 @@ abstract final class SessionRestoreService {
     return null;
   }
 
-  static Future<void> _silentOAuthRestore({bool force = false}) async {
-    if (!force && _restoreAttempted) return;
-    if (kIsWeb) return;
-    if (await LoginPreferences.isAccountSwitchPending()) return;
-
-    final last = await LoginPreferences.getLastOAuthProvider();
-    if (last == null) return;
-
-    try {
-      if (last == 'google') {
-        await ExpressLoginService.tryGoogleSilentOnly().timeout(
-          _silentOAuthTimeout,
-          onTimeout: () => null,
-        );
-      } else if (last == 'apple' &&
-          defaultTargetPlatform == TargetPlatform.iOS) {
-        await GestorOAuthOnboardingService.signInWithAppleIfAvailable().timeout(
-          _silentOAuthTimeout,
-        );
-      }
-    } catch (e, st) {
-      if (kDebugMode) {
-        debugPrint('SessionRestoreService._silentOAuthRestore: $e\n$st');
-      }
-    }
-  }
-
   static Future<bool> _deviceHasReturningLoginHints() async {
     if (LoginPreferences.autoPainelLoginSync) return true;
     final lastId = (await LoginPreferences.getLastLoginIdentifier()).trim();
     if (lastId.isNotEmpty) return true;
     final shellUid = AppShellSessionCache.cachedUidSync();
     if (shellUid != null && shellUid.isNotEmpty) return true;
-    return ChurchAutoSessionService.isAutoPainelEnabled();
+    return false;
+  }
+
+  /// Indica se vale a pena mostrar «A restaurar sessão…» no AuthGate.
+  static Future<bool> shouldAttemptRestoreUi() async {
+    if (kIsWeb) return false;
+    if (await LoginPreferences.isAccountSwitchPending()) return false;
+    if (firebaseDefaultAuth.currentUser != null) return false;
+    return _deviceHasReturningLoginHints();
   }
 
   static void resetAttemptFlag() {

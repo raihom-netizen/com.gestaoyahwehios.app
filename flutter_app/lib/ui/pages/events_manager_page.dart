@@ -1,4 +1,4 @@
-import 'dart:async' show TimeoutException, unawaited;
+﻿import 'dart:async' show TimeoutException, unawaited;
 import 'dart:convert';
 import 'dart:io' show File;
 import 'dart:math';
@@ -29,6 +29,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -74,6 +75,7 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
+import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/immediate_feed_photo_attach.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
@@ -176,7 +178,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       firebaseDefaultFirestore
           .collection('igrejas')
           .doc(_tid)
-          .collection('noticias');
+          .collection('eventos');
   CollectionReference<Map<String, dynamic>> get _templates =>
       firebaseDefaultFirestore
           .collection('igrejas')
@@ -6804,6 +6806,68 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     } catch (_) {}
   }
 
+  /// Reconexão Firestore após INTERNAL ASSERTION — **Firestore primeiro** (sem upload→set legado).
+  Future<void> _retryEventPublishFirestoreFirst() async {
+    await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+    await firebaseDefaultAuth.currentUser?.getIdToken(true);
+    await Future.delayed(const Duration(milliseconds: 150));
+    final docRef = _eventDocRef;
+    final postId = docRef.id;
+    final isNewDoc = widget.doc == null && !_eventDraftEnsured;
+    final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+    final hasPendingLocal = _newPhotoCount > 0;
+    double? aspectRatio;
+    if (!hasPendingLocal && existingUrls.isNotEmpty) {
+      final prev = widget.doc?.data()?['media_info'];
+      if (prev is Map) {
+        final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+        if (oar is num) aspectRatio = oar.toDouble();
+      }
+    }
+    final hasVideo =
+        _eventVideos.isNotEmpty || _videoUrl.text.trim().isNotEmpty;
+    final payload = _buildEventCorePayload(
+      allUrls: existingUrls,
+      aspectRatio: aspectRatio,
+      isNewDoc: isNewDoc,
+    );
+    if (hasPendingLocal) {
+      final startSlot = existingUrls.length;
+      List<Uint8List>? bytes;
+      List<String>? paths;
+      if (kIsWeb) {
+        bytes = await _copyNewImagesForPublish();
+      } else {
+        paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
+      }
+      final n = bytes?.length ?? paths?.length ?? 0;
+      if (n == 0) {
+        throw StateError('Não foi possível ler as fotos para enviar.');
+      }
+      await FeedMediaPublishService.publish(
+        docRef: docRef,
+        tenantId: widget.tenantId,
+        postId: postId,
+        postType: 'evento',
+        corePayload: payload,
+        isNewDoc: isNewDoc,
+        existingUrls: existingUrls,
+        startSlotIndex: startSlot,
+        hasVideo: hasVideo,
+        newImagesBytes: bytes,
+        newImagePaths: paths,
+        onPublished: () async => _schedulePostPublishCacheWarmup(),
+      );
+    } else {
+      await FeedMediaPublishService.publishNow(
+        docRef: docRef,
+        payload: payload,
+        isNewDoc: isNewDoc,
+        postType: 'evento',
+      );
+    }
+  }
+
   Future<void> _save() async {
     if (_saving) return;
     if (_mediaPicking) {
@@ -6820,21 +6884,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       return;
     }
     setState(() => _saving = true);
-    await ImmediateMediaWarm.drainInFlight(() => _inFlightPhotoUploads);
     final docRef = _eventDocRef;
     final postId = docRef.id;
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
     try {
-      try {
-        await ImmediateMediaWarm.warmFeed();
-      } catch (e) {
-        if (isFirebaseNoAppError(e)) {
-          await FirebaseBootstrapService.reconnect(requireAuthSession: true);
-          await ImmediateMediaWarm.warmFeed();
-        } else {
-          rethrow;
-        }
-      }
+      await AppFinalizeBootstrap.ensureSessionForPublish(
+        logLabel: 'evento_save',
+      );
+      ChurchPublishFlowLog.eventoStart();
+      await FeedPublishPreflight.prepareForFirestoreSave(
+        inFlightCount: () => _inFlightPhotoUploads,
+      );
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
         final hasPendingLocal = _newPhotoCount > 0;
         double? aspectRatio;
@@ -6886,9 +6946,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             docRef: docRef,
             payload: payload,
             isNewDoc: isNewDoc,
+            postType: 'evento',
           );
         }
-        await _applyAgendaSyncAfterSave(postId);
         if (mounted) {
           if (_uploadingVideo) _publishedAwaitingVideoMerge = true;
           _schedulePostPublishCacheWarmup();
@@ -6902,7 +6962,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           );
           Navigator.pop(context, true);
         }
+        unawaited(_applyAgendaSyncAfterSave(postId));
     } catch (e, st) {
+      ChurchPublishFlowLog.logCatch(e, st, label: 'evento_save');
       unawaited(CrashlyticsService.record(e, st, reason: 'eventos_publish'));
       unawaited(
         FeedMediaPublishService.markPublishFailed(
@@ -6915,180 +6977,23 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           msg.contains('permission-denied');
       if (mounted && isAssertionOrPerm) {
         try {
-          await FirebaseBootstrapService.reconnect(requireAuthSession: true);
-          await firebaseDefaultAuth.currentUser?.getIdToken(true);
-          await Future.delayed(const Duration(milliseconds: 150));
-          final publishBytes = await _copyNewImagesForPublish();
-          if (widget.doc == null) {
-            final retryUrls = List<String>.from(_existingUrls);
-            final rInit = retryUrls.length;
-            final rRoom =
-                (_maxPhotosPerEvent - rInit).clamp(0, publishBytes.length);
-            if (rRoom > 0) {
-              for (var i = 0; i < rRoom; i++) {
-                final up = await _upload(publishBytes[i], postId, rInit + i);
-                retryUrls.add(up.downloadUrl);
-              }
-            }
-            if (retryUrls.length > _maxPhotosPerEvent)
-              retryUrls.removeRange(_maxPhotosPerEvent, retryUrls.length);
-            final retrySafe = retryUrls
-                .where((u) => !looksLikeHostedVideoFileUrl(u.trim()))
-                .toList();
-            final retryFirst = retrySafe.isNotEmpty ? retrySafe[0] : '';
-            final retryDerived = _pathsFromImageUrls(retrySafe);
-            double? arRetry;
-            if (publishBytes.isNotEmpty) {
-              arRetry = await imageAspectRatioFromBytes(publishBytes.first);
-            }
-            final firstVideoUrl = _eventVideos.isNotEmpty
-                ? (_eventVideos.first['videoUrl'] ?? '')
-                : _videoUrl.text.trim();
-            final firstThumbUrl = _eventVideos.isNotEmpty
-                ? (_eventVideos.first['thumbUrl'] ?? '')
-                : '';
-            final vClean = _eventVideos
-                .map((e) => <String, dynamic>{
-                      'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
-                      'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
-                    })
-                .where((m) => (m['videoUrl'] as String).isNotEmpty)
-                .toList();
-            final payload = <String, dynamic>{
-              'type': 'evento',
-              'title': _title.text.trim(),
-              ..._eventBodyFirestoreFields(),
-              'imageUrl': retryFirst,
-              'imageUrls': retrySafe,
-              'defaultImageUrl': retryFirst,
-              if (retryDerived != null && retryDerived.isNotEmpty) ...{
-                'imageStoragePaths': retryDerived,
-                'imageStoragePath': retryDerived.first,
-              },
-              if (retryFirst.isNotEmpty) 'imagemUrl': retryFirst,
-              if (retryFirst.isNotEmpty) 'imagem_url': retryFirst,
-              'videoUrl': firstVideoUrl,
-              'thumbUrl': firstThumbUrl,
-              'videos': vClean,
-              'active': true,
-              'updatedAt': FieldValue.serverTimestamp(),
-              'createdAt': FieldValue.serverTimestamp(),
-              'createdByUid': firebaseDefaultAuth.currentUser?.uid ?? '',
-              'generated': false,
-              'publicSite': _publicSite,
-              'galleryPermanent': _galleryPermanent,
-              'likes': <String>[],
-              'rsvp': <String>[],
-              'likesCount': 0,
-              'rsvpCount': 0,
-              'commentsCount': 0,
-              ..._schedulingAndCategoryFields(merge: false),
-              ..._locationFieldsForSave(allowDeleteSentinels: false),
-              if (arRetry != null)
-                'media_info': {
-                  'aspect_ratio': arRetry.clamp(0.45, 1.9),
-                },
-            };
-            if (_validUntil != null)
-              payload['validUntil'] = Timestamp.fromDate(_validUntil!);
-            await docRef.set(payload);
-            if (publishBytes.isNotEmpty) {
-              FirebaseStorageCleanupService
-                  .scheduleCleanupAfterEventPostImageUpload(
-                tenantId: widget.tenantId,
-                postDocId: postId,
-              );
-            }
-          } else {
-            final retryUrls = List<String>.from(_existingUrls);
-            final mInit = retryUrls.length;
-            final mRoom =
-                (_maxPhotosPerEvent - mInit).clamp(0, publishBytes.length);
-            if (mRoom > 0) {
-              for (var i = 0; i < mRoom; i++) {
-                final up = await _upload(publishBytes[i], postId, mInit + i);
-                retryUrls.add(up.downloadUrl);
-              }
-            }
-            if (retryUrls.length > _maxPhotosPerEvent)
-              retryUrls.removeRange(_maxPhotosPerEvent, retryUrls.length);
-            final mergeSafe = retryUrls
-                .where((u) => !looksLikeHostedVideoFileUrl(u.trim()))
-                .toList();
-            final mergeFirst = mergeSafe.isNotEmpty ? mergeSafe[0] : '';
-            final mergeDerived = _pathsFromImageUrls(mergeSafe);
-            double? arMerge;
-            if (publishBytes.isNotEmpty) {
-              arMerge = await imageAspectRatioFromBytes(publishBytes.first);
-            }
-            final firstVideoUrl = _eventVideos.isNotEmpty
-                ? (_eventVideos.first['videoUrl'] ?? '')
-                : _videoUrl.text.trim();
-            final firstThumbUrl = _eventVideos.isNotEmpty
-                ? (_eventVideos.first['thumbUrl'] ?? '')
-                : '';
-            final vClean2 = _eventVideos
-                .map((e) => <String, dynamic>{
-                      'videoUrl': (e['videoUrl'] ?? '').toString().trim(),
-                      'thumbUrl': (e['thumbUrl'] ?? '').toString().trim(),
-                    })
-                .where((m) => (m['videoUrl'] as String).isNotEmpty)
-                .toList();
-            final merge = <String, dynamic>{
-              'type': 'evento',
-              'title': _title.text.trim(),
-              ..._eventBodyFirestoreFields(),
-              'imageUrl': mergeFirst,
-              'imageUrls': mergeSafe,
-              'defaultImageUrl': mergeFirst,
-              if (mergeDerived != null && mergeDerived.isNotEmpty) ...{
-                'imageStoragePaths': mergeDerived,
-                'imageStoragePath': mergeDerived.first,
-              },
-              if (mergeFirst.isNotEmpty) 'imagemUrl': mergeFirst,
-              if (mergeFirst.isNotEmpty) 'imagem_url': mergeFirst,
-              'videoUrl': firstVideoUrl,
-              'thumbUrl': firstThumbUrl,
-              'videos': vClean2,
-              'updatedAt': FieldValue.serverTimestamp(),
-              'generated': false,
-              'publicSite': _publicSite,
-              'galleryPermanent': _galleryPermanent,
-              'imageVariants': FieldValue.delete(),
-              ..._schedulingAndCategoryFields(merge: true),
-              ..._locationFieldsForSave(allowDeleteSentinels: true),
-              if (arMerge != null)
-                'media_info': {
-                  'aspect_ratio': arMerge.clamp(0.45, 1.9),
-                },
-            };
-            if (_validUntil != null)
-              merge['validUntil'] = Timestamp.fromDate(_validUntil!);
-            if (widget.doc!.data()?['createdAt'] == null) {
-              merge['createdAt'] = FieldValue.serverTimestamp();
-            }
-            merge['templateId'] = FieldValue.delete();
-            await widget.doc!.reference.set(merge, SetOptions(merge: true));
-            if (publishBytes.isNotEmpty) {
-              FirebaseStorageCleanupService
-                  .scheduleCleanupAfterEventPostImageUpload(
-                tenantId: widget.tenantId,
-                postDocId: postId,
-              );
-            }
-          }
-          await _applyAgendaSyncAfterSave(postId);
+          await _retryEventPublishFirestoreFirst();
           if (mounted) {
             _schedulePostPublishCacheWarmup();
             ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.successSnackBar('Evento publicado!'));
+              ThemeCleanPremium.successSnackBar('Evento publicado!'),
+            );
             Navigator.pop(context, true);
           }
-        } catch (e2) {
-          if (mounted)
+          unawaited(_applyAgendaSyncAfterSave(postId));
+        } catch (e2, st2) {
+          ChurchPublishFlowLog.logCatch(e2, st2, label: 'evento_retry');
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text(formatUploadErrorForUser(e2)),
-                backgroundColor: ThemeCleanPremium.error));
+              content: Text(formatUploadErrorForUser(e2)),
+              backgroundColor: ThemeCleanPremium.error,
+            ));
+          }
         }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(

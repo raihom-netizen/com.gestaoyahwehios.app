@@ -1,4 +1,5 @@
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const String _kLastLoginIdentifier = 'last_login_identifier';
@@ -162,5 +163,6 @@ class LoginPreferences {
     await prefs.remove('web_saved_cpf');
     await prefs.remove('web_saved_senha');
     await AppShellSessionCache.clear();
+    FastMediaPublishBootstrap.resetSessionWarm();
   }
 }

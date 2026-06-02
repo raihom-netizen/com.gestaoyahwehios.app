@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Push FCM por tópico quando há conteúdo novo (avisos, eventos na agenda, escalas).
  * Tópicos alinhados ao app: `gypush_{tenantIdSafe}_{aviso|evento|escala}`.
  * O app inscreve/desinscreve conforme `users/{uid}.pushAvisos`, `pushEventos`, `pushEscalas` (padrão true).
@@ -122,7 +122,7 @@ async function sendNovoEventoNoticiaPush(
 
 export const onNovoEventoNoticiaPush = functions
   .region("us-central1")
-  .firestore.document("igrejas/{tenantId}/noticias/{id}")
+  .firestore.document("igrejas/{tenantId}/eventos/{id}")
   .onCreate(async (snap, context) => {
     const d = snap.data() || {};
     if (String(d.type || "").toLowerCase() !== "evento") return null;
@@ -144,7 +144,7 @@ export const onNovoEventoNoticiaPush = functions
 /** Push quando o evento passa de `uploading` → `published` (fotos em segundo plano). */
 export const onNovoEventoNoticiaPublishedPush = functions
   .region("us-central1")
-  .firestore.document("igrejas/{tenantId}/noticias/{id}")
+  .firestore.document("igrejas/{tenantId}/eventos/{id}")
   .onUpdate(async (change, context) => {
     const before = change.before.data() || {};
     const after = change.after.data() || {};

@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Controle de licença no painel admin (Gestão Yahweh).
 /// Igrejas: prorrogar prazo, alterar plano, remover/reativar.
@@ -270,7 +270,7 @@ class BillingLicenseService {
       });
     }
 
-    await deleteNoticiasLike(root.collection('noticias'));
+    await deleteNoticiasLike(root.collection('eventos'));
     await deleteNoticiasLike(root.collection('avisos'));
     await deleteCollection(root.collection('visitantes'), beforeDeleteDoc: (docRef) async {
       await deleteCollection(docRef.collection('followups'));

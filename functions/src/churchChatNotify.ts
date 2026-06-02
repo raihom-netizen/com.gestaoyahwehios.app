@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions/v1";
+﻿import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { buildGyTokenMessage } from "./notificationBranding";
 
@@ -188,7 +188,7 @@ function previewFromMessage(msg: Record<string, unknown>): string {
 /** Push aos outros participantes do thread — respeita [users.pushChat] e modos de alerta (som/vibrar/silêncio) em segundo plano. */
 export const onChurchChatMessageCreated = functions
   .region("us-central1")
-  .firestore.document("igrejas/{tenantId}/chat_threads/{threadId}/messages/{messageId}")
+  .firestore.document("igrejas/{tenantId}/chats/{threadId}/messages/{messageId}")
   .onCreate(async (snap, context) => {
     const tenantId = context.params.tenantId as string;
     const threadId = context.params.threadId as string;
@@ -200,7 +200,7 @@ export const onChurchChatMessageCreated = functions
     const threadSnap = await db
       .collection("igrejas")
       .doc(tenantId)
-      .collection("chat_threads")
+      .collection("chats")
       .doc(threadId)
       .get();
     if (!threadSnap.exists) return null;

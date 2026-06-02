@@ -1,4 +1,15 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1731: Onda 2 — financeiro comprovante BG, cartão/carta Firestore-first, relatórios limit+logs.
+/// 11.2.295+1730: Firestore-first foto membro + status creating/uploading/published; regra Cursor módulos críticos.
+/// 11.2.295+1729: Cirúrgico — chat texto Firestore imediato, auto-recovery presas, dashboard_stats cache-first, upload 60s/3x.
+/// 11.2.295+1728: Produção premium — YahwehFlowLog global, patrimônio Firestore-first background, dashboard_stats alias.
+/// 11.2.295+1727: Auditoria publicação — logs AVISO/EVENTO/CHAT, retry evento Firestore-first, regra Cursor alinhada.
+/// 11.2.295+1726: Publicar aviso/evento/chat — Firestore primeiro, drain 2s máx, agenda/push em background, logs diagnóstico.
+/// 11.2.295+1725: Firestore canónico eventos+chats; migração automática CF noticias/chat_threads.
+/// 11.2.295+1724: Login automático — só Firebase+biometria; sem Google silencioso no arranque; trocar conta limpa tudo.
+/// 11.2.295+1723: ChurchDataService único — Firestore→sucesso→upload→URL; queries limit 20; logs completos.
+/// 11.2.295+1722: Gravação CT — Firestore antes de Storage (avisos/eventos), paths igrejas/, dashboard/home, limit 20.
+/// 11.2.295+1721: Firebase/upload CT — core/no-app fix, fila chat sem fantasmas, painel warmup, publicar aviso/evento estável.
 /// 11.2.295+1720: Deploy completo — Firestore Web estável (CT), painel/chat/mural/patrimônio resilientes.
 /// 11.2.295+1719: Firestore Web estável (CT) — sem terminate automático; patrimônio/doação/cartão/mural resilientes.
 /// 11.2.295+1718: Programação painel estável (CT) — disco+RAM, noticias resilientes, sem cartão vermelho na web.
@@ -239,7 +250,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1720';
+const String appBuildNumber = '1731';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

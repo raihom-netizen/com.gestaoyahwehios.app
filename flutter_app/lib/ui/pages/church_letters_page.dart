@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/pdf/church_transfer_letter_pdf.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -587,7 +588,18 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     }
 
     setState(() => _pdfBusy = true);
+    YahwehFlowLog.cartaStart();
     try {
+      final tplEarly = switch (kind) {
+        _CartaKind.apresentacao => _tplApresentacaoCtrl.text,
+        _CartaKind.transferencia => _tplTransferCtrl.text,
+        _CartaKind.agradecimento => _tplAgradecimentoCtrl.text,
+      };
+      if (saveHistorico) {
+        await _persistHistorico(kind: kind, templateText: tplEarly);
+        if (mounted) setState(() => _historyEditDocId = null);
+      }
+
       final snap = await _membersFuture;
       final byId = {for (final d in snap.docs) d.id: d.data()};
       final lines = <ChurchLetterMemberLine>[];
@@ -713,17 +725,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         reserveManualSignatureSpace: _signatureMode == _LetterSignatureMode.manual,
       );
 
-      if (saveHistorico) {
-        await _persistHistorico(
-          kind: kind,
-          templateText: tpl,
-        );
-        if (mounted) {
-          setState(() => _historyEditDocId = null);
-        }
-      }
-
       if (!mounted) return;
+      YahwehFlowLog.cartaSuccess();
       final slug = (_tenant?['slug'] ?? _effectiveTenantId)
           .toString()
           .replaceAll(RegExp(r'[^\w\-]'), '_');
@@ -735,7 +738,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           filename: '${slug}_carta_${kindSlug}_${DateTime.now().millisecondsSinceEpoch}.pdf',
         ),
       );
-    } catch (e) {
+    } catch (e, st) {
+      YahwehFlowLog.error('CARTA', e, st);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar('Erro ao gerar PDF: $e'),

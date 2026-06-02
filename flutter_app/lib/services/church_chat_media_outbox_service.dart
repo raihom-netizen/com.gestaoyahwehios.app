@@ -102,6 +102,14 @@ abstract final class ChurchChatMediaOutboxService {
     Uint8List? bytes,
     String? uploadDocId,
   }) async {
+    final pathOk = !kIsWeb &&
+        localPath != null &&
+        localPath.trim().isNotEmpty &&
+        File(localPath.trim()).existsSync();
+    final hasPayload =
+        (bytes != null && bytes.isNotEmpty) || pathOk;
+    if (!hasPayload) return;
+
     if (bytes != null && bytes.isNotEmpty) {
       await ChurchChatPendingMediaCache.put(
         tenantId: tenantId,
@@ -250,10 +258,21 @@ abstract final class ChurchChatMediaOutboxService {
     }
   }
 
+  /// Reenvio explícito (botão Reenviar / arranque) — aguardável.
+  static Future<void> resumeRecoverableNow() async {
+    await pruneUnrecoverableJobs();
+    await _resumeAll();
+  }
+
   static void resumePendingOnAppStart() {
+    if (_resumeScheduled) return;
+    _resumeScheduled = true;
     unawaited(() async {
-      await pruneUnrecoverableJobs();
-      await _resumeAll();
+      try {
+        await resumeRecoverableNow();
+      } finally {
+        _resumeScheduled = false;
+      }
     }());
     bindConnectivityResume();
   }
@@ -266,7 +285,8 @@ abstract final class ChurchChatMediaOutboxService {
     });
   }
 
-  static const int _maxJobsPerResumeWave = 6;
+  static const int _maxJobsPerResumeWave = 2;
+  static bool _resumeScheduled = false;
   static const int _maxAttemptsPerJob = 4;
 
   /// Remove fila local do chat e apaga stubs no Firestore (botão Limpar).

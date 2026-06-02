@@ -19,12 +19,11 @@ import 'package:gestao_yahweh/services/app_google_sign_in.dart'
         isGoogleSignInUserCancellation;
 import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
+import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
 import 'package:gestao_yahweh/services/session_restore_service.dart';
 import 'package:gestao_yahweh/services/church_binding_repair_coordinator.dart';
 import 'package:gestao_yahweh/services/auth_cpf_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
-import 'package:gestao_yahweh/services/auth_session_service.dart';
-import 'package:gestao_yahweh/services/express_login_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
@@ -166,8 +165,8 @@ class _LoginPageState extends State<LoginPage> {
   bool _autoBiometricSessionAttempted = false;
   /// Login automatico com e-mail/senha salvos quando biometria nao esta activa.
   bool _autoCredentialLoginAttempted = false;
-  /// Google/Apple silencioso sem biometria (sessão Firebase expirada).
-  bool _autoOAuthSilentAttempted = false;
+  bool _persistentAutoLoginScheduled = false;
+  bool _persistentAutoLoginInFlight = false;
   String? _errorMessage;
   /// Indicador só no botão «Continuar com Google» durante o diálogo nativo / popup.
   bool _oauthGoogleInFlight = false;
@@ -253,13 +252,10 @@ class _LoginPageState extends State<LoginPage> {
         PlanPriceService.watchEffectivePlanConfigs().listen((c) {
       if (mounted) setState(() => _effectivePlanConfigs = c);
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_restoreSessionOnLoginPageOpen());
-    });
   }
 
-  /// Reabrir app (Controle Total): sessão no disco → biometria opcional → painel;
-  /// sem Firebase no disco → Google/Apple silencioso automático (sem seletor de conta).
+  /// Reabrir app: só sessão Firebase persistida → biometria (se activa) → painel.
+  /// Sem Google Sign-In silencioso no arranque.
   Future<void> _restoreSessionOnLoginPageOpen() async {
     if (!mounted) return;
     if (_isMasterAdminLogin) return;
@@ -267,50 +263,41 @@ class _LoginPageState extends State<LoginPage> {
     final targetPath = _painelLoginRoute;
     if (!loginAfterTargetsPainelOrAtualizarPlano(targetPath)) return;
 
-    var user = FirebaseAuth.instance.currentUser;
-    if (user != null && !user.isAnonymous) {
-      await _tryReturningUserAutoAccessOnLogin();
-      return;
-    }
-
-    final restored = await SessionRestoreService.tryRestoreIfNeeded(
-      allowRetry: true,
-    );
-    if (!mounted) return;
-    user = restored ?? FirebaseAuth.instance.currentUser;
-    if (user != null && !user.isAnonymous) {
-      await _tryReturningUserAutoAccessOnLogin();
-      return;
-    }
-
-    if (!kIsWeb && _nativeChurchLogin) {
-      await _tryExpressGoogleReconnectAndEnterPainel();
-      if (!mounted) return;
-      if (FirebaseAuth.instance.currentUser == null) {
-        await _tryAutoOAuthSilentOnce();
-      }
-    }
+    final user = await PersistentAuthSessionService.currentPersistedUser();
+    if (user == null || user.isAnonymous) return;
+    await _continueAutoLoginWithOptionalBiometric();
   }
 
-  /// Sessão Firebase no disco — painel directo (Controle Total: digital só no botão ou ao voltar do background).
+  /// Utilizador já autenticado no Firebase — biometria opcional, depois painel.
   Future<void> _tryReturningUserAutoAccessOnLogin() async {
-    if (!mounted || _loading) return;
-    final existing = FirebaseAuth.instance.currentUser;
+    if (!mounted || _loading || _sessionFinalizing) return;
+    final existing = await PersistentAuthSessionService.currentPersistedUser();
     if (existing == null || existing.isAnonymous) return;
-    await _enterPainelAfterRestoredSession();
+    await _continueAutoLoginWithOptionalBiometric();
+  }
+
+  Future<void> _continueAutoLoginWithOptionalBiometric() async {
+    if (!mounted || _loading || _sessionFinalizing) return;
+    if (!await PersistentAuthSessionService.hasPersistedSession()) return;
+
+    setState(() => _loading = true);
+    try {
+      final ok = await PersistentAuthSessionService.canProceedToDashboard();
+      if (!mounted || !ok) return;
+      await _enterPainelAfterRestoredSession();
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   /// Digital/rosto com sessão Firebase já no aparelho (não pede Google de novo).
   Future<void> _continueWithSavedSessionBiometric() async {
     if (!mounted || _loading) return;
-    if (FirebaseAuth.instance.currentUser == null) return;
     setState(() => _loading = true);
     try {
-      final ok = await BiometricService().authenticate();
+      final ok = await PersistentAuthSessionService.canProceedToDashboard();
       if (!mounted || !ok) return;
-      if (FirebaseAuth.instance.currentUser != null) {
-        await _enterPainelAfterRestoredSession();
-      }
+      await _enterPainelAfterRestoredSession();
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -327,64 +314,6 @@ class _LoginPageState extends State<LoginPage> {
       await _afterGoogleSignInSuccess();
     } finally {
       if (mounted) setState(() => _sessionFinalizing = false);
-    }
-  }
-
-  /// Seletor Google/Apple — só 1.ª vez no aparelho ou após «Trocar conta».
-  Future<bool> _restoreOAuthSessionInteractiveAfterBiometric() async {
-    if (kIsWeb || !_nativeChurchLogin) return false;
-
-    final forcePicker = await LoginPreferences.shouldForceGoogleAccountPicker();
-    final firstBind = await LoginPreferences.isFirstGoogleBindOnDevice();
-    if (!forcePicker && !firstBind) return false;
-
-    final last = await LoginPreferences.getLastOAuthProvider();
-    if (last == 'apple' && defaultTargetPlatform == TargetPlatform.iOS) {
-      final apple =
-          await GestorOAuthOnboardingService.signInWithAppleIfAvailable();
-      return apple?.user != null;
-    }
-
-    FocusManager.instance.primaryFocus?.unfocus();
-    WidgetsBinding.instance.scheduleFrame();
-    await Future<void>.delayed(const Duration(milliseconds: 48));
-    if (!mounted) return false;
-
-    try {
-      final cred = await GestorOAuthOnboardingService.signInWithGoogleNative(
-        forceAccountPicker: forcePicker,
-      );
-      return cred.user != null;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Igual Controle Total [_tryExpressGoogleReconnect]: Google silencioso → painel sem UI.
-  Future<void> _tryExpressGoogleReconnectAndEnterPainel() async {
-    if (kIsWeb || !_nativeChurchLogin) return;
-    if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
-    if (FirebaseAuth.instance.currentUser != null) return;
-
-    final last = await LoginPreferences.getLastOAuthProvider();
-    if (last != 'google' && last != 'apple') return;
-
-    setState(() => _loading = true);
-    try {
-      User? user;
-      if (last == 'google') {
-        user = await SessionRestoreService.tryGoogleSilentReconnect();
-      } else {
-        user = await SessionRestoreService.restoreAfterBiometricUnlock();
-      }
-      if (!mounted) return;
-      if (user != null) {
-        await _enterPainelAfterRestoredSession();
-      }
-    } catch (_) {
-      // Mantém ecrã Entrar — utilizador toca Google só se precisar.
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -512,32 +441,27 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
     setState(() {});
     await _refreshQuickBiometricState();
-    _scheduleMaybeAutoBiometricLogin();
+    _schedulePersistentAutoLoginOnce();
     _scheduleMaybeAutoWebCredentialLogin();
-    _scheduleNativeReturningUserUnlock();
-    if (_oauthPrimaryLogin && _nativeChurchLogin && !accountSwitch) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(_tryExpressGoogleReconnectAndEnterPainel());
-      });
-    }
   }
 
-  /// Android/iOS painel: restaura Google/e-mail guardado antes de pedir login manual.
-  void _scheduleNativeReturningUserUnlock() {
+  /// Um único agendamento: Firebase + biometria (sem ExpressLogin / Google silencioso).
+  void _schedulePersistentAutoLoginOnce({Duration? delay}) {
     if (kIsWeb || !_nativeChurchLogin) return;
     if (!loginAfterTargetsPainelOrAtualizarPlano(_painelLoginRoute)) return;
+    if (_persistentAutoLoginScheduled) return;
+    _persistentAutoLoginScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future<void>.delayed(const Duration(milliseconds: 120), () async {
-        if (!mounted || _loading || _oauthGoogleInFlight || _sessionFinalizing) {
-          return;
-        }
+      Future<void>.delayed(delay ?? const Duration(milliseconds: 200), () async {
+        if (!mounted || _persistentAutoLoginInFlight) return;
+        if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
         if (await LoginPreferences.isAccountSwitchPending()) return;
-        final u = FirebaseAuth.instance.currentUser;
-        if (u != null && !u.isAnonymous) {
-          await _tryReturningUserAutoAccessOnLogin();
-          return;
+        _persistentAutoLoginInFlight = true;
+        try {
+          await _restoreSessionOnLoginPageOpen();
+        } finally {
+          _persistentAutoLoginInFlight = false;
         }
-        await _tryAutoOAuthSilentOnce();
       });
     });
   }
@@ -558,29 +482,8 @@ class _LoginPageState extends State<LoginPage> {
     return lr == '/painel' || lr.startsWith('/painel/');
   }
 
-  /// Biometria automática: restaura sessão no disco → Google silencioso → digital.
   void _scheduleMaybeAutoBiometricLogin({Duration? delay}) {
-    if (kIsWeb || !_nativeChurchLogin) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future<void>.delayed(delay ?? const Duration(milliseconds: 350), () async {
-        if (!mounted) return;
-        if (await LoginPreferences.isAccountSwitchPending()) return;
-        if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
-
-        var u = FirebaseAuth.instance.currentUser;
-        if (u == null || u.isAnonymous) {
-          u = await SessionRestoreService.tryRestoreIfNeeded(allowRetry: true);
-          if (!mounted) return;
-        }
-        if (u == null || u.isAnonymous) {
-          await _tryExpressGoogleReconnectAndEnterPainel();
-          if (!mounted) return;
-          u = FirebaseAuth.instance.currentUser;
-        }
-        if (u == null || u.isAnonymous) return;
-        await _enterPainelAfterRestoredSession();
-      });
-    });
+    _schedulePersistentAutoLoginOnce(delay: delay);
   }
 
   /// Web painel: com «Lembrar» activo, entra directo (sem escolher conta Google).
@@ -630,44 +533,12 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// App nativo painel: sem login automático nesta tela (sessão → splash/main → `/painel`).
+  /// Web/master: credenciais salvas; nativo usa só [PersistentAuthSessionService].
   Future<void> _tryAutoQuickLoginOnce() async {
     if (!kIsWeb && _nativeChurchLogin) return;
     await _refreshQuickBiometricState();
     if (!mounted) return;
-    await _tryAutoBiometricLoginOnce();
-    if (!mounted) return;
-    await _tryAutoOAuthSilentOnce();
-    if (!mounted) return;
     await _tryAutoCredentialLoginOnce();
-  }
-
-  /// Sem biometria: reabre sessão Google/Apple guardada no telemóvel (Controle Total).
-  Future<void> _tryAutoOAuthSilentOnce() async {
-    if (kIsWeb || !_nativeChurchLogin) return;
-    if (_autoOAuthSilentAttempted) return;
-    if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
-    if (FirebaseAuth.instance.currentUser != null) return;
-    if (_showManualCredentialFields) return;
-
-    _autoOAuthSilentAttempted = true;
-    setState(() => _loading = true);
-    try {
-      final restored =
-          await ChurchAutoSessionService.restoreOAuthSessionForQuickUnlock();
-      if (!mounted) return;
-      if (!restored || FirebaseAuth.instance.currentUser == null) return;
-      setState(() => _sessionFinalizing = true);
-      try {
-        await _afterGoogleSignInSuccess();
-      } finally {
-        if (mounted) setState(() => _sessionFinalizing = false);
-      }
-    } catch (_) {
-      // Mantém ecrã Entrar para Google/Apple manual.
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
   }
 
   Future<void> _tryAutoCredentialLoginOnce() async {
@@ -715,13 +586,8 @@ class _LoginPageState extends State<LoginPage> {
     if (kIsWeb || !_nativeChurchLogin) return;
     if (_autoBiometricSessionAttempted) return;
     if (_loading || _oauthGoogleInFlight || _sessionFinalizing) return;
-    final existing = FirebaseAuth.instance.currentUser;
-    if (existing == null || existing.isAnonymous) return;
     if (_showManualCredentialFields) return;
-
-    final bioOn = await BiometricService().isEnabled();
-    if (!mounted) return;
-    if (!bioOn) return;
+    if (!await PersistentAuthSessionService.hasPersistedSession()) return;
 
     _autoBiometricSessionAttempted = true;
     await _continueWithSavedSessionBiometric();
@@ -930,63 +796,17 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       if (oauthOnly) {
-        if (FirebaseAuth.instance.currentUser != null && mounted) {
-          await _enterPainelAfterRestoredSession();
-          return;
-        }
-        final silentCred = await ExpressLoginService.tryGoogleSilentOnly();
-        if (silentCred?.user != null && mounted) {
-          await _enterPainelAfterRestoredSession();
-          return;
-        }
-        final user = await SessionRestoreService.restoreAfterBiometricUnlock();
-        if (user != null && mounted) {
+        final existing = await PersistentAuthSessionService.currentPersistedUser();
+        if (existing != null && mounted) {
+          BiometricService.markBiometricVerifiedForNextPainelEntry();
           await _enterPainelAfterRestoredSession();
           return;
         }
         if (!mounted) return;
-        final forcePicker =
-            await LoginPreferences.shouldForceGoogleAccountPicker();
-        final firstBind = await LoginPreferences.isFirstGoogleBindOnDevice();
-        if (!forcePicker && !firstBind) {
-          if (!_oauthPrimaryLogin) {
-            setState(() => _showManualCredentialFields = true);
-          }
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar(
-              'Não foi possível restaurar a sessão Google automaticamente. '
-              'Verifique a internet ou toque em «Continuar com Google».',
-            ),
-          );
-          return;
-        }
-        setState(() => _oauthGoogleInFlight = true);
-        try {
-          final interactiveOk =
-              await _restoreOAuthSessionInteractiveAfterBiometric();
-          if (interactiveOk && mounted) {
-            await _enterPainelAfterRestoredSession();
-            return;
-          }
-        } on FirebaseAuthException catch (e) {
-          if (!mounted) return;
-          if (_firebaseAuthErrorShouldClearSession(e)) {
-            await _signOutFirebaseIfLoggedIn();
-          }
-          if (!mounted) return;
-          _showFirebaseAuthErrorSnack(e);
-          return;
-        } finally {
-          if (mounted) setState(() => _oauthGoogleInFlight = false);
-        }
-        if (!mounted) return;
-        if (!_oauthPrimaryLogin) {
-          setState(() => _showManualCredentialFields = true);
-        }
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-            'Não foi possível restaurar a sessão Google. Verifique a internet '
-            'ou toque em «Continuar com Google».',
+            'Sessão expirada neste aparelho. Toque em «Continuar com Google» ou Apple '
+            'para entrar de novo.',
           ),
         );
         return;

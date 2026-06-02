@@ -93,10 +93,11 @@ class GestorOAuthOnboardingService {
     final forcePicker = forceAccountPicker ||
         await LoginPreferences.shouldForceGoogleAccountPicker();
 
-    if (!forcePicker) {
+    // Silencioso só no botão manual e sem sessão Firebase (nunca no arranque).
+    if (!forcePicker && FirebaseAuth.instance.currentUser == null) {
       final silent = await ExpressLoginService.tryGoogleSilentOnly();
       if (silent != null) return silent;
-    } else {
+    } else if (forcePicker) {
       // Só após «Trocar conta»: limpa sessão local para o Play Services abrir o seletor.
       await appGoogleSignOutForAccountPicker();
     }

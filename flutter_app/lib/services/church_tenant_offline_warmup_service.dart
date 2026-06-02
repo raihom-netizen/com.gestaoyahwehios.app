@@ -1,10 +1,11 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/services/church_firestore_collection_migration_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
@@ -29,7 +30,7 @@ class ChurchTenantOfflineWarmupService {
     final tid = tenantIdRaw.trim();
     if (tid.isEmpty) return;
     if (!AppConnectivityService.instance.isOnline) return;
-    if (FirebaseAuth.instance.currentUser == null) return;
+    if (firebaseDefaultAuth.currentUser == null) return;
     unawaited(_runWarmup(tid, light: true));
   }
 
@@ -37,7 +38,7 @@ class ChurchTenantOfflineWarmupService {
     final tidIn = tenantIdRaw.trim();
     if (tidIn.isEmpty) return;
     if (!AppConnectivityService.instance.isOnline) return;
-    if (FirebaseAuth.instance.currentUser == null) return;
+    if (firebaseDefaultAuth.currentUser == null) return;
 
     if (_sessionTenant != tidIn) {
       _sessionTenant = tidIn;
@@ -53,6 +54,8 @@ class ChurchTenantOfflineWarmupService {
     if (_warmupRunning) return;
     _warmupRunning = true;
     try {
+      await FirebaseBootstrap.ensureInitialized();
+      FirebaseBootstrapService.refreshCachedApp();
       await ChurchTenantResilientReads.preparePanelRead();
 
       String tenantId = tenantIdRaw;
@@ -60,7 +63,7 @@ class ChurchTenantOfflineWarmupService {
         final r = await TenantResolverService
             .resolveEffectiveTenantIdPreferringUserBinding(
           tenantIdRaw,
-          userUid: FirebaseAuth.instance.currentUser?.uid,
+          userUid: firebaseDefaultAuth.currentUser?.uid,
         );
         if (r.trim().isNotEmpty) tenantId = r.trim();
       } catch (_) {}
@@ -74,6 +77,10 @@ class ChurchTenantOfflineWarmupService {
           }
         }
       }
+
+      unawaited(
+        ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tenantId),
+      );
 
       final tasks = <Future<void>>[
         safe('igreja_doc', () => ChurchTenantResilientReads.churchDocument(tenantId)),

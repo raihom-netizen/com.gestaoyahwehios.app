@@ -338,7 +338,7 @@ async function recomputePublicSiteMediaPrefetch(tenantId) {
             enriched.push(base);
             continue;
         }
-        const churchRefPosts = churchRef.collection(collection === "avisos" ? "avisos" : "noticias");
+        const churchRefPosts = churchRef.collection(collection === "avisos" ? "avisos" : "eventos");
         const postSnap = await churchRefPosts.doc(postId).get();
         const postData = (postSnap.data() ?? base);
         const media = await enrichPostMedia(tid, collection, postId, postData);

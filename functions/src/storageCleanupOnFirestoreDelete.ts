@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Remove objetos do Storage quando o documento Firestore correspondente é apagado.
  * Complementa o cliente (ex.: deleteMemberRelatedFiles): reforço no servidor.
  */
@@ -54,7 +54,7 @@ export const onIgrejaMembroDeleteCleanupStorage = functions
 /** Chat igreja: ao apagar mensagem (ex.: «para todos»), remove ficheiro em `storagePath`. */
 export const onIgrejaChatMessageDeleteCleanupStorage = functions
   .region("us-central1")
-  .firestore.document("igrejas/{tenantId}/chat_threads/{threadId}/messages/{msgId}")
+  .firestore.document("igrejas/{tenantId}/chats/{threadId}/messages/{msgId}")
   .onDelete(async (snap) => {
     const d = snap.data() as { storagePath?: string } | undefined;
     const path = String(d?.storagePath || "").trim();
@@ -64,14 +64,14 @@ export const onIgrejaChatMessageDeleteCleanupStorage = functions
 /** Post do mural (evento ou aviso): pastas canónicas + prefixo legado noticias/. */
 export const onIgrejaNoticiaDeleteCleanupStorage = functions
   .region("us-central1")
-  .firestore.document("igrejas/{tenantId}/noticias/{postId}")
+  .firestore.document("igrejas/{tenantId}/eventos/{postId}")
   .onDelete(async (_snap, ctx) => {
     const tenantId = safeSeg(ctx.params.tenantId as string);
     const postId = safeSeg(ctx.params.postId as string);
     if (!tenantId || !postId) return;
     await deleteByPrefix(`igrejas/${tenantId}/eventos/${postId}`);
     await deleteByPrefix(`igrejas/${tenantId}/avisos/${postId}`);
-    await deleteByPrefix(`igrejas/${tenantId}/noticias/${postId}`);
+    await deleteByPrefix(`igrejas/${tenantId}/eventos/${postId}`);
   });
 
 /** Património: pasta `patrimonio/{id}/` + ficheiros planos `{id}_{slot}.jpg` (legado). */

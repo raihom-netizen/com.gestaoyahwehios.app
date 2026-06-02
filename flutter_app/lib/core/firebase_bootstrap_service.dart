@@ -199,11 +199,19 @@ abstract final class FirebaseBootstrapService {
   static FirebaseHealthReport? _lastHealth;
   static FirebaseBootstrapException? _lastFailure;
 
+  /// App [DEFAULT] inicializado (não exige health check recente — evita «core/no-app» após resume).
   static bool isReady() {
     if (!_hasApp()) return false;
     final inflight = _initCompleter;
     if (inflight != null && !inflight.isCompleted) return false;
-    return _healthOkAt != null && _lastFailure == null;
+    return true;
+  }
+
+  /// Sincroniza cache do app após [FirebaseBootstrap.ensureInitialized].
+  static void refreshCachedApp() {
+    if (_hasApp()) {
+      _cachedApp = Firebase.app();
+    }
   }
 
   static FirebaseHealthReport? get lastHealth => _lastHealth;
@@ -333,7 +341,9 @@ abstract final class FirebaseBootstrapService {
 
   static void invalidateStorageUploadBootstrap() {
     _storageUploadBootstrapAt = null;
-    _cachedApp = null;
+    if (!_hasApp()) {
+      _cachedApp = null;
+    }
   }
 
   /// Controle Total: `initializeApp` + token JWT — **sem** health check FCM/Functions
@@ -366,6 +376,8 @@ abstract final class FirebaseBootstrapService {
   static Future<void> _ensureReadyForStorageUploadOnce({
     required bool requireAuth,
   }) async {
+    await FirebaseBootstrap.ensureInitialized();
+    refreshCachedApp();
     if (isStorageUploadBootstrapFresh) {
       if (!requireAuth) return;
       final user = auth.currentUser;
@@ -674,9 +686,11 @@ abstract final class FirebaseBootstrapService {
     final mediaPublishOp = !chatOp && _isMediaPublishGuardLabel(debugLabel);
     Object? last;
     StackTrace? lastSt;
-    final maxAttempts = chatOp || mediaPublishOp ? 2 : 3;
+    final maxAttempts = chatOp || mediaPublishOp ? 4 : 3;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
+        await FirebaseBootstrap.ensureInitialized();
+        refreshCachedApp();
         if (chatOp) {
           await ensureReadyForChatSend();
         } else if (mediaPublishOp) {
