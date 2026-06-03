@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/painting.dart';
+import 'package:gestao_yahweh/core/offline/offline_module_sync.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
@@ -102,7 +103,8 @@ class MemberProfilePhotoUpdateService {
     required String authUid,
     String? cpfDigits,
   }) async {
-    final base = FirebaseFirestore.instance
+    await ensureFirebaseCore(requireAuth: false);
+    final base = firebaseDefaultFirestore
         .collection('igrejas')
         .doc(tenantId)
         .collection('membros');
@@ -116,7 +118,9 @@ class MemberProfilePhotoUpdateService {
       if (byUid.exists) return byUid;
       final q = await base.where('authUid', isEqualTo: authUid).limit(1).get();
       if (q.docs.isNotEmpty) return q.docs.first;
-    } catch (_) {}
+    } catch (e, st) {
+      YahwehFlowLog.error('MEMBROS', e, st);
+    }
     return null;
   }
 
@@ -130,18 +134,18 @@ class MemberProfilePhotoUpdateService {
     void Function(Object error)? onError,
   }) {
     unawaited(
-      runFirebaseBackgroundTask<void>(
-        () async {
-          final result = await _uploadAndPatchMemberCore(
-            tenantId: tenantId,
-            memberDocId: memberDocId,
-            memberData: memberData,
-            rawBytes: rawBytes,
-          );
-          onSuccess?.call(result);
-        },
-        debugLabel: 'member_profile_photo_bg',
-      ).catchError((Object e, StackTrace st) {
+      () async {
+        await ensureFirebaseCore(requireAuth: true);
+        YahwehFlowLog.membrosStart();
+        final result = await _uploadAndPatchMemberCore(
+          tenantId: tenantId,
+          memberDocId: memberDocId,
+          memberData: memberData,
+          rawBytes: rawBytes,
+        );
+        YahwehFlowLog.membrosSuccess();
+        onSuccess?.call(result);
+      }().catchError((Object e, StackTrace st) {
         YahwehFlowLog.memberPhotoError(e, st);
         ChurchPublishFlowLog.memberPhotoError(e, st);
         unawaited(_markPhotoUploadError(
@@ -169,15 +173,19 @@ class MemberProfilePhotoUpdateService {
     var tenantIds =
         await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(tenantId);
     if (tenantIds.isEmpty) tenantIds = [tenantId];
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     await Future.wait(
       tenantIds.map(
-        (tid) => db
-            .collection('igrejas')
-            .doc(tid)
-            .collection('membros')
-            .doc(memberDocId)
-            .set(patch, SetOptions(merge: true)),
+        (tid) => MembrosOfflineSync.set(
+          ref: db
+              .collection('igrejas')
+              .doc(tid)
+              .collection('membros')
+              .doc(memberDocId),
+          tenantId: tid,
+          merge: true,
+          data: patch,
+        ),
       ),
     );
   }
@@ -214,9 +222,7 @@ class MemberProfilePhotoUpdateService {
     required Map<String, dynamic> memberData,
     required Uint8List rawBytes,
   }) async {
-    await ImmediateStorageUploadGuard.ensureReady(
-      debugLabel: 'member_profile_photo',
-    );
+    await ensureFirebaseCore(requireAuth: true);
     YahwehFlowLog.uploadStart('member_profile');
     ChurchPublishFlowLog.uploadStart('member_profile');
     final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
@@ -259,15 +265,19 @@ class MemberProfilePhotoUpdateService {
         await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
             tenantId);
     if (tenantIds.isEmpty) tenantIds = [tenantId];
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     await Future.wait(
       tenantIds.map(
-        (tid) => db
-            .collection('igrejas')
-            .doc(tid)
-            .collection('membros')
-            .doc(memberDocId)
-            .set(updates, SetOptions(merge: true)),
+        (tid) => MembrosOfflineSync.set(
+          ref: db
+              .collection('igrejas')
+              .doc(tid)
+              .collection('membros')
+              .doc(memberDocId),
+          tenantId: tid,
+          merge: true,
+          data: updates,
+        ),
       ),
     );
 
@@ -281,7 +291,9 @@ class MemberProfilePhotoUpdateService {
           YahwehPerformanceV4.profileMediumField: uploaded.photoMedium,
           'fotoUrlCacheRevision': revision,
         }, SetOptions(merge: true));
-      } catch (_) {}
+      } catch (e, st) {
+        YahwehFlowLog.error('MEMBROS', e, st);
+      }
     }
 
     FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload(
@@ -340,7 +352,7 @@ class MemberProfilePhotoUpdateService {
             primaryTenantId);
     if (tenantIds.isEmpty) tenantIds = [primaryTenantId];
 
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     final peerPayload = <String, dynamic>{
       'authUid': authUid,
       'memberDocId': memberDocId,

@@ -41,8 +41,9 @@ abstract final class PatrimonioPublishService {
     void Function(List<String> urls, List<String> paths)? onPathsForCleanup,
   }) {
     unawaited(
-      runFirebaseBackgroundTask<void>(
-        () => _uploadAndMerge(
+      () async {
+        await ensureFirebaseCore(requireAuth: true);
+        await _uploadAndMerge(
           itemRef: itemRef,
           tenantId: tenantId,
           itemId: itemId,
@@ -53,9 +54,8 @@ abstract final class PatrimonioPublishService {
           buildPayload: buildPayload,
           previousDoc: previousDoc,
           onPathsForCleanup: onPathsForCleanup,
-        ),
-        debugLabel: 'patrimonio_photo_finalize',
-      ).catchError((Object e, StackTrace st) async {
+        );
+      }().catchError((Object e, StackTrace st) async {
         YahwehFlowLog.error('PATRIMONIO', e, st);
         try {
           await itemRef.set(
@@ -66,7 +66,9 @@ abstract final class PatrimonioPublishService {
             },
             SetOptions(merge: true),
           );
-        } catch (_) {}
+        } catch (e2, s2) {
+          YahwehFlowLog.error('PATRIMONIO', e2, s2);
+        }
       }),
     );
   }
@@ -93,7 +95,10 @@ abstract final class PatrimonioPublishService {
         {photoUploadStateField: stateUploading},
         SetOptions(merge: true),
       );
-    } catch (_) {}
+    } catch (e, st) {
+      YahwehFlowLog.error('PATRIMONIO', e, st);
+      rethrow;
+    }
     final allUrls = List<String>.from(existingUrls);
     final allPaths = List<String>.from(existingPaths);
     final nBatch = newImages.length;

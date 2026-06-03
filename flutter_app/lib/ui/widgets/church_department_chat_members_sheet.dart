@@ -118,6 +118,8 @@ class _ChurchDepartmentChatMembersSheetState
       departmentName: widget.departmentName,
       role: widget.role,
       permissions: widget.permissions,
+      departmentDocData: widget.departmentDocData,
+      memberCpfDigits: widget.cpfDigits,
     );
     if (ok == true && mounted) _reloadMembers();
   }
@@ -125,9 +127,11 @@ class _ChurchDepartmentChatMembersSheetState
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.paddingOf(context).bottom;
-    final canEdit = AppPermissions.canEditDepartments(
-      widget.role,
+    final canEdit = AppPermissions.canManageDepartmentChatMembers(
+      role: widget.role,
       permissions: widget.permissions,
+      departmentData: widget.departmentDocData,
+      memberCpfDigits: widget.cpfDigits,
     );
     return DraggableScrollableSheet(
       expand: false,

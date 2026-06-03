@@ -23,6 +23,17 @@ abstract final class ChurchChatModeration {
     }.contains(normalized);
   }
 
+  static bool _churchWideChatModerator(String normalized) {
+    return _churchManagement(normalized) ||
+        _pastorLike(normalized) ||
+        const {
+          ChurchRoleKeys.secretario,
+          ChurchRoleKeys.presbitero,
+          ChurchRoleKeys.tesoureiro,
+          ChurchRoleKeys.tesouraria,
+        }.contains(normalized);
+  }
+
   /// [memberCpfDigits] — só dígitos; usado para conferir líder no doc do departamento.
   static bool canDeleteChatMessage({
     required String memberRole,
@@ -33,7 +44,7 @@ abstract final class ChurchChatModeration {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return false;
     final n = ChurchRolePermissions.normalize(memberRole);
-    if (_churchManagement(n) || _pastorLike(n)) return true;
+    if (_churchWideChatModerator(n)) return true;
     if (isDepartmentThread && departmentData != null) {
       if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(
             departmentData,

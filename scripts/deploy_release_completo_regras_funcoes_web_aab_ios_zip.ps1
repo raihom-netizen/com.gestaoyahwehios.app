@@ -24,6 +24,7 @@
 # Sem commit/push Git (Codemagic não recebe código novo): -SkipGitPush
 # Forcar deploy de functions mesmo sem mudancas: -ForceFunctions
 # Forcar `flutter clean` (caso suspeite de cache corrompido): -ForceClean
+# Pular gate Modo Producao (emergencia): -SkipProductionGate
 #
 # Atalho: .\scripts\deploy_completo.ps1 (mesmos parâmetros)
 
@@ -32,7 +33,8 @@ param(
     [switch] $SkipGitPush,
     [switch] $ForceFunctions,
     [switch] $ForceClean,
-    [switch] $ForceFirestoreRules
+    [switch] $ForceFirestoreRules,
+    [switch] $SkipProductionGate
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,6 +53,19 @@ if (Test-Path $rc) {
 
 $FlutterApp = Join-Path $RepoRoot "flutter_app"
 $startedAt = Get-Date
+
+if (-not $SkipProductionGate) {
+    Write-Host "`n=== [GATE] Modo Producao — verify_production_checklist ===" -ForegroundColor Cyan
+    $gateScript = Join-Path $RepoRoot "scripts\verify_production_checklist.ps1"
+    & $gateScript
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Deploy abortado pelo gate de producao." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
+}
+else {
+    Write-Host "`n=== [GATE] SKIP — SkipProductionGate ativo ===" -ForegroundColor DarkYellow
+}
 
 # ========================================================================
 # [0/6] Pre-step: flutter clean + pub get UMA VEZ (reusado em web e AAB)

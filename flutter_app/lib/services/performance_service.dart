@@ -1,5 +1,6 @@
 import 'package:firebase_performance/firebase_performance.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/system_health/session_performance_metrics.dart';
 
 /// Firebase Performance Monitoring — mede duração de operações (upload, consultas).
 abstract final class PerformanceService {
@@ -21,16 +22,22 @@ abstract final class PerformanceService {
     String name,
     Future<T> Function() operation,
   ) async {
-    if (!_ready) return operation();
-    Trace? trace;
+    final sw = Stopwatch()..start();
     try {
-      trace = FirebasePerformance.instance.newTrace(_safeTraceName(name));
-      await trace.start();
-      return await operation();
-    } finally {
+      if (!_ready) return await operation();
+      Trace? trace;
       try {
-        await trace?.stop();
-      } catch (_) {}
+        trace = FirebasePerformance.instance.newTrace(_safeTraceName(name));
+        await trace.start();
+        return await operation();
+      } finally {
+        try {
+          await trace?.stop();
+        } catch (_) {}
+      }
+    } finally {
+      sw.stop();
+      SessionPerformanceMetrics.record(name, sw.elapsedMilliseconds);
     }
   }
 

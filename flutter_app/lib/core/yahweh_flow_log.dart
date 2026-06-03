@@ -18,6 +18,16 @@ abstract final class YahwehFlowLog {
 
   static void success(String module) => _module(module, 'SUCCESS');
 
+  static void offline(String module) => _module(module, 'OFFLINE');
+
+  static void online(String module) => _module(module, 'ONLINE');
+
+  static void sync(String module, [String? detail]) =>
+      _out('$module SYNC${detail != null ? ' $detail' : ''}');
+
+  static void retry(String module, int attempt) =>
+      _out('$module RETRY attempt=$attempt');
+
   static void error(String module, Object e, StackTrace s) {
     _module(module, 'ERROR');
     YahwehCatchLog.log(e, s, tag: module);
@@ -72,6 +82,16 @@ abstract final class YahwehFlowLog {
 
   static void relatorioStart() => start('RELATORIO');
   static void relatorioSuccess() => success('RELATORIO');
+
+  static void financeiroStart() => start('FINANCEIRO');
+  static void financeiroFirestoreOk() => _out('FINANCEIRO FIRESTORE OK');
+  static void financeiroUploadOk() => _out('FINANCEIRO UPLOAD OK');
+  static void financeiroSuccess() => success('FINANCEIRO');
+  static void financeiroError(Object e, StackTrace s) => error('FINANCEIRO', e, s);
+
+  static void agendaStart() => start('AGENDA');
+  static void agendaSuccess() => success('AGENDA');
+  static void agendaError(Object e, StackTrace s) => error('AGENDA', e, s);
 
   /// Trace Firebase Performance + Analytics (não bloqueia).
   static Future<T> trace<T>(

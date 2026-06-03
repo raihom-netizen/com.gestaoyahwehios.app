@@ -13,20 +13,19 @@ abstract final class FirebaseService {
 
   static Future<FirebaseFirestore> firestore({bool requireAuth = false}) async {
     await FirebaseBootstrap.ensureInitialized();
-    if (requireAuth) {
-      await FirebaseBootstrapService.ensureReadyForPublishUpload();
-    }
+    FirebaseBootstrapService.refreshCachedApp();
     return FirebaseBootstrapService.firestore;
   }
 
   static Future<FirebaseStorage> storage() async {
-    await FirebaseBootstrapService.ensureReadyForMediaUpload();
+    await FirebaseBootstrap.ensureInitialized();
+    FirebaseBootstrapService.refreshCachedApp();
     return FirebaseBootstrapService.storage;
   }
 
   static Future<FirebaseAuth> auth() async {
     await FirebaseBootstrap.ensureInitialized();
-    await FirebaseBootstrapService.ensureReady(requireAuthSession: false);
+    FirebaseBootstrapService.refreshCachedApp();
     return FirebaseBootstrapService.auth;
   }
 }

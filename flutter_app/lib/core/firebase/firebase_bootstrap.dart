@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:gestao_yahweh/firebase_options.dart';
 
 /// Inicialização única do núcleo Firebase (`[DEFAULT]` + options da plataforma).
@@ -35,13 +36,30 @@ abstract final class FirebaseBootstrap {
   }
 
   static Future<void> _initialize() async {
-    if (_hasDefaultApp()) return;
+    if (_hasDefaultApp()) {
+      if (kDebugMode) {
+        debugPrint('FIREBASE INIT OK (já existia)');
+        debugPrint('FIREBASE APPS=${Firebase.apps.length}');
+      }
+      return;
+    }
+    if (kDebugMode) debugPrint('FIREBASE INIT START');
     try {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+      if (kDebugMode) {
+        debugPrint('FIREBASE INIT OK');
+        debugPrint('FIREBASE APPS=${Firebase.apps.length}');
+      }
     } on FirebaseException catch (e) {
-      if (e.code == 'duplicate-app' && _hasDefaultApp()) return;
+      if (e.code == 'duplicate-app' && _hasDefaultApp()) {
+        if (kDebugMode) {
+          debugPrint('FIREBASE INIT OK (duplicate-app)');
+          debugPrint('FIREBASE APPS=${Firebase.apps.length}');
+        }
+        return;
+      }
       rethrow;
     }
   }

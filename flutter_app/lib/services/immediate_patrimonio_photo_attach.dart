@@ -5,7 +5,7 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
-import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
+import 'package:gestao_yahweh/core/offline/offline_module_sync.dart';
 
 /// Fotos do património no Storage antes de «Salvar» (padrão Controle Total).
 abstract final class ImmediatePatrimonioPhotoAttach {
@@ -20,18 +20,19 @@ abstract final class ImmediatePatrimonioPhotoAttach {
   }) async {
     if (!isNewItem) return;
     final n = nome.trim();
-    await runFirestorePublishWithRecovery<void>(() async {
-      await itemRef.set(
-        {
-          'nome': n.isEmpty ? 'Rascunho' : n,
-          'categoria': categoria,
-          'status': status,
-          'criadoEm': FieldValue.serverTimestamp(),
-          'atualizadoEm': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-    });
+    final tid = itemRef.parent.parent?.id ?? '';
+    await PatrimonioOfflineSync.set(
+      ref: itemRef,
+      tenantId: tid,
+      merge: true,
+      data: {
+        'nome': n.isEmpty ? 'Rascunho' : n,
+        'categoria': categoria,
+        'status': status,
+        'criadoEm': FieldValue.serverTimestamp(),
+        'atualizadoEm': FieldValue.serverTimestamp(),
+      },
+    );
   }
 
   static Future<String?> uploadSingleSlot({

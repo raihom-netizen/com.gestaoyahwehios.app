@@ -106,7 +106,7 @@ abstract final class OptimisticChatMediaUpload {
     try {
       logFirebaseAppsBeforeOperation('chat_media_flush', module: pending.kind);
       await ChurchChatMediaUploadCoordinator.run(
-        () => runFirebaseBackgroundTask<void>(
+        () => runChatMediaUploadTask(
           () => _flushCore(
             pending: pending,
             tenantId: tenantId,

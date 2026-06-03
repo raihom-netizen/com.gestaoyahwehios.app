@@ -1,26 +1,28 @@
-import 'dart:async' show unawaited;
-
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/services/immediate_media_warm.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 
-/// Pré-publicação mural: **não** bloquear minutos em uploads paralelos.
+/// Pré-publicação — só núcleo Firebase (padrão Controle Total, sem warmup/fila).
 abstract final class FeedPublishPreflight {
   FeedPublishPreflight._();
 
-  /// Máx. 2s à espera de fotos já a subir; depois Firestore (não bloquear ~40s).
+  /// [inFlightCount] mantido por compatibilidade de API; ignorado (sem drain/warm).
   static Future<void> prepareForFirestoreSave({
-    required int Function() inFlightCount,
+    int Function()? inFlightCount,
   }) async {
-    await ImmediateMediaWarm.drainInFlight(
-      inFlightCount,
-      maxWait: const Duration(seconds: 2),
-    );
-    unawaited(ImmediateMediaWarm.warmFeed());
+    YahwehFlowLog.start('AVISOS_PREFLIGHT');
     try {
-      await ensureFirebaseReadyForPublishUpload()
+      await ensureFirebaseCore(requireAuth: true)
           .timeout(const Duration(seconds: 12));
+      YahwehFlowLog.success('AVISOS_PREFLIGHT');
     } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('FIREBASE APPS=${Firebase.apps.length} (preflight)');
+        debugPrint('ERROR=$e');
+        debugPrint('$st');
+      }
       ChurchPublishFlowLog.firestoreError(e, st);
       rethrow;
     }

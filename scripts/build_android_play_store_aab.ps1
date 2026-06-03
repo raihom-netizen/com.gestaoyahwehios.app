@@ -232,8 +232,12 @@ if (-not (Test-Path $DebugInfoDir)) {
 
 Write-Host "`n=== flutter build appbundle --release --target-platform android-arm64 --obfuscate --split-debug-info=./debug-info ===" -ForegroundColor Cyan
 Write-Host "Guarde a pasta flutter_app\debug-info\ para symbolizar stack traces (Crashlytics / flutter symbolize)." -ForegroundColor DarkGray
-flutter build appbundle --release --target-platform android-arm64 --obfuscate --split-debug-info=./debug-info
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+flutter build appbundle --release --target-platform android-arm64 --obfuscate --split-debug-info=./debug-info 2>&1 | ForEach-Object { Write-Host $_ }
+$buildExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+if ($buildExit -ne 0) { exit $buildExit }
 
 if (-not (Test-Path $OutAab)) {
     Write-Host "Erro: AAB nao gerado em $OutAab" -ForegroundColor Red

@@ -6,6 +6,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
+import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:gestao_yahweh/ui/widgets/master_action_queue_card.dart';
 import 'package:intl/intl.dart';
@@ -56,6 +57,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   @override
   void initState() {
     super.initState();
+    YahwehPerformanceMonitor.markScreenStart('master_dashboard');
     _load();
   }
 
@@ -82,7 +84,10 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
     } on TimeoutException {
       if (mounted) setState(() {});
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() => _loading = false);
+        YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame('master_dashboard');
+      }
     }
   }
 

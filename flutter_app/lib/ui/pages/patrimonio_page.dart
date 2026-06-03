@@ -20,6 +20,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatFirebaseErrorForUser, isFirebaseNoAppError;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -34,6 +35,7 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/immediate_patrimonio_photo_attach.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
@@ -674,6 +676,8 @@ class PatrimonioPage extends StatefulWidget {
 
   /// Pré-preenche a busca do inventário (ex.: busca global).
   final String? initialSearchQuery;
+  /// Reabre o item onde o utilizador parou.
+  final String? initialOpenPatrimonioDocId;
 
   /// Dentro de [IgrejaCleanShell]: evita [SafeArea] superior extra entre o cartão do módulo e as abas.
   final bool embeddedInShell;
@@ -688,6 +692,7 @@ class PatrimonioPage extends StatefulWidget {
     this.podeVerPatrimonio,
     this.permissions,
     this.initialSearchQuery,
+    this.initialOpenPatrimonioDocId,
     this.embeddedInShell = false,
     this.onShellBack,
   });
@@ -826,6 +831,22 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     unawaited(FastMediaPublishBootstrap.warmForPatrimonioSave());
     unawaited(_loadCategoriasExtras());
     _startPatrimonioRealtimeSync();
+    final resumeId = widget.initialOpenPatrimonioDocId?.trim() ?? '';
+    if (resumeId.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_openResumedPatrimonioDoc(resumeId));
+      });
+    }
+  }
+
+  Future<void> _openResumedPatrimonioDoc(String itemDocId) async {
+    try {
+      final snap = await _col.doc(itemDocId).get();
+      if (!mounted || !snap.exists) return;
+      await _openForm(doc: snap);
+    } catch (e, st) {
+      YahwehFlowLog.error('PATRIMONIO', e, st);
+    }
   }
 
   @override
@@ -967,6 +988,14 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   Future<void> _openForm({DocumentSnapshot<Map<String, dynamic>>? doc}) async {
     if (!_canWrite) return;
+    if (doc != null) {
+      unawaited(
+        AppResumeStateService.saveOpenPatrimonio(
+          tenantId: widget.tenantId,
+          itemDocId: doc.id,
+        ),
+      );
+    }
     await _loadCategoriasExtras();
     if (!mounted) return;
     final result = await Navigator.push<bool>(
@@ -3750,7 +3779,10 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       key: ValueKey(_streamRetryToken),
-      stream: widget.col.snapshots(),
+      stream: widget.col
+          .orderBy('nome')
+          .limit(YahwehPerformanceV4.patrimonioListPageSize)
+          .snapshots(),
       builder: (context, snap) {
         if (snap.hasError) {
           return ChurchPanelErrorBody(

@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/app_startup_route.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -40,9 +41,10 @@ abstract final class PersistentAuthSessionService {
   static Future<User?> currentPersistedUser() async {
     await ensureFirebaseInitialized();
     if (await LoginPreferences.isAccountSwitchPending()) return null;
-    final sync = FirebaseAuth.instance.currentUser;
+    final sync = firebaseDefaultAuth.currentUser;
     if (sync != null && !sync.isAnonymous) {
       _log('AUTOLOGIN currentUser=${sync.uid}');
+      YahwehFlowLog.success('SESSION');
       return sync;
     }
     return SessionRestoreService.waitForPersistedFirebaseUser();

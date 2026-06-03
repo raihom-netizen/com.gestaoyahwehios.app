@@ -16,6 +16,8 @@ import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
+import 'package:gestao_yahweh/services/tenant_intelligent_preload.dart';
+import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_warmup_service.dart';
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
@@ -177,6 +179,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   /// Um disparo: abrir ficha do membro ao entrar pelo QR (gestor).
   String? _shellBootstrapOpenMemberId;
+  String? _shellBootstrapOpenEventDocId;
+  String? _shellBootstrapOpenAvisoDocId;
+  String? _shellBootstrapOpenPatrimonioDocId;
 
   /// Pré-carrega dados ao passar o rato no menu (web/desktop).
   final Set<int> _shellPrefetchDone = {};
@@ -357,12 +362,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       if (!_canAccessItem(idx)) return;
       setState(() => _selectedIndex = idx);
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       unawaited(ensureFirebaseReadyForPanelRead().catchError((_) {}));
       reportChurchClientSessionToUserDoc();
       _runMembersToMembrosMigration();
       unawaited(ChurchTenantOfflineWarmupService.instance
           .scheduleWarmupAfterLogin(widget.tenantId));
+      TenantIntelligentPreload.scheduleAfterDashboard(widget.tenantId);
       YahwehPerformanceMonitor.markScreenStart('church_shell');
       YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame('church_shell');
       unawaited(ChurchTenantDashboardWarmupService.scheduleAfterShellOpen(
@@ -372,11 +378,60 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       unawaited(_bootstrapChatPresenceHeartbeat());
       if (_shellBootstrapOpenMemberId != null && mounted) {
         setState(() => _selectedIndex = ChurchShellIndices.membros);
-      } else if (widget.initialShellIndex != null &&
-          mounted &&
-          _canAccessItem(widget.initialShellIndex!)) {
-        setState(() => _selectedIndex = widget.initialShellIndex!);
+      } else {
+        final openMember = await AppResumeStateService.readOpenMember();
+        if (mounted &&
+            openMember != null &&
+            openMember.tenantId == widget.tenantId &&
+            _shellBootstrapOpenMemberId == null) {
+          _shellBootstrapOpenMemberId = openMember.memberDocId;
+          setState(() => _selectedIndex = ChurchShellIndices.membros);
+        }
+        final resume = await AppResumeStateService.readShellContext();
+        if (mounted &&
+            resume != null &&
+            resume.tenantId == widget.tenantId &&
+            _canAccessItem(resume.shellIndex)) {
+          setState(() => _selectedIndex = resume.shellIndex);
+        } else if (widget.initialShellIndex != null &&
+            mounted &&
+            _canAccessItem(widget.initialShellIndex!)) {
+          setState(() => _selectedIndex = widget.initialShellIndex!);
+        }
+        final openPat = await AppResumeStateService.readOpenPatrimonio();
+        if (mounted &&
+            openPat != null &&
+            openPat.tenantId == widget.tenantId) {
+          _shellBootstrapOpenPatrimonioDocId = openPat.itemDocId;
+          if (_canAccessItem(ChurchShellIndices.patrimonio)) {
+            setState(() => _selectedIndex = ChurchShellIndices.patrimonio);
+          }
+        }
+        final openEvent = await AppResumeStateService.readOpenEvent();
+        if (mounted &&
+            openEvent != null &&
+            openEvent.tenantId == widget.tenantId) {
+          _shellBootstrapOpenEventDocId = openEvent.eventDocId;
+          if (_canAccessItem(ChurchShellIndices.muralEventos)) {
+            setState(() => _selectedIndex = ChurchShellIndices.muralEventos);
+          }
+        }
+        final openAviso = await AppResumeStateService.readOpenAviso();
+        if (mounted &&
+            openAviso != null &&
+            openAviso.tenantId == widget.tenantId) {
+          _shellBootstrapOpenAvisoDocId = openAviso.avisoDocId;
+          if (_canAccessItem(ChurchShellIndices.muralAvisos)) {
+            setState(() => _selectedIndex = ChurchShellIndices.muralAvisos);
+          }
+        }
       }
+      unawaited(
+        AppResumeStateService.saveShellContext(
+          tenantId: widget.tenantId,
+          shellIndex: _selectedIndex,
+        ),
+      );
       unawaited(GestorWelcomeDialog.tryShowIfNeeded(
         context: context,
         tenantId: widget.tenantId,
@@ -658,6 +713,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       return;
     }
     setState(() => _selectedIndex = index);
+    unawaited(
+      AppResumeStateService.saveShellContext(
+        tenantId: widget.tenantId,
+        shellIndex: index,
+      ),
+    );
   }
 
   void _prefetchShellModuleData(int index) {
@@ -1961,18 +2022,31 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               });
             });
       case 7:
+        final bootAviso = _shellBootstrapOpenAvisoDocId;
+        if (bootAviso != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() => _shellBootstrapOpenAvisoDocId = null);
+            }
+          });
+        }
         return MuralPage(
             key: const ValueKey('page_7'),
             tenantId: widget.tenantId,
             role: widget.role,
             permissions: widget.permissions,
-            embeddedInShell: true);
+            embeddedInShell: true,
+            initialOpenAvisoDocId: bootAviso);
       case 8:
         final bootEvent = _shellBootstrapEventSearch;
-        if (bootEvent != null) {
+        final bootEventDoc = _shellBootstrapOpenEventDocId;
+        if (bootEvent != null || bootEventDoc != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
-              setState(() => _shellBootstrapEventSearch = null);
+              setState(() {
+                _shellBootstrapEventSearch = null;
+                _shellBootstrapOpenEventDocId = null;
+              });
             }
           });
         }
@@ -1982,7 +2056,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             role: widget.role,
             permissions: widget.permissions,
             embeddedInShell: true,
-            initialFeedSearchQuery: bootEvent);
+            initialFeedSearchQuery: bootEvent,
+            initialOpenEventDocId: bootEventDoc);
       case 9:
         return PrayerRequestsPage(
             key: const ValueKey('page_9'),
@@ -2080,10 +2155,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 21:
         final bootPat = _shellBootstrapPatrimonioSearch;
-        if (bootPat != null) {
+        final bootPatDoc = _shellBootstrapOpenPatrimonioDocId;
+        if (bootPat != null || bootPatDoc != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
-              setState(() => _shellBootstrapPatrimonioSearch = null);
+              setState(() {
+                _shellBootstrapPatrimonioSearch = null;
+                _shellBootstrapOpenPatrimonioDocId = null;
+              });
             }
           });
         }
@@ -2094,6 +2173,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           podeVerPatrimonio: widget.podeVerPatrimonio,
           permissions: widget.permissions,
           initialSearchQuery: bootPat,
+          initialOpenPatrimonioDocId: bootPatDoc,
           embeddedInShell: true,
         );
       case 22:

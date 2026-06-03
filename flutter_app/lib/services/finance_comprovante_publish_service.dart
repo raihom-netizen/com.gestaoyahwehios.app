@@ -47,15 +47,15 @@ abstract final class FinanceComprovantePublishService {
     void Function(Object error)? onError,
   }) {
     unawaited(
-      runFirebaseBackgroundTask<void>(
-        () => _uploadComprovante(
+      () async {
+        await ensureFirebaseCore(requireAuth: true);
+        await _uploadComprovante(
           tenantId: tenantId,
           docRef: docRef,
           rawBytes: rawBytes,
           onSuccess: onSuccess,
-        ),
-        debugLabel: 'finance_comprovante_bg',
-      ).catchError((Object e, StackTrace st) {
+        );
+      }().catchError((Object e, StackTrace st) {
         YahwehFlowLog.error('FINANCEIRO', e, st);
         unawaited(_markError(docRef, e));
         onError?.call(e);
@@ -107,6 +107,8 @@ abstract final class FinanceComprovantePublishService {
         },
         SetOptions(merge: true),
       );
-    } catch (_) {}
+    } catch (e, st) {
+      YahwehFlowLog.error('FINANCEIRO', e, st);
+    }
   }
 }

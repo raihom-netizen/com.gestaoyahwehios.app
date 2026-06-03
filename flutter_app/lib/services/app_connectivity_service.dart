@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
+import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 
@@ -48,12 +51,19 @@ class AppConnectivityService {
     _online = online;
     if (!_onlineCtrl.isClosed) _onlineCtrl.add(online);
     // Volta a sincronizar filas do Firestore após modo avião / sem sinal.
+    if (online) {
+      YahwehFlowLog.online('NETWORK');
+    } else {
+      YahwehFlowLog.offline('NETWORK');
+    }
     if (online && wasOffline) {
-      FirebaseFirestore.instance.enableNetwork().catchError((_) {});
+      YahwehFlowLog.sync('NETWORK', 'resume_queues');
       unawaited(
-        FirebaseBootstrapService.reconnect().catchError((_) {}),
+        firebaseDefaultFirestore.enableNetwork().catchError((Object e, StackTrace s) {
+          YahwehFlowLog.error('NETWORK', e, s);
+        }),
       );
-      unawaited(StorageUploadPersistenceService.resumePendingOnAppStart());
+      unawaited(SyncEngine.flushAll(reason: 'connectivity_online'));
       if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
         unawaited(PendingUploadsFirestoreService.resumeForCurrentUserTenant());
       }

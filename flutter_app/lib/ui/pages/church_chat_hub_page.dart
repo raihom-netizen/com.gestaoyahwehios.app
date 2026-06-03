@@ -16,6 +16,8 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_threads_list_cache.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/app_resume_state_service.dart';
+import 'package:gestao_yahweh/services/church_firestore_collection_migration_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -44,6 +46,8 @@ import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
+import 'package:gestao_yahweh/core/church_department_leaders.dart';
+import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 
@@ -85,18 +89,9 @@ String _chatHubFmtThreadTime(dynamic ts) {
   return '${d.day}/${d.month}';
 }
 
-/// Gestor, administrador, pastor e equivalentes — vê todos os grupos (departamentos) e lista de contatos.
-bool _chatHubLeadershipFullAccess(String role, List<String>? permissions) {
-  final r = role.toLowerCase();
-  if (AppRoles.isFullAccess(role)) return true;
-  if (AppPermissions.canEditDepartments(role, permissions: permissions)) {
-    return true;
-  }
-  return r == AppRoles.pastor ||
-      r == 'pastor_presidente' ||
-      r == 'pastora' ||
-      r == AppRoles.secretario;
-}
+/// Gestor, pastoral, secretário, tesoureiro — vê todos os grupos (não líder de departamento).
+bool _chatHubSeesAllDepartmentGroups(String role, List<String>? permissions) =>
+    AppPermissions.chatHubSeesAllDepartmentGroups(role, permissions: permissions);
 
 /// Lista estilo WhatsApp — DM + grupos por departamento (membro: só os seus; liderança: todos).
 /// DM na aba «Conversas»: dados do documento em `chat_threads` (sem segundo stream por linha),
@@ -129,6 +124,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   String? _resolvedTenantId;
   List<_DeptEntry> _departments = [];
   bool _departmentsLoading = false;
+  int _deptSyncGeneration = 0;
   /// Stream único de `chat_threads` (reconexão automática em [ChurchChatService]).
   Stream<QuerySnapshot<Map<String, dynamic>>>? _chatThreadsStream;
   /// Evita lista de conversas «a piscar»: mantém o último snapshot válido se o stream falhar de momento.
@@ -138,6 +134,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   final _searchCtrl = TextEditingController();
   final _membersFilterCtrl = TextEditingController();
   final _deptFilterCtrl = TextEditingController();
+  /// Pesquisa com debounce — evita reconstruir lista de conversas a cada tecla.
+  final ValueNotifier<String> _debouncedConversasSearch = ValueNotifier('');
+  final ValueNotifier<String> _debouncedDeptSearch = ValueNotifier('');
+  Timer? _conversasSearchDebounce;
+  Timer? _deptSearchDebounce;
   late TabController _hubTabController;
   Timer? _gruposResyncDebounce;
   Timer? _conversasResyncDebounce;
@@ -153,6 +154,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   final Set<String> _selectedDmThreadIds = <String>{};
   List<ChurchChatLocalConversationEntry> _localConversations = [];
   late final VoidCallback _localConvListener;
+  bool _resumeChatThreadAttempted = false;
 
   @override
   void initState() {
@@ -170,6 +172,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     WidgetsBinding.instance.addObserver(this);
     _hubTabController = TabController(length: 3, vsync: this);
     _hubTabController.addListener(_hubTabListener);
+    _searchCtrl.addListener(_onConversasSearchInput);
+    _deptFilterCtrl.addListener(_onDeptSearchInput);
     ChurchPanelNavigationBridge.instance
         .registerChatOpenListener(_onChatPendingFromBridge);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -196,6 +200,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     WidgetsBinding.instance.removeObserver(this);
     _gruposResyncDebounce?.cancel();
     _conversasResyncDebounce?.cancel();
+    _conversasSearchDebounce?.cancel();
+    _deptSearchDebounce?.cancel();
+    _searchCtrl.removeListener(_onConversasSearchInput);
+    _deptFilterCtrl.removeListener(_onDeptSearchInput);
+    _debouncedConversasSearch.dispose();
+    _debouncedDeptSearch.dispose();
     _presencePollTimer?.cancel();
     ChurchPanelNavigationBridge.instance
         .unregisterChatOpenListener(_onChatPendingFromBridge);
@@ -205,6 +215,24 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _membersFilterCtrl.dispose();
     _deptFilterCtrl.dispose();
     super.dispose();
+  }
+
+  void _onConversasSearchInput() {
+    _conversasSearchDebounce?.cancel();
+    _conversasSearchDebounce = Timer(const Duration(milliseconds: 500), () {
+      final q = _searchCtrl.text.trim();
+      if (_debouncedConversasSearch.value == q) return;
+      _debouncedConversasSearch.value = q;
+    });
+  }
+
+  void _onDeptSearchInput() {
+    _deptSearchDebounce?.cancel();
+    _deptSearchDebounce = Timer(const Duration(milliseconds: 500), () {
+      final q = _deptFilterCtrl.text.trim().toLowerCase();
+      if (_debouncedDeptSearch.value == q) return;
+      _debouncedDeptSearch.value = q;
+    });
   }
 
   @override
@@ -667,6 +695,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           ? ChurchChatService.chatThreadsSnapshotsForUser(tid, u)
           : null;
     });
+    // Dados legados em `chat_threads` → `chats` (evita permission-denied / lista vazia).
+    unawaited(ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tid));
     unawaited(_loadChatNotifPrefs());
     unawaited(_pruneStaleChatUploads(tid));
     unawaited(_warmMemberDirectoryForChat(tid));
@@ -676,9 +706,30 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     unawaited(_silentSyncConversasIndex(tid, force: true));
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_tryConsumePendingChatThread());
+        if (mounted) {
+          unawaited(_tryResumeLastChatThread(tid));
+          unawaited(_tryConsumePendingChatThread());
+        }
       });
     }
+  }
+
+  /// «Retornar onde parou» — reabre a última conversa ao voltar ao módulo Chat.
+  Future<void> _tryResumeLastChatThread(String tid) async {
+    if (_resumeChatThreadAttempted || !widget.embeddedInShell || !mounted) {
+      return;
+    }
+    _resumeChatThreadAttempted = true;
+    if (ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen() !=
+        null) {
+      return;
+    }
+    final resume = await AppResumeStateService.readChatThread();
+    if (resume == null || resume.tenantId != tid) return;
+    ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
+      threadId: resume.threadId,
+      tenantId: tid,
+    );
   }
 
   Future<void> _loadChatNotifPrefs() async {
@@ -811,10 +862,28 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
   }
 
+  Future<void> _ensureDeptThreadsBackground(
+    String tid,
+    String uid,
+    List<_DeptEntry> entries,
+  ) async {
+    for (final e in entries) {
+      try {
+        await ChurchChatService.ensureDepartmentThread(
+          tenantId: tid,
+          departmentId: e.id,
+          departmentName: e.name,
+          participantUids: [uid],
+        ).timeout(const Duration(seconds: 12));
+      } catch (_) {}
+    }
+  }
+
   Future<void> _syncAllDepartmentsForLeadership(String tid, String uid) async {
     try {
       await ChurchTenantResilientReads.preparePanelRead();
-      final snap = await ChurchTenantResilientReads.departamentos(tid, limit: 120);
+      final snap = await ChurchTenantResilientReads.departamentos(tid, limit: 120)
+          .timeout(const Duration(seconds: 28));
       final entries = <_DeptEntry>[];
       for (final doc in snap.docs) {
         final name = churchDepartmentNameFromData(doc.data(), docId: doc.id);
@@ -823,34 +892,62 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           name: name,
           deptData: doc.data(),
         ));
-        await ChurchChatService.ensureDepartmentThread(
-          tenantId: tid,
-          departmentId: doc.id,
-          departmentName: name,
-          participantUids: [uid],
-        );
       }
       entries.sort(
         (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
       );
-      await ChurchChatService.syncUserChatProfile(
-        tenantId: tid,
-        departmentIds: entries.map((e) => e.id).toList(),
-      );
       if (!mounted) return;
       setState(() => _departments = entries);
-    } catch (_) {
+      final ids = entries.map((e) => e.id).toList();
+      unawaited(
+        ChurchChatService.syncUserChatProfile(
+          tenantId: tid,
+          departmentIds: ids,
+        ).timeout(const Duration(seconds: 14)).catchError((_) {}),
+      );
+      unawaited(_ensureDeptThreadsBackground(tid, uid, entries));
+    } catch (e) {
+      if (kDebugMode) debugPrint('chat grupos (liderança): $e');
       if (!mounted) return;
       setState(() => _departments = const []);
     }
   }
 
+  Future<void> _appendLeaderDepartmentIds(
+    String tid,
+    String uid,
+    String cpfDigits,
+    Set<String> deptIds,
+  ) async {
+    if (!ChurchRolePermissions.isDepartmentLeaderRoleKey(
+      ChurchRolePermissions.normalize(widget.role),
+    )) {
+      return;
+    }
+    try {
+      final snap = await ChurchTenantResilientReads.departamentos(tid, limit: 120)
+          .timeout(const Duration(seconds: 22));
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(data, cpfDigits) ||
+            ChurchDepartmentLeaders.leaderUidsFromDepartmentData(data)
+                .contains(uid)) {
+          deptIds.add(doc.id);
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _syncMemberDepartments(String tid) async {
     final uid = firebaseDefaultAuth.currentUser?.uid;
-    if (uid == null) return;
+    if (uid == null) {
+      if (mounted) setState(() => _departmentsLoading = false);
+      return;
+    }
+    final syncGen = ++_deptSyncGeneration;
     if (mounted) setState(() => _departmentsLoading = true);
     try {
-      if (_chatHubLeadershipFullAccess(widget.role, widget.permissions)) {
+      if (_chatHubSeesAllDepartmentGroups(widget.role, widget.permissions)) {
         await _syncAllDepartmentsForLeadership(tid, uid);
         return;
       }
@@ -898,18 +995,25 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         }
       }
 
+      final deptIdSet = deptIds.toSet();
+      await _appendLeaderDepartmentIds(tid, uid, digits, deptIdSet);
+
+      final uniqueIds = deptIdSet.toList();
       await ChurchChatService.syncUserChatProfile(
         tenantId: tid,
-        departmentIds: deptIds.toSet().toList(),
+        departmentIds: uniqueIds,
         memberDocId: membro?.id,
-      );
+      ).timeout(const Duration(seconds: 14)).catchError((_) {});
 
       final deptCol =
           FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('departamentos');
       final entries = <_DeptEntry>[];
-      for (final id in deptIds.toSet()) {
+      for (final id in uniqueIds) {
         try {
-          final doc = await deptCol.doc(id).get();
+          final doc = await deptCol
+              .doc(id)
+              .get()
+              .timeout(const Duration(seconds: 10));
           final name = doc.exists
               ? churchDepartmentNameFromData(doc.data() ?? {}, docId: doc.id)
               : id;
@@ -918,18 +1022,22 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             name: name,
             deptData: doc.exists ? doc.data() : null,
           ));
-          await ChurchChatService.ensureDepartmentThread(
-            tenantId: tid,
-            departmentId: id,
-            departmentName: name,
-            participantUids: [uid],
-          );
         } catch (_) {}
       }
+      entries.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
       if (!mounted) return;
       setState(() => _departments = entries);
+      unawaited(_ensureDeptThreadsBackground(tid, uid, entries));
+    } catch (e) {
+      if (kDebugMode) debugPrint('chat grupos (membro): $e');
+      if (!mounted) return;
+      setState(() => _departments = const []);
     } finally {
-      if (mounted) setState(() => _departmentsLoading = false);
+      if (mounted && syncGen == _deptSyncGeneration) {
+        setState(() => _departmentsLoading = false);
+      }
     }
   }
 
@@ -1808,11 +1916,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   );
                 }
 
-                return ListenableBuilder(
-                  listenable: _searchCtrl,
-                  builder: (context, _) {
+                return ValueListenableBuilder<String>(
+                  valueListenable: _debouncedConversasSearch,
+                  builder: (context, q, _) {
                 final threads = <Widget>[];
-                final q = _searchCtrl.text.trim();
                 final ql = q.toLowerCase();
 
                 if (streamError != null && snapForList != null) {
@@ -2111,10 +2218,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       stream: ChurchChatMemberPrefs.watch(tid),
       builder: (context, prefSnap) {
         final prefs = ChurchChatMemberPrefs.parse(prefSnap.data);
-        return ListenableBuilder(
-          listenable: _deptFilterCtrl,
-          builder: (context, _) {
-        final ql = _deptFilterCtrl.text.trim().toLowerCase();
+        return ValueListenableBuilder<String>(
+          valueListenable: _debouncedDeptSearch,
+          builder: (context, ql, _) {
         final filtered = _departments.where((d) {
           if (ql.isEmpty) {
             return true;
@@ -2137,7 +2243,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     _departmentsLoading
                         ? 'A carregar grupos…'
                         : _departments.isEmpty
-                            ? (_chatHubLeadershipFullAccess(
+                            ? (_chatHubSeesAllDepartmentGroups(
                                     widget.role, widget.permissions)
                                 ? 'Nenhum departamento cadastrado na igreja.'
                                 : 'Sem grupos — faça parte de um departamento na sua ficha de membro.')
@@ -3336,7 +3442,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
 
   void _onFilterChanged() {
     _filterDebounce?.cancel();
-    _filterDebounce = Timer(const Duration(milliseconds: 220), () {
+    _filterDebounce = Timer(const Duration(milliseconds: 500), () {
       if (mounted) setState(() {});
     });
   }
@@ -4198,6 +4304,8 @@ class _NovaConversaDiretaSheet extends StatefulWidget {
 
 class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
   final _filter = TextEditingController();
+  Timer? _filterDebounce;
+  String _filterQuery = '';
 
   String? _cpfDigitsForMember(Map<String, dynamic> d, String docId) {
     final fromField =
@@ -4211,11 +4319,23 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
   @override
   void initState() {
     super.initState();
-    _filter.addListener(() => setState(() {}));
+    _filter.addListener(_onFilterChanged);
+  }
+
+  void _onFilterChanged() {
+    _filterDebounce?.cancel();
+    _filterDebounce = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      final q = _filter.text.trim().toLowerCase();
+      if (q == _filterQuery) return;
+      setState(() => _filterQuery = q);
+    });
   }
 
   @override
   void dispose() {
+    _filterDebounce?.cancel();
+    _filter.removeListener(_onFilterChanged);
     _filter.dispose();
     super.dispose();
   }
@@ -4233,7 +4353,7 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> get _filtered {
-    final q = _filter.text.trim().toLowerCase();
+    final q = _filterQuery;
     final base = _eligible;
     if (q.isEmpty) return base;
     return base.where((doc) {

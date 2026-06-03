@@ -21,8 +21,7 @@ import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
-import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
-import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
+import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -39,6 +38,8 @@ import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
     show scheduleFeedMediaWarmup;
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
@@ -132,6 +133,8 @@ class EventsManagerPage extends StatefulWidget {
 
   /// Pré-preenche a busca do feed (ex.: busca global).
   final String? initialFeedSearchQuery;
+  /// Reabre o evento onde o utilizador parou ([AppResumeStateService]).
+  final String? initialOpenEventDocId;
   /// Aba inicial (0=Feed, 1=Galeria Arquivo, demais conforme permissões).
   final int initialTabIndex;
 
@@ -143,6 +146,7 @@ class EventsManagerPage extends StatefulWidget {
     this.embeddedInShell = false,
     this.onShellBack,
     this.initialFeedSearchQuery,
+    this.initialOpenEventDocId,
     this.initialTabIndex = 0,
   });
 
@@ -200,6 +204,29 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     _tab.index = startIndex;
     _tab.addListener(_onMainTabChanged);
     unawaited(_bootstrapFirestoreTenant());
+    final resumeId = widget.initialOpenEventDocId?.trim() ?? '';
+    if (resumeId.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_openResumedEventDoc(resumeId));
+      });
+    }
+  }
+
+  Future<void> _openResumedEventDoc(String eventDocId) async {
+    try {
+      await _bootstrapFirestoreTenant();
+      final snap = await _noticias.doc(eventDocId).get();
+      if (!mounted || !snap.exists) return;
+      unawaited(
+        AppResumeStateService.saveOpenEvent(
+          tenantId: _tid,
+          eventDocId: eventDocId,
+        ),
+      );
+      await _novoEvento(doc: snap);
+    } catch (e, st) {
+      YahwehFlowLog.error('EVENTOS', e, st);
+    }
   }
 
   @override
@@ -256,6 +283,14 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
   Future<void> _novoEvento(
       {DocumentSnapshot<Map<String, dynamic>>? doc}) async {
+    if (doc != null) {
+      unawaited(
+        AppResumeStateService.saveOpenEvent(
+          tenantId: _tid,
+          eventDocId: doc.id,
+        ),
+      );
+    }
     await ensureFirebaseReadyForPublishUpload().catchError((_) {});
     final result = await Navigator.push<bool>(
         context,
@@ -6761,20 +6796,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return payload;
   }
 
-  void _schedulePostPublishCacheWarmup() {
-    // Pós-publicação: acelera atualização no painel inicial e no site público.
-    unawaited(
-      PanelDashboardSnapshotService.warmFromCallableIfStale(widget.tenantId),
-    );
-    if (_publicSite) {
-      unawaited(
-        ChurchPerformanceCacheService.warmPublicFeedCacheFromCallableIfStale(
-          widget.tenantId,
-        ),
-      );
-    }
-  }
-
   Future<void> _mergePublishedEventVideoFields() async {
     try {
       await runFirebaseBackgroundTask(() async {
@@ -6801,7 +6822,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         },
         SetOptions(merge: true),
       );
-      _schedulePostPublishCacheWarmup();
+      PublicationEngine.scheduleDistribution(
+        tenantId: widget.tenantId,
+        kind: PublicationKind.evento,
+        postId: _eventDocRef.id,
+        isNewDoc: false,
+        publicSite: _publicSite,
+        phase: PublicationDistributionPhase.afterMediaFinalized,
+      );
       }, debugLabel: 'event_video_merge');
     } catch (_) {}
   }
@@ -6856,7 +6884,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         hasVideo: hasVideo,
         newImagesBytes: bytes,
         newImagePaths: paths,
-        onPublished: () async => _schedulePostPublishCacheWarmup(),
+        publicSite: _publicSite,
       );
     } else {
       await FeedMediaPublishService.publishNow(
@@ -6864,6 +6892,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         payload: payload,
         isNewDoc: isNewDoc,
         postType: 'evento',
+        publicSite: _publicSite,
       );
     }
   }
@@ -6937,9 +6966,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             hasVideo: hasVideo,
             newImagesBytes: bytes,
             newImagePaths: paths,
-            onPublished: () async {
-              _schedulePostPublishCacheWarmup();
-            },
+            publicSite: _publicSite,
           );
         } else {
           await FeedMediaPublishService.publishNow(
@@ -6947,11 +6974,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             payload: payload,
             isNewDoc: isNewDoc,
             postType: 'evento',
+            publicSite: _publicSite,
           );
         }
         if (mounted) {
           if (_uploadingVideo) _publishedAwaitingVideoMerge = true;
-          _schedulePostPublishCacheWarmup();
           unawaited(IosPublishMemory.releaseAfterHeavyWork());
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -6979,7 +7006,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         try {
           await _retryEventPublishFirestoreFirst();
           if (mounted) {
-            _schedulePostPublishCacheWarmup();
+            PublicationEngine.scheduleDistribution(
+              tenantId: widget.tenantId,
+              kind: PublicationKind.evento,
+              postId: postId,
+              isNewDoc: isNewDoc,
+              publicSite: _publicSite,
+            );
             ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.successSnackBar('Evento publicado!'),
             );
@@ -9096,6 +9129,15 @@ class _FixosTabState extends State<_FixosTab> {
 
   void _openEventoFixoDetail(
       BuildContext context, DocumentSnapshot<Map<String, dynamic>> doc) {
+    final tid = widget.noticias.parent?.id ?? '';
+    if (tid.isNotEmpty) {
+      unawaited(
+        AppResumeStateService.saveOpenEvent(
+          tenantId: tid,
+          eventDocId: doc.id,
+        ),
+      );
+    }
     final dm = doc.data() ?? {};
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => _EventoFixoDetailPage(

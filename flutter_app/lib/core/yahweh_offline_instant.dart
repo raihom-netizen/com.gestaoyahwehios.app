@@ -1,21 +1,32 @@
 import 'dart:async' show unawaited;
 
 import 'package:gestao_yahweh/core/yahweh_incremental_sync.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
 
-/// Modo instantâneo (offline-first leve) — SharedPreferences + Firestore offline.
+/// Modo instantâneo (offline-first leve) — Hive + SharedPreferences + Firestore offline.
 ///
 /// Fluxo: gravar local → UI imediata → sync em background → Firestore.
-/// Isar/Hive: roadmap quando snapshots + offline não bastarem.
 abstract final class YahwehOfflineInstant {
   YahwehOfflineInstant._();
 
-  /// Buckets: `avisos`, `eventos`, `chat_threads`, `membros`, `perfil`.
+  /// Buckets: `avisos`, `eventos`, `chat`, `membros`, `patrimonio`, `financeiro`, `agenda`.
   static Future<List<Map<String, dynamic>>> readFeedLocal(
     String tenantId,
     String bucket,
-  ) =>
-      YahwehLocalSnapshotStore.readJsonList(tenantId, bucket);
+  ) async {
+    final hive = await TenantModuleHiveCache.readDocs(tenantId, bucket);
+    if (hive.isNotEmpty) {
+      return hive
+          .map((r) {
+            final data = r['data'];
+            if (data is Map) return Map<String, dynamic>.from(data);
+            return Map<String, dynamic>.from(r);
+          })
+          .toList();
+    }
+    return YahwehLocalSnapshotStore.readJsonList(tenantId, bucket);
+  }
 
   static Future<void> writeFeedLocal(
     String tenantId,

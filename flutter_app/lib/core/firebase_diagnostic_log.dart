@@ -1,6 +1,7 @@
 import 'dart:async' show unawaited;
 
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 
 /// Log da exceção **real** (nunca mensagem genérica mascarada).
@@ -16,6 +17,26 @@ void logFirebaseDiagnostic(
   }
   if (CrashlyticsService.shouldReport(error)) {
     unawaited(CrashlyticsService.record(error, stack, reason: label));
+  }
+}
+
+/// Chat / Firestore — path exato quando `permission-denied` ou falha de leitura.
+void logChatFirestoreAccess({
+  required String path,
+  required String churchId,
+  Object? error,
+  StackTrace? stack,
+}) {
+  String uid = '';
+  try {
+    uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+  } catch (_) {}
+  if (kDebugMode) {
+    debugPrint('CHAT PATH=$path');
+    debugPrint('CHURCH=$churchId');
+    debugPrint('UID=$uid');
+    if (error != null) debugPrint('ERROR=$error');
+    if (stack != null) debugPrint(stack.toString());
   }
 }
 

@@ -16,6 +16,8 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
@@ -176,6 +178,7 @@ class InstagramMural extends StatefulWidget {
   final String churchSlug;
   final List<String>? permissions;
   final Map<String, dynamic>? initialTenantData;
+  final String? initialOpenAvisoDocId;
   const InstagramMural({
     super.key,
     required this.tenantId,
@@ -183,6 +186,7 @@ class InstagramMural extends StatefulWidget {
     required this.churchSlug,
     this.permissions,
     this.initialTenantData,
+    this.initialOpenAvisoDocId,
   });
 
   @override
@@ -270,7 +274,21 @@ class InstagramMuralState extends State<InstagramMural> {
       if (_canManageAll) {
         NoticiaExpiredMediaCleanupService.runOnceForTenant(widget.tenantId);
       }
+      final resumeId = widget.initialOpenAvisoDocId?.trim() ?? '';
+      if (resumeId.isNotEmpty) {
+        unawaited(_openResumedAvisoDoc(resumeId));
+      }
     });
+  }
+
+  Future<void> _openResumedAvisoDoc(String avisoDocId) async {
+    try {
+      final snap = await _avisos.doc(avisoDocId).get();
+      if (!mounted || !snap.exists) return;
+      await _openEditor(doc: snap, type: 'aviso');
+    } catch (e, st) {
+      YahwehFlowLog.error('AVISOS', e, st);
+    }
   }
 
   @override
@@ -365,6 +383,14 @@ class InstagramMuralState extends State<InstagramMural> {
   Future<void> _openEditor(
       {DocumentSnapshot<Map<String, dynamic>>? doc,
       required String type}) async {
+    if (doc != null && type == 'aviso') {
+      unawaited(
+        AppResumeStateService.saveOpenAviso(
+          tenantId: widget.tenantId,
+          avisoDocId: doc.id,
+        ),
+      );
+    }
     try {
       await ensureFirebaseReadyForPublishUpload();
     } catch (e) {
@@ -3933,20 +3959,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     return payload;
   }
 
-  void _schedulePostPublishCacheWarmup() {
-    // Pós-publicação: garante painel + site público atualizados sem esperar cron.
-    unawaited(
-      PanelDashboardSnapshotService.warmFromCallableIfStale(widget.tenantId),
-    );
-    if (_publicSite) {
-      unawaited(
-        ChurchPerformanceCacheService.warmPublicFeedCacheFromCallableIfStale(
-          widget.tenantId,
-        ),
-      );
-    }
-  }
-
   Future<void> _save() async {
     if (_saving) return;
     if (_title.text.trim().isEmpty) {
@@ -4014,11 +4026,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               _videoUrl.text.trim().isNotEmpty,
           newImagesBytes: bytes,
           newImagePaths: paths,
-          onPublished: () async => _schedulePostPublishCacheWarmup(),
+          publicSite: _publicSite,
         );
         if (mounted) {
           unawaited(IosPublishMemory.releaseAfterHeavyWork());
-          _schedulePostPublishCacheWarmup();
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
               isNewDoc ? 'Publicado com sucesso' : 'Atualizado com sucesso',
@@ -4038,9 +4049,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         payload: payload,
         isNewDoc: isNewDoc,
         postType: widget.type,
+        publicSite: _publicSite,
       );
       if (mounted) {
-        _schedulePostPublishCacheWarmup();
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
         );

@@ -35,9 +35,12 @@ Write-Host "`n=== flutter build web --release (CanvasKit / GPU, fotos 4K e crop)
 # FLUTTER_WEB_USE_SKIA=true = CanvasKit (padrão para performance com mídia HD na web).
 # HTML/DOM (alternativa): .\scripts\deploy_web_hosting_html_dom.ps1
 # --no-tree-shake-icons: ícones só via IconData dinâmico (menu lateral) não viram quadrados vazios na web.
-# --pwa-strategy=none: desativa Service Worker no build para evitar cache antigo de ícones/layout.
-flutter build web --release --no-tree-shake-icons --pwa-strategy=none --dart-define=FLUTTER_WEB_USE_SKIA=true
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+flutter build web --release --no-tree-shake-icons --dart-define=FLUTTER_WEB_USE_SKIA=true 2>&1 | ForEach-Object { Write-Host $_ }
+$buildExit = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+if ($buildExit -ne 0) { exit $buildExit }
 
 Set-Location $RepoRoot
 Write-Host "`n=== firebase deploy --only hosting ===" -ForegroundColor Cyan

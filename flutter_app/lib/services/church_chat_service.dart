@@ -12,9 +12,11 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart'
     show YahwehUploadModule;
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart'
     show awaitStorageUploadTask;
 import 'church_chat_album_utils.dart';
@@ -38,6 +40,7 @@ class ChurchChatService {
   static const Duration mediaRetention = Duration(days: 3);
 
   /// Estados de entrega (estilo WhatsApp).
+  static const String deliveryLocal = 'local';
   static const String deliverySending = 'sending';
   static const String deliveryUploading = 'uploading';
   /// Aguardando rede / fila de reenvio (stub mantém-se; não apagar mensagem).
@@ -171,7 +174,7 @@ class ChurchChatService {
         .collection('chats')
         .where('participantUids', arrayContains: uid)
         .orderBy('lastMessageAt', descending: true)
-        .limit(400);
+        .limit(YahwehPerformanceV4.chatThreadsListLimit);
   }
 
   /// Threads com `participantUids` mas sem `lastMessageAt` (não entram na query ordenada).
@@ -184,7 +187,7 @@ class ChurchChatService {
         .doc(tenantId)
         .collection('chats')
         .where('participantUids', arrayContains: uid)
-        .limit(220);
+        .limit(YahwehPerformanceV4.chatThreadsFallbackLimit);
   }
 
   /// Não usar `limit(N)` sem filtro em listeners — as regras Firestore rejeitam a query
@@ -515,7 +518,7 @@ class ChurchChatService {
           .collection('igrejas')
           .doc(tenantId)
           .collection('chat_peer_profiles')
-          .limit(220)
+          .limit(YahwehPerformanceV4.chatThreadsFallbackLimit)
           .get();
       for (final p in profiles.docs) {
         final id = p.id.trim();
@@ -756,6 +759,15 @@ class ChurchChatService {
           },
           onError: (Object error, StackTrace stack) {
             if (controller.isClosed) return;
+            if (FirestoreStreamUtils.isPermissionDenied(error)) {
+              logChatFirestoreAccess(
+                path:
+                    'igrejas/$tenantId/chats?participantUids=arrayContains:$uid&orderBy=lastMessageAt',
+                churchId: tenantId,
+                error: error,
+                stack: stack,
+              );
+            }
             if (!FirestoreStreamUtils.isPermissionDenied(error)) {
               wireAttempts++;
               if (wireAttempts > 14) {
@@ -1051,7 +1063,7 @@ class ChurchChatService {
           .doc(tenantId)
           .collection('membros')
           .where('departamentosIds', arrayContains: deptId)
-          .limit(400)
+          .limit(YahwehPerformanceV4.chatThreadsListLimit)
           .get();
       final out = q.docs.where((doc) => isActive(doc.data())).toList();
       out.sort(nameCmp);
@@ -1061,7 +1073,7 @@ class ChurchChatService {
           .collection('igrejas')
           .doc(tenantId)
           .collection('membros')
-          .limit(600)
+          .limit(YahwehPerformanceV4.chatThreadsListLimit)
           .get();
       final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
       for (final doc in all.docs) {
@@ -1547,6 +1559,9 @@ class ChurchChatService {
     final preview = nf != null
         ? '↪ ${nf['preview']}'
         : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
+    final outboundStatus = AppConnectivityService.instance.isOnline
+        ? deliverySent
+        : deliveryLocal;
     try {
       await _commitMessageAndThreadIndex(
         tenantId: tenantId,
@@ -1557,8 +1572,8 @@ class ChurchChatService {
           'senderId': uid,
           'type': 'text',
           'text': text,
-          'deliveryStatus': deliverySent,
-          'status': deliverySent,
+          'deliveryStatus': outboundStatus,
+          'status': outboundStatus,
           'createdAt': FieldValue.serverTimestamp(),
           'expiresAt': expiresAt,
           if (nr != null) 'replyTo': nr,

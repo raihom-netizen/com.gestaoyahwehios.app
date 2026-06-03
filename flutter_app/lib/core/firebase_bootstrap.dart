@@ -25,24 +25,53 @@ export 'firebase_publish_guard.dart' show ensureFirebaseReadyToPublish;
 Future<void> ensureFirebaseInitialized() =>
     fb_core.FirebaseBootstrap.ensureInitialized();
 
+/// Padrão Controle Total: **um** `initializeApp` + (opcional) token JWT.
+/// Sem health check, fila, reconnect nem segunda inicialização.
+Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
+  await fb_core.FirebaseBootstrap.ensureInitialized();
+  FirebaseBootstrapService.refreshCachedApp();
+  if (Firebase.apps.isEmpty) {
+    throw StateError(
+      'Firebase não inicializou (core/no-app). FIREBASE APPS=0',
+    );
+  }
+  if (!requireAuth) return;
+  final user = FirebaseBootstrapService.auth.currentUser;
+  if (user == null || user.isAnonymous) {
+    throw StateError(
+      'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
+    );
+  }
+  await user.getIdToken(false).timeout(const Duration(seconds: 12));
+}
+
 Future<void> ensureFirebaseReadyForMediaUpload({bool force = false}) =>
-    FirebaseBootstrapService.ensureReadyForMediaUpload(force: force);
+    ensureFirebaseCore(requireAuth: true);
 
-/// Painel / feeds — Firestore pronto (sem refresh de token).
+/// Painel / feeds — só núcleo Firebase (sem token).
 Future<void> ensureFirebaseReadyForPanelRead() =>
-    FirebaseBootstrapService.ensureReadyForPanelRead();
+    ensureFirebaseCore(requireAuth: false);
 
-/// Avisos/eventos/mural — init + token (sem FCM nem backoff longo).
+/// Avisos/eventos/mural/património/foto membro.
 Future<void> ensureFirebaseReadyForPublishUpload() =>
-    FirebaseBootstrapService.ensureReadyForPublishUpload();
+    ensureFirebaseCore(requireAuth: true);
 
-/// Chat (texto/mídia): sessão + token — sem health check completo nem backoff de reconexão.
+/// Chat texto/mídia — mesmo núcleo (Firestore + Storage directos).
 Future<void> ensureFirebaseReadyForChatSend() =>
-    FirebaseBootstrapService.ensureReadyForChatSend();
+    ensureFirebaseCore(requireAuth: true);
 
-/// Upload Storage — bootstrap único (Controle Total): init + token, sem health FCM.
+/// Mídia do chat — sem [runFirebaseBackgroundTask] (menos latência no caminho quente).
+Future<void> runChatMediaUploadTask(
+  Future<void> Function() fn, {
+  String? debugLabel,
+}) async {
+  await ensureFirebaseCore(requireAuth: true);
+  await fn();
+}
+
+/// Upload Storage — init + token (path ignorado; mantido por compatibilidade).
 Future<void> ensureUploadBootstrapForStoragePath(String storagePath) async {
-  await FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true);
+  await ensureFirebaseCore(requireAuth: true);
 }
 
 /// Tarefas de upload/chat — bootstrap + reconnect automático em `core/no-app`.

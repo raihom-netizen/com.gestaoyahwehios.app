@@ -1136,13 +1136,13 @@ service cloud.firestore {
 
       /// Mensagens / typing / helpers â€” leem o doc pai via `get()`.
       function canReadChatThreadDoc(tenantId, threadId) {
-        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chat_threads/$(threadId);
+        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
         return exists(path) && canReadChatThreadData(tenantId, threadId, get(path).data);
       }
 
       /// Envio de mensagem â€” um `get(thread)`; sem `canReadChatThreadData` (menos latÃªncia no create).
       function chatSenderMayPostToThread(tenantId, threadId) {
-        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chat_threads/$(threadId);
+        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
         let t = exists(path) ? get(path).data : {};
         let isDept = t.type == 'department' || threadId.matches('^dept_.+');
         return exists(path) && (
@@ -1175,7 +1175,7 @@ service cloud.firestore {
       /// Â«Apagar para todosÂ» (DELETE): DM â€” qualquer participante pode apagar qualquer mensagem (estilo limpar conversa).
       /// Grupo â€” o autor apaga a prÃ³pria; pastor/gestor/ADM (canWriteTenant + pastoral) ou lÃ­der do departamento apagam qualquer uma.
       function chatMessageDeleteForEveryoneAllowed(tenantId, threadId) {
-        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chat_threads/$(threadId);
+        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
         let t = get(path).data;
         let participants = t.participantUids is list && request.auth.uid in t.participantUids;
         let isDm = t.type == 'dm' || threadId.matches('^dm_.+');
@@ -1203,7 +1203,7 @@ service cloud.firestore {
 
       /// Apagar o documento do thread (ex.: grupo de departamento): nÃ£o Ã© Â«membro comumÂ»; alinhado ao app.
       function chatThreadDeleteAllowed(tenantId, threadId) {
-        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chat_threads/$(threadId);
+        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
         return isAdminPanel()
           || canWriteTenant(tenantId)
           || chatPastoralModeratorRole()

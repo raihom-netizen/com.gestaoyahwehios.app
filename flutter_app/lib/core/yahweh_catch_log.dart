@@ -1,6 +1,8 @@
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
-import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'dart:async' show unawaited;
+
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:gestao_yahweh/core/system_health/system_last_error_registry.dart';
+import 'package:gestao_yahweh/services/crashlytics_service.dart';
 
 /// `catch (e, s) { print; rethrow }` — padrão obrigatório produção premium.
 abstract final class YahwehCatchLog {
@@ -15,6 +17,11 @@ abstract final class YahwehCatchLog {
     // ignore: avoid_print
     print(s);
     if (kDebugMode) debugPrint('$prefix $e\n$s');
+    SystemLastErrorRegistry.record(
+      module: tag ?? 'APP',
+      error: e,
+      stackTrace: s,
+    );
     unawaited(
       CrashlyticsService.record(e, s, reason: tag ?? 'yahweh_catch'),
     );

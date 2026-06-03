@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/system_health/production_module_traces.dart';
 import 'package:firebase_performance/firebase_performance.dart';
 import 'package:gestao_yahweh/services/analytics_service.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
@@ -41,6 +42,42 @@ abstract final class YahwehObservability {
     Future<T> Function() fn,
   ) =>
       PerformanceService.track(traceName, fn);
+
+  static Future<T> traceDashboard<T>(Future<T> Function() fn) =>
+      traceAsync(ProductionModuleTraces.dashboard, fn);
+
+  static Future<T> traceChat<T>(Future<T> Function() fn) =>
+      traceAsync(ProductionModuleTraces.chat, fn);
+
+  static Future<T> traceAvisos<T>(Future<T> Function() fn) =>
+      traceAsync(ProductionModuleTraces.avisos, fn);
+
+  static Future<T> traceEventos<T>(Future<T> Function() fn) =>
+      traceAsync(ProductionModuleTraces.eventos, fn);
+
+  static Future<T> tracePatrimonio<T>(Future<T> Function() fn) =>
+      traceAsync(ProductionModuleTraces.patrimonio, fn);
+
+  static Future<T> traceFinanceiro<T>(Future<T> Function() fn) =>
+      traceAsync(ProductionModuleTraces.financeiro, fn);
+
+  static Future<T> traceUpload<T>(Future<T> Function() fn) =>
+      traceAsync(ProductionModuleTraces.upload, fn);
+
+  static Future<T> traceSyncFlush<T>(Future<T> Function() fn) =>
+      traceAsync(ProductionModuleTraces.syncFlush, fn);
+
+  static Future<T> traceLogin<T>(Future<T> Function() fn) =>
+      traceAsync(ProductionModuleTraces.login, fn);
+
+  static Future<void> recordFirestoreError(Object error, StackTrace? stack) =>
+      recordError(error, stack, reason: 'firestore_error');
+
+  static Future<void> recordStorageError(Object error, StackTrace? stack) =>
+      recordError(error, stack, reason: 'storage_error');
+
+  static Future<void> recordUploadError(Object error, StackTrace? stack) =>
+      recordError(error, stack, reason: 'upload_error');
 
   static HttpMetric? startHttpMetric(String url, HttpMethod method) {
     try {

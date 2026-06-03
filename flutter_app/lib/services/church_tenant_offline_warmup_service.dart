@@ -18,6 +18,7 @@ class ChurchTenantOfflineWarmupService {
 
   String? _sessionTenant;
   bool _warmupDoneThisSession = false;
+  bool _heavyWarmupScheduled = false;
   bool _warmupRunning = false;
 
   void resetForNewSession() {
@@ -47,7 +48,15 @@ class ChurchTenantOfflineWarmupService {
     if (_warmupDoneThisSession) return;
 
     _warmupDoneThisSession = true;
-    unawaited(_runWarmup(tidIn));
+    // 1.º frame: só leituras leves (painel rápido).
+    unawaited(_runWarmup(tidIn, light: true));
+    if (!_heavyWarmupScheduled) {
+      _heavyWarmupScheduled = true;
+      Future<void>.delayed(const Duration(seconds: 4), () {
+        if (_sessionTenant != tidIn) return;
+        unawaited(_runWarmup(tidIn, light: false));
+      });
+    }
   }
 
   Future<void> _runWarmup(String tenantIdRaw, {bool light = false}) async {
@@ -82,12 +91,34 @@ class ChurchTenantOfflineWarmupService {
         ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tenantId),
       );
 
+      final membrosLimit = light ? 24 : 80;
+      final avisosLimit = light ? 20 : 50;
+      final eventosLimit = light ? 20 : 60;
+
       final tasks = <Future<void>>[
         safe('igreja_doc', () => ChurchTenantResilientReads.churchDocument(tenantId)),
         safe('panel_cache', () => ChurchTenantResilientReads.panelCacheSummary(tenantId)),
-        safe('membros', () => ChurchTenantResilientReads.membrosRecent(tenantId, limit: 220)),
-        safe('avisos', () => ChurchTenantResilientReads.avisosFeed(tenantId, limit: 80)),
-        safe('noticias', () => ChurchTenantResilientReads.noticiasByStartAt(tenantId, limit: 200)),
+        safe(
+          'membros',
+          () => ChurchTenantResilientReads.membrosRecent(
+            tenantId,
+            limit: membrosLimit,
+          ),
+        ),
+        safe(
+          'avisos',
+          () => ChurchTenantResilientReads.avisosFeed(
+            tenantId,
+            limit: avisosLimit,
+          ),
+        ),
+        safe(
+          'noticias',
+          () => ChurchTenantResilientReads.noticiasByStartAt(
+            tenantId,
+            limit: eventosLimit,
+          ),
+        ),
       ];
 
       if (!light) {

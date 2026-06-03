@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -147,6 +148,7 @@ class LoginPreferences {
     await prefs.remove(_kLastOAuthProvider);
     await prefs.remove(kAutoPainelLogin);
     await prefs.remove('last_route');
+    await AppResumeStateService.clearAll();
     await prefs.setBool('biometric_enabled', false);
     await prefs.setBool('biometric_asked', true);
     const prefix = 'igreja';

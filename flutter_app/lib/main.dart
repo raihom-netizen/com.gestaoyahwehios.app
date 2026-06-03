@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart'
     show
         PlatformDispatcher,
         TargetPlatform,
+        debugPrint,
         defaultTargetPlatform,
+        kDebugMode,
         kIsWeb,
         kReleaseMode;
 import 'package:flutter/material.dart';
@@ -20,6 +22,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/ui/pages/firebase_bootstrap_recovery_page.dart';
 import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/core/offline/offline_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/url_strategy.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -52,6 +55,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
@@ -182,9 +186,7 @@ class _LastRouteObserver extends NavigatorObserver {
         name.startsWith('/painel') ||
         name.startsWith('/admin');
     if (!isPainel) return;
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setString(_key, name);
-    });
+    unawaited(AppResumeStateService.saveLastRoute(name));
   }
 }
 
@@ -370,7 +372,16 @@ String? _extractChurchSlugFromHost(String host) {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Controle Total: um único initializeApp (firebase/firebase_bootstrap.dart).
   await FirebaseBootstrap.ensureInitialized();
+  // Fase offline-first: Hive + SyncEngine (sem alterar UI).
+  try {
+    await OfflineBootstrap.init();
+  } catch (e, st) {
+    if (kDebugMode) {
+      debugPrint('OfflineBootstrap.init (main): $e\n$st');
+    }
+  }
   // Controle Total: cache de imagens conservador (menos GC em listas com fotos).
   if (kIsWeb) {
     PaintingBinding.instance.imageCache.maximumSize = 200;
@@ -416,6 +427,7 @@ void main() async {
   }
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
+  // Health check + Firestore settings — sem segundo initializeApp.
   final firebaseBoot = await FirebaseBootstrapService.initialize();
   await Future.wait<void>([
     LoginPreferences.warmUpForStartup(),

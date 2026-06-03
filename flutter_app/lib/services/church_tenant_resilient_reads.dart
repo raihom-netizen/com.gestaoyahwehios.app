@@ -1,4 +1,6 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
 import 'package:gestao_yahweh/core/church_tenant_list_limits.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -72,34 +74,44 @@ abstract final class ChurchTenantResilientReads {
     String tenantId, {
     int limit = ChurchTenantListLimits.defaultPageSize,
   }) =>
-      _orderedQuery(
-        tenantId,
-        'avisos',
-        'createdAt',
-        descending: true,
-        limit: limit,
-        cacheSuffix: 'avisos_feed_$limit',
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.avisos,
+        networkFetch: () => _orderedQuery(
+          tenantId,
+          'avisos',
+          'createdAt',
+          descending: true,
+          limit: limit,
+          cacheSuffix: 'avisos_feed_$limit',
+        ),
       );
 
   static Future<QuerySnapshot<Map<String, dynamic>>> noticiasByStartAt(
     String tenantId, {
     int limit = ChurchTenantListLimits.defaultPageSize,
   }) async {
-    final church = _church(tenantId);
-    try {
-      return await FirestoreReadResilience.getQuery(
-        church
-            .collection('eventos')
-            .orderBy('startAt', descending: true)
-            .limit(limit),
-        cacheKey: _key(tenantId, 'noticias_start_$limit'),
-      );
-    } catch (_) {
-      return FirestoreReadResilience.getQuery(
-        church.collection('eventos').limit(limit),
-        cacheKey: _key(tenantId, 'noticias_plain_$limit'),
-      );
-    }
+    return TenantStaleWhileRevalidate.loadQuery(
+      tenantId: tenantId,
+      module: TenantModuleKeys.eventos,
+      networkFetch: () async {
+        final church = _church(tenantId);
+        try {
+          return await FirestoreReadResilience.getQuery(
+            church
+                .collection('eventos')
+                .orderBy('startAt', descending: true)
+                .limit(limit),
+            cacheKey: _key(tenantId, 'noticias_start_$limit'),
+          );
+        } catch (_) {
+          return FirestoreReadResilience.getQuery(
+            church.collection('eventos').limit(limit),
+            cacheKey: _key(tenantId, 'noticias_plain_$limit'),
+          );
+        }
+      },
+    );
   }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> eventCategories(
@@ -156,23 +168,28 @@ abstract final class ChurchTenantResilientReads {
   static Future<QuerySnapshot<Map<String, dynamic>>> membrosRecent(
     String tenantId, {
     int limit = 220,
-  }) async {
-    final church = _church(tenantId);
-    try {
-      return await FirestoreReadResilience.getQuery(
-        church
-            .collection('membros')
-            .orderBy('updatedAt', descending: true)
-            .limit(limit),
-        cacheKey: _key(tenantId, 'membros_updated_$limit'),
+  }) =>
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.membros,
+        networkFetch: () async {
+          final church = _church(tenantId);
+          try {
+            return await FirestoreReadResilience.getQuery(
+              church
+                  .collection('membros')
+                  .orderBy('updatedAt', descending: true)
+                  .limit(limit),
+              cacheKey: _key(tenantId, 'membros_updated_$limit'),
+            );
+          } catch (_) {
+            return FirestoreReadResilience.getQuery(
+              church.collection('membros').limit(limit),
+              cacheKey: _key(tenantId, 'membros_plain_$limit'),
+            );
+          }
+        },
       );
-    } catch (_) {
-      return FirestoreReadResilience.getQuery(
-        church.collection('membros').limit(limit),
-        cacheKey: _key(tenantId, 'membros_plain_$limit'),
-      );
-    }
-  }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> departamentos(
     String tenantId, {
@@ -187,22 +204,30 @@ abstract final class ChurchTenantResilientReads {
     String tenantId, {
     int limit = 250,
   }) =>
-      _orderedQuery(
-        tenantId,
-        'finance',
-        'createdAt',
-        descending: true,
-        limit: limit,
-        cacheSuffix: 'finance_$limit',
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.financeiro,
+        networkFetch: () => _orderedQuery(
+          tenantId,
+          'finance',
+          'createdAt',
+          descending: true,
+          limit: limit,
+          cacheSuffix: 'finance_$limit',
+        ),
       );
 
   static Future<QuerySnapshot<Map<String, dynamic>>> patrimonio(
     String tenantId, {
     int limit = 250,
   }) =>
-      FirestoreReadResilience.getQuery(
-        _church(tenantId).collection('patrimonio').limit(limit),
-        cacheKey: _key(tenantId, 'patrimonio_$limit'),
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.patrimonio,
+        networkFetch: () => FirestoreReadResilience.getQuery(
+          _church(tenantId).collection('patrimonio').limit(limit),
+          cacheKey: _key(tenantId, 'patrimonio_$limit'),
+        ),
       );
 
   static Future<QuerySnapshot<Map<String, dynamic>>> contas(
@@ -231,13 +256,17 @@ abstract final class ChurchTenantResilientReads {
     String tenantId, {
     int limit = 120,
   }) =>
-      _orderedQuery(
-        tenantId,
-        'escalas',
-        'date',
-        descending: true,
-        limit: limit,
-        cacheSuffix: 'escalas_$limit',
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.agenda,
+        networkFetch: () => _orderedQuery(
+          tenantId,
+          'escalas',
+          'date',
+          descending: true,
+          limit: limit,
+          cacheSuffix: 'escalas_$limit',
+        ),
       );
 
   static Future<DocumentSnapshot<Map<String, dynamic>>> panelCacheSummary(

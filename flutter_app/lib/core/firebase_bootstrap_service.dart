@@ -217,7 +217,21 @@ abstract final class FirebaseBootstrapService {
   static FirebaseHealthReport? get lastHealth => _lastHealth;
   static FirebaseBootstrapException? get lastFailure => _lastFailure;
 
+  static void _assertFirebaseAppAvailable() {
+    if (Firebase.apps.isEmpty || !_hasApp()) {
+      throw FirebaseBootstrapException.from(
+        StateError(
+          'Firebase não inicializou (core/no-app). '
+          'FIREBASE APPS=${Firebase.apps.length}',
+        ),
+        StackTrace.current,
+        code: 'no_firebase_app',
+      );
+    }
+  }
+
   static FirebaseApp get defaultApp {
+    _assertFirebaseAppAvailable();
     if (_cachedApp != null) {
       try {
         _cachedApp!.name;
@@ -231,13 +245,20 @@ abstract final class FirebaseBootstrapService {
     return app;
   }
 
-  static FirebaseFirestore get firestore =>
-      FirebaseFirestore.instanceFor(app: defaultApp);
+  static FirebaseFirestore get firestore {
+    _assertFirebaseAppAvailable();
+    return FirebaseFirestore.instanceFor(app: defaultApp);
+  }
 
-  static FirebaseAuth get auth => FirebaseAuth.instanceFor(app: defaultApp);
+  static FirebaseAuth get auth {
+    _assertFirebaseAppAvailable();
+    return FirebaseAuth.instanceFor(app: defaultApp);
+  }
 
-  static FirebaseStorage get storage =>
-      FirebaseStorage.instanceFor(app: defaultApp);
+  static FirebaseStorage get storage {
+    _assertFirebaseAppAvailable();
+    return FirebaseStorage.instanceFor(app: defaultApp);
+  }
 
   static Reference storageRef(String path) => storage.ref(path);
 
@@ -281,12 +302,12 @@ abstract final class FirebaseBootstrapService {
     StackTrace? lastSt;
     for (var attempt = 0; attempt < _reconnectDelaysSec.length + 1; attempt++) {
       try {
-        if (!_hasApp()) {
-          await Firebase.initializeApp(
-            options: DefaultFirebaseOptions.currentPlatform,
-          );
-        }
+        await FirebaseBootstrap.ensureInitialized();
         _cachedApp = Firebase.app();
+        if (kDebugMode) {
+          debugPrint('FIREBASE INIT OK (FirebaseBootstrapService health)');
+          debugPrint('FIREBASE APPS=${Firebase.apps.length}');
+        }
         final health = await healthCheck(
           requireAuthSession: false,
           skipFcmProbe: true,
@@ -346,108 +367,33 @@ abstract final class FirebaseBootstrapService {
     }
   }
 
-  /// Controle Total: `initializeApp` + token JWT — **sem** health check FCM/Functions
-  /// nem `_assertFirestoreReachable` (bloqueava upload de fotos no nativo).
+  /// Legado — preferir [ensureFirebaseCore] no barrel `firebase_bootstrap.dart`.
   static Future<void> ensureReadyForStorageUpload({
     bool requireAuth = true,
   }) async {
-    Object? last;
-    StackTrace? lastSt;
-    for (var attempt = 1; attempt <= 2; attempt++) {
-      try {
-        await _ensureReadyForStorageUploadOnce(requireAuth: requireAuth);
-        return;
-      } catch (e, st) {
-        last = e;
-        lastSt = st;
-        if (_isNoFirebaseApp(e) && attempt < 2) {
-          invalidateStorageUploadBootstrap();
-          await reconnect(requireAuthSession: requireAuth);
-          continue;
-        }
-        rethrow;
-      }
-    }
-    if (last != null) {
-      Error.throwWithStackTrace(last, lastSt ?? StackTrace.current);
-    }
-  }
-
-  static Future<void> _ensureReadyForStorageUploadOnce({
-    required bool requireAuth,
-  }) async {
     await FirebaseBootstrap.ensureInitialized();
     refreshCachedApp();
-    if (isStorageUploadBootstrapFresh) {
-      if (!requireAuth) return;
-      final user = auth.currentUser;
-      if (user == null || user.isAnonymous) {
-        _throwSessionExpired();
-      }
-      try {
-        await user.getIdToken(false).timeout(const Duration(seconds: 8));
-      } catch (e) {
-        if (_isNoFirebaseApp(e)) {
-          invalidateStorageUploadBootstrap();
-          rethrow;
-        }
-        try {
-          await user.getIdToken(true).timeout(const Duration(seconds: 12));
-        } catch (e2) {
-          if (_isNoFirebaseApp(e2)) {
-            invalidateStorageUploadBootstrap();
-          }
-          rethrow;
-        }
-      }
-      try {
-        // ignore: unnecessary_statements
-        storage.bucket;
-      } catch (e) {
-        if (_isNoFirebaseApp(e)) {
-          invalidateStorageUploadBootstrap();
-          rethrow;
-        }
-      }
-      return;
-    }
-
-    await FirebaseBootstrap.ensureInitialized();
     if (!_hasApp()) {
-      final r = await initialize();
-      if (!r.isReady && r.failure != null) throw r.failure!;
+      throw FirebaseBootstrapException.from(
+        StateError('Firebase não inicializou (core/no-app).'),
+        StackTrace.current,
+        code: 'no_firebase_app',
+      );
     }
     if (!requireAuth) {
       _storageUploadBootstrapAt = DateTime.now();
       return;
     }
-
+    if (isStorageUploadBootstrapFresh) return;
     final user = auth.currentUser;
     if (user == null || user.isAnonymous) {
       _throwSessionExpired();
     }
-    try {
-      await user.getIdToken(false).timeout(const Duration(seconds: 10));
-    } catch (e) {
-      if (_isNoFirebaseApp(e)) {
-        invalidateStorageUploadBootstrap();
-        rethrow;
-      }
-      await user.getIdToken(true).timeout(const Duration(seconds: 12));
-    }
-    try {
-      // ignore: unnecessary_statements
-      storage.bucket;
-    } catch (e) {
-      if (_isNoFirebaseApp(e)) {
-        invalidateStorageUploadBootstrap();
-      }
-      rethrow;
-    }
+    await user.getIdToken(false).timeout(const Duration(seconds: 12));
     _storageUploadBootstrapAt = DateTime.now();
   }
 
-  /// Publicar aviso/evento ou enviar mídia — alias do bootstrap leve de Storage.
+  /// Publicar aviso/evento — init + token (sem reconnect).
   static Future<void> ensureReadyForPublishUpload() async {
     await ensureReadyForStorageUpload(requireAuth: true);
   }
@@ -479,9 +425,9 @@ abstract final class FirebaseBootstrapService {
     String? fcmDetail;
 
     try {
-      FirebaseFirestore.instanceFor(app: app);
+      final fs = FirebaseFirestore.instanceFor(app: app);
       try {
-        await FirebaseFirestore.instance.enableNetwork();
+        await fs.enableNetwork();
       } catch (e) {
         if (!_isNoFirebaseApp(e)) {
           firestoreDetail = e.toString();
@@ -691,10 +637,16 @@ abstract final class FirebaseBootstrapService {
       try {
         await FirebaseBootstrap.ensureInitialized();
         refreshCachedApp();
-        if (chatOp) {
-          await ensureReadyForChatSend();
-        } else if (mediaPublishOp) {
-          await ensureReadyForPublishUpload();
+        if (chatOp || mediaPublishOp) {
+          await FirebaseBootstrap.ensureInitialized();
+          refreshCachedApp();
+          if (requireAuth) {
+            final user = auth.currentUser;
+            if (user == null || user.isAnonymous) {
+              _throwSessionExpired();
+            }
+            await user.getIdToken(false).timeout(const Duration(seconds: 12));
+          }
         } else {
           await ensureReady(
             requireAuthSession: requireAuth,
@@ -719,9 +671,10 @@ abstract final class FirebaseBootstrapService {
         if (_isNoFirebaseApp(e)) {
           invalidateStorageUploadBootstrap();
           try {
-            await reconnect(requireAuthSession: requireAuth);
+            await FirebaseBootstrap.ensureInitialized();
+            refreshCachedApp();
           } catch (_) {}
-          continue;
+          if (attempt < maxAttempts) continue;
         }
         if (chatOp || mediaPublishOp) {
           final raw = e.toString();
@@ -730,22 +683,12 @@ abstract final class FirebaseBootstrapService {
             try {
               await auth.currentUser?.getIdToken(true);
             } catch (_) {}
-            if (attempt >= maxAttempts - 1) {
-              try {
-                await reconnect(requireAuthSession: requireAuth);
-              } catch (_) {}
-            }
             continue;
           }
           await Future.delayed(Duration(milliseconds: 350 * attempt));
           try {
             await auth.currentUser?.getIdToken(true);
           } catch (_) {}
-          if (attempt >= maxAttempts - 1) {
-            try {
-              await reconnect(requireAuthSession: requireAuth);
-            } catch (_) {}
-          }
           continue;
         }
         try {
@@ -771,25 +714,7 @@ abstract final class FirebaseBootstrapService {
   static Future<void> _softReinit() async {
     FirebaseBootstrap.reset();
     _cachedApp = null;
-    try {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-    } on FirebaseException catch (e) {
-      if (e.code == 'duplicate-app' && _hasApp()) {
-        _cachedApp = Firebase.app();
-        return;
-      }
-      rethrow;
-    } catch (e) {
-      final low = e.toString().toLowerCase();
-      if ((low.contains('duplicate') || low.contains('already exists')) &&
-          _hasApp()) {
-        _cachedApp = Firebase.app();
-        return;
-      }
-      rethrow;
-    }
+    await FirebaseBootstrap.ensureInitialized();
     _cachedApp = Firebase.app();
   }
 

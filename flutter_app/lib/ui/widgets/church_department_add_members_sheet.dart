@@ -16,11 +16,18 @@ Future<bool?> showChurchDepartmentAddMembersSheet(
   required String departmentName,
   required String role,
   List<String>? permissions,
+  Map<String, dynamic>? departmentDocData,
+  String memberCpfDigits = '',
 }) {
-  if (!AppPermissions.canEditDepartments(role, permissions: permissions)) {
+  if (!AppPermissions.canManageDepartmentChatMembers(
+    role: role,
+    permissions: permissions,
+    departmentData: departmentDocData,
+    memberCpfDigits: memberCpfDigits,
+  )) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Sem permissão para editar departamentos.'),
+        content: Text('Sem permissão para gerir membros deste grupo.'),
       ),
     );
     return Future<bool>.value(false);

@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/internal_notification_inbox_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 class NotificationsPage extends StatefulWidget {
@@ -118,40 +120,110 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   Widget _buildAdminBody() {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _notifications
           .orderBy('createdAt', descending: true)
           .limit(120)
           .snapshots(),
       builder: (context, snap) {
-        if (snap.hasError) {
-          return Center(
-            child: Text(
-              'Erro ao carregar.',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          );
+        if (uid.isEmpty) {
+          return _adminListFromSnap(snap);
         }
-        if (snap.connectionState == ConnectionState.waiting &&
-            !snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) {
-          return const Center(child: Text('Nenhuma notificacao.'));
-        }
-        return _buildList(docs);
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: InternalNotificationInboxService.watch(uid),
+          builder: (context, inboxSnap) {
+            final tenantDocs = snap.data?.docs ?? [];
+            final inboxDocs = inboxSnap.data?.docs ?? [];
+            final merged = _mergeInbox(tenantDocs, inboxDocs);
+            if (snap.hasError && inboxSnap.hasError) {
+              return Center(
+                child: Text(
+                  'Erro ao carregar.',
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              );
+            }
+            if (merged.isEmpty &&
+                snap.connectionState == ConnectionState.waiting &&
+                inboxSnap.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (merged.isEmpty) {
+              return const Center(child: Text('Nenhuma notificacao.'));
+            }
+            return _buildList(merged);
+          },
+        );
       },
     );
   }
 
+  Widget _adminListFromSnap(
+    AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap,
+  ) {
+    if (snap.hasError) {
+      return Center(
+        child: Text(
+          'Erro ao carregar.',
+          style: TextStyle(color: Colors.grey.shade600),
+        ),
+      );
+    }
+    if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final docs = snap.data?.docs ?? [];
+    if (docs.isEmpty) {
+      return const Center(child: Text('Nenhuma notificacao.'));
+    }
+    return _buildList(docs);
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergeInbox(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> tenant,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> personal,
+  ) {
+    final map = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    for (final d in tenant) {
+      map['t_${d.id}'] = d;
+    }
+    for (final d in personal) {
+      map['p_${d.id}'] = d;
+    }
+    final out = map.values.toList();
+    out.sort((x, y) {
+      final dx = (x.data()['createdAt'] as Timestamp?)?.toDate();
+      final dy = (y.data()['createdAt'] as Timestamp?)?.toDate();
+      if (dx == null || dy == null) return 0;
+      return dy.compareTo(dx);
+    });
+    return out;
+  }
+
   Widget _buildMemberBody() {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _memberNotificationsStream,
       builder: (context, memberSnap) {
         return FutureBuilder<List<String>>(
           future: _deptFuture,
           builder: (context, deptSnap) {
+            Widget buildMerged(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+              if (uid.isEmpty) return _buildList(docs);
+              return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: InternalNotificationInboxService.watch(uid, limit: 40),
+                builder: (context, inboxSnap) {
+                  final inbox = inboxSnap.data?.docs ?? [];
+                  final merged = _mergeInbox(docs, inbox);
+                  if (merged.isEmpty) {
+                    return const Center(child: Text('Nenhuma notificacao.'));
+                  }
+                  return _buildList(merged);
+                },
+              );
+            }
+
             final memberDocs =
                 memberSnap.data?.docs ??
                     <QueryDocumentSnapshot<Map<String, dynamic>>>[];
@@ -172,7 +244,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 }
                 return const Center(child: Text('Nenhuma notificacao.'));
               }
-              return _buildList(memberDocs);
+              return buildMerged(memberDocs);
             }
 
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -199,7 +271,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 if (docs.isEmpty) {
                   return const Center(child: Text('Nenhuma notificacao.'));
                 }
-                return _buildList(docs);
+                return buildMerged(docs);
               },
             );
           },

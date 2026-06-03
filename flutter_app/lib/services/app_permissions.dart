@@ -1,3 +1,5 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 
 /// Central de papéis e permissões do sistema.
@@ -413,6 +415,51 @@ class AppPermissions {
   static bool canEditDepartments(String role, {List<String>? permissions}) {
     if (hasModulePermission(permissions, 'departamentos')) return true;
     return ChurchRolePermissions.snapshotFor(role).editDepartments;
+  }
+
+  /// Aba Chat → Grupos: vê **todos** os departamentos (não inclui líder de departamento).
+  static bool chatHubSeesAllDepartmentGroups(
+    String role, {
+    List<String>? permissions,
+  }) {
+    if (hasModulePermission(permissions, 'departamentos')) return true;
+    if (AppRoles.isFullAccess(role)) return true;
+    final n = ChurchRolePermissions.normalize(role);
+    return const {
+      ChurchRoleKeys.pastor,
+      ChurchRoleKeys.pastorPresidente,
+      ChurchRoleKeys.pastorAuxiliar,
+      ChurchRoleKeys.secretario,
+      ChurchRoleKeys.presbitero,
+      ChurchRoleKeys.tesoureiro,
+      ChurchRoleKeys.tesouraria,
+    }.contains(n);
+  }
+
+  /// Adicionar/remover membros no grupo do departamento (chat).
+  static bool canManageDepartmentChatMembers({
+    required String role,
+    List<String>? permissions,
+    Map<String, dynamic>? departmentData,
+    required String memberCpfDigits,
+  }) {
+    if (chatHubSeesAllDepartmentGroups(role, permissions: permissions)) {
+      return true;
+    }
+    if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(
+      departmentData,
+      memberCpfDigits,
+    )) {
+      return true;
+    }
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null &&
+        uid.isNotEmpty &&
+        ChurchDepartmentLeaders.leaderUidsFromDepartmentData(departmentData)
+            .contains(uid)) {
+      return true;
+    }
+    return false;
   }
 
   /// Aprovações rápidas (cadastros públicos pendentes) — menu índice 18 + regra `membros` no Firestore.

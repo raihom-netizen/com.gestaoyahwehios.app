@@ -10,8 +10,9 @@ abstract final class YahwehPerformanceV4 {
   static const int imageCacheMaxObjects = 1000;
   static const int feedThumbCacheMaxObjects = 1000;
 
-  // ——— WebP ———
-  static const int webpQuality = 70;
+  // ——— WebP (paridade Controle Total) ———
+  static const int webpQuality = 80;
+  static const int uploadMaxEdgePx = 1200;
 
   // ——— Fotos de perfil ———
   static const int profileThumbEdge = 200;
@@ -24,14 +25,19 @@ abstract final class YahwehPerformanceV4 {
   // ——— Feed / mural (já alinhado a MediaImageVariantsService) ———
   static const int feedThumbEdge = 200;
   static const int feedMediumEdge = 800;
-  static const int feedFullEdge = 1920;
+  static const int feedFullEdge = uploadMaxEdgePx;
 
   // ——— Paginação Firestore ———
   static const int defaultPageSize = 20;
   static const int publicFeedPageSize = 20;
   static const int chatMessagesPageSize = 30;
+  static const int chatThreadsListLimit = 50;
+  static const int chatThreadsFallbackLimit = 30;
   static const int upcomingEventsLimit = 20;
   static const int birthdayQueryLimit = 20;
+  static const int masterChurchesPageSize = 25;
+  static const int patrimonioListPageSize = 20;
+  static const int financeSummaryFirstLimit = 20;
 
   // ——— Pré-carregamento ———
   static const int preloadFeedLeadItems = 16;

@@ -8,10 +8,18 @@
 4. **Offline (só app mobile):** fila em disco `ApplicationDocuments/pending_uploads/` + SharedPreferences (`yahweh_pending_uploads_v1`), como o CT (`pending_storage_uploads_v1`).
 5. **Web:** persistência Firestore desligada; long-polling; uploads imediatos (sem IndexedDB de fila).
 
+## Bootstrap Firebase (único)
+
+1. **`main.dart`:** `await FirebaseBootstrap.ensureInitialized()` — **único** `Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)`.
+2. **`FirebaseBootstrapService.initialize()`:** só health check + `configureFirestoreForOfflineAndSpeed` — **não** chama `initializeApp` de novo.
+3. **Publicar (avisos, eventos, chat texto, património):** `ensureFirebaseCore(requireAuth: true)` — init + JWT, sem reconnect/fila.
+
 ## Cliente (Flutter)
 
 | Ficheiro | Função |
 |----------|--------|
+| `lib/core/firebase/firebase_bootstrap.dart` | `ensureInitialized()` — único `initializeApp` |
+| `lib/core/firebase_bootstrap.dart` | `ensureFirebaseCore()` — guard CT para gravações |
 | `lib/core/firebase_upload_policy.dart` | Liga/desliga fila Firestore |
 | `lib/core/firestore_app_config.dart` | Settings Firestore (CT web/mobile) |
 | `lib/services/firestore_simple_write.dart` | Merge + timestamps servidor |

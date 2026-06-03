@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/church_data_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
@@ -236,7 +237,7 @@ abstract final class MuralFastPublishService {
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) async {
-    await ensureFirebaseReadyForPublishUpload();
+    await ensureFirebaseCore(requireAuth: true);
     try {
       await docRef.set(
         {
@@ -245,7 +246,10 @@ abstract final class MuralFastPublishService {
         },
         SetOptions(merge: true),
       );
-    } catch (_) {}
+    } catch (e, st) {
+      YahwehFlowLog.error('AVISOS', e, st);
+      rethrow;
+    }
     try {
       await FeedPostMediaUpload.warmAuthToken().timeout(const Duration(seconds: 25));
       Map<String, dynamic>? firstVariants;

@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -29,6 +29,8 @@ class ChurchChatNotificationSettingsPage extends StatefulWidget {
 class _ChurchChatNotificationSettingsPageState
     extends State<ChurchChatNotificationSettingsPage> {
   final _searchCtrl = TextEditingController();
+  Timer? _searchDebounce;
+  String _searchQuery = '';
   /// 0 = departamento, 1 = pessoa (DM), 2 = conversa.
   int _sectionIndex = 2;
   String _globalMode = ChurchChatNotificationPrefs.alertModeSound;
@@ -39,7 +41,7 @@ class _ChurchChatNotificationSettingsPageState
   void initState() {
     super.initState();
     _effectiveTenantId = widget.tenantId.trim();
-    _searchCtrl.addListener(() => setState(() {}));
+    _searchCtrl.addListener(_onSearchChanged);
     _reloadGlobal();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_resolveEffectiveTenant());
@@ -71,8 +73,20 @@ class _ChurchChatNotificationSettingsPageState
     }
   }
 
+  void _onSearchChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      final q = _searchCtrl.text.trim().toLowerCase();
+      if (q == _searchQuery) return;
+      setState(() => _searchQuery = q);
+    });
+  }
+
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtrl.removeListener(_onSearchChanged);
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -839,7 +853,7 @@ class _ChurchChatNotificationSettingsPageState
                                     child: CircularProgressIndicator()),
                               );
                             }
-                            final q = _searchCtrl.text.trim().toLowerCase();
+                            final q = _searchQuery;
                             var ddocs = dSnap.data!.docs.toList();
                             ddocs.sort(
                               (a, b) => churchDepartmentNameFromDoc(a)
@@ -1048,7 +1062,7 @@ class _ChurchChatNotificationSettingsPageState
                               child: Center(child: CircularProgressIndicator()),
                             );
                           }
-                          final q = _searchCtrl.text.trim().toLowerCase();
+                          final q = _searchQuery;
                           final docs = thSnap.data!.docs.toList();
 
                           if (_sectionIndex == 1) {

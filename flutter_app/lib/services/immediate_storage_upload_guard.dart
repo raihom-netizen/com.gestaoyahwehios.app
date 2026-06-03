@@ -8,10 +8,7 @@ abstract final class ImmediateStorageUploadGuard {
   ImmediateStorageUploadGuard._();
 
   static Future<void> ensureReady({String debugLabel = 'immediate_attach'}) async {
-    await runFirebaseBackgroundTask<void>(
-      () async {},
-      debugLabel: debugLabel,
-    );
+    await ensureFirebaseCore(requireAuth: true);
   }
 
   static Never rethrowAsUserError(Object e, StackTrace st) {

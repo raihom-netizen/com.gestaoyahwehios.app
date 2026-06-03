@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/offline/sync_engine.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
@@ -9,6 +12,7 @@ import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
+import 'package:gestao_yahweh/services/system_health_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 /// Pilares de finalização: estabilidade (Firebase + sessão), velocidade (reenvio de filas).
@@ -28,19 +32,32 @@ abstract final class AppFinalizeBootstrap {
       await FirebaseBootstrap.ensureInitialized();
       FirebaseBootstrapService.refreshCachedApp();
       await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
-      await ChurchChatAutoRecoveryService.recoverOnSessionStart();
-      MuralPublishOutboxService.resumePendingOnAppStart();
-      ChurchChatMediaOutboxService.resumePendingOnAppStart();
-      await StorageUploadPersistenceService.resumePendingOnAppStart();
-      await PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded();
-      if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
-        await PendingUploadsFirestoreService.resumeForCurrentUserTenant();
-      }
-    } catch (e) {
+      YahwehFlowLog.sync('BOOT', 'queues');
+      await runAutomaticRecovery();
+      SystemHealthService.bindPeriodicProbe();
+    } catch (e, st) {
+      YahwehFlowLog.error('BOOT', e, st);
       if (kDebugMode) {
-        debugPrint('AppFinalizeBootstrap.bindOnColdStart: $e');
+        debugPrint('AppFinalizeBootstrap.bindOnColdStart: $e\n$st');
       }
     }
+  }
+
+  /// Modo recuperação automática — reenvia pendentes sem intervenção do utilizador.
+  static Future<void> runAutomaticRecovery() async {
+    YahwehFlowLog.sync('RECOVERY', 'start');
+    await ChurchChatAutoRecoveryService.recoverOnSessionStart();
+    MuralPublishOutboxService.resumePendingOnAppStart();
+    ChurchChatMediaOutboxService.resumePendingOnAppStart();
+    await StorageUploadPersistenceService.resumePendingOnAppStart();
+    await PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded();
+    if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
+      await PendingUploadsFirestoreService.resumeForCurrentUserTenant();
+    }
+    if (AppConnectivityService.instance.isOnline) {
+      await SyncEngine.flushAll(reason: 'automatic_recovery');
+    }
+    YahwehFlowLog.success('RECOVERY');
   }
 
   /// Volta do background — Firebase + filas (chat, mural, pending_uploads).
@@ -58,9 +75,10 @@ abstract final class AppFinalizeBootstrap {
       // (resetava Firebase e quebrava upload de foto/áudio da câmara ou galeria).
       await _refreshAuthTokenSilently();
       await _bindQueuesAfterFirebaseCore();
-    } catch (e) {
+    } catch (e, st) {
+      YahwehFlowLog.error('BOOT', e, st);
       if (kDebugMode) {
-        debugPrint('AppFinalizeBootstrap.onAppResume: $e');
+        debugPrint('AppFinalizeBootstrap.onAppResume: $e\n$st');
       }
     } finally {
       _resumeBusy = false;

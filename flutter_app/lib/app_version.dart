@@ -1,4 +1,5 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1732: Fase final QA — multiplataforma, Nunca Perder Dados, health 5min, Modo QA 28 testes, métricas sessão.
 /// 11.2.295+1731: Onda 2 — financeiro comprovante BG, cartão/carta Firestore-first, relatórios limit+logs.
 /// 11.2.295+1730: Firestore-first foto membro + status creating/uploading/published; regra Cursor módulos críticos.
 /// 11.2.295+1729: Cirúrgico — chat texto Firestore imediato, auto-recovery presas, dashboard_stats cache-first, upload 60s/3x.
@@ -250,7 +251,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1731';
+const String appBuildNumber = '1732';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

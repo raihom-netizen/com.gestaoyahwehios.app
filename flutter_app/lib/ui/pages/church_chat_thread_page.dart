@@ -10,9 +10,11 @@ import 'package:flutter/foundation.dart' show kIsWeb, ValueNotifier;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/church_chat_album_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
@@ -189,6 +191,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   DateTime? _lastHistoryLoadBump;
   Timer? _typingDebounce;
   Timer? _typingIdleTimer;
+  Timer? _msgSearchDebounce;
+  String _messageSearchQuery = '';
+
+  /// Streams estáveis — não recriar em cada [setState] (evita re-subscribe / jank).
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _messagesStream;
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _threadStream;
 
   /// Uids mencionados nesta composição (picker @) — enviados em [mentionedUids] no texto.
   final Set<String> _mentionedUidsPending = <String>{};
@@ -206,6 +214,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     super.initState();
     logYahwehModuleScreen('chat_thread');
     unawaited(
+      AppResumeStateService.saveChatThread(
+        tenantId: widget.tenantId,
+        threadId: widget.threadId,
+      ),
+    );
+    unawaited(
       ImmediateMediaWarm.warmFeed().catchError((_) {}),
     );
     _photoSyncListener = _onMemberProfilePhotoSynced;
@@ -217,14 +231,20 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     _scroll.addListener(_onScrollPagination);
     _ctrl.addListener(_onComposeTyping);
+    _messagesStream = ChurchChatService.recentMessagesStream(
+      tenantId: widget.tenantId,
+      threadId: widget.threadId,
+    );
+    _threadStream = ChurchChatService.threadSnapshots(
+      widget.tenantId,
+      widget.threadId,
+    );
     _prefsSub =
         ChurchChatMemberPrefs.watch(widget.tenantId).listen((snap) {
       if (!mounted) return;
       setState(() => _prefs = ChurchChatMemberPrefs.parse(snap));
     });
-    _msgSearchCtrl.addListener(() {
-      if (mounted) setState(() {});
-    });
+    _msgSearchCtrl.addListener(_onMessageSearchChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(
         ChurchChatService.markThreadLastSeen(
@@ -266,6 +286,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _ctrl.removeListener(_onComposeTyping);
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
+    _msgSearchDebounce?.cancel();
+    _msgSearchCtrl.removeListener(_onMessageSearchChanged);
     unawaited(
       ChurchChatService.clearTypingForMe(
         tenantId: widget.tenantId,
@@ -428,6 +450,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
   }
 
+  void _onMessageSearchChanged() {
+    if (!_searchingMessages) return;
+    _msgSearchDebounce?.cancel();
+    _msgSearchDebounce = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      final q = _msgSearchCtrl.text.trim().toLowerCase();
+      if (q == _messageSearchQuery) return;
+      setState(() => _messageSearchQuery = q);
+    });
+  }
+
   void _onComposeTyping() {
     if (_voiceRecording) return;
     final t = _ctrl.text;
@@ -443,7 +476,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       return;
     }
     _typingDebounce?.cancel();
-    _typingDebounce = Timer(const Duration(milliseconds: 420), () {
+    _typingDebounce = Timer(const Duration(milliseconds: 500), () {
       final label = ChurchChatService.senderDisplayNameForNewMessage();
       unawaited(
         ChurchChatService.setTypingActive(
@@ -1817,7 +1850,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         .where((e) => e.isNotEmpty && !_senderMemberByUid.containsKey(e))
         .toSet();
     if (missing.isEmpty) return;
-    unawaited(() async {
+    unawaited(_loadSenderProfilesForUids(missing));
+  }
+
+  Future<void> _loadSenderProfilesForUids(Set<String> missing) async {
+    if (missing.isEmpty) return;
+    try {
       final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
         tenantId: widget.tenantId,
         authUids: missing,
@@ -1828,7 +1866,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         loaded.values,
       );
       setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
-    }());
+    } catch (_) {}
+  }
+
+  void _scheduleEnsureSenderProfilesForDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    if (docs.isEmpty) return;
+    final uids = docs
+        .map((d) => (d.data()['senderUid'] ?? '').toString())
+        .where((e) => e.isNotEmpty);
+    _ensureSenderProfiles(uids);
   }
 
   void _startPeerPresencePoll() {
@@ -2052,7 +2100,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _enqueuePending(pending);
     _setPendingProgress(pending.localId, 0.02);
     unawaited(
-      runFirebaseBackgroundTask<void>(() async {
+      runChatMediaUploadTask(() async {
         final uploadBytes = await _bytesForPendingUpload(
           pending: pending,
           bytes: bytes,
@@ -2060,15 +2108,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         );
         try {
           await _startPendingFirestoreStub(pending);
-        } catch (_) {
-          // flush tenta criar o stub de novo
+        } catch (e, st) {
+          YahwehFlowLog.error('CHAT', e, st);
         }
         await _flushPendingUpload(
           pending: pending,
           bytes: uploadBytes,
           localPath: localPath,
         );
-      }, debugLabel: 'chat_media_enqueue').catchError((Object e) {
+      }, debugLabel: 'chat_media_enqueue').catchError((Object e, StackTrace st) {
+        YahwehFlowLog.error('CHAT', e, st);
         final i =
             _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
         if (i >= 0) {
@@ -2739,7 +2788,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             onPressed: () {
               setState(() {
                 _searchingMessages = !_searchingMessages;
-                if (!_searchingMessages) _msgSearchCtrl.clear();
+                if (!_searchingMessages) {
+                  _msgSearchCtrl.clear();
+                  _messageSearchQuery = '';
+                }
               });
             },
           ),
@@ -3284,13 +3336,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   ),
                 ),
               ),
-            _buildTypingStrip(uid),
+            RepaintBoundary(child: _buildTypingStrip(uid)),
             Expanded(
+              child: RepaintBoundary(
               child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: ChurchChatService.threadSnapshots(
-                  widget.tenantId,
-                  widget.threadId,
-                ),
+                stream: _threadStream,
                 builder: (context, thrSnap) {
                 Timestamp? peerSeenAt;
                 if (!widget.isDepartment &&
@@ -3314,15 +3364,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   }
                 }
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: ChurchChatService.recentMessagesStream(
-                    tenantId: widget.tenantId,
-                    threadId: widget.threadId,
-                  ),
+                  stream: _messagesStream,
                   builder: (context, snap) {
                     if (snap.hasData) {
                       final incoming = snap.data!.docs;
                       if (incoming.isNotEmpty) {
+                        final prevLen = _latestRecentDocs.length;
+                        final prevHead =
+                            prevLen > 0 ? _latestRecentDocs.first.id : '';
                         _latestRecentDocs = incoming;
+                        if (prevLen != incoming.length ||
+                            prevHead != incoming.first.id) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) {
+                              _scheduleEnsureSenderProfilesForDocs(incoming);
+                            }
+                          });
+                        }
                       } else if (_latestRecentDocs.isEmpty) {
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           if (mounted) {
@@ -3408,18 +3466,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       }
                       return true;
                     }).toList();
-                    final q = _msgSearchCtrl.text.trim().toLowerCase();
+                    final q = _messageSearchQuery;
                     final docs = q.isEmpty
                         ? streamDocs
                         : streamDocs
                             .where((d) =>
                                 _messageHaystack(d.data()).contains(q))
                             .toList();
-                    _ensureSenderProfiles(
-                      docs.map(
-                        (d) => (d.data()['senderUid'] ?? '').toString(),
-                      ),
-                    );
                     if (docs.isEmpty && _pendingOutbound.isEmpty) {
                       return Center(
                         child: Padding(
@@ -3725,7 +3778,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               },
             ),
             ),
-          AbsorbPointer(
+            ),
+          RepaintBoundary(
+          child: AbsorbPointer(
             absorbing: blockedDm,
             child: SafeArea(
             top: false,
@@ -3937,6 +3992,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             ),
           ),
         ),
+          ),
         ],
       ),
     ),

@@ -8,13 +8,15 @@
 #   -ForceFunctions             roda deploy de Cloud Functions mesmo
 #                               sem alteracao em /functions
 #   -ForceClean                 forca `flutter clean` (cache corrompido)
+#   -SkipProductionGate         pula gate verify_production_checklist.ps1 (emergencia)
 
 param(
     [string] $CopyTo = 'D:\Temporarios',
     [switch] $SkipGitPush,
     [switch] $ForceFunctions,
     [switch] $ForceClean,
-    [switch] $ForceFirestoreRules
+    [switch] $ForceFirestoreRules,
+    [switch] $SkipProductionGate
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +34,7 @@ if ($SkipGitPush)    { $invokeArgs.SkipGitPush    = $true }
 if ($ForceFunctions)       { $invokeArgs.ForceFunctions       = $true }
 if ($ForceClean)           { $invokeArgs.ForceClean           = $true }
 if ($ForceFirestoreRules)  { $invokeArgs.ForceFirestoreRules  = $true }
+if ($SkipProductionGate)   { $invokeArgs.SkipProductionGate   = $true }
 
 & $release @invokeArgs
 exit $LASTEXITCODE

@@ -21,6 +21,7 @@ import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/church_role_extensions.dart';
@@ -72,6 +73,7 @@ import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:share_plus/share_plus.dart';
@@ -814,7 +816,7 @@ class _MembersPageState extends State<MembersPage> {
         .toList();
   }
 
-  static const int _membersLoadLimit = 400;
+  static const int _membersLoadLimit = YahwehPerformanceV4.defaultPageSize;
   static const Duration _membersCoreLoadTimeout = Duration(seconds: 28);
   static const int _maxRelatedTenantMemberQueries = 3;
 
@@ -2037,6 +2039,12 @@ class _MembersPageState extends State<MembersPage> {
 
   // ─── Ver Detalhes do Membro ───────────────────────────────────────────────
   void _showMemberDetails(BuildContext context, _MemberDoc member) {
+    unawaited(
+      AppResumeStateService.saveOpenMember(
+        tenantId: _effectiveTenantId,
+        memberDocId: member.id,
+      ),
+    );
     final d = member.data;
     final name = _str(d, 'NOME_COMPLETO', 'nome', 'name');
     final email = _str(d, 'EMAIL', 'email');

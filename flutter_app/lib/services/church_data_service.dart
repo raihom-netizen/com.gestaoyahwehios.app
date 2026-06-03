@@ -11,6 +11,8 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/church_chat_firestore_map.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/offline/offline_modules.dart';
+import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
 /// Serviço **único** de gravação Firestore + Storage por igreja (`igrejas/{churchId}/…`).
@@ -79,6 +81,15 @@ final class ChurchDataService {
           .doc(chatId.trim())
           .collection(ChurchChatFirestoreMap.messagesSubcollection);
 
+  static String _tenantIdFromRefPath(String path) =>
+      OfflineModules.tenantIdFromPath(path);
+
+  static String _moduleFromRefPath(String path) {
+    final parts = path.split('/').where((p) => p.isNotEmpty).toList();
+    if (parts.length >= 3) return OfflineModules.forCollection(parts[2]);
+    return OfflineModules.tenant;
+  }
+
   static void _logError(String tag, Object e, StackTrace s) {
     debugPrint(tag);
     debugPrint('$e');
@@ -86,7 +97,7 @@ final class ChurchDataService {
   }
 
   Future<void> ensureReadyForWrite() async {
-    await ensureFirebaseReadyForPublishUpload();
+    await ensureFirebaseCore(requireAuth: true);
   }
 
   /// Novo documento com ID automático (spec Controle Total).
@@ -108,10 +119,15 @@ final class ChurchDataService {
       },
     );
     final path = ref.path;
-    final mod = module ?? collection;
+    final mod = module ?? OfflineModules.forCollection(collection);
     ChurchTenantWriteLog.firestoreSetStart(path, module: mod);
     try {
-      await runFirestorePublishWithRecovery<void>(() => ref.set(payload));
+      await TenantOfflineWrite.setDocument(
+        ref: ref,
+        data: payload,
+        module: mod,
+        tenantId: churchId,
+      );
       ChurchTenantWriteLog.firestoreSetOk(path, module: mod);
       return ref.id;
     } catch (e, s) {
@@ -133,16 +149,17 @@ final class ChurchDataService {
       Map<String, dynamic>.from(data),
     );
     final path = ref.path;
-    final mod = module ?? 'tenant';
+    final mod = module ?? _moduleFromRefPath(path);
+    final tid = _tenantIdFromRefPath(path);
     ChurchTenantWriteLog.firestoreSetStart(path, module: mod);
     try {
-      await runFirestorePublishWithRecovery<void>(() async {
-        if (merge) {
-          await ref.set(payload, SetOptions(merge: true));
-        } else {
-          await ref.set(payload);
-        }
-      });
+      await TenantOfflineWrite.setDocument(
+        ref: ref,
+        data: payload,
+        merge: merge,
+        module: mod,
+        tenantId: tid,
+      );
       ChurchTenantWriteLog.firestoreSetOk(path, module: mod);
     } catch (e, s) {
       ChurchTenantWriteLog.firestoreSetFail(path, e, stack: s, module: mod);
@@ -162,10 +179,16 @@ final class ChurchDataService {
     );
     payload['updatedAt'] = FieldValue.serverTimestamp();
     final path = ref.path;
-    final mod = module ?? 'tenant';
+    final mod = module ?? _moduleFromRefPath(path);
+    final tid = _tenantIdFromRefPath(path);
     ChurchTenantWriteLog.firestoreUpdateStart(path, module: mod);
     try {
-      await runFirestorePublishWithRecovery<void>(() => ref.update(payload));
+      await TenantOfflineWrite.updateDocument(
+        ref: ref,
+        data: payload,
+        module: mod,
+        tenantId: tid,
+      );
       ChurchTenantWriteLog.firestoreUpdateOk(path, module: mod);
     } catch (e, s) {
       ChurchTenantWriteLog.firestoreUpdateFail(path, e, stack: s, module: mod);

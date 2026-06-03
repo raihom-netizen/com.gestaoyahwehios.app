@@ -20,6 +20,7 @@ class MuralPage extends StatefulWidget {
   /// Evita AppBar duplicada quando aberto dentro de [IgrejaCleanShell].
   final bool embeddedInShell;
   final VoidCallback? onShellBack;
+  final String? initialOpenAvisoDocId;
   const MuralPage({
     super.key,
     required this.tenantId,
@@ -27,6 +28,7 @@ class MuralPage extends StatefulWidget {
     this.permissions,
     this.embeddedInShell = false,
     this.onShellBack,
+    this.initialOpenAvisoDocId,
   });
 
   @override
@@ -233,6 +235,7 @@ class _MuralPageState extends State<MuralPage>
                             churchSlug: data.churchSlug,
                             initialTenantData: data.tenantData,
                             permissions: widget.permissions,
+                            initialOpenAvisoDocId: widget.initialOpenAvisoDocId,
                           ),
                         ),
                       ),

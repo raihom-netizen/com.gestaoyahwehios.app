@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/controle_total_sync/bank_notification_parser.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
+import 'package:gestao_yahweh/core/offline/offline_module_sync.dart';
+import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/utils/finance_smart_input_text.dart';
 
@@ -98,10 +100,13 @@ abstract final class FinanceSmartBatchService {
     final valid = rows.where((r) => r.hasMinimumForConfirmation).toList();
     if (valid.isEmpty) return 0;
 
+    final tenantId = financeCol.parent?.id ?? '';
+    if (tenantId.isEmpty) return 0;
     var total = 0;
     for (var i = 0; i < valid.length; i += kMaxChunk) {
-      final batch = firebaseDefaultFirestore.batch();
-      for (final row in valid.skip(i).take(kMaxChunk)) {
+      final chunk = valid.skip(i).take(kMaxChunk);
+      final writes = <({String path, Map<String, dynamic> data, bool merge})>[];
+      for (final row in chunk) {
         final catEfetiva = categoriaForRow != null
             ? (categoriaForRow(row) ?? categoria)
             : categoria;
@@ -115,10 +120,22 @@ abstract final class FinanceSmartBatchService {
         );
         map = _mapWithAprovacao(
             base: map, settings: settings, panelRole: panelRole);
-        batch.set(financeCol.doc(), map);
+        final ref = financeCol.doc();
+        writes.add((path: ref.path, data: map, merge: false));
         total++;
       }
-      await batch.commit();
+      if (TenantOfflineWrite.shouldQueueForHive) {
+        await FinanceiroOfflineSync.batchSet(
+          tenantId: tenantId,
+          writes: writes,
+        );
+      } else {
+        final batch = firebaseDefaultFirestore.batch();
+        for (final w in writes) {
+          batch.set(firebaseDefaultFirestore.doc(w.path), w.data);
+        }
+        await batch.commit();
+      }
     }
     return total;
   }

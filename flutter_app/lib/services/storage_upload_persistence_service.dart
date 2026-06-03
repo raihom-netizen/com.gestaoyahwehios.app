@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
+import 'package:gestao_yahweh/services/resumable_upload_service.dart';
 import 'package:gestao_yahweh/services/upload_bytes_core.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
 
@@ -98,15 +99,28 @@ abstract final class StorageUploadPersistenceService {
         if (!await f.exists()) continue;
 
         try {
-          final bytes = await f.readAsBytes();
-          await uploadStoragePutDataWithRetry(
-            storagePath: storagePath,
-            bytes: bytes,
-            contentType: contentType,
-            maxAttempts: 3,
-            useOfflineQueue: false,
-            localFilePathForRetry: path,
-          );
+          final size = await f.length();
+          final url = ResumableUploadService.shouldUseFileUpload(
+            contentType,
+            size,
+          )
+              ? await ResumableUploadService.uploadLocalFile(
+                  storagePath: storagePath,
+                  localFilePath: path,
+                  contentType: contentType,
+                )
+              : await uploadStoragePutDataWithRetry(
+                  storagePath: storagePath,
+                  bytes: await f.readAsBytes(),
+                  contentType: contentType,
+                  maxAttempts: 3,
+                  useOfflineQueue: false,
+                  localFilePathForRetry: path,
+                );
+          if (url.isEmpty) {
+            remaining.add(job);
+            continue;
+          }
           try {
             await f.delete();
           } catch (_) {}

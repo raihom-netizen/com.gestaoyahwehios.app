@@ -25,11 +25,30 @@ class _IgrejasTabState extends State<_IgrejasTab> {
   String _benchmarkKey = '';
   DateTime? _benchmarkFetchedAt;
   static const Duration _benchmarkCacheTtl = Duration(minutes: 4);
+  MasterDashboardSummary? _masterSummary;
+  Future<MasterDashboardSummary>? _masterSummaryFuture;
 
   @override
   void initState() {
     super.initState();
     _searchCtrl = TextEditingController(text: widget.query);
+    _masterSummaryFuture = _loadMasterSummary();
+  }
+
+  Future<MasterDashboardSummary> _loadMasterSummary() async {
+    final local = await MasterDashboardCacheService.readLocalPrefs();
+    if (local != null) {
+      _masterSummary = local;
+      return local;
+    }
+    final fs = await MasterDashboardCacheService.readFirestore();
+    if (fs != null) {
+      _masterSummary = fs;
+      return fs;
+    }
+    final warmed = await MasterDashboardCacheService.warmFromCallable();
+    _masterSummary = warmed;
+    return warmed;
   }
 
   @override
@@ -570,8 +589,11 @@ class _IgrejasTabState extends State<_IgrejasTab> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream:
-                FirebaseFirestore.instance.collection('igrejas').snapshots(),
+            stream: FirebaseFirestore.instance
+                .collection('igrejas')
+                .orderBy('createdAt', descending: true)
+                .limit(YahwehPerformanceV4.masterChurchesPageSize)
+                .snapshots(),
             builder: (context, snap) {
               if (snap.hasError) {
                 return Center(
@@ -598,15 +620,25 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                 _benchmarkFuture = _loadBenchmark(docs);
                 _benchmarkFetchedAt = DateTime.now();
               }
-              final total = allDocs.length;
-              final ativas = allDocs
-                  .where((d) =>
-                      (d.data()['status'] ?? 'ativa').toString() == 'ativa')
-                  .length;
-              final inativas = allDocs
-                  .where(
-                      (d) => (d.data()['status'] ?? '').toString() == 'inativa')
-                  .length;
+              final summary = _masterSummary;
+              final total = summary?.igrejas ?? allDocs.length;
+              final ativas = summary != null
+                  ? (summary.licencasAtivas > 0
+                      ? summary.licencasAtivas
+                      : allDocs
+                          .where((d) =>
+                              (d.data()['status'] ?? 'ativa').toString() ==
+                              'ativa')
+                          .length)
+                  : allDocs
+                      .where((d) =>
+                          (d.data()['status'] ?? 'ativa').toString() == 'ativa')
+                      .length;
+              final inativas = summary?.blockedCount ??
+                  allDocs
+                      .where((d) =>
+                          (d.data()['status'] ?? '').toString() == 'inativa')
+                      .length;
               final novasMes = allDocs.where((d) {
                 final data = d.data()['createdAt'] ?? d.data()['dataCadastro'];
                 if (data is Timestamp) {
