@@ -293,7 +293,9 @@ abstract final class YahwehMediaUploadPipeline {
         if (isFirebaseNoAppError(e) && attempt < maxAttempts) {
           FirebaseBootstrapService.invalidateStorageUploadBootstrap();
           try {
-            await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+            await FirebaseBootstrapService.ensureAlwaysOn(
+              refreshAuthToken: true,
+            );
             await ensureUploadBootstrapForStoragePath(storagePath);
           } catch (_) {}
           continue;

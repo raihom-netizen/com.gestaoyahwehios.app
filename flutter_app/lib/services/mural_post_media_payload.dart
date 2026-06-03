@@ -95,11 +95,13 @@ abstract final class MuralPostMediaPayload {
           );
           return r.primaryUrl;
         }
+        final bytes =
+            await IosPublishImagePipeline.compressForPublishFromPath(path);
         return uploadPhotoSlot(
           tenantId: tenantId,
           postType: postType,
           postId: postId,
-          bytes: await f.readAsBytes(),
+          bytes: bytes,
           localPath: path,
           slotIndex: startSlotIndex + i,
           onProgress: report,

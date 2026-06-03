@@ -93,6 +93,9 @@ const int kChatMaxVideosPerPick = 5;
 const int kChatMaxDocumentsPerPick = 10;
 const int kChatMaxAudioFilesPerPick = 5;
 
+/// PDF / Word / ZIP / RAR no chat (web envia bytes; mobile usa ficheiro no disco).
+const int kChatMaxDocumentBytes = 50 * 1024 * 1024;
+
 int get mediaPickerLogoQuality =>
     kMediaTurboMobilePreset ? 68 : 70;
 

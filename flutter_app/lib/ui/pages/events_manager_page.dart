@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
+import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -626,16 +627,24 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                       !ctx.mounted) return;
                                                   setSheetState(() {});
                                                   try {
-                                                    final bytes = await file
-                                                        .readAsBytes();
                                                     final compressed =
-                                                        await ImageHelper
-                                                            .compressImage(
-                                                      bytes,
-                                                      minWidth: 800,
-                                                      minHeight: 600,
-                                                      quality: 70,
-                                                    );
+                                                        file.path
+                                                                .trim()
+                                                                .isNotEmpty
+                                                            ? await SafeImageBytes
+                                                                .fromPath(
+                                                                file.path,
+                                                                maxEdge: 1080,
+                                                                quality: 70,
+                                                              )
+                                                            : await ImageHelper
+                                                                .compressImage(
+                                                                await file
+                                                                    .readAsBytes(),
+                                                                minWidth: 800,
+                                                                minHeight: 600,
+                                                                quality: 70,
+                                                              );
                                                     final templateStorageId =
                                                         doc?.id ??
                                                             DateTime.now()
@@ -708,14 +717,18 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                             if (file == null || !ctx.mounted) return;
                             setSheetState(() {});
                             try {
-                              final bytes = await file.readAsBytes();
-                              final compressed =
-                                  await ImageHelper.compressImage(
-                                bytes,
-                                minWidth: 800,
-                                minHeight: 600,
-                                quality: 70,
-                              );
+                              final compressed = file.path.trim().isNotEmpty
+                                  ? await SafeImageBytes.fromPath(
+                                      file.path,
+                                      maxEdge: 1080,
+                                      quality: 70,
+                                    )
+                                  : await ImageHelper.compressImage(
+                                      await file.readAsBytes(),
+                                      minWidth: 800,
+                                      minHeight: 600,
+                                      quality: 70,
+                                    );
                               final templateStorageId = doc?.id ??
                                   DateTime.now()
                                       .millisecondsSinceEpoch
@@ -5612,11 +5625,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     for (final p in _newImagePaths) {
       final f = File(p);
       if (!f.existsSync()) continue;
-      if (IosPublishImagePipeline.useIosLightweightPublish) {
-        out.add(await IosPublishImagePipeline.compressForPublishFromPath(p));
-      } else {
-        out.add(await f.readAsBytes());
-      }
+      out.add(await IosPublishImagePipeline.compressForPublishFromPath(p));
     }
     return out;
   }
@@ -5627,12 +5636,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     if (_newImagePaths.isEmpty) return null;
     final path = _newImagePaths.first;
-    if (IosPublishImagePipeline.useIosLightweightPublish) {
-      return IosPublishImagePipeline.compressForPublishFromPath(path);
-    }
     final f = File(path);
     if (!f.existsSync()) return null;
-    return f.readAsBytes();
+    return IosPublishImagePipeline.compressForPublishFromPath(path);
   }
 
   void _removeNewPhotoAt(int index) {
@@ -6836,7 +6842,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   /// Reconexão Firestore após INTERNAL ASSERTION — **Firestore primeiro** (sem upload→set legado).
   Future<void> _retryEventPublishFirestoreFirst() async {
-    await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+    await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
     await firebaseDefaultAuth.currentUser?.getIdToken(true);
     await Future.delayed(const Duration(milliseconds: 150));
     final docRef = _eventDocRef;

@@ -620,7 +620,7 @@ abstract final class OptimisticChatMediaUpload {
       reportProgress(0.08);
 
       await FastMediaPublishBootstrap.warmForChatSend()
-          .timeout(const Duration(seconds: 18))
+          .timeout(const Duration(seconds: 14))
           .catchError((_) {});
 
 

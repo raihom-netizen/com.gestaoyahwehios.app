@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +18,13 @@ class GroupsPage extends StatefulWidget {
 class _GroupsPageState extends State<GroupsPage> {
   String _search = '';
   String _filter = 'Todos';
+  Timer? _searchDebounce;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
 
   bool get _canWrite {
     final r = widget.role.toLowerCase();
@@ -202,7 +211,15 @@ class _GroupsPageState extends State<GroupsPage> {
         vertical: ThemeCleanPremium.spaceXs,
       ),
       child: TextField(
-        onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
+        onChanged: (v) {
+          _searchDebounce?.cancel();
+          _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+            if (!mounted) return;
+            final next = v.trim().toLowerCase();
+            if (next == _search) return;
+            setState(() => _search = next);
+          });
+        },
         decoration: InputDecoration(
           hintText: 'Buscar grupo…',
           prefixIcon: const Icon(Icons.search_rounded),

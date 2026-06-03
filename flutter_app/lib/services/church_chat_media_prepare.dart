@@ -3,9 +3,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
-import 'package:gestao_yahweh/services/church_chat_fs.dart'
-    show churchChatReadFileBytes;
 import 'package:gestao_yahweh/services/media_service.dart';
 
 /// Compressão obrigatória para fotos do Chat Igreja (nunca envia original).
@@ -42,8 +41,8 @@ class PreparedChatVideo {
 abstract final class ChurchChatMediaPrepare {
   ChurchChatMediaPrepare._();
 
-  static const int imageMaxEdge = 1920;
-  static const int imageQuality = 78;
+  static const int imageMaxEdge = SafeImageBytes.defaultMaxEdge;
+  static const int imageQuality = SafeImageBytes.defaultQuality;
   static const int thumbEdge = 320;
   static const int thumbQuality = 72;
 
@@ -51,28 +50,44 @@ abstract final class ChurchChatMediaPrepare {
     Uint8List? bytes,
     String? localPath,
   }) async {
-    Uint8List source;
-    if (bytes != null && bytes.isNotEmpty) {
-      source = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
-    } else if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
-      final raw = await churchChatReadFileBytes(localPath);
-      if (raw.isEmpty) {
-        throw StateError('Imagem não encontrada.');
-      }
-      source = raw is Uint8List ? raw : Uint8List.fromList(raw);
-    } else {
-      throw StateError('Sem dados para preparar a foto.');
+    if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
+      final full = await SafeImageBytes.fromPath(
+        localPath,
+        maxEdge: imageMaxEdge,
+        quality: imageQuality,
+      );
+      final thumb = await _encodeWebp(
+        full,
+        minSide: thumbEdge,
+        quality: thumbQuality,
+      );
+      return PreparedChatImage(
+        fullBytes: full,
+        fullMime: 'image/webp',
+        fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.webp',
+        thumbBytes: thumb.isNotEmpty ? thumb : null,
+      );
     }
-
-    final full = await _encodeWebp(source, minSide: imageMaxEdge, quality: imageQuality);
-    final thumb = await _encodeWebp(source, minSide: thumbEdge, quality: thumbQuality);
-
-    return PreparedChatImage(
-      fullBytes: full,
-      fullMime: 'image/webp',
-      fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.webp',
-      thumbBytes: thumb.isNotEmpty ? thumb : null,
-    );
+    if (bytes != null && bytes.isNotEmpty) {
+      final source = Uint8List.fromList(bytes);
+      final full = await _encodeWebp(
+        source,
+        minSide: imageMaxEdge,
+        quality: imageQuality,
+      );
+      final thumb = await _encodeWebp(
+        source,
+        minSide: thumbEdge,
+        quality: thumbQuality,
+      );
+      return PreparedChatImage(
+        fullBytes: full,
+        fullMime: 'image/webp',
+        fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.webp',
+        thumbBytes: thumb.isNotEmpty ? thumb : null,
+      );
+    }
+    throw StateError('Sem dados para preparar a foto.');
   }
 
   static Future<PreparedChatVideo?> prepareVideo(

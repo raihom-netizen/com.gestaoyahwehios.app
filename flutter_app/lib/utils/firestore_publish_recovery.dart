@@ -31,7 +31,7 @@ Future<void> prepareFirestorePublishAttempt({
   }
   if (allowReconnect) {
     try {
-      await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+      await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
     } catch (_) {}
   }
 }

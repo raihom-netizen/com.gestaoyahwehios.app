@@ -15,7 +15,10 @@ import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show isFirebaseNoAppError;
 import 'package:gestao_yahweh/services/church_chat_album_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_album_grid.dart';
@@ -197,6 +200,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   /// Streams estáveis — não recriar em cada [setState] (evita re-subscribe / jank).
   late final Stream<QuerySnapshot<Map<String, dynamic>>> _messagesStream;
   late final Stream<DocumentSnapshot<Map<String, dynamic>>> _threadStream;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _messagesSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _threadSub;
+  Map<String, String> _titlesByUid = const {};
+  bool _messagesStreamReady = false;
+  Timestamp? _threadPeerSeenAt;
 
   /// Uids mencionados nesta composição (picker @) — enviados em [mentionedUids] no texto.
   final Set<String> _mentionedUidsPending = <String>{};
@@ -239,6 +247,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       widget.tenantId,
       widget.threadId,
     );
+    _messagesSub = _messagesStream.listen(
+      _onMessagesStreamEvent,
+      onError: (_, __) {
+        if (mounted && _latestRecentDocs.isEmpty) {
+          setState(() => _messagesStreamReady = true);
+        }
+      },
+    );
+    _threadSub = _threadStream.listen(_onThreadStreamEvent);
     _prefsSub =
         ChurchChatMemberPrefs.watch(widget.tenantId).listen((snap) {
       if (!mounted) return;
@@ -294,6 +311,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         threadId: widget.threadId,
       ),
     );
+    _messagesSub?.cancel();
+    _threadSub?.cancel();
     _deptSub?.cancel();
     _peerPresencePoll?.cancel();
     _messagesPrimeFallbackTimer?.cancel();
@@ -448,6 +467,64 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         messageData: m,
       ),
     );
+  }
+
+  void _onMessagesStreamEvent(QuerySnapshot<Map<String, dynamic>> snap) {
+    if (!mounted) return;
+    _messagesStreamReady = true;
+    final incoming = snap.docs;
+    var changed = false;
+    if (incoming.isNotEmpty) {
+      final prevLen = _latestRecentDocs.length;
+      final prevHead = prevLen > 0 ? _latestRecentDocs.first.id : '';
+      if (prevLen != incoming.length || prevHead != incoming.first.id) {
+        _latestRecentDocs = incoming;
+        changed = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _scheduleEnsureSenderProfilesForDocs(incoming);
+          }
+        });
+      }
+    } else if (_latestRecentDocs.isEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
+        }
+      });
+    }
+    if (changed) setState(() {});
+  }
+
+  void _onThreadStreamEvent(DocumentSnapshot<Map<String, dynamic>> thrSnap) {
+    if (!mounted) return;
+    if (!widget.isDepartment &&
+        widget.peerUid != null &&
+        widget.peerUid!.isNotEmpty) {
+      final mm = thrSnap.data()?['lastSeenAtByUid'];
+      if (mm is Map) {
+        final v = mm[widget.peerUid!];
+        if (v is Timestamp) {
+          _threadPeerSeenAt = v;
+          _syncPeerReadStatus(v);
+        }
+      }
+    }
+    final threadMap = thrSnap.data();
+    if (threadMap == null) return;
+    final tm = threadMap['titlesByUid'];
+    if (tm is! Map) return;
+    final titles = <String, String>{};
+    for (final e in tm.entries) {
+      titles[e.key.toString()] = e.value.toString();
+    }
+    if (titles.length == _titlesByUid.length &&
+        titles.entries.every(
+          (e) => _titlesByUid[e.key] == e.value,
+        )) {
+      return;
+    }
+    setState(() => _titlesByUid = titles);
   }
 
   void _onMessageSearchChanged() {
@@ -1443,7 +1520,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         _WhatsStyleAttachTile(
                           icon: Icons.description_rounded,
                           label: 'Doc.',
-                          subtitle: 'vários',
+                          subtitle: 'PDF Word ZIP',
                           color: const Color(0xFFEA580C),
                           onTap: () {
                             Navigator.pop(ctx);
@@ -1473,7 +1550,18 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _ensureChatFirebaseBeforePicker() async {
-    await ensureFirebaseReadyForChatSend().catchError((_) {});
+    try {
+      await ensureFirebaseReadyForChatSend();
+    } catch (e) {
+      if (mounted) {
+        _showChatAttachmentError(
+          isFirebaseNoAppError(e)
+              ? 'A ligar ao servidor… tente de novo em instantes.'
+              : ChurchChatService.formatInstantSendError(e),
+        );
+      }
+      rethrow;
+    }
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -1765,11 +1853,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final name = f.name.isNotEmpty
         ? f.name
         : (defaultVideoName ?? 'ficheiro');
+    final blocked = ChurchChatAttachmentUtils.blockReasonForFileName(name);
+    if (blocked != null) {
+      _showChatAttachmentError(blocked);
+      return;
+    }
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
     final kind = ChurchChatAttachmentUtils.messageKindForAttachment(
       fileName: name,
       mime: mime,
     );
+    final maxB = _maxBytesForChatKind(kind);
+    if (f.bytes != null && maxB != null && f.bytes!.length > maxB) {
+      _showChatAttachmentError(
+        '«$name» é demasiado grande (máx. ${maxB ~/ (1024 * 1024)} MB).',
+      );
+      return;
+    }
     if (!kIsWeb && (f.path ?? '').isNotEmpty) {
       unawaited(_uploadAndSendFromPath(
         f.path!,
@@ -2069,9 +2169,23 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required String? localPath,
   }) async {
     if (bytes != null && bytes.isNotEmpty) {
-      return bytes;
+      return bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
     }
     final path = localPath?.trim() ?? pending.localPath?.trim() ?? '';
+    if (!kIsWeb && path.isNotEmpty) {
+      pending.localPath ??= path;
+      // Mobile: Storage por [putFile] — não ler vídeo/PDF inteiro na RAM.
+      if (pending.kind == 'image') {
+        try {
+          pending.previewBytes = await SafeImageBytes.fromPath(
+            path,
+            maxEdge: 480,
+            quality: 68,
+          );
+        } catch (_) {}
+      }
+      return null;
+    }
     if (path.isEmpty || kIsWeb) return null;
     final raw = await churchChatReadFileBytes(path);
     if (raw == null || raw.isEmpty) return null;
@@ -2092,6 +2206,19 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     return u8;
   }
 
+  int? _maxBytesForChatKind(String kind) {
+    switch (kind) {
+      case 'video':
+        return mediaChatVideoHardMaxBytesEffective;
+      case 'document':
+        return kChatMaxDocumentBytes;
+      case 'audio':
+        return 32 * 1024 * 1024;
+      default:
+        return null;
+    }
+  }
+
   Future<void> _enqueueAndUploadPending({
     required ChurchChatOutboundPending pending,
     required List<int>? bytes,
@@ -2101,16 +2228,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _setPendingProgress(pending.localId, 0.02);
     unawaited(
       runChatMediaUploadTask(() async {
-        final uploadBytes = await _bytesForPendingUpload(
-          pending: pending,
-          bytes: bytes,
-          localPath: localPath,
-        );
         try {
           await _startPendingFirestoreStub(pending);
         } catch (e, st) {
           YahwehFlowLog.error('CHAT', e, st);
         }
+        final uploadBytes = await _bytesForPendingUpload(
+          pending: pending,
+          bytes: bytes,
+          localPath: localPath,
+        );
         await _flushPendingUpload(
           pending: pending,
           bytes: uploadBytes,
@@ -2150,6 +2277,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     int albumIndex = 0,
     int albumCount = 1,
   }) async {
+    final blocked = ChurchChatAttachmentUtils.blockReasonForFileName(name);
+    if (blocked != null) {
+      _showChatAttachmentError(blocked);
+      return;
+    }
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
@@ -2182,21 +2314,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final r = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowMultiple: true,
-      allowedExtensions: const [
-        'pdf',
-        'doc',
-        'docx',
-        'xls',
-        'xlsx',
-        'ppt',
-        'pptx',
-        'txt',
-        'csv',
-        'rtf',
-        'odt',
-        'ods',
-        'zip',
-      ],
+      allowedExtensions: ChurchChatAttachmentUtils.documentPickerExtensions,
       withData: kIsWeb,
     );
     if (r == null || r.files.isEmpty) return;
@@ -2217,7 +2335,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     for (var i = 0; i < files.length; i++) {
       if (!mounted) return;
-      await _sendPickedPlatformFile(files[i]);
+      final f = files[i];
+      final blocked = ChurchChatAttachmentUtils.blockReasonForFileName(
+        f.name.isNotEmpty ? f.name : 'ficheiro',
+      );
+      if (blocked != null) {
+        _showChatAttachmentError(blocked);
+        continue;
+      }
+      await _sendPickedPlatformFile(f);
       if (i < files.length - 1) {
         await Future<void>.delayed(const Duration(milliseconds: 80));
       }
@@ -2263,6 +2389,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     int albumIndex = 0,
     int albumCount = 1,
   }) async {
+    final blocked = ChurchChatAttachmentUtils.blockReasonForFileName(name);
+    if (blocked != null) {
+      _showChatAttachmentError(blocked);
+      return;
+    }
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
@@ -3339,90 +3470,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             RepaintBoundary(child: _buildTypingStrip(uid)),
             Expanded(
               child: RepaintBoundary(
-              child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: _threadStream,
-                builder: (context, thrSnap) {
-                Timestamp? peerSeenAt;
-                if (!widget.isDepartment &&
-                    widget.peerUid != null &&
-                    widget.peerUid!.isNotEmpty) {
-                  final mm = thrSnap.data?.data()?['lastSeenAtByUid'];
-                  if (mm is Map) {
-                    final v = mm[widget.peerUid!];
-                    if (v is Timestamp) peerSeenAt = v;
-                  }
-                }
-                _syncPeerReadStatus(peerSeenAt);
-                final threadMap = thrSnap.data?.data();
-                final titlesByUid = <String, String>{};
-                if (threadMap != null) {
-                  final tm = threadMap['titlesByUid'];
-                  if (tm is Map) {
-                    for (final e in tm.entries) {
-                      titlesByUid[e.key.toString()] = e.value.toString();
+                child: Builder(
+                  builder: (context) {
+                    if (!_messagesStreamReady && _latestRecentDocs.isEmpty) {
+                      return YahwehSkeletonLoading.chatMessages();
                     }
-                  }
-                }
-                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: _messagesStream,
-                  builder: (context, snap) {
-                    if (snap.hasData) {
-                      final incoming = snap.data!.docs;
-                      if (incoming.isNotEmpty) {
-                        final prevLen = _latestRecentDocs.length;
-                        final prevHead =
-                            prevLen > 0 ? _latestRecentDocs.first.id : '';
-                        _latestRecentDocs = incoming;
-                        if (prevLen != incoming.length ||
-                            prevHead != incoming.first.id) {
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            if (mounted) {
-                              _scheduleEnsureSenderProfilesForDocs(incoming);
-                            }
-                          });
-                        }
-                      } else if (_latestRecentDocs.isEmpty) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (mounted) {
-                            unawaited(
-                              _primeRecentMessagesFromCacheOrServer(
-                                silent: true,
-                              ),
-                            );
-                          }
-                        });
-                      }
-                    } else if (_latestRecentDocs.isEmpty) {
-                      if (snap.connectionState == ConnectionState.waiting) {
-                        return YahwehSkeletonLoading.chatMessages();
-                      }
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'Não foi possível carregar as mensagens.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: ThemeCleanPremium.onSurfaceVariant,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              FilledButton.icon(
-                                onPressed: () => unawaited(
-                                  _primeRecentMessagesFromCacheOrServer(),
-                                ),
-                                icon: const Icon(Icons.refresh_rounded),
-                                label: const Text('Tentar de novo'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
+                    final titlesByUid = _titlesByUid;
                     final docsRaw =
                         _mergeVisibleMessages(_latestRecentDocs);
                     final visibleDocs = docsRaw
@@ -3557,7 +3610,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         final createdRaw = m['createdAt'];
                         Timestamp? ct;
                         if (createdRaw is Timestamp) ct = createdRaw;
-                        final ps = peerSeenAt;
+                        final ps = _threadPeerSeenAt;
                         final dsRaw =
                             (m['deliveryStatus'] ?? '').toString();
                         final peerRead = dsRaw ==
@@ -3774,10 +3827,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       },
                     );
                   },
-                );
-              },
-            ),
-            ),
+                ),
+              ),
             ),
           RepaintBoundary(
           child: AbsorbPointer(

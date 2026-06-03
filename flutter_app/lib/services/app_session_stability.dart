@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb, debugPrint;
 import 'package:flutter/widgets.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
@@ -58,6 +59,9 @@ abstract final class AppSessionStability {
     if (u != null && !u.isAnonymous) {
       _stickyUser = u;
     }
+    unawaited(
+      FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true),
+    );
     unawaited(AppFinalizeBootstrap.onAppResume());
     unawaited(_refreshAuthTokenSilently());
     for (final cb in List<void Function()>.from(_resumeListeners)) {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -55,6 +57,13 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
   String _search = '';
   String? _filtroIgrejaId;
   String _filtroPlataforma = 'todos';
+  Timer? _searchDebounce;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -352,7 +361,14 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
                 borderRadius: BorderRadius.circular(14),
               ),
             ),
-            onChanged: (v) => setState(() => _search = v),
+            onChanged: (v) {
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+                if (!mounted) return;
+                if (v == _search) return;
+                setState(() => _search = v);
+              });
+            },
           ),
           const SizedBox(height: 14),
           Wrap(

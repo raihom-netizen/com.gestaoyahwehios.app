@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 
 class BuscaGlobalWidget extends StatefulWidget {
   const BuscaGlobalWidget({super.key});
@@ -10,27 +14,68 @@ class BuscaGlobalWidget extends StatefulWidget {
 
 class _BuscaGlobalWidgetState extends State<BuscaGlobalWidget> {
   final _ctrl = TextEditingController();
+  late final SearchInputDebounce _debounce;
   bool _loading = false;
   List<Map<String, dynamic>> _resultados = [];
 
+  @override
+  void initState() {
+    super.initState();
+    _debounce = SearchInputDebounce(onDebounced: _buscar);
+    _ctrl.addListener(() => _debounce.schedule(_ctrl.text));
+  }
+
+  @override
+  void dispose() {
+    _debounce.dispose();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _buscar(String termo) async {
-    if (termo.trim().isEmpty) return;
+    final t = termo.trim();
+    if (t.isEmpty) {
+      if (mounted) setState(() => _resultados = []);
+      return;
+    }
     setState(() {
       _loading = true;
       _resultados = [];
     });
-    // Exemplo: busca em membros, eventos e avisos
-    final membros = await FirebaseFirestore.instance.collection('membros').where('nome', isGreaterThanOrEqualTo: termo).where('nome', isLessThanOrEqualTo: termo + '\uf8ff').get();
-    final eventos = await FirebaseFirestore.instance.collection('eventos').where('titulo', isGreaterThanOrEqualTo: termo).where('titulo', isLessThanOrEqualTo: termo + '\uf8ff').get();
-    final avisos = await FirebaseFirestore.instance.collection('avisos').where('mensagem', isGreaterThanOrEqualTo: termo).where('mensagem', isLessThanOrEqualTo: termo + '\uf8ff').get();
-    setState(() {
-      _resultados = [
-        ...membros.docs.map((d) => {'tipo': 'Membro', ...d.data()}),
-        ...eventos.docs.map((d) => {'tipo': 'Evento', ...d.data()}),
-        ...avisos.docs.map((d) => {'tipo': 'Aviso', ...d.data()}),
-      ];
-      _loading = false;
-    });
+    try {
+      final fs = firebaseDefaultFirestore;
+      final end = '$t\uf8ff';
+      final membros = await fs
+          .collection('membros')
+          .where('nome', isGreaterThanOrEqualTo: t)
+          .where('nome', isLessThanOrEqualTo: end)
+          .limit(20)
+          .get();
+      final eventos = await fs
+          .collection('eventos')
+          .where('titulo', isGreaterThanOrEqualTo: t)
+          .where('titulo', isLessThanOrEqualTo: end)
+          .limit(20)
+          .get();
+      final avisos = await fs
+          .collection('avisos')
+          .where('mensagem', isGreaterThanOrEqualTo: t)
+          .where('mensagem', isLessThanOrEqualTo: end)
+          .limit(20)
+          .get();
+      if (!mounted) return;
+      setState(() {
+        _resultados = [
+          ...membros.docs.map((d) => {'tipo': 'Membro', ...d.data()}),
+          ...eventos.docs.map((d) => {'tipo': 'Evento', ...d.data()}),
+          ...avisos.docs.map((d) => {'tipo': 'Aviso', ...d.data()}),
+        ];
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
   }
 
   @override
@@ -65,8 +110,20 @@ class _BuscaGlobalWidgetState extends State<BuscaGlobalWidget> {
                     itemBuilder: (_, i) {
                       final r = _resultados[i];
                       return ListTile(
-                        leading: Icon(r['tipo'] == 'Membro' ? Icons.person : r['tipo'] == 'Evento' ? Icons.event : Icons.announcement),
-                        title: Text(r['tipo'] == 'Membro' ? r['nome'] ?? '' : r['tipo'] == 'Evento' ? r['titulo'] ?? '' : r['mensagem'] ?? ''),
+                        leading: Icon(
+                          r['tipo'] == 'Membro'
+                              ? Icons.person
+                              : r['tipo'] == 'Evento'
+                                  ? Icons.event
+                                  : Icons.announcement,
+                        ),
+                        title: Text(
+                          r['tipo'] == 'Membro'
+                              ? r['nome'] ?? ''
+                              : r['tipo'] == 'Evento'
+                                  ? r['titulo'] ?? ''
+                                  : r['mensagem'] ?? '',
+                        ),
                         subtitle: Text(r['tipo'] ?? ''),
                       );
                     },

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -988,6 +990,13 @@ class _PresencaSheet extends StatefulWidget {
 
 class _PresencaSheetState extends State<_PresencaSheet> {
   String _search = '';
+  Timer? _searchDebounce;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
   final Map<String, bool> _presencas = {};
   final Map<String, String> _nomes = {};
   bool _loaded = false;
@@ -1198,7 +1207,14 @@ class _PresencaSheetState extends State<_PresencaSheet> {
                     borderSide: BorderSide(color: Colors.grey.shade300),
                   ),
                 ),
-                onChanged: (v) => setState(() => _search = v),
+                onChanged: (v) {
+                  _searchDebounce?.cancel();
+                  _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+                    if (!mounted) return;
+                    if (v == _search) return;
+                    setState(() => _search = v);
+                  });
+                },
               ),
               const SizedBox(height: ThemeCleanPremium.spaceXs),
               if (widget.canManage)

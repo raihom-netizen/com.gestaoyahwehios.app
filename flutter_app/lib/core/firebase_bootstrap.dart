@@ -4,6 +4,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart' as fb_core;
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show isFirebaseNoAppError;
 
 export 'firebase/firebase_bootstrap.dart' show FirebaseBootstrap;
 export 'firebase/firebase_service.dart' show FirebaseService;
@@ -25,16 +27,11 @@ export 'firebase_publish_guard.dart' show ensureFirebaseReadyToPublish;
 Future<void> ensureFirebaseInitialized() =>
     fb_core.FirebaseBootstrap.ensureInitialized();
 
-/// Padrão Controle Total: **um** `initializeApp` + (opcional) token JWT.
-/// Sem health check, fila, reconnect nem segunda inicialização.
+/// Padrão Controle Total: núcleo sempre ligado — init + token, sem «Reconectar».
 Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
-  await fb_core.FirebaseBootstrap.ensureInitialized();
-  FirebaseBootstrapService.refreshCachedApp();
-  if (Firebase.apps.isEmpty) {
-    throw StateError(
-      'Firebase não inicializou (core/no-app). FIREBASE APPS=0',
-    );
-  }
+  await FirebaseBootstrapService.ensureAlwaysOn(
+    refreshAuthToken: requireAuth,
+  );
   if (!requireAuth) return;
   final user = FirebaseBootstrapService.auth.currentUser;
   if (user == null || user.isAnonymous) {
@@ -42,7 +39,6 @@ Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
       'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
     );
   }
-  await user.getIdToken(false).timeout(const Duration(seconds: 12));
 }
 
 Future<void> ensureFirebaseReadyForMediaUpload({bool force = false}) =>
@@ -60,13 +56,27 @@ Future<void> ensureFirebaseReadyForPublishUpload() =>
 Future<void> ensureFirebaseReadyForChatSend() =>
     ensureFirebaseCore(requireAuth: true);
 
-/// Mídia do chat — sem [runFirebaseBackgroundTask] (menos latência no caminho quente).
+/// Mídia do chat — leve (sem [runGuarded] com vários retries).
 Future<void> runChatMediaUploadTask(
   Future<void> Function() fn, {
   String? debugLabel,
 }) async {
-  await ensureFirebaseCore(requireAuth: true);
-  await fn();
+  Object? last;
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      await ensureFirebaseCore(requireAuth: true);
+      await fn();
+      return;
+    } catch (e) {
+      last = e;
+      if (attempt == 0 && isFirebaseNoAppError(e)) {
+        await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+        continue;
+      }
+      rethrow;
+    }
+  }
+  throw last ?? StateError('Firebase indisponível');
 }
 
 /// Upload Storage — init + token (path ignorado; mantido por compatibilidade).
@@ -74,7 +84,7 @@ Future<void> ensureUploadBootstrapForStoragePath(String storagePath) async {
   await ensureFirebaseCore(requireAuth: true);
 }
 
-/// Tarefas de upload/chat — bootstrap + reconnect automático em `core/no-app`.
+/// Tarefas de upload/chat — bootstrap silencioso em `core/no-app`.
 Future<T> runFirebaseBackgroundTask<T>(
   Future<T> Function() fn, {
   String? debugLabel,
@@ -87,6 +97,7 @@ Future<T> runFirebaseBackgroundTask<T>(
 
 FirebaseApp get firebaseDefaultApp => FirebaseBootstrapService.defaultApp;
 
+/// Acesso Firestore/Auth/Storage — app [DEFAULT] (sem `.instance` solto).
 FirebaseFirestore get firebaseDefaultFirestore =>
     FirebaseBootstrapService.firestore;
 

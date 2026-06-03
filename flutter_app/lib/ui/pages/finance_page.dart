@@ -7457,7 +7457,7 @@ Future<void> _ensureFinanceWriteReady() async {
     await ensureFirebaseReadyForPublishUpload();
   } catch (e) {
     if (isFirebaseNoAppError(e)) {
-      await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+      await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
       await ensureFirebaseReadyForPublishUpload();
       return;
     }

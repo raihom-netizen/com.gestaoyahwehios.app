@@ -82,7 +82,7 @@ class FirestoreWebGuard {
   static Future<void> _reconnectFirestoreAfterTerminated() async {
     try {
       debugPrint('FirestoreWebGuard: reconnect após cliente terminado…');
-      await FirebaseBootstrapService.reconnect(requireAuthSession: false);
+      await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
       applyWebFirestoreSettings();
       try {
         await firebaseDefaultFirestore.enableNetwork();

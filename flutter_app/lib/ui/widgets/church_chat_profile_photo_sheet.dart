@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
@@ -180,7 +181,7 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
         imageQuality: 92,
       );
       if (file == null) return;
-      final bytes = await file.readAsBytes();
+      final bytes = await SafeImageBytes.memberProfileFromPicker(file);
       if (!mounted) return;
       setState(() => _previewBytes = bytes);
       ImmediateMediaAttachFeedback.showArquivoAnexado(

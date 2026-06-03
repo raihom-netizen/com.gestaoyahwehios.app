@@ -65,14 +65,8 @@ abstract final class AppFinalizeBootstrap {
     if (_resumeBusy) return;
     _resumeBusy = true;
     try {
-      await FirebaseBootstrap.ensureInitialized();
-      FirebaseBootstrapService.refreshCachedApp();
-      if (!FirebaseBootstrapService.isReady()) {
-        await FirebaseBootstrapService.initialize();
-        FirebaseBootstrapService.refreshCachedApp();
-      }
-      // Controle Total: ao voltar do background só renova token — não `reconnect()`
-      // (resetava Firebase e quebrava upload de foto/áudio da câmara ou galeria).
+      // Controle Total: núcleo + token — sem `reconnect()` pesado no resume.
+      await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
       await _refreshAuthTokenSilently();
       await _bindQueuesAfterFirebaseCore();
     } catch (e, st) {

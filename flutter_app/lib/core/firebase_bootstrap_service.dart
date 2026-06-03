@@ -82,7 +82,7 @@ class FirebaseBootstrapException implements Exception {
       return 'Firebase ${e.plugin} ($code)${m != null ? ': $m' : ''}';
     }
     if (_isNoFirebaseApp(e)) {
-      return 'Firebase não inicializou. Toque em «Reconectar» ou reinicie o app.';
+      return 'A sincronizar com o servidor… tente de novo em instantes.';
     }
     if (health != null && !health.allCoreOk) {
       return health.summaryForUser;
@@ -524,33 +524,53 @@ abstract final class FirebaseBootstrapService {
     return report;
   }
 
-  /// Reconexão com backoff — sem exigir fechar o app.
-  static Future<void> reconnect({bool requireAuthSession = false}) async {
-    FirebaseBootstrap.reset();
-    _healthOkAt = null;
+  /// Controle Total: restaura [DEFAULT] + token — **sem** apagar app nem health check pesado.
+  static Future<void> ensureAlwaysOn({
+    bool refreshAuthToken = false,
+    int maxAttempts = 4,
+  }) async {
     Object? last;
     StackTrace? lastSt;
-    for (final sec in _reconnectDelaysSec) {
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         await _softReinit();
-        await healthCheck(requireAuthSession: requireAuthSession);
+        if (!_hasApp()) {
+          throw StateError('core/no-app');
+        }
+        try {
+          configureFirestoreForOfflineAndSpeed();
+        } catch (_) {}
+        if (refreshAuthToken) {
+          final user = auth.currentUser;
+          if (user != null && !user.isAnonymous) {
+            await user
+                .getIdToken(attempt > 0)
+                .timeout(const Duration(seconds: 12));
+          }
+        }
         _healthOkAt = DateTime.now();
         return;
       } catch (e, st) {
         last = e;
         lastSt = st;
-        if (kDebugMode) debugPrint('Firebase reconnect (${sec}s): $e');
+        if (kDebugMode) {
+          debugPrint('Firebase ensureAlwaysOn tentativa $attempt: $e');
+        }
+        if (attempt < maxAttempts - 1) {
+          await Future.delayed(
+            Duration(milliseconds: 120 + 180 * (attempt + 1)),
+          );
+        }
       }
-      await Future.delayed(Duration(seconds: sec));
     }
     final ex = FirebaseBootstrapException.from(last!, lastSt);
     _lastFailure = ex;
-    if (CrashlyticsService.shouldReport(ex)) {
-      unawaited(
-        CrashlyticsService.record(ex, lastSt, reason: 'firebase_reconnect'),
-      );
-    }
     throw ex;
+  }
+
+  /// Compatibilidade — delega a [ensureAlwaysOn] (não usa backoff de minutos).
+  static Future<void> reconnect({bool requireAuthSession = false}) async {
+    await ensureAlwaysOn(refreshAuthToken: requireAuthSession);
   }
 
   /// Reinício completo (último recurso) — pode terminar sessão Auth nativa.
@@ -589,8 +609,12 @@ abstract final class FirebaseBootstrapService {
       await healthCheck(requireAuthSession: requireAuthSession);
       _healthOkAt = DateTime.now();
     } catch (e) {
-      if (_isNoFirebaseApp(e) || e is FirebaseException) {
-        await reconnect(requireAuthSession: requireAuthSession);
+      if (_isNoFirebaseApp(e)) {
+        await ensureAlwaysOn(refreshAuthToken: requireAuthSession);
+        return;
+      }
+      if (e is FirebaseException) {
+        await ensureAlwaysOn(refreshAuthToken: requireAuthSession);
         return;
       }
       rethrow;
@@ -609,50 +633,17 @@ abstract final class FirebaseBootstrapService {
     await ensureReadyForStorageUpload(requireAuth: true);
   }
 
-  static bool _isChatGuardLabel(String? debugLabel) {
-    final l = debugLabel?.toLowerCase() ?? '';
-    return l.contains('chat');
-  }
-
-  static bool _isMediaPublishGuardLabel(String? debugLabel) {
-    final l = debugLabel?.toLowerCase() ?? '';
-    return l.contains('aviso') ||
-        l.contains('evento') ||
-        l.contains('feed') ||
-        l.contains('mural') ||
-        l.contains('publish');
-  }
-
   static Future<T> runGuarded<T>(
     Future<T> Function() fn, {
     String? debugLabel,
     bool requireAuth = true,
   }) async {
-    final chatOp = _isChatGuardLabel(debugLabel);
-    final mediaPublishOp = !chatOp && _isMediaPublishGuardLabel(debugLabel);
     Object? last;
     StackTrace? lastSt;
-    final maxAttempts = chatOp || mediaPublishOp ? 4 : 3;
+    const maxAttempts = 4;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await FirebaseBootstrap.ensureInitialized();
-        refreshCachedApp();
-        if (chatOp || mediaPublishOp) {
-          await FirebaseBootstrap.ensureInitialized();
-          refreshCachedApp();
-          if (requireAuth) {
-            final user = auth.currentUser;
-            if (user == null || user.isAnonymous) {
-              _throwSessionExpired();
-            }
-            await user.getIdToken(false).timeout(const Duration(seconds: 12));
-          }
-        } else {
-          await ensureReady(
-            requireAuthSession: requireAuth,
-            forceHealthCheck: attempt > 1,
-          );
-        }
+        await ensureAlwaysOn(refreshAuthToken: requireAuth);
         return await fn();
       } catch (e, st) {
         last = e;
@@ -670,29 +661,18 @@ abstract final class FirebaseBootstrapService {
         if (attempt >= maxAttempts) break;
         if (_isNoFirebaseApp(e)) {
           invalidateStorageUploadBootstrap();
-          try {
-            await FirebaseBootstrap.ensureInitialized();
-            refreshCachedApp();
-          } catch (_) {}
-          if (attempt < maxAttempts) continue;
         }
-        if (chatOp || mediaPublishOp) {
-          final raw = e.toString();
-          if (raw.contains('INTERNAL ASSERTION') && attempt < maxAttempts) {
-            await Future.delayed(Duration(milliseconds: 400 * attempt));
-            try {
-              await auth.currentUser?.getIdToken(true);
-            } catch (_) {}
-            continue;
-          }
-          await Future.delayed(Duration(milliseconds: 350 * attempt));
+        final raw = e.toString();
+        if (raw.contains('INTERNAL ASSERTION') && attempt < maxAttempts) {
+          await Future.delayed(Duration(milliseconds: 400 * attempt));
           try {
             await auth.currentUser?.getIdToken(true);
           } catch (_) {}
           continue;
         }
+        await Future.delayed(Duration(milliseconds: 280 * attempt));
         try {
-          await reconnect(requireAuthSession: requireAuth);
+          await ensureAlwaysOn(refreshAuthToken: requireAuth);
         } catch (_) {}
       }
     }

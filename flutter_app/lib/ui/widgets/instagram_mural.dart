@@ -310,7 +310,9 @@ class InstagramMuralState extends State<InstagramMural> {
       await ChurchTenantResilientReads.preparePanelRead();
     } catch (e) {
       if (isFirebaseNoAppError(e)) {
-        await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+        await FirebaseBootstrapService.ensureAlwaysOn(
+          refreshAuthToken: true,
+        );
         await ChurchTenantResilientReads.preparePanelRead(refreshToken: true);
         return;
       }

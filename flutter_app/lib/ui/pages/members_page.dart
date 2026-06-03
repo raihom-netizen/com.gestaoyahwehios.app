@@ -42,6 +42,7 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart'
@@ -76,6 +77,7 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/keep_alive_tab_child.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/app_permissions.dart';
@@ -2780,7 +2782,9 @@ class _MembersPageState extends State<MembersPage> {
                                 final picked = await _pickImage(ctx);
                                 if (picked != null) {
                                   // Sempre em memória: XFile pós-WebP pode ser fromData sem path válido no disco.
-                                  newPhotoBytes = await picked.readAsBytes();
+                                  newPhotoBytes =
+                                      await SafeImageBytes.memberProfileFromPicker(
+                                          picked);
                                   newPhoto = picked;
                                   if (ctx.mounted) {
                                     ImmediateMediaAttachFeedback.showArquivoAnexado(
@@ -4335,9 +4339,8 @@ class _MembersPageState extends State<MembersPage> {
     final pickedPhoto = newPhoto;
     if (pickedPhoto != null) {
       try {
-        final rawBytes = await pickedPhoto.readAsBytes();
         final compressedBytes =
-            await ImageHelper.compressMemberProfileForUpload(rawBytes);
+            await SafeImageBytes.memberProfileFromPicker(pickedPhoto);
         pendingProfilePhotoBytesGestor = compressedBytes;
         if (mounted) {
           setState(() {
@@ -6541,7 +6544,7 @@ class _MembersPageState extends State<MembersPage> {
                     onChanged: (_) {
                       _searchDebounce?.cancel();
                       _searchDebounce =
-                          Timer(const Duration(milliseconds: 300), () {
+                          Timer(const Duration(milliseconds: 500), () {
                         if (mounted) {
                           setState(
                               () => _q = _searchCtrl.text.trim().toLowerCase());
@@ -6896,14 +6899,21 @@ class _MembersPageState extends State<MembersPage> {
                           index: _membersMainTabIndex,
                           sizing: StackFit.expand,
                           children: [
-                            _buildMembersListFutureColumn(
-                              padding,
-                              addBlocked: addBlocked,
-                              limitResult: limitResult,
-                              includeInlineFilters: true,
+                            KeepAliveTabChild(
+                              child: _buildMembersListFutureColumn(
+                                padding,
+                                addBlocked: addBlocked,
+                                limitResult: limitResult,
+                                includeInlineFilters: true,
+                              ),
                             ),
-                            _buildMembersStatsDashboard(
-                                context, padding, limitResult),
+                            KeepAliveTabChild(
+                              child: _buildMembersStatsDashboard(
+                                context,
+                                padding,
+                                limitResult,
+                              ),
+                            ),
                           ],
                         ),
                       ),

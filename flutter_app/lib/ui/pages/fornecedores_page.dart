@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Timer, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -881,6 +881,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     with SingleTickerProviderStateMixin {
   final _searchCtrl = TextEditingController();
   String _q = '';
+  Timer? _searchDebounce;
   late TabController _tabMain;
   QuerySnapshot<Map<String, dynamic>>? _fornecedoresCacheSnap;
 
@@ -923,6 +924,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _tabMain.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -1172,7 +1174,18 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           padding: ThemeCleanPremium.pagePadding(context).copyWith(bottom: 8),
           child: TextField(
             controller: _searchCtrl,
-            onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
+            onChanged: (v) {
+              _searchDebounce?.cancel();
+              _searchDebounce = Timer(
+                const Duration(milliseconds: 500),
+                () {
+                  if (!mounted) return;
+                  final next = v.trim().toLowerCase();
+                  if (next == _q) return;
+                  setState(() => _q = next);
+                },
+              );
+            },
             decoration: InputDecoration(
               hintText: 'Buscar por nome, CPF/CNPJ ou cidade',
               prefixIcon: Icon(Icons.search_rounded, color: accent),

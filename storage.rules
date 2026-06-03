@@ -42,7 +42,11 @@ service firebase.storage {
         || request.resource.contentType == 'image/heif'
         || request.resource.contentType == 'video/quicktime'
         || request.resource.contentType == 'video/x-m4v'
-        || request.resource.contentType == 'application/zip';
+        || request.resource.contentType == 'application/zip'
+        || request.resource.contentType == 'application/vnd.rar'
+        || request.resource.contentType == 'application/x-rar-compressed'
+        || request.resource.contentType == 'application/x-7z-compressed'
+        || request.resource.contentType == 'application/java-archive';
     }
 
     /// Upload autenticado (mobile): não bloquear por MIME quando o cliente envia octet-stream ou tipo vazio.

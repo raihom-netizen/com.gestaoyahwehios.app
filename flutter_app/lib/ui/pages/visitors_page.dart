@@ -185,6 +185,23 @@ Future<void> openChurchVisitorFichaFromDashboard(
 class _VisitorsPageState extends State<VisitorsPage> {
   _TabVisitante _tab = _TabVisitante.doDia;
   String _searchNome = '';
+  Timer? _searchDebounce;
+
+  void _scheduleSearchNome(String raw) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+      if (!mounted) return;
+      final next = raw.trim().toLowerCase();
+      if (next == _searchNome) return;
+      setState(() => _searchNome = next);
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
   DateTime? _filtroData;
   int? _filtroDia;
   int? _filtroMes;
@@ -486,7 +503,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
         SizedBox(
           width: 200,
           child: TextField(
-            onChanged: (v) => setState(() => _searchNome = v.trim().toLowerCase()),
+            onChanged: _scheduleSearchNome,
             decoration: InputDecoration(
               hintText: 'Buscar por nome',
               prefixIcon: const Icon(Icons.search_rounded, size: 20),
@@ -556,7 +573,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
       child: TextField(
-        onChanged: (v) => setState(() => _searchNome = v.trim().toLowerCase()),
+        onChanged: _scheduleSearchNome,
         decoration: InputDecoration(
           hintText: 'Buscar por nome ou telefone…',
           prefixIcon: const Icon(Icons.search_rounded, color: ThemeCleanPremium.onSurfaceVariant),

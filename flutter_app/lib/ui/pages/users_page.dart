@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
@@ -12,7 +15,15 @@ class UsersPage extends StatefulWidget {
 }
 
 class _UsersPageState extends State<UsersPage> {
-  String _q = '';
+  final ValueNotifier<String> _q = ValueNotifier('');
+  Timer? _searchDebounce;
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _q.dispose();
+    super.dispose();
+  }
 
   bool get _canEditRole => widget.role.toLowerCase() == 'master';
 
@@ -98,7 +109,12 @@ class _UsersPageState extends State<UsersPage> {
                 prefixIcon: Icon(Icons.search),
                 hintText: 'Buscar por email, CPF ou nome...',
               ),
-              onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
+              onChanged: (v) {
+                _searchDebounce?.cancel();
+                _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+                  _q.value = v.trim().toLowerCase();
+                });
+              },
             ),
           ),
           Expanded(
@@ -109,6 +125,9 @@ class _UsersPageState extends State<UsersPage> {
                   return const Center(child: CircularProgressIndicator());
                 }
 
+                return ValueListenableBuilder<String>(
+                  valueListenable: _q,
+                  builder: (context, query, _) {
                 final docs = snap.data!.docs.where((d) {
                   final m = d.data();
                   final email = (m['email'] ?? '').toString().toLowerCase();
@@ -117,8 +136,10 @@ class _UsersPageState extends State<UsersPage> {
                   // Oculta o cadastro do master para outros usuários
                   final isMaster = (m['role'] ?? '').toString().toLowerCase() == 'master' || email == 'raihom@gmail.com';
                   if (isMaster && widget.role.toLowerCase() != 'master') return false;
-                  if (_q.isEmpty) return true;
-                  return email.contains(_q) || name.contains(_q) || cpf.contains(_q);
+                  if (query.isEmpty) return true;
+                  return email.contains(query) ||
+                      name.contains(query) ||
+                      cpf.contains(query);
                 }).toList();
 
                 if (docs.isEmpty) {
@@ -185,6 +206,8 @@ class _UsersPageState extends State<UsersPage> {
                         ),
                       ),
                     );
+                  },
+                );
                   },
                 );
               },

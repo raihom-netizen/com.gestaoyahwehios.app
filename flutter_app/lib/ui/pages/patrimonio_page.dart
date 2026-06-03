@@ -41,6 +41,7 @@ import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
     show kMaxPatrimonioPhotosPerItem;
+import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
@@ -708,6 +709,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   final List<StreamSubscription<dynamic>> _patrimonioRealtimeSubs =
       <StreamSubscription<dynamic>>[];
   Timer? _patrimonioRealtimeDebounce;
+  Timer? _searchDebounce;
 
   String _q = '';
   String _filterCategoria = '';
@@ -879,6 +881,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _patrimonioRealtimeDebounce?.cancel();
     for (final s in _patrimonioRealtimeSubs) {
       unawaited(s.cancel());
@@ -2107,8 +2110,18 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                     statusColor: _statusColor,
                     fmtMoney: _fmtMoney,
                     fmtDate: _fmtDate,
-                    onSearchChanged: (v) =>
-                        setState(() => _q = v.trim().toLowerCase()),
+                    onSearchChanged: (v) {
+                      _searchDebounce?.cancel();
+                      _searchDebounce = Timer(
+                        const Duration(milliseconds: 500),
+                        () {
+                          if (!mounted) return;
+                          final next = v.trim().toLowerCase();
+                          if (next == _q) return;
+                          setState(() => _q = next);
+                        },
+                      );
+                    },
                     onCategoriaChanged: (v) =>
                         setState(() => _filterCategoria = v),
                     onStatusChanged: (v) => setState(() => _filterStatus = v),
@@ -7248,9 +7261,17 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     final novosNomes = <String>[];
     for (final f in list) {
       if (_fotoCountAtual + novosBytes.length >= _maxFotosPorItem) break;
-      final raw = await f.readAsBytes();
-      novosBytes.add(await ImageHelper.compressPatrimonioPhotoForUpload(raw));
-      novosNomes.add(f.name.isNotEmpty ? f.name : 'foto_${novosBytes.length}.webp');
+      try {
+        final bytes = await SafeImageBytes.patrimonioFromPicker(f);
+        novosBytes.add(bytes);
+        novosNomes.add(f.name.isNotEmpty ? f.name : 'foto_${novosBytes.length}.webp');
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Foto ignorada: $e')),
+          );
+        }
+      }
     }
     if (novosBytes.isEmpty || !mounted) return;
     setState(() {
@@ -7280,19 +7301,26 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     }
     final file = await ImagePicker().pickImage(source: ImageSource.camera);
     if (file == null || !mounted) return;
-    final raw = await file.readAsBytes();
-    final bytes = await ImageHelper.compressPatrimonioPhotoForUpload(raw);
-    setState(() {
-      _newImages.add(bytes);
-      _newNames.add(file.name.isNotEmpty ? file.name : 'camera.webp');
-    });
-    if (mounted) {
-      ImmediateMediaAttachFeedback.showArquivoAnexado(
-        context,
-        file.name.isNotEmpty ? file.name : 'camera.webp',
-      );
+    try {
+      final bytes = await SafeImageBytes.patrimonioFromPicker(file);
+      setState(() {
+        _newImages.add(bytes);
+        _newNames.add(file.name.isNotEmpty ? file.name : 'camera.webp');
+      });
+      if (mounted) {
+        ImmediateMediaAttachFeedback.showArquivoAnexado(
+          context,
+          file.name.isNotEmpty ? file.name : 'camera.webp',
+        );
+      }
+      unawaited(_uploadPatrimonioPhotoInBackground(bytes));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro na foto: $e')),
+        );
+      }
     }
-    unawaited(_uploadPatrimonioPhotoInBackground(bytes));
   }
 
   Future<void> _save() async {
@@ -7317,7 +7345,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         await ensureFirebaseReadyForPublishUpload();
       } catch (e, st) {
         if (isFirebaseNoAppError(e)) {
-          await FirebaseBootstrapService.reconnect(requireAuthSession: true);
+          await FirebaseBootstrapService.ensureAlwaysOn(
+            refreshAuthToken: true,
+          );
           await FastMediaPublishBootstrap.warmForPatrimonioSave();
         } else {
           YahwehCatchLog.logAndRethrow(e, st, tag: 'patrimonio_warm');
