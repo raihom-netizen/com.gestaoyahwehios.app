@@ -106,6 +106,7 @@ abstract final class AppSessionStability {
   }
 
   static bool hasReturningSessionHints() {
+    if (LoginPreferences.startupAccountSwitchPending == true) return false;
     if (_stickyUser != null) return true;
     final shellUid = AppShellSessionCache.cachedUidSync();
     if (shellUid != null && shellUid.isNotEmpty) return true;

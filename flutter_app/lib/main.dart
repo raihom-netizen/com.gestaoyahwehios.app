@@ -582,35 +582,30 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       }
     } catch (_) {}
   }
-  // Web: não chamar checkAndReloadIfNewVersion para evitar reload automático e tela piscando.
-  // Ao abrir pelo ícone: restaura última rota para abrir onde parou (evita tela preta/branca)
+  // Web: ao reabrir com sessão, abrir sempre o painel inicial (não a última rota/aba).
   if (true) {
     try {
       final prefs = await SharedPreferences.getInstance();
-      // Se o usuário já iniciou direto no painel, sempre atualizamos o last_route.
-      // (Ajuda em PWA instalada quando o observer não registra o route inicial.)
       if (initialRoute == '/painel' ||
           initialRoute == '/admin' ||
           initialRoute.startsWith('/painel') ||
           initialRoute.startsWith('/admin')) {
-        await prefs.setString('last_route', initialRoute);
+        await prefs.setString('last_route', '/painel');
       }
       final last = prefs.getString('last_route');
+      final cu = FirebaseAuth.instance.currentUser;
+      final hasSession = cu != null && !cu.isAnonymous;
       if (last != null && last.isNotEmpty) {
-        // Raiz `/` = site de divulgação: não sobrescrever com last_route (ex.: /painel).
         final isPublicRoot =
             kIsWeb && (initialRoute == '/' || initialRoute.isEmpty);
         if (!isPublicRoot) {
-          // PWA/ícone costuma abrir em `/`; aí restauramos painel onde parou.
           final keepCurrent = kIsWeb && initialRoute != '/' && initialRoute != '';
           final isPublicSignupDeep =
               PublicWebRouteParser.isPublicSignupDeepRoute(initialRoute);
           if (!keepCurrent && !isPublicSignupDeep) {
-            // Web/PWA: restaurar última rota. App nativo: só se já houver sessão —
-            // senão /painel abre AuthGate com user==null e fica preso no loading.
-            if (kIsWeb) {
-              initialRoute = last;
-            } else if (FirebaseAuth.instance.currentUser != null) {
+            if (hasSession) {
+              initialRoute = '/painel';
+            } else if (kIsWeb) {
               initialRoute = last;
             } else {
               initialRoute = '/login';

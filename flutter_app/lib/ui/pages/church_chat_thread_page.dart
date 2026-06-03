@@ -1592,6 +1592,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final r = await FilePicker.platform.pickFiles(
       type: FileType.media,
       allowMultiple: true,
+      withData: kIsWeb,
     );
     if (r == null || r.files.isEmpty) return;
     var imgCount = 0;

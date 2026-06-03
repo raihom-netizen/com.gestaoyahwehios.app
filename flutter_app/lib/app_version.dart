@@ -1,4 +1,7 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1738: Deploy completo — painel inicial fixo, Firestore real, quota Auth, login CT.
+/// 11.2.295+1737: Sempre painel inicial ao entrar — sem restaurar última aba/chat/módulo.
+/// 11.2.295+1736: Firestore bloqueante online, Google silent restore, biometria AuthGate, painel/chat/património.
 /// 11.2.295+1735: Deploy completo — guard quota Auth, web+AAB+iOS Codemagic.
 /// 11.2.295+1734: Guard quota Auth — menos getIdToken, sem soft-reinit em loop, resume debounced.
 /// 11.2.295+1733: Firebase ensureAlwaysOn, chat/eventos/avisos/património/perfil upload rápido (sem OOM), debounce pesquisa.
@@ -254,7 +257,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1735';
+const String appBuildNumber = '1738';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

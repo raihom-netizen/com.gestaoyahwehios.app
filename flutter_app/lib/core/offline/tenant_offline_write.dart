@@ -3,7 +3,6 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
-import 'package:gestao_yahweh/core/offline/never_lose_data_policy.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/offline_payload_codec.dart';
 import 'package:gestao_yahweh/core/offline/offline_write_operations.dart';
@@ -21,9 +20,8 @@ abstract final class TenantOfflineWrite {
   static bool get shouldQueueForHive =>
       !AppConnectivityService.instance.isOnline;
 
-  /// Write-ahead local (Nunca Perder Dados) — sempre fila Hive antes do Firebase.
-  static bool _persistBeforeRemote(String module) =>
-      NeverLoseDataPolicy.appliesTo(module) || shouldQueueForHive;
+  /// Write-ahead Hive só **offline** — online grava no Firestore antes de sucesso na UI.
+  static bool _persistBeforeRemote(String module) => shouldQueueForHive;
 
   static String _taskId(String module, String path, String op) =>
       '${module}_${op}_${path.hashCode}_${DateTime.now().microsecondsSinceEpoch}';

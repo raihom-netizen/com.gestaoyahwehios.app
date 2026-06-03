@@ -7286,9 +7286,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
             : '${novosNomes.length} fotos',
       );
     }
-    for (final b in novosBytes) {
-      unawaited(_uploadPatrimonioPhotoInBackground(b));
-    }
     if (list.length > novosBytes.length) {
       _showLimiteFotosSnack();
     }
@@ -7313,7 +7310,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           file.name.isNotEmpty ? file.name : 'camera.webp',
         );
       }
-      unawaited(_uploadPatrimonioPhotoInBackground(bytes));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -7346,7 +7342,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       } catch (e, st) {
         if (isFirebaseNoAppError(e)) {
           await FirebaseBootstrapService.ensureAlwaysOn(
-            refreshAuthToken: true,
+            refreshAuthToken: false,
           );
           await FastMediaPublishBootstrap.warmForPatrimonioSave();
         } else {

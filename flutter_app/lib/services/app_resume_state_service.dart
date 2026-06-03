@@ -1,11 +1,15 @@
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// «Retornar onde parou» — rota, aba do painel, chat, membro, etc. (offline-first UX).
+/// «Retornar onde parou» — rota, aba do painel, chat, membro, etc.
 ///
+/// [restoreLastScreenOnStartup] = false → ao entrar no sistema, abrir sempre o painel inicial.
 /// Limpar só em [LoginPreferences.prepareChurchAccountSwitch] / troca de conta.
 abstract final class AppResumeStateService {
   AppResumeStateService._();
+
+  /// false = sempre painel inicial ao reabrir (não chat / último módulo).
+  static const bool restoreLastScreenOnStartup = false;
 
   static const _kLastRoute = 'last_route';
   static const _kShellIndex = 'gv_resume_shell_index_v1';
@@ -27,6 +31,7 @@ abstract final class AppResumeStateService {
   }
 
   static Future<String?> readLastRoute() async {
+    if (!restoreLastScreenOnStartup) return null;
     final prefs = await SharedPreferences.getInstance();
     final v = (prefs.getString(_kLastRoute) ?? '').trim();
     return v.isEmpty ? null : v;
@@ -44,6 +49,7 @@ abstract final class AppResumeStateService {
   }
 
   static Future<({String tenantId, int shellIndex})?> readShellContext() async {
+    if (!restoreLastScreenOnStartup) return null;
     final prefs = await SharedPreferences.getInstance();
     final tid = (prefs.getString(_kTenantId) ?? '').trim();
     if (tid.isEmpty) return null;
@@ -65,6 +71,7 @@ abstract final class AppResumeStateService {
   }
 
   static Future<({String tenantId, String threadId})?> readChatThread() async {
+    if (!restoreLastScreenOnStartup) return null;
     final prefs = await SharedPreferences.getInstance();
     final tid = (prefs.getString(_kTenantId) ?? '').trim();
     final th = (prefs.getString(_kChatThreadId) ?? '').trim();
@@ -125,6 +132,7 @@ abstract final class AppResumeStateService {
   }
 
   static Future<({String tenantId, String memberDocId})?> readOpenMember() async {
+    if (!restoreLastScreenOnStartup) return null;
     final prefs = await SharedPreferences.getInstance();
     final tid = (prefs.getString(_kTenantId) ?? '').trim();
     final mid = (prefs.getString(_kMemberDocId) ?? '').trim();
@@ -133,6 +141,7 @@ abstract final class AppResumeStateService {
   }
 
   static Future<({String tenantId, String itemDocId})?> readOpenPatrimonio() async {
+    if (!restoreLastScreenOnStartup) return null;
     final prefs = await SharedPreferences.getInstance();
     final tid = (prefs.getString(_kTenantId) ?? '').trim();
     final id = (prefs.getString(_kPatrimonioDocId) ?? '').trim();
@@ -141,6 +150,7 @@ abstract final class AppResumeStateService {
   }
 
   static Future<({String tenantId, String eventDocId})?> readOpenEvent() async {
+    if (!restoreLastScreenOnStartup) return null;
     final prefs = await SharedPreferences.getInstance();
     final tid = (prefs.getString(_kTenantId) ?? '').trim();
     final id = (prefs.getString(_kEventDocId) ?? '').trim();
@@ -149,6 +159,7 @@ abstract final class AppResumeStateService {
   }
 
   static Future<({String tenantId, String avisoDocId})?> readOpenAviso() async {
+    if (!restoreLastScreenOnStartup) return null;
     final prefs = await SharedPreferences.getInstance();
     final tid = (prefs.getString(_kTenantId) ?? '').trim();
     final id = (prefs.getString(_kAvisoDocId) ?? '').trim();

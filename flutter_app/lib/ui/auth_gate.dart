@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import '../services/ios_payments_gate.dart';
 
+import 'pages/biometric_lock_page.dart';
 import 'pages/change_password_page.dart';
 import 'pages/completar_cadastro_membro_page.dart';
 import 'igreja_clean_shell.dart';
@@ -1307,7 +1308,15 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
         }
 
         if (p != null && (!done || _panelEverShown)) {
-          return _buildPanelShellFromProfile(p);
+          final shell = _buildPanelShellFromProfile(p);
+          if (!kIsWeb) {
+            final bioEnabled = done && (snap.data?.$2 == true);
+            if (bioEnabled &&
+                !BiometricService.consumeSkipNextDashboardBiometricLock()) {
+              return BiometricLockPage(child: shell);
+            }
+          }
+          return shell;
         }
 
         if (!done) {

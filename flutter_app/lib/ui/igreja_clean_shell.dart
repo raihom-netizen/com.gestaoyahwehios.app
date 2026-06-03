@@ -379,57 +379,17 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       if (_shellBootstrapOpenMemberId != null && mounted) {
         setState(() => _selectedIndex = ChurchShellIndices.membros);
       } else {
-        final openMember = await AppResumeStateService.readOpenMember();
-        if (mounted &&
-            openMember != null &&
-            openMember.tenantId == widget.tenantId &&
-            _shellBootstrapOpenMemberId == null) {
-          _shellBootstrapOpenMemberId = openMember.memberDocId;
-          setState(() => _selectedIndex = ChurchShellIndices.membros);
-        }
-        final resume = await AppResumeStateService.readShellContext();
-        if (mounted &&
-            resume != null &&
-            resume.tenantId == widget.tenantId &&
-            _canAccessItem(resume.shellIndex)) {
-          setState(() => _selectedIndex = resume.shellIndex);
-        } else if (widget.initialShellIndex != null &&
+        // Sempre painel inicial ao entrar — sem restaurar aba/chat/módulo anterior.
+        if (widget.initialShellIndex != null &&
             mounted &&
             _canAccessItem(widget.initialShellIndex!)) {
           setState(() => _selectedIndex = widget.initialShellIndex!);
-        }
-        final openPat = await AppResumeStateService.readOpenPatrimonio();
-        if (mounted &&
-            openPat != null &&
-            openPat.tenantId == widget.tenantId) {
-          _shellBootstrapOpenPatrimonioDocId = openPat.itemDocId;
-          if (_canAccessItem(ChurchShellIndices.patrimonio)) {
-            setState(() => _selectedIndex = ChurchShellIndices.patrimonio);
-          }
-        }
-        final openEvent = await AppResumeStateService.readOpenEvent();
-        if (mounted &&
-            openEvent != null &&
-            openEvent.tenantId == widget.tenantId) {
-          _shellBootstrapOpenEventDocId = openEvent.eventDocId;
-          if (_canAccessItem(ChurchShellIndices.muralEventos)) {
-            setState(() => _selectedIndex = ChurchShellIndices.muralEventos);
-          }
-        }
-        final openAviso = await AppResumeStateService.readOpenAviso();
-        if (mounted &&
-            openAviso != null &&
-            openAviso.tenantId == widget.tenantId) {
-          _shellBootstrapOpenAvisoDocId = openAviso.avisoDocId;
-          if (_canAccessItem(ChurchShellIndices.muralAvisos)) {
-            setState(() => _selectedIndex = ChurchShellIndices.muralAvisos);
-          }
         }
       }
       unawaited(
         AppResumeStateService.saveShellContext(
           tenantId: widget.tenantId,
-          shellIndex: _selectedIndex,
+          shellIndex: 0,
         ),
       );
       unawaited(GestorWelcomeDialog.tryShowIfNeeded(

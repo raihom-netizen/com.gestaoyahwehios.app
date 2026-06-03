@@ -4,13 +4,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
+import 'package:gestao_yahweh/services/express_login_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 
-/// Restaura **apenas** a sessão Firebase já persistida no aparelho.
-///
-/// Não chama `GoogleSignIn.signInSilently()` no arranque — evita o erro
-/// «Não foi possível restaurar a sessão Google automaticamente» quando o Firebase
-/// já tem `currentUser`. OAuth silencioso só no botão «Continuar com Google».
+/// Restaura sessão Firebase no cold start (disco lento ou Google silencioso — Controle Total).
 abstract final class SessionRestoreService {
   SessionRestoreService._();
 
@@ -38,7 +35,17 @@ abstract final class SessionRestoreService {
 
     if (!_restoreAttempted || allowRetry) {
       _restoreAttempted = true;
-      return _pollAuthUserFromDisk();
+      final polled = await _pollAuthUserFromDisk();
+      if (polled != null) return polled;
+
+      if (!kIsWeb && await LoginPreferences.getLastOAuthProvider() == 'google') {
+        try {
+          await ExpressLoginService.tryGoogleSilentOnly().timeout(
+            const Duration(seconds: 4),
+          );
+        } catch (_) {}
+      }
+      return firebaseDefaultAuth.currentUser;
     }
 
     final u = firebaseDefaultAuth.currentUser;

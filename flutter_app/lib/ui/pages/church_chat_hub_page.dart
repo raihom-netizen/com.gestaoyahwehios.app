@@ -714,8 +714,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
   }
 
-  /// «Retornar onde parou» — reabre a última conversa ao voltar ao módulo Chat.
+  /// Reabre a última conversa só se [AppResumeStateService.restoreLastScreenOnStartup].
   Future<void> _tryResumeLastChatThread(String tid) async {
+    if (!AppResumeStateService.restoreLastScreenOnStartup) return;
     if (_resumeChatThreadAttempted || !widget.embeddedInShell || !mounted) {
       return;
     }

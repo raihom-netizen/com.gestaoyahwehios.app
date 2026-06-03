@@ -263,6 +263,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         _attachPanelFeedStreams(tidBoot);
       } catch (_) {}
       unawaited(_paintPanelFromLocalCacheFirst(tidBoot));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _scheduleHeavyDashboardStreams([tidBoot]);
+      });
     }
     _loadStreams();
   }
@@ -348,8 +352,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   bool get _panelCanPaintWithoutSkeleton =>
       _effectiveTenantId.trim().isNotEmpty &&
-      _avisosStream != null &&
-      _noticiasPainelStream != null;
+      (_panelCache != null ||
+          _dashboardKpis != null ||
+          (_avisosStream != null && _noticiasPainelStream != null));
 
   void _attachPanelFeedStreams(String resolved) {
     final tenantRef =
