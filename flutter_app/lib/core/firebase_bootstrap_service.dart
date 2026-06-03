@@ -9,6 +9,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart'
     show debugPrint, kDebugMode, kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/firebase_options.dart';
 import 'package:gestao_yahweh/services/crashlytics_benign_errors.dart';
@@ -50,6 +51,9 @@ class FirebaseBootstrapException implements Exception {
   }
 
   static String _codeFrom(Object e) {
+    if (FirebaseAuthTokenGuard.isQuotaExceeded(e)) {
+      return 'auth_quota_exceeded';
+    }
     if (e is FirebaseAuthException) return 'auth_${e.code}';
     if (e is FirebaseException) return '${e.plugin}_${e.code}';
     if (e is TimeoutException) return 'timeout';
@@ -62,6 +66,9 @@ class FirebaseBootstrapException implements Exception {
     String code,
     FirebaseHealthReport? health,
   ) {
+    if (code == 'auth_quota_exceeded') {
+      return FirebaseAuthTokenGuard.quotaUserMessage;
+    }
     if (code == 'auth_session_expired' ||
         code == 'auth_no_user' ||
         code == 'auth_anonymous') {
@@ -389,7 +396,7 @@ abstract final class FirebaseBootstrapService {
     if (user == null || user.isAnonymous) {
       _throwSessionExpired();
     }
-    await user.getIdToken(false).timeout(const Duration(seconds: 12));
+    await FirebaseAuthTokenGuard.refreshIfStale();
     _storageUploadBootstrapAt = DateTime.now();
   }
 
@@ -454,9 +461,13 @@ abstract final class FirebaseBootstrapService {
           _throwSessionExpired();
         }
         try {
-          await user.getIdToken(false).timeout(const Duration(seconds: 20));
+          await FirebaseAuthTokenGuard.refreshIfStale(force: false);
         } catch (e) {
           authDetail = e.toString();
+          if (FirebaseAuthTokenGuard.isQuotaExceeded(e)) {
+            authOk = false;
+            authDetail = 'quota-exceeded';
+          }
           if (_isNoFirebaseApp(e)) rethrow;
         }
       }
@@ -529,11 +540,26 @@ abstract final class FirebaseBootstrapService {
     bool refreshAuthToken = false,
     int maxAttempts = 4,
   }) async {
+    if (FirebaseAuthTokenGuard.isInQuotaBackoff && refreshAuthToken) {
+      throw FirebaseBootstrapException.from(
+        FirebaseAuthException(
+          code: 'quota-exceeded',
+          message: FirebaseAuthTokenGuard.quotaUserMessage,
+        ),
+        StackTrace.current,
+        code: 'auth_quota_exceeded',
+      );
+    }
     Object? last;
     StackTrace? lastSt;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        await _softReinit();
+        if (!_hasApp()) {
+          await _softReinit();
+        } else {
+          await FirebaseBootstrap.ensureInitialized();
+          refreshCachedApp();
+        }
         if (!_hasApp()) {
           throw StateError('core/no-app');
         }
@@ -541,12 +567,9 @@ abstract final class FirebaseBootstrapService {
           configureFirestoreForOfflineAndSpeed();
         } catch (_) {}
         if (refreshAuthToken) {
-          final user = auth.currentUser;
-          if (user != null && !user.isAnonymous) {
-            await user
-                .getIdToken(attempt > 0)
-                .timeout(const Duration(seconds: 12));
-          }
+          await FirebaseAuthTokenGuard.refreshIfStale(
+            force: attempt > 0,
+          );
         }
         _healthOkAt = DateTime.now();
         return;
@@ -638,16 +661,32 @@ abstract final class FirebaseBootstrapService {
     String? debugLabel,
     bool requireAuth = true,
   }) async {
+    if (requireAuth && FirebaseAuthTokenGuard.isInQuotaBackoff) {
+      throw FirebaseBootstrapException.from(
+        FirebaseAuthException(
+          code: 'quota-exceeded',
+          message: FirebaseAuthTokenGuard.quotaUserMessage,
+        ),
+        StackTrace.current,
+        code: 'auth_quota_exceeded',
+      );
+    }
     Object? last;
     StackTrace? lastSt;
-    const maxAttempts = 4;
+    const maxAttempts = 3;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await ensureAlwaysOn(refreshAuthToken: requireAuth);
+        await ensureAlwaysOn(
+          refreshAuthToken: requireAuth && attempt == 1,
+        );
         return await fn();
       } catch (e, st) {
         last = e;
         lastSt = st;
+        if (FirebaseAuthTokenGuard.isQuotaExceeded(e)) {
+          FirebaseAuthTokenGuard.recordQuotaExceeded(e);
+          break;
+        }
         if (CrashlyticsService.shouldReport(e)) {
           unawaited(
             CrashlyticsService.record(
@@ -666,13 +705,13 @@ abstract final class FirebaseBootstrapService {
         if (raw.contains('INTERNAL ASSERTION') && attempt < maxAttempts) {
           await Future.delayed(Duration(milliseconds: 400 * attempt));
           try {
-            await auth.currentUser?.getIdToken(true);
+            await FirebaseAuthTokenGuard.refreshIfStale(force: true);
           } catch (_) {}
           continue;
         }
         await Future.delayed(Duration(milliseconds: 280 * attempt));
         try {
-          await ensureAlwaysOn(refreshAuthToken: requireAuth);
+          await ensureAlwaysOn(refreshAuthToken: false);
         } catch (_) {}
       }
     }

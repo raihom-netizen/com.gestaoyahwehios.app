@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 
 /// Utilitários para streams Firestore — evita crash «Bad state: Stream has already
 /// been listened to» e reduz ruído em Crashlytics por `permission-denied` transitório.
@@ -108,9 +108,7 @@ class FirestoreStreamUtils {
 
   /// Atualiza o token JWT antes de queries sensíveis a regras (claims desatualizados).
   static Future<void> refreshAuthTokenIfNeeded({bool force = false}) async {
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(force);
-    } catch (_) {}
+    await FirebaseAuthTokenGuard.refreshIfStale(force: force);
   }
 }
 

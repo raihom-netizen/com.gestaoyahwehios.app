@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/hive_local_store.dart';
 import 'package:gestao_yahweh/core/resilience/degraded_services.dart';
@@ -424,6 +425,9 @@ abstract final class SystemHealthService {
   static Future<SystemHealthSnapshot?> _runPeriodicProbe({
     required String reason,
   }) async {
+    if (FirebaseAuthTokenGuard.isInQuotaBackoff) {
+      return lastPeriodicSnapshot;
+    }
     try {
       final snap = await probe(requireAuth: false);
       lastPeriodicAt = DateTime.now();

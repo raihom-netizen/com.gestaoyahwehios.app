@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -36,6 +37,9 @@ String formatFirebaseErrorForUser(
   }
 
   if (error is FirebaseAuthException) {
+    if (FirebaseAuthTokenGuard.isQuotaExceeded(error)) {
+      return FirebaseAuthTokenGuard.quotaUserMessage;
+    }
     final m = error.message?.trim();
     return 'Autenticação Firebase (${error.code})'
         '${m != null && m.isNotEmpty ? ': $m' : ''}';

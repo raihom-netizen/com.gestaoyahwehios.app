@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart' as fb_core;
+import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
@@ -27,11 +28,13 @@ export 'firebase_publish_guard.dart' show ensureFirebaseReadyToPublish;
 Future<void> ensureFirebaseInitialized() =>
     fb_core.FirebaseBootstrap.ensureInitialized();
 
-/// Padrão Controle Total: núcleo sempre ligado — init + token, sem «Reconectar».
+/// Núcleo Firebase — sem reiniciar o app nem renovar JWT em cada clique.
 Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
-  await FirebaseBootstrapService.ensureAlwaysOn(
-    refreshAuthToken: requireAuth,
-  );
+  await fb_core.FirebaseBootstrap.ensureInitialized();
+  FirebaseBootstrapService.refreshCachedApp();
+  if (!FirebaseBootstrapService.isReady()) {
+    await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
+  }
   if (!requireAuth) return;
   final user = FirebaseBootstrapService.auth.currentUser;
   if (user == null || user.isAnonymous) {
@@ -39,6 +42,7 @@ Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
       'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
     );
   }
+  await FirebaseAuthTokenGuard.refreshIfStale();
 }
 
 Future<void> ensureFirebaseReadyForMediaUpload({bool force = false}) =>
@@ -70,7 +74,8 @@ Future<void> runChatMediaUploadTask(
     } catch (e) {
       last = e;
       if (attempt == 0 && isFirebaseNoAppError(e)) {
-        await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+        await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
+        await FirebaseAuthTokenGuard.refreshIfStale();
         continue;
       }
       rethrow;

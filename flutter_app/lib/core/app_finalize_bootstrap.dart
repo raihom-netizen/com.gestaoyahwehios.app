@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
+import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
@@ -65,9 +66,9 @@ abstract final class AppFinalizeBootstrap {
     if (_resumeBusy) return;
     _resumeBusy = true;
     try {
-      // Controle Total: núcleo + token — sem `reconnect()` pesado no resume.
-      await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
-      await _refreshAuthTokenSilently();
+      await FirebaseBootstrap.ensureInitialized();
+      FirebaseBootstrapService.refreshCachedApp();
+      await FirebaseAuthTokenGuard.refreshIfStale();
       await _bindQueuesAfterFirebaseCore();
     } catch (e, st) {
       YahwehFlowLog.error('BOOT', e, st);
@@ -82,19 +83,6 @@ abstract final class AppFinalizeBootstrap {
   /// Antes de publicar aviso/evento/chat — evita erros genéricos por sessão fria.
   static Future<void> ensureSessionForPublish({String? logLabel}) async {
     await ensureFirebaseReadyToPublish(logLabel: logLabel ?? 'publish');
-    await _refreshAuthTokenSilently();
-  }
-
-  static Future<void> _refreshAuthTokenSilently() async {
-    try {
-      await FirebaseBootstrap.ensureInitialized();
-      final user = firebaseDefaultAuth.currentUser;
-      if (user == null) return;
-      await user.getIdToken(false);
-    } catch (_) {
-      try {
-        await firebaseDefaultAuth.currentUser?.getIdToken(true);
-      } catch (_) {}
-    }
+    await FirebaseAuthTokenGuard.refreshIfStale();
   }
 }

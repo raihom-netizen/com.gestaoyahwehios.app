@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb, debugPrint;
 import 'package:flutter/widgets.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
@@ -59,11 +60,10 @@ abstract final class AppSessionStability {
     if (u != null && !u.isAnonymous) {
       _stickyUser = u;
     }
-    unawaited(
-      FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true),
-    );
+    if (!FirebaseAuthTokenGuard.shouldHandleAppResume()) {
+      return;
+    }
     unawaited(AppFinalizeBootstrap.onAppResume());
-    unawaited(_refreshAuthTokenSilently());
     for (final cb in List<void Function()>.from(_resumeListeners)) {
       try {
         cb();
@@ -72,16 +72,6 @@ abstract final class AppSessionStability {
           debugPrint('AppSessionStability resume listener: $e\n$st');
         }
       }
-    }
-  }
-
-  static Future<void> _refreshAuthTokenSilently() async {
-    try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(false);
-    } catch (_) {
-      try {
-        await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      } catch (_) {}
     }
   }
 
@@ -184,6 +174,7 @@ abstract final class AppSessionStability {
     }
 
     try {
+      await FirebaseAuthTokenGuard.refreshIfStale();
       var token = await user.getIdTokenResult(false).timeout(
             const Duration(seconds: 8),
           );
@@ -191,12 +182,14 @@ abstract final class AppSessionStability {
         cacheMasterAccessLevel(2, user.uid);
         return 2;
       }
-      token = await user.getIdTokenResult(true).timeout(
-            const Duration(seconds: 12),
-          );
-      if (_tokenIsMaster(token)) {
-        cacheMasterAccessLevel(2, user.uid);
-        return 2;
+      if (!forceRefresh && !FirebaseAuthTokenGuard.isInQuotaBackoff) {
+        token = await user.getIdTokenResult(true).timeout(
+              const Duration(seconds: 12),
+            );
+        if (_tokenIsMaster(token)) {
+          cacheMasterAccessLevel(2, user.uid);
+          return 2;
+        }
       }
     } catch (_) {}
 
