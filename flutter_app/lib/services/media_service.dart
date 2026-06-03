@@ -42,13 +42,13 @@ class MediaVideoPrepareResult {
 abstract final class MediaService {
   MediaService._();
 
-  static const int chatImageMaxEdge = 1280;
-  static const int feedImageMaxEdge = 1920;
-  static const int feedImageMaxHeight = 1080;
+  static const int chatImageMaxEdge = 1024;
+  static const int feedImageMaxEdge = 1024;
+  static const int feedImageMaxHeight = 1024;
   static const int thumbMaxEdge = 480;
 
   static const int chatJpegQuality = 70;
-  static const int feedWebpQuality = 80;
+  static const int feedWebpQuality = 70;
   static const int thumbJpegQuality = 78;
 
   static int _edgeFor(MediaImageProfile profile) => switch (profile) {

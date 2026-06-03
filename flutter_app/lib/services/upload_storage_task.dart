@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatFirebaseErrorForUser;
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 
 /// Mensagem amigável para SnackBar / «Tentar de novo» — mostra erro real.
 String formatUploadErrorForUser(Object error) =>
@@ -46,6 +47,9 @@ bool isRetryableUploadError(Object error) {
 }
 
 Duration uploadMaxDurationForPayloadBytes(int bytes) {
+  if (bytes <= 3 * 1024 * 1024) {
+    return const Duration(seconds: kStorageUploadImageMaxSeconds);
+  }
   final mb = bytes <= 0 ? 1 : (bytes / (1024 * 1024)).ceil();
   final minutes = (5 + mb * 2).clamp(5, 20);
   return Duration(minutes: minutes);
@@ -59,6 +63,9 @@ Future<TaskSnapshot> awaitStorageUploadTask(
   Duration stallAfter = const Duration(seconds: 90),
 }) async {
   final maxDuration = uploadMaxDurationForPayloadBytes(payloadBytes);
+  final effectiveStall = payloadBytes <= 3 * 1024 * 1024
+      ? const Duration(seconds: kStorageUploadImageStallSeconds)
+      : stallAfter;
   final completer = Completer<TaskSnapshot>();
   StreamSubscription<TaskSnapshot>? sub;
   Timer? stallTimer;
@@ -66,7 +73,7 @@ Future<TaskSnapshot> awaitStorageUploadTask(
 
   void armStallWatchdog() {
     stallTimer?.cancel();
-    stallTimer = Timer(stallAfter, () {
+    stallTimer = Timer(effectiveStall, () {
       if (completer.isCompleted) return;
       unawaited(task.cancel());
       completer.completeError(

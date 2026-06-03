@@ -5,14 +5,14 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
 /// Evita esgotar a quota do Identity Toolkit (getIdToken / getIdTokenResult).
 ///
-/// Sintoma em produção: `auth/quota-exceeded`, painel lento, chat skeleton,
-/// eventos não gravam, `bootstrap_failed` em cascata por retries.
+/// Regra definitiva: **nunca** `getIdToken(true)` — Firestore/Storage usam JWT em cache.
+/// Em quota excedida: **nunca** bloquear o app; a sessão local continua válida.
 abstract final class FirebaseAuthTokenGuard {
   FirebaseAuthTokenGuard._();
 
-  static const _minRefreshGap = Duration(minutes: 10);
-  static const _quotaBackoff = Duration(minutes: 35);
-  static const _resumeMinGap = Duration(seconds: 90);
+  static const _minRefreshGap = Duration(minutes: 30);
+  static const _quotaBackoff = Duration(minutes: 45);
+  static const _resumeMinGap = Duration(minutes: 3);
 
   static DateTime? _lastRefreshOkAt;
   static DateTime? _quotaBackoffUntil;
@@ -50,7 +50,7 @@ abstract final class FirebaseAuthTokenGuard {
       'Feche outras abas do painel, aguarde cerca de 30 minutos e recarregue (Ctrl+F5). '
       'Se voltar sempre, confira o plano Blaze e quotas no Console Firebase.';
 
-  /// Retoma global — no máximo um refresh completo a cada [_resumeMinGap].
+  /// Retoma global — no máximo um refresh a cada [_resumeMinGap].
   static bool shouldHandleAppResume() {
     final now = DateTime.now();
     final last = _lastResumeHandledAt;
@@ -61,20 +61,14 @@ abstract final class FirebaseAuthTokenGuard {
     return true;
   }
 
-  /// Renova JWT só se necessário; em backoff de quota não chama a API.
+  /// Token em cache apenas — **nunca** força refresh (quota Identity Toolkit).
+  /// Nunca lança excepção: publicar/ler com sessão activa não pode parar o sistema.
   static Future<void> refreshIfStale({
     bool force = false,
     Duration minGap = _minRefreshGap,
   }) async {
-    if (isInQuotaBackoff) {
-      if (force) {
-        throw FirebaseAuthException(
-          code: 'quota-exceeded',
-          message: quotaUserMessage,
-        );
-      }
-      return;
-    }
+    if (isInQuotaBackoff) return;
+
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous) return;
 
@@ -86,13 +80,12 @@ abstract final class FirebaseAuthTokenGuard {
     }
 
     try {
-      await user.getIdToken(force).timeout(const Duration(seconds: 15));
+      await user.getIdToken(false).timeout(const Duration(seconds: 8));
       _lastRefreshOkAt = DateTime.now();
     } catch (e) {
       if (isQuotaExceeded(e)) {
         recordQuotaExceeded(e);
       }
-      if (force) rethrow;
     }
   }
 }

@@ -130,6 +130,8 @@ class ChurchTenantOfflineWarmupService {
           safe('finance', () => ChurchTenantResilientReads.financeRecent(tenantId)),
           safe('patrimonio', () => ChurchTenantResilientReads.patrimonio(tenantId)),
           safe('fornecedores', () => ChurchTenantResilientReads.fornecedores(tenantId)),
+          safe('cargos', () => ChurchTenantResilientReads.cargos(tenantId)),
+          safe('escala_templates', () => ChurchTenantResilientReads.escalaTemplates(tenantId)),
           safe('escalas', () => ChurchTenantResilientReads.escalasRecent(tenantId)),
           safe('users_tenant', () async {
             await FirebaseFirestore.instance

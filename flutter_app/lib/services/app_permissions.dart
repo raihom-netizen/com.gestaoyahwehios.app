@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 
 /// Central de papéis e permissões do sistema.
@@ -417,7 +416,8 @@ class AppPermissions {
     return ChurchRolePermissions.snapshotFor(role).editDepartments;
   }
 
-  /// Aba Chat → Grupos: vê **todos** os departamentos (não inclui líder de departamento).
+  /// Aba Chat → Grupos: vê **todos** os departamentos (adm, gestor, pastor, secretário, tesoureiro).
+  /// **Não** inclui líder de departamento — esse vê só os grupos em que participa + os que lidera.
   static bool chatHubSeesAllDepartmentGroups(
     String role, {
     List<String>? permissions,
@@ -437,29 +437,14 @@ class AppPermissions {
   }
 
   /// Adicionar/remover membros no grupo do departamento (chat).
+  /// Só pastoral/gestão (adm, gestor, pastor, secretário, tesoureiro) — **não** líder de departamento.
   static bool canManageDepartmentChatMembers({
     required String role,
     List<String>? permissions,
     Map<String, dynamic>? departmentData,
     required String memberCpfDigits,
   }) {
-    if (chatHubSeesAllDepartmentGroups(role, permissions: permissions)) {
-      return true;
-    }
-    if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(
-      departmentData,
-      memberCpfDigits,
-    )) {
-      return true;
-    }
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid != null &&
-        uid.isNotEmpty &&
-        ChurchDepartmentLeaders.leaderUidsFromDepartmentData(departmentData)
-            .contains(uid)) {
-      return true;
-    }
-    return false;
+    return chatHubSeesAllDepartmentGroups(role, permissions: permissions);
   }
 
   /// Aprovações rápidas (cadastros públicos pendentes) — menu índice 18 + regra `membros` no Firestore.

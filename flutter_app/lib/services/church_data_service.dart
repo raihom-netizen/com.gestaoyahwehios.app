@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/church_chat_firestore_map.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
+import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
@@ -122,7 +123,7 @@ final class ChurchDataService {
     final mod = module ?? OfflineModules.forCollection(collection);
     ChurchTenantWriteLog.firestoreSetStart(path, module: mod);
     try {
-      await TenantOfflineWrite.setDocument(
+      await OptimisticFirestoreWrite.set(
         ref: ref,
         data: payload,
         module: mod,
@@ -153,7 +154,7 @@ final class ChurchDataService {
     final tid = _tenantIdFromRefPath(path);
     ChurchTenantWriteLog.firestoreSetStart(path, module: mod);
     try {
-      await TenantOfflineWrite.setDocument(
+      await OptimisticFirestoreWrite.set(
         ref: ref,
         data: payload,
         merge: merge,
@@ -183,7 +184,7 @@ final class ChurchDataService {
     final tid = _tenantIdFromRefPath(path);
     ChurchTenantWriteLog.firestoreUpdateStart(path, module: mod);
     try {
-      await TenantOfflineWrite.updateDocument(
+      await OptimisticFirestoreWrite.update(
         ref: ref,
         data: payload,
         module: mod,

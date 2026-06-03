@@ -1,4 +1,4 @@
-﻿import 'dart:async' show unawaited;
+﻿import 'dart:async' show TimeoutException, unawaited;
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -95,12 +95,54 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     final prefs = await SharedPreferences.getInstance();
     final minutos = prefs.getString(_keyNotifMinutos) ?? '60';
     _notifMinutosCtrl.text = minutos;
-    var capable = false;
-    var bioOn = false;
+    final u = FirebaseAuth.instance.currentUser;
+    final email = (u?.email ?? '').trim();
+
+    if (!mounted) return;
+    setState(() {
+      _notifAvisos = prefs.getBool(_keyNotifAvisos) ?? true;
+      _notifEscalas = prefs.getBool(_keyNotifEscalas) ?? true;
+      _notifEventos = prefs.getBool(_keyNotifEventos) ?? true;
+      _notifChat =
+          prefs.getBool(ChurchChatNotificationPrefs.sharedPrefsKey) ?? true;
+      _notifChatAlertMode = ChurchChatNotificationPrefs.normalizeAlertMode(
+        prefs.getString(ChurchChatNotificationPrefs.sharedPrefsAlertModeKey) ??
+            ChurchChatNotificationPrefs.alertModeSound,
+      );
+      _notifAniversariantes = prefs.getBool(_keyNotifAniversariantes) ?? true;
+      _notifEmail = prefs.getBool(_keyNotifEmail) ?? true;
+      _notifCelular = prefs.getBool(_keyNotifCelular) ?? true;
+      _notifWeb = prefs.getBool(_keyNotifWeb) ?? true;
+      _notif1Dia = prefs.getBool(_keyNotif1Dia) ?? true;
+      _notif60Min = prefs.getBool(_keyNotif60Min) ?? true;
+      _cacheFotosPerfilNoAparelho =
+          prefs.getBool(kPrefMemberPhotoDiskCacheV1) ?? true;
+      _accountEmailDisplay = email.isNotEmpty ? email : '—';
+      _userAtivoNoPainel = u != null;
+      _loading = false;
+    });
+
+    unawaited(_hydrateSettingsFromRemote(prefs));
+  }
+
+  /// Firestore / biometria em background — não bloqueia a abertura da página.
+  Future<void> _hydrateSettingsFromRemote(SharedPreferences prefs) async {
     if (!kIsWeb) {
-      capable = await _biometricService.isDeviceBiometricCapable();
-      bioOn = await _biometricService.isEnabled();
+      try {
+        final capable = await _biometricService
+            .isDeviceBiometricCapable()
+            .timeout(const Duration(seconds: 4));
+        final bioOn =
+            await _biometricService.isEnabled().timeout(const Duration(seconds: 4));
+        if (mounted) {
+          setState(() {
+            _bioCapable = capable;
+            _bioEnabled = bioOn;
+          });
+        }
+      } catch (_) {}
     }
+
     var av = prefs.getBool(_keyNotifAvisos) ?? true;
     var ev = prefs.getBool(_keyNotifEventos) ?? true;
     var es = prefs.getBool(_keyNotifEscalas) ?? true;
@@ -115,7 +157,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         final doc = await FirebaseFirestore.instance
             .collection('users')
             .doc(u.uid)
-            .get();
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 8));
         final d = doc.data();
         if (d != null) {
           if (d['pushAvisos'] is bool) av = d['pushAvisos'] as bool;
@@ -124,7 +167,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           if (d['pushChat'] is bool) ch = d['pushChat'] as bool;
           final rawAlertMode = d['pushChatAlertMode'];
           if (rawAlertMode is String && rawAlertMode.trim().isNotEmpty) {
-            chatAlertMode = ChurchChatNotificationPrefs.normalizeAlertMode(rawAlertMode);
+            chatAlertMode =
+                ChurchChatNotificationPrefs.normalizeAlertMode(rawAlertMode);
           }
         }
       } catch (_) {}
@@ -145,52 +189,53 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       _notifEventos = ev;
       _notifChat = ch;
       _notifChatAlertMode = chatAlertMode;
-      _notifAniversariantes = prefs.getBool(_keyNotifAniversariantes) ?? true;
-      _notifEmail = prefs.getBool(_keyNotifEmail) ?? true;
-      _notifCelular = prefs.getBool(_keyNotifCelular) ?? true;
-      _notifWeb = prefs.getBool(_keyNotifWeb) ?? true;
-      _notif1Dia = prefs.getBool(_keyNotif1Dia) ?? true;
-      _notif60Min = prefs.getBool(_keyNotif60Min) ?? true;
-      _bioCapable = capable;
-      _bioEnabled = bioOn;
-      _cacheFotosPerfilNoAparelho =
-          prefs.getBool(kPrefMemberPhotoDiskCacheV1) ?? true;
-      _loading = false;
     });
   }
 
   Future<void> _loadAccountAndLicenseSnapshot() async {
     final authUser = FirebaseAuth.instance.currentUser;
     final email = (authUser?.email ?? '').trim();
-    var userAtivo = authUser != null;
+    if (email.isNotEmpty) {
+      _accountEmailDisplay = email;
+    }
     SubscriptionGuardState? guard;
     try {
-      final resolved = await TenantResolverService
-          .resolveEffectiveTenantIdPreferringUserBinding(
-        widget.tenantId,
-        userUid: authUser?.uid,
-      );
-      final chSnap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(resolved)
-          .get();
+      final tid = widget.tenantId.trim();
+      if (tid.isNotEmpty) {
+        final chSnap = await FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(tid)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 8));
+        guard = SubscriptionGuard.evaluate(
+          church: chSnap.data(),
+          subscription: widget.subscription,
+        );
+      } else {
+        guard = SubscriptionGuard.evaluate(
+          church: null,
+          subscription: widget.subscription,
+        );
+      }
+    } catch (_) {
       guard = SubscriptionGuard.evaluate(
-        church: chSnap.data(),
+        church: null,
         subscription: widget.subscription,
       );
-      if (authUser != null) {
-        try {
-          final uDoc = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(authUser.uid)
-              .get();
-          userAtivo = uDoc.data()?['ativo'] == true;
-        } catch (_) {}
-      }
-    } catch (_) {}
+    }
+    var userAtivo = authUser != null;
+    if (authUser != null) {
+      try {
+        final uDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(authUser.uid)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 6));
+        userAtivo = uDoc.data()?['ativo'] == true;
+      } catch (_) {}
+    }
     _subscriptionGuard = guard;
     _userAtivoNoPainel = userAtivo;
-    _accountEmailDisplay = email.isNotEmpty ? email : '—';
   }
 
   Future<void> _trocarConta(BuildContext context) async {

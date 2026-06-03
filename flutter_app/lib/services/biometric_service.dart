@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -133,6 +134,19 @@ class BiometricService {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Dispositivo com digital/Face ID — desbloqueio ao abrir o painel (sessão activa).
+  Future<bool> shouldRequireBiometricUnlock() async {
+    if (kIsWeb) return false;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.isAnonymous) return false;
+    if (await isEnabled()) return true;
+    if (await isDeviceBiometricCapable()) {
+      await enableForReturningUserAfterLogin();
+      return await isEnabled();
+    }
+    return false;
   }
 
   /// Após login bem-sucedido no app nativo — activa digital/Face ID sem segundo diálogo

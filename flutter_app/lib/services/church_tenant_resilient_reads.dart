@@ -22,7 +22,11 @@ abstract final class ChurchTenantResilientReads {
   /// Token + Firestore pronto (leitura do painel, sem health check de upload).
   static Future<void> preparePanelRead({bool refreshToken = false}) async {
     await ensureFirebaseReadyForPanelRead().catchError((_) {});
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: refreshToken);
+    if (refreshToken) {
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true)
+          .timeout(const Duration(seconds: 6))
+          .catchError((_) {});
+    }
   }
 
   static Future<DocumentSnapshot<Map<String, dynamic>>> churchDocument(
@@ -156,13 +160,17 @@ abstract final class ChurchTenantResilientReads {
     String tenantId, {
     int limit = 400,
   }) =>
-      _orderedQuery(
-        tenantId,
-        'visitantes',
-        'createdAt',
-        descending: true,
-        limit: limit,
-        cacheSuffix: 'visitantes_$limit',
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.visitantes,
+        networkFetch: () => _orderedQuery(
+          tenantId,
+          'visitantes',
+          'createdAt',
+          descending: true,
+          limit: limit,
+          cacheSuffix: 'visitantes_$limit',
+        ),
       );
 
   static Future<QuerySnapshot<Map<String, dynamic>>> membrosRecent(
@@ -193,11 +201,32 @@ abstract final class ChurchTenantResilientReads {
 
   static Future<QuerySnapshot<Map<String, dynamic>>> departamentos(
     String tenantId, {
-    int limit = 80,
+    int limit = 120,
   }) =>
-      FirestoreReadResilience.getQuery(
-        _church(tenantId).collection('departamentos').limit(limit),
-        cacheKey: _key(tenantId, 'departamentos_$limit'),
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.departamentos,
+        networkFetch: () => FirestoreReadResilience.getQuery(
+          _church(tenantId).collection('departamentos').limit(limit),
+          cacheKey: _key(tenantId, 'departamentos_$limit'),
+        ),
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> cargos(
+    String tenantId, {
+    int limit = 120,
+  }) =>
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.cargos,
+        networkFetch: () => _orderedQuery(
+          tenantId,
+          'cargos',
+          'name',
+          descending: false,
+          limit: limit,
+          cacheSuffix: 'cargos_$limit',
+        ),
       );
 
   static Future<QuerySnapshot<Map<String, dynamic>>> financeRecent(
@@ -234,22 +263,50 @@ abstract final class ChurchTenantResilientReads {
     String tenantId, {
     int limit = 80,
   }) =>
-      _orderedQuery(
-        tenantId,
-        'contas',
-        'nome',
-        descending: false,
-        limit: limit,
-        cacheSuffix: 'contas_$limit',
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.financeiro,
+        networkFetch: () => _orderedQuery(
+          tenantId,
+          'contas',
+          'nome',
+          descending: false,
+          limit: limit,
+          cacheSuffix: 'contas_$limit',
+        ),
       );
 
   static Future<QuerySnapshot<Map<String, dynamic>>> fornecedores(
     String tenantId, {
-    int limit = 200,
+    int limit = 500,
   }) =>
-      FirestoreReadResilience.getQuery(
-        _church(tenantId).collection('fornecedores').limit(limit),
-        cacheKey: _key(tenantId, 'fornecedores_$limit'),
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.fornecedores,
+        networkFetch: () => FirestoreReadResilience.getQuery(
+          _church(tenantId)
+              .collection('fornecedores')
+              .orderBy('nome')
+              .limit(limit),
+          cacheKey: _key(tenantId, 'fornecedores_$limit'),
+        ),
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> escalaTemplates(
+    String tenantId, {
+    int limit = 120,
+  }) =>
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.agenda,
+        networkFetch: () => _orderedQuery(
+          tenantId,
+          'escala_templates',
+          'title',
+          descending: false,
+          limit: limit,
+          cacheSuffix: 'escala_templates_$limit',
+        ),
       );
 
   static Future<QuerySnapshot<Map<String, dynamic>>> escalasRecent(

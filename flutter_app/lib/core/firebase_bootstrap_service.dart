@@ -311,6 +311,17 @@ abstract final class FirebaseBootstrapService {
       try {
         await FirebaseBootstrap.ensureInitialized();
         _cachedApp = Firebase.app();
+        if (kIsWeb) {
+          try {
+            configureFirestoreForOfflineAndSpeed();
+          } catch (_) {}
+          final health = _optimisticWebHealth();
+          _lastHealth = health;
+          _lastFailure = null;
+          _healthOkAt = DateTime.now();
+          if (!c.isCompleted) c.complete();
+          return FirebaseBootstrapResult.ready(health);
+        }
         if (kDebugMode) {
           debugPrint('FIREBASE INIT OK (FirebaseBootstrapService health)');
           debugPrint('FIREBASE APPS=${Firebase.apps.length}');
@@ -338,7 +349,11 @@ abstract final class FirebaseBootstrapService {
         }
         if (attempt < _reconnectDelaysSec.length) {
           await Future.delayed(
-            Duration(seconds: _reconnectDelaysSec[attempt]),
+            Duration(
+              seconds: kIsWeb
+                  ? 1
+                  : _reconnectDelaysSec[attempt],
+            ),
           );
         }
       }
@@ -540,15 +555,8 @@ abstract final class FirebaseBootstrapService {
     bool refreshAuthToken = false,
     int maxAttempts = 4,
   }) async {
-    if (FirebaseAuthTokenGuard.isInQuotaBackoff && refreshAuthToken) {
-      throw FirebaseBootstrapException.from(
-        FirebaseAuthException(
-          code: 'quota-exceeded',
-          message: FirebaseAuthTokenGuard.quotaUserMessage,
-        ),
-        StackTrace.current,
-        code: 'auth_quota_exceeded',
-      );
+    if (FirebaseAuthTokenGuard.isInQuotaBackoff) {
+      refreshAuthToken = false;
     }
     Object? last;
     StackTrace? lastSt;
@@ -567,9 +575,7 @@ abstract final class FirebaseBootstrapService {
           configureFirestoreForOfflineAndSpeed();
         } catch (_) {}
         if (refreshAuthToken) {
-          await FirebaseAuthTokenGuard.refreshIfStale(
-            force: attempt > 0,
-          );
+          await FirebaseAuthTokenGuard.refreshIfStale();
         }
         _healthOkAt = DateTime.now();
         return;
@@ -661,23 +667,13 @@ abstract final class FirebaseBootstrapService {
     String? debugLabel,
     bool requireAuth = true,
   }) async {
-    if (requireAuth && FirebaseAuthTokenGuard.isInQuotaBackoff) {
-      throw FirebaseBootstrapException.from(
-        FirebaseAuthException(
-          code: 'quota-exceeded',
-          message: FirebaseAuthTokenGuard.quotaUserMessage,
-        ),
-        StackTrace.current,
-        code: 'auth_quota_exceeded',
-      );
-    }
     Object? last;
     StackTrace? lastSt;
     const maxAttempts = 3;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         await ensureAlwaysOn(
-          refreshAuthToken: requireAuth && attempt == 1,
+          refreshAuthToken: false,
         );
         return await fn();
       } catch (e, st) {
@@ -685,7 +681,12 @@ abstract final class FirebaseBootstrapService {
         lastSt = st;
         if (FirebaseAuthTokenGuard.isQuotaExceeded(e)) {
           FirebaseAuthTokenGuard.recordQuotaExceeded(e);
-          break;
+          try {
+            return await fn();
+          } catch (e2, st2) {
+            last = e2;
+            lastSt = st2;
+          }
         }
         if (CrashlyticsService.shouldReport(e)) {
           unawaited(
@@ -705,7 +706,7 @@ abstract final class FirebaseBootstrapService {
         if (raw.contains('INTERNAL ASSERTION') && attempt < maxAttempts) {
           await Future.delayed(Duration(milliseconds: 400 * attempt));
           try {
-            await FirebaseAuthTokenGuard.refreshIfStale(force: true);
+            await FirebaseAuthTokenGuard.refreshIfStale();
           } catch (_) {}
           continue;
         }
@@ -736,6 +737,16 @@ abstract final class FirebaseBootstrapService {
     await FirebaseBootstrap.ensureInitialized();
     _cachedApp = Firebase.app();
   }
+
+  static FirebaseHealthReport _optimisticWebHealth() => FirebaseHealthReport(
+        coreInitialized: true,
+        authOk: true,
+        firestoreOk: true,
+        storageOk: true,
+        functionsOk: true,
+        fcmOk: true,
+        checkedAt: DateTime.now(),
+      );
 
   static bool _isNoFirebaseApp(Object e) {
     final low = e.toString().toLowerCase();

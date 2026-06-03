@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart'
     show excluirLancamentoFinanceiroComAuditoria, showFinanceLancamentoEditorForTenant;
@@ -912,10 +913,8 @@ class _FornecedoresPageState extends State<FornecedoresPage>
 
   Future<void> _warmFornecedoresListCache() async {
     try {
-      final cached = await _col
-          .orderBy('nome')
-          .limit(500)
-          .get(const GetOptions(source: Source.cache));
+      final cached =
+          await ChurchTenantResilientReads.fornecedores(widget.tenantId);
       if (cached.docs.isNotEmpty && mounted) {
         setState(() => _fornecedoresCacheSnap = cached);
       }

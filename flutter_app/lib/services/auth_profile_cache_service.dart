@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,6 +14,13 @@ class AuthProfileCacheService {
   static const _keyPrefix = 'auth_gate_profile_json_v1_';
 
   final Map<String, Map<String, dynamic>> _memory = {};
+
+  /// Pré-carrega perfil em RAM antes do AuthGate (web: evita spinner sem rede).
+  static Future<void> warmUpForStartup() async {
+    final uid = AppShellSessionCache.cachedUidSync();
+    if (uid == null || uid.isEmpty) return;
+    await instance.load(uid);
+  }
 
   /// Leitura síncrona após `load`/`save` — evita spinner no 1.º frame do AuthGate.
   Map<String, dynamic>? peek(String uid) {

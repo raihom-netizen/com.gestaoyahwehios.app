@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -21,8 +20,7 @@ Future<void> prepareFirestorePublishAttempt({
       Duration(milliseconds: 280 + attempt * 420),
     );
   }
-  await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: attempt > 0);
-  if (kIsWeb && attempt >= 1) {
+  if (kIsWeb) {
     try {
       await FirestoreWebGuard.recoverFirestoreWebSession(
         allowHardReconnect: attempt >= 2,
@@ -31,7 +29,7 @@ Future<void> prepareFirestorePublishAttempt({
   }
   if (allowReconnect) {
     try {
-      await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+      await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
     } catch (_) {}
   }
 }

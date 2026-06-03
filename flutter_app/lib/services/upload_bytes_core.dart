@@ -13,11 +13,14 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
+import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 
-import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart'
+    hide formatUploadErrorForUser;
 
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
@@ -99,13 +102,17 @@ Future<String> uploadStoragePutFileWithRetry({
     try {
 
       final ref = firebaseStorageRef(storagePath);
+      final ct = StorageUploadMetadata.contentTypeForPut(
+        contentType: contentType,
+        storagePath: storagePath,
+      );
 
       final task = ref.putFile(
-
         file,
-
-        SettableMetadata(contentType: contentType, cacheControl: cacheControl),
-
+        SettableMetadata(
+          contentType: ct,
+          cacheControl: StorageUploadMetadata.cacheControl,
+        ),
       );
 
       onTaskStarted?.call(task);
@@ -164,7 +171,6 @@ Future<String> uploadStoragePutFileWithRetry({
 
   );
 
-  throw err;
-
+  throw StateError(formatUploadErrorForUser(err));
 }
 

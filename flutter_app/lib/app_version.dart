@@ -1,5 +1,14 @@
 ﻿/// Single source of app version used everywhere.
-/// 11.2.295+1738: Deploy completo — painel inicial fixo, Firestore real, quota Auth, login CT.
+/// 11.2.295+1751: Offline-first coordinator — Firestore persistence explícita, sync silenciosa, manual arquitetural, imagem 70%.
+/// 11.2.295+1750: Prompt mestre — sync optimista, eventos 10f+2v, financeiro path, upload 30s, biometria estrita.
+/// 11.2.295+1749: Upload 1024/75 global, AuthService + biometria auto, Storage com loading/erros claros.
+/// 11.2.295+1748: Web publicar/ler directo Firestore (sem fila Hive offline), grupos cache instantâneo, recover Web antes de gravar.
+/// 11.2.295+1747: Quota Auth definitivo — nunca getIdToken(true), publicar/ler com sessão em cache.
+/// 11.2.295+1746: Chat/avisos instantâneos — abrir DM directo, feed paralelo, grupos com cache, menos token em leituras.
+/// 11.2.295+1745: Configurações abre instantâneo — prefs locais primeiro, Firestore em background.
+/// 11.2.295+1744: Estabilidade global CT — dept/cargos/escalas/financeiro/fornecedores cache-first Hive; sem getIdToken em leituras.
+/// 11.2.295+1743: Chat contatos cache-first — sem membrosRecent(600), stream directory, sem getIdToken no painel.
+/// 11.2.295+1739: Web arranque rápido — sem health check bloqueante, preheat em background, Firestore WebChannel.
 /// 11.2.295+1737: Sempre painel inicial ao entrar — sem restaurar última aba/chat/módulo.
 /// 11.2.295+1736: Firestore bloqueante online, Google silent restore, biometria AuthGate, painel/chat/património.
 /// 11.2.295+1735: Deploy completo — guard quota Auth, web+AAB+iOS Codemagic.
@@ -257,7 +266,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1738';
+const String appBuildNumber = '1751';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

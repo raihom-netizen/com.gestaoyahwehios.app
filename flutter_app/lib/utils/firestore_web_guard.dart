@@ -50,7 +50,7 @@ class FirestoreWebGuard {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        await user.getIdToken(true);
+        await user.getIdToken(false);
       } catch (_) {}
       try {
         await user.reload();

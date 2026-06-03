@@ -42,7 +42,9 @@ Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
       'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
     );
   }
-  await FirebaseAuthTokenGuard.refreshIfStale();
+  try {
+    await FirebaseAuthTokenGuard.refreshIfStale();
+  } catch (_) {}
 }
 
 Future<void> ensureFirebaseReadyForMediaUpload({bool force = false}) =>

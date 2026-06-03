@@ -1107,6 +1107,15 @@ service cloud.firestore {
           ? get(p).data.departmentIds
           : [];
       }
+      /// Gestor/pastor/secretário/tesoureiro/adm — leem **todos** os grupos de departamento (aba Grupos).
+      function chatGroupChurchLeadership(tenantId) {
+        return canAccessTenant(tenantId) && (
+          canWriteTenant(tenantId)
+          || isPastoralOrSecretariatRole()
+          || isTreasurer()
+          || isAdminPanel()
+        );
+      }
       /// DM pelo id `dm_{uidA}_{uidB}` â€” legado sem `participantUids` ainda pode listar/ler.
       function dmThreadAuthUserInThreadId(threadId) {
         return threadId.matches('^dm_[^_]+_[^_]+$')
@@ -1127,7 +1136,8 @@ service cloud.firestore {
         let asDept = d.type == 'department' || threadId.matches('^dept_.+');
         return (asDm && (inParticipants || dmThreadAuthUserInThreadId(threadId)))
           || (asDept && (
-            inParticipants
+            chatGroupChurchLeadership(tenantId)
+            || inParticipants
             || (d.departmentId is string && chatUserDeptIds(tenantId).hasAny([d.departmentId]))
           ))
           || inParticipants
@@ -1187,32 +1197,25 @@ service cloud.firestore {
             isAdminPanel()
             || canWriteTenant(tenantId)
             || chatPastoralModeratorRole()
+            || isTreasurer()
+            || isPastoralOrSecretariatRole()
             || (isDm && participants)
             || (
               isDept
               && participants
               && resource.data.senderUid == request.auth.uid
             )
-            || (
-              isDept
-              && t.departmentId is string
-              && departmentDocListsRequesterAsLeader(tenantId, t.departmentId)
-            )
           );
       }
 
-      /// Apagar o documento do thread (ex.: grupo de departamento): nÃ£o Ã© Â«membro comumÂ»; alinhado ao app.
+      /// Apagar o documento do thread (ex.: grupo de departamento): sÃ³ gestÃ£o/pastoral (nÃ£o lÃ­der de dept).
       function chatThreadDeleteAllowed(tenantId, threadId) {
         let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
         return isAdminPanel()
           || canWriteTenant(tenantId)
           || chatPastoralModeratorRole()
-          || (
-            exists(path)
-            && get(path).data.type == 'department'
-            && get(path).data.departmentId is string
-            && departmentDocListsRequesterAsLeader(tenantId, get(path).data.departmentId)
-          );
+          || isTreasurer()
+          || isPastoralOrSecretariatRole();
       }
 
       /// Â«Apagar para mimÂ»: sÃ³ acrescenta o prÃ³prio uid em `hiddenForUids` (merge seguro).

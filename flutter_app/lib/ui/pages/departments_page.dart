@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -146,8 +147,11 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       if (!mounted) return;
       setState(() {
         _deptLoading = false;
-        _deptError = e;
-        _hydratedDeptDocs = null;
+        if (_hydratedDeptDocs != null && _hydratedDeptDocs!.isNotEmpty) {
+          _deptError = null;
+        } else {
+          _deptError = e;
+        }
       });
     }
   }
@@ -296,39 +300,14 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   /// Sem `orderBy` no Firestore: evita índice composto; ordena no cliente.
-  /// Primeiro cache (rápido na reabertura); se vazio ou [forceServer], confirma no servidor.
+  /// Cache Hive + Firestore (padrão Controle Total).
   Future<QuerySnapshot<Map<String, dynamic>>> _loadDepartments(
       {bool forceServer = true}) async {
-    if (!forceServer) {
-      try {
-        return await _col
-            .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 20));
-      } on TimeoutException catch (e) {
-        debugPrint('DepartmentsPage._loadDepartments cache-only timeout: $e');
-        return _col.get(const GetOptions(source: Source.serverAndCache));
-      }
+    final tid = _tid.trim();
+    if (tid.isEmpty) {
+      return _col.get();
     }
-    try {
-      final cached = await _col
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 14));
-      if (cached.docs.isNotEmpty) return cached;
-    } on TimeoutException catch (e) {
-      debugPrint('DepartmentsPage._loadDepartments cache-first timeout: $e');
-    } catch (e) {
-      debugPrint('DepartmentsPage._loadDepartments cache-first: $e');
-    }
-    try {
-      return await _col
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 28));
-    } on TimeoutException catch (e) {
-      debugPrint('DepartmentsPage._loadDepartments server timeout: $e');
-      return _col
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 20));
-    }
+    return ChurchTenantResilientReads.departamentos(tid, limit: 120);
   }
 
   /// União stream + hidratação: evita lista só com o banner “Hub” quando o cache do stream vem vazio ou parcial.
@@ -2927,10 +2906,14 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
             Expanded(
               child: Builder(
                 builder: (context) {
-                  if (_deptLoading) {
+                  if (_deptLoading &&
+                      (_hydratedDeptDocs == null ||
+                          _hydratedDeptDocs!.isEmpty)) {
                     return const ChurchPanelLoadingBody();
                   }
-                  if (_deptError != null) {
+                  if (_deptError != null &&
+                      (_hydratedDeptDocs == null ||
+                          _hydratedDeptDocs!.isEmpty)) {
                     return Padding(
                       padding: EdgeInsets.symmetric(
                           horizontal: padding.horizontal,

@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/services/schedule_intel_validators.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
@@ -323,8 +324,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   Future<List<_DeptItem>> _loadDepartmentsForTenant(String tid) async {
-    // Sem orderBy('name') no Firestore: docs sem campo [name] ficam de fora da query e a lista “some”.
-    final snap = await _departmentsCol(tid).get();
+    final snap = await ChurchTenantResilientReads.departamentos(tid, limit: 120);
     final deduped = dedupeChurchDepartmentDocuments(snap.docs);
     final list = deduped
         .map(
@@ -344,7 +344,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _fetchInstancesForEffectiveTenant() =>
-      _effectiveTidFuture.then((tid) => _instancesCol(tid).orderBy('date', descending: true).limit(500).get());
+      _effectiveTidFuture.then(
+        (tid) => ChurchTenantResilientReads.escalasRecent(tid, limit: 500),
+      );
 
   static DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
   static DateTime _endOfDay(DateTime d) => DateTime(d.year, d.month, d.day, 23, 59, 59);
@@ -495,7 +497,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
   void _refreshTemplates() {
     setState(() {
-      _templatesFuture = _effectiveTidFuture.then((tid) => _templatesCol(tid).orderBy('title').get());
+      _templatesFuture = _effectiveTidFuture.then(
+        (tid) => ChurchTenantResilientReads.escalaTemplates(tid),
+      );
     });
   }
 
@@ -1124,11 +1128,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   void initState() {
     super.initState();
     logYahwehModuleScreen('escalas');
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
     _tab = TabController(length: 3, vsync: this);
     _effectiveTidFuture = _resolveTenantAndSeedPresets();
     _deptsFuture = _effectiveTidFuture.then(_loadDepartmentsForTenant);
-    _templatesFuture = _effectiveTidFuture.then((tid) => _templatesCol(tid).orderBy('title').get());
+    _templatesFuture = _effectiveTidFuture.then(
+      (tid) => ChurchTenantResilientReads.escalaTemplates(tid),
+    );
     _instancesFuture = _fetchInstancesForEffectiveTenant();
     _tenantFuture = _effectiveTidFuture.then((tid) => _churchDoc(tid).get());
     _effectiveTidFuture.then((tid) async {

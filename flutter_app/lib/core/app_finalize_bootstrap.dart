@@ -1,10 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/offline/offline_first_coordinator.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
@@ -25,7 +27,13 @@ abstract final class AppFinalizeBootstrap {
   /// Arranque da app — já chamado em [main]; idempotente.
   static void bindOnColdStart() {
     YahwehMediaUploadPipeline.bindOnAppStart();
-    unawaited(_bindQueuesAfterFirebaseCore());
+    if (kIsWeb) {
+      Future<void>.delayed(const Duration(seconds: 10), () {
+        unawaited(_bindQueuesAfterFirebaseCore());
+      });
+    } else {
+      unawaited(_bindQueuesAfterFirebaseCore());
+    }
   }
 
   static Future<void> _bindQueuesAfterFirebaseCore() async {
@@ -70,6 +78,7 @@ abstract final class AppFinalizeBootstrap {
       FirebaseBootstrapService.refreshCachedApp();
       await FirebaseAuthTokenGuard.refreshIfStale();
       await _bindQueuesAfterFirebaseCore();
+      await OfflineFirstCoordinator.onAppResumed();
     } catch (e, st) {
       YahwehFlowLog.error('BOOT', e, st);
       if (kDebugMode) {
@@ -83,6 +92,10 @@ abstract final class AppFinalizeBootstrap {
   /// Antes de publicar aviso/evento/chat — evita erros genéricos por sessão fria.
   static Future<void> ensureSessionForPublish({String? logLabel}) async {
     await ensureFirebaseReadyToPublish(logLabel: logLabel ?? 'publish');
-    await FirebaseAuthTokenGuard.refreshIfStale();
+    if (kIsWeb) {
+      try {
+        await FirestoreWebGuard.recoverFirestoreWebSession();
+      } catch (_) {}
+    }
   }
 }

@@ -20,7 +20,7 @@ abstract final class TenantOfflineWrite {
   static bool get shouldQueueForHive =>
       !AppConnectivityService.instance.isOnline;
 
-  /// Write-ahead Hive só **offline** — online grava no Firestore antes de sucesso na UI.
+  /// Write-ahead Hive quando offline (mobile + web memória) — sync silenciosa ao voltar online.
   static bool _persistBeforeRemote(String module) => shouldQueueForHive;
 
   static String _taskId(String module, String path, String op) =>

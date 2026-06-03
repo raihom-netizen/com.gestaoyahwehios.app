@@ -24,11 +24,7 @@ abstract final class FeedPostMediaUpload {
           ?.getIdToken(false)
           .timeout(const Duration(seconds: 12));
     } catch (_) {
-      try {
-        await firebaseDefaultAuth.currentUser
-            ?.getIdToken(true)
-            .timeout(const Duration(seconds: 20));
-      } catch (_) {}
+      // Sem getIdToken(true) — quota Identity Toolkit.
     }
   }
 

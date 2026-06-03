@@ -1,7 +1,4 @@
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-
-/// Repete operações Firestore após falha (rede/token) — reduz ecrã de «erro de conexão»
-/// em [Future.wait] no resumo financeiro.
+/// Repete operações Firestore após falha de rede — sem `getIdToken(true)` (quota Auth).
 Future<T> financeFirestoreOpWithRetry<T>(
   Future<T> Function() op, {
   int maxAttempts = 3,
@@ -13,10 +10,7 @@ Future<T> financeFirestoreOpWithRetry<T>(
     } catch (e) {
       lastError = e;
       if (i >= maxAttempts - 1) break;
-      await Future<void>.delayed(Duration(milliseconds: 240 + i * 200));
-      try {
-        await firebaseDefaultAuth.currentUser?.getIdToken(true);
-      } catch (_) {}
+      await Future<void>.delayed(Duration(milliseconds: 320 + i * 280));
     }
   }
   throw lastError!;

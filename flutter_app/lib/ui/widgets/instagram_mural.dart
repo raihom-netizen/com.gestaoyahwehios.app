@@ -264,10 +264,18 @@ class InstagramMuralState extends State<InstagramMural> {
       (_tenantData?['name'] ?? _tenantData?['nome'] ?? '').toString();
   String get _logoUrl => churchTenantLogoUrl(_tenantData);
 
+  Timer? _feedSkeletonCapTimer;
+
   @override
   void initState() {
     super.initState();
     logYahwehModuleScreen('avisos');
+    _feedSkeletonCapTimer = Timer(const Duration(seconds: 8), () {
+      if (!mounted) return;
+      if (_isFeedInitialLoading && _feedRawDocs.isEmpty) {
+        setState(() => _isFeedInitialLoading = false);
+      }
+    });
     unawaited(_bootstrapMural());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -321,24 +329,12 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   Future<void> _bootstrapMural() async {
-    try {
-      await _ensureMuralFirebaseReady();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isFeedInitialLoading = false;
-        _feedLoadError = e;
-      });
-      return;
+    if (widget.initialTenantData != null && mounted) {
+      setState(() => _tenantData = widget.initialTenantData);
     }
-    if (widget.initialTenantData != null) {
-      if (mounted) setState(() => _tenantData = widget.initialTenantData);
-    } else {
-      await _loadTenant();
-    }
-    await _startFeedLiveSync();
-    // Controle Total: leitura cache-first em paralelo — feed não fica no skeleton se o stream demorar.
     unawaited(_loadFeedPage(reset: true));
+    unawaited(_startFeedLiveSync());
+    unawaited(_loadTenant());
   }
 
   Future<void> _loadTenant() async {
@@ -440,6 +436,13 @@ class InstagramMuralState extends State<InstagramMural> {
       await _ensureMuralFirebaseReady();
     } catch (e) {
       if (!mounted) return;
+      if (_feedRawDocs.isNotEmpty) {
+        setState(() {
+          _feedLoadError = null;
+          _isFeedInitialLoading = false;
+        });
+        return;
+      }
       setState(() {
         _feedLoadError = e;
         _isFeedInitialLoading = false;
@@ -503,15 +506,22 @@ class InstagramMuralState extends State<InstagramMural> {
     });
 
     try {
-      await _ensureMuralFirebaseReady();
       Query<Map<String, dynamic>> q = _feedBaseQuery().limit(_feedPageSize);
       if (!reset && _feedLastCursor != null) {
         q = q.startAfterDocument(_feedLastCursor!);
       }
-      final snap = await FirestoreReadResilience.getQuery(
-        q,
-        cacheKey: 'mural_avisos_${widget.tenantId}_${_feedLastCursor?.id ?? 'head'}',
-      );
+      QuerySnapshot<Map<String, dynamic>> snap;
+      if (reset && _feedLastCursor == null) {
+        snap = await ChurchTenantResilientReads.avisosFeed(
+          widget.tenantId,
+          limit: _feedPageSize,
+        ).timeout(const Duration(seconds: 12));
+      } else {
+        snap = await FirestoreReadResilience.getQuery(
+          q,
+          cacheKey: 'mural_avisos_${widget.tenantId}_${_feedLastCursor?.id ?? 'head'}',
+        ).timeout(const Duration(seconds: 14));
+      }
       if (!mounted || requestEpoch != _feedRequestEpoch) return;
 
       final nextDocs = snap.docs;
@@ -527,7 +537,22 @@ class InstagramMuralState extends State<InstagramMural> {
     } catch (e) {
       if (!mounted || requestEpoch != _feedRequestEpoch) return;
       if (_feedRawDocs.isEmpty) {
-        _feedLoadError = e;
+        try {
+          final cacheSnap = await _feedBaseQuery()
+              .limit(_feedPageSize)
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 4));
+          if (cacheSnap.docs.isNotEmpty) {
+            _feedRawDocs.addAll(cacheSnap.docs);
+            _feedLastCursor =
+                _feedRawDocs.isNotEmpty ? _feedRawDocs.last : null;
+            _feedLoadError = null;
+          } else {
+            _feedLoadError = e;
+          }
+        } catch (_) {
+          _feedLoadError = e;
+        }
       }
     } finally {
       if (mounted && requestEpoch == _feedRequestEpoch) {
@@ -748,6 +773,7 @@ class InstagramMuralState extends State<InstagramMural> {
   @override
   void dispose() {
     _feedSearchDebounce?.cancel();
+    _feedSkeletonCapTimer?.cancel();
     _feedSearchCtrl.dispose();
     _feedLiveSub?.cancel();
     super.dispose();

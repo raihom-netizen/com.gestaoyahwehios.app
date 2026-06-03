@@ -11,15 +11,23 @@ abstract final class TenantModuleKeys {
   static const patrimonio = 'patrimonio';
   static const financeiro = 'financeiro';
   static const agenda = 'agenda';
+  static const departamentos = 'departamentos';
+  static const visitantes = 'visitantes';
+  static const cargos = 'cargos';
+  static const fornecedores = 'fornecedores';
 
   static const preloadOrder = <String>[
     dashboard,
     membros,
+    departamentos,
     eventos,
     avisos,
     chat,
     agenda,
+    visitantes,
+    cargos,
     patrimonio,
     financeiro,
+    fornecedores,
   ];
 }

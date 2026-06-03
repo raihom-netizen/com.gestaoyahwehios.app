@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_funcoes_controle_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/pages/lideranca_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -559,14 +560,8 @@ class _CargosPageState extends State<CargosPage> {
   Future<QuerySnapshot<Map<String, dynamic>>> _loadCargosQuery(
     CollectionReference<Map<String, dynamic>> col,
   ) async {
-    try {
-      final snap = await col
-          .orderBy('name')
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 15));
-      if (snap.docs.isNotEmpty) return snap;
-    } catch (_) {}
-    return col.orderBy('name').get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 28));
+    final tid = _resolvedTenantId ?? widget.tenantId;
+    return ChurchTenantResilientReads.cargos(tid);
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _bootstrapCargosSnapshot() async {

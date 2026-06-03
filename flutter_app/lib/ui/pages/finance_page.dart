@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
@@ -1100,7 +1101,6 @@ class _FinancePageState extends State<FinancePage>
     _tenantRef =
         firebaseDefaultFirestore.collection('igrejas').doc(widget.tenantId);
     _financeCol = _tenantRef.collection('finance');
-    firebaseDefaultAuth.currentUser?.getIdToken(true);
     _startFinanceRealtimeSync();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_warmupBankBrandingAssets());
@@ -2268,33 +2268,15 @@ class _ResumoTabState extends State<_ResumoTab> {
   @override
   void initState() {
     super.initState();
-    _future = financeFirestoreOpWithRetry(
-      () => widget.financeCol.orderBy('createdAt', descending: true).get(),
-    );
-    _futureContas = financeFirestoreOpWithRetry(
-      () => firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('contas')
-          .orderBy('nome')
-          .get(),
-    );
+    _future = ChurchTenantResilientReads.financeRecent(widget.tenantId, limit: 2500);
+    _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
     _futureSettings = FinanceTenantSettings.load(widget.tenantId);
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _future = financeFirestoreOpWithRetry(
-        () => widget.financeCol.orderBy('createdAt', descending: true).get(),
-      );
-      _futureContas = financeFirestoreOpWithRetry(
-        () => firebaseDefaultFirestore
-            .collection('igrejas')
-            .doc(widget.tenantId)
-            .collection('contas')
-            .orderBy('nome')
-            .get(),
-      );
+      _future = ChurchTenantResilientReads.financeRecent(widget.tenantId, limit: 2500);
+      _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
       _futureSettings = FinanceTenantSettings.load(widget.tenantId);
     });
   }

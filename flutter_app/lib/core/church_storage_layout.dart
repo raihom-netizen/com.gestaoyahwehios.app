@@ -78,6 +78,24 @@ abstract final class ChurchStorageLayout {
   /// Capa no site de divulgação (aba Master «Igrejas cliente») — mesmo prefixo `igrejas/{tenantId}/` que o painel da igreja.
   static const String kSegMarketingDestaque = 'marketing_destaque';
 
+  /// Comprovantes financeiros: `financeiro/YYYY_MM/{lancamentoId}.ext`
+  static const String kSegFinanceiro = 'financeiro';
+
+  /// Path canónico de comprovante (Controle Total): `/financeiro/ano_mes/id_registro`.
+  static String financeComprovantePath({
+    required String tenantId,
+    required String lancamentoId,
+    DateTime? referenceDate,
+    String ext = 'jpg',
+  }) {
+    final tid = tenantId.trim();
+    final id = _safeDocId(lancamentoId);
+    final dt = referenceDate ?? DateTime.now();
+    final ym = '${dt.year}_${dt.month.toString().padLeft(2, '0')}';
+    final safeExt = ext.replaceAll('.', '').trim().isEmpty ? 'jpg' : ext.replaceAll('.', '');
+    return '${churchRoot(tid)}/$kSegFinanceiro/${ym}/$id.$safeExt';
+  }
+
   static String churchRoot(String tenantId) => 'igrejas/${tenantId.trim()}';
 
   /// `igrejas/{tenantId}/marketing_destaque/capa.jpg` (único ficheiro; sem `thumb_*`).

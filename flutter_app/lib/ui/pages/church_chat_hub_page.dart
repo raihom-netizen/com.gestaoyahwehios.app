@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
@@ -50,6 +50,9 @@ import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 enum _HubConversasFilter { all, unread, favorites, archived }
 
@@ -161,8 +164,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     super.initState();
     logYahwehModuleScreen('chat');
     unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
-    // Migração CT (web + iOS + Android): limpa fila Firestore antiga na 1.ª abertura do chat.
     unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
+    final hint = widget.tenantId.trim();
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    if (hint.isNotEmpty) {
+      _resolvedTenantId = hint;
+      unawaited(_primeDepartmentsFromHive(hint));
+      if (uid.isNotEmpty) {
+        _chatThreadsStream =
+            ChurchChatService.chatThreadsSnapshotsForUser(hint, uid);
+      }
+    }
     _localConvListener = () {
       if (mounted) unawaited(_reloadLocalConversations());
     };
@@ -242,7 +254,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
       ChurchChatMediaOutboxService.resumePendingOnAppStart();
       final t = _resolvedTenantId;
-      if (t != null) unawaited(_syncMemberDepartments(t));
+      if (t != null) {
+        unawaited(_syncMemberDepartments(t, showLoadingIndicator: false));
+      }
       _requestSilentConversasSyncIfStale();
     }
   }
@@ -263,7 +277,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _gruposResyncDebounce = Timer(const Duration(milliseconds: 500), () {
       if (!mounted) return;
       final t = _resolvedTenantId;
-      if (t != null) unawaited(_syncMemberDepartments(t));
+      if (t != null) {
+        unawaited(_syncMemberDepartments(t, showLoadingIndicator: false));
+      }
     });
   }
 
@@ -340,15 +356,29 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   /// Diretório `_panel_cache/members_directory` — nomes na web sem N queries em `membros`.
   Future<void> _warmMemberDirectoryForChat(String tenantId) async {
-    await ensureFirebaseReadyForPanelRead().catchError((_) {});
-    var snap = await MembersDirectorySnapshotService.readOnce(tenantId);
-    if (!snap.hasEntries) {
-      snap = await MembersDirectorySnapshotService.warmFromCallableIfStale(
-        tenantId,
-      );
-    }
-    if (!mounted || _resolvedTenantId != tenantId) return;
-    if (!snap.hasEntries) return;
+    try {
+      var snap = await MembersDirectorySnapshotService.readOnce(tenantId);
+      if (snap.hasEntries && mounted && _resolvedTenantId == tenantId) {
+        _mergeDirectoryIntoPeerProfiles(tenantId, snap);
+      }
+      unawaited(() async {
+        if (!snap.hasEntries) {
+          snap = await MembersDirectorySnapshotService.warmFromCallableIfStale(
+            tenantId,
+          ).timeout(const Duration(seconds: 20), onTimeout: () => snap);
+        }
+        if (!mounted || _resolvedTenantId != tenantId || !snap.hasEntries) {
+          return;
+        }
+        _mergeDirectoryIntoPeerProfiles(tenantId, snap);
+      }());
+    } catch (_) {}
+  }
+
+  void _mergeDirectoryIntoPeerProfiles(
+    String tenantId,
+    MembersDirectorySnapshot snap,
+  ) {
     final merged = <String, ChurchChatMemberRef>{};
     for (final e in snap.entries) {
       final au = (e.authUid ?? '').trim();
@@ -364,7 +394,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
     if (merged.isEmpty) return;
     ChurchGalleryPhotoWarmup.warmBytesForChatRefs(tenantId, merged.values);
-    setState(() => _peerMemberByUid = {..._peerMemberByUid, ...merged});
+    if (mounted) {
+      setState(() => _peerMemberByUid = {..._peerMemberByUid, ...merged});
+    }
   }
 
   Future<void> _refreshPeerProfilesForAuthUids(
@@ -648,8 +680,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         tenantId,
       );
       await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
-      await ChurchChatMediaOutboxService.wipeAllLocalJobs(tenantId: tenantId);
-      StorageUploadQueueService.instance.clearPending();
     } catch (_) {}
   }
 
@@ -669,37 +699,67 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   Future<void> _bootstrap() async {
     final hint = widget.tenantId.trim();
-    if (hint.isNotEmpty && mounted && _resolvedTenantId == null) {
-      setState(() => _resolvedTenantId = hint);
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+
+    QuerySnapshot<Map<String, dynamic>>? cachedList;
+    if (hint.isNotEmpty && uid.isNotEmpty) {
+      try {
+        cachedList = await ChurchChatThreadsListCache.loadSnapshot(hint, uid: uid)
+            .timeout(const Duration(seconds: 4));
+      } catch (_) {}
     }
-    final tid = await TenantResolverService
-        .resolveEffectiveTenantIdPreferringUserBinding(
-      widget.tenantId,
-      userUid: firebaseDefaultAuth.currentUser?.uid,
-    );
-    if (!mounted) return;
-    final u = firebaseDefaultAuth.currentUser?.uid ?? '';
-    final cachedList = u.isNotEmpty
-        ? await ChurchChatThreadsListCache.loadSnapshot(tid, uid: u)
-        : null;
     if (!mounted) return;
     setState(() {
-      if (_resolvedTenantId != tid) {
-        _lastGoodChatThreadsSnap = null;
-      }
-      _resolvedTenantId = tid;
+      if (hint.isNotEmpty) _resolvedTenantId = hint;
       if (cachedList != null && cachedList.docs.isNotEmpty) {
         _lastGoodChatThreadsSnap = cachedList;
       }
-      _chatThreadsStream = u.isNotEmpty
-          ? ChurchChatService.chatThreadsSnapshotsForUser(tid, u)
-          : null;
+      if (hint.isNotEmpty && uid.isNotEmpty) {
+        _chatThreadsStream =
+            ChurchChatService.chatThreadsSnapshotsForUser(hint, uid);
+      }
     });
-    // Dados legados em `chat_threads` → `chats` (evita permission-denied / lista vazia).
+
+    String tid = hint;
+    try {
+      tid = await TenantResolverService
+          .resolveEffectiveTenantIdPreferringUserBinding(
+        widget.tenantId,
+        userUid: uid.isEmpty ? null : uid,
+      ).timeout(const Duration(seconds: 10));
+    } catch (_) {
+      tid = hint;
+    }
+    if (!mounted) return;
+    if (tid != _resolvedTenantId) {
+      QuerySnapshot<Map<String, dynamic>>? tidCache;
+      if (uid.isNotEmpty) {
+        try {
+          tidCache = await ChurchChatThreadsListCache.loadSnapshot(tid, uid: uid)
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {}
+      }
+      setState(() {
+        _lastGoodChatThreadsSnap = tidCache?.docs.isNotEmpty == true
+            ? tidCache
+            : _lastGoodChatThreadsSnap;
+        _resolvedTenantId = tid;
+        if (uid.isNotEmpty) {
+          _chatThreadsStream =
+              ChurchChatService.chatThreadsSnapshotsForUser(tid, uid);
+        }
+      });
+    }
+
     unawaited(ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tid));
     unawaited(_loadChatNotifPrefs());
     unawaited(_pruneStaleChatUploads(tid));
     unawaited(_warmMemberDirectoryForChat(tid));
+    unawaited(
+      MembersDirectorySnapshotService.warmFromCallableIfStale(tid)
+          .timeout(const Duration(seconds: 18))
+          .catchError((_) => const MembersDirectorySnapshot()),
+    );
     unawaited(_primeConversasListFromFallback(tid));
     unawaited(_reloadLocalConversations());
     unawaited(_syncMemberDepartments(tid));
@@ -868,49 +928,139 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     String uid,
     List<_DeptEntry> entries,
   ) async {
-    for (final e in entries) {
+    // Só garante threads dos primeiros grupos — o resto ao abrir (evita N×12s na lista).
+    final slice = entries.length > 8 ? entries.take(8).toList() : entries;
+    for (final e in slice) {
       try {
         await ChurchChatService.ensureDepartmentThread(
           tenantId: tid,
           departmentId: e.id,
           departmentName: e.name,
           participantUids: [uid],
-        ).timeout(const Duration(seconds: 12));
+        ).timeout(const Duration(seconds: 8));
       } catch (_) {}
     }
   }
 
-  Future<void> _syncAllDepartmentsForLeadership(String tid, String uid) async {
+  List<_DeptEntry> _entriesFromDeptDocs(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final entries = docs
+        .map(
+          (doc) => _DeptEntry(
+            id: doc.id,
+            name: churchDepartmentNameFromData(doc.data(), docId: doc.id),
+            deptData: doc.data(),
+          ),
+        )
+        .toList();
+    entries.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
+    return entries;
+  }
+
+  Future<List<_DeptEntry>> _loadDepartmentsFromFirestoreCache(String tid) async {
     try {
-      await ChurchTenantResilientReads.preparePanelRead();
-      final snap = await ChurchTenantResilientReads.departamentos(tid, limit: 120)
-          .timeout(const Duration(seconds: 28));
-      final entries = <_DeptEntry>[];
-      for (final doc in snap.docs) {
-        final name = churchDepartmentNameFromData(doc.data(), docId: doc.id);
-        entries.add(_DeptEntry(
+      final snap = await firebaseDefaultFirestore
+          .collection('igrejas')
+          .doc(tid)
+          .collection('departamentos')
+          .limit(120)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
+      if (snap.docs.isEmpty) return [];
+      return _entriesFromDeptDocs(snap.docs);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<List<_DeptEntry>> _fetchDeptEntriesParallel(
+    String tid,
+    List<String> ids,
+  ) async {
+    if (ids.isEmpty) return [];
+    final deptCol = firebaseDefaultFirestore
+        .collection('igrejas')
+        .doc(tid)
+        .collection('departamentos');
+    final futures = ids.map((id) async {
+      try {
+        var doc = await deptCol
+            .doc(id)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 2));
+        if (!doc.exists) {
+          doc = await deptCol.doc(id).get().timeout(const Duration(seconds: 7));
+        }
+        if (!doc.exists) return null;
+        return _DeptEntry(
           id: doc.id,
-          name: name,
+          name: churchDepartmentNameFromData(doc.data() ?? {}, docId: doc.id),
           deptData: doc.data(),
-        ));
+        );
+      } catch (_) {
+        return null;
       }
-      entries.sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    });
+    final results = await Future.wait(futures);
+    final entries = results.whereType<_DeptEntry>().toList();
+    entries.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
+    return entries;
+  }
+
+  Future<void> _primeDepartmentsFromHive(String tid) async {
+    try {
+      final rows = await TenantModuleHiveCache.readDocs(
+        tid,
+        TenantModuleKeys.departamentos,
       );
+      if (rows.isEmpty || !mounted) return;
+      final docs = TenantModuleHiveCache.toQueryDocuments(rows);
+      setState(() => _departments = _entriesFromDeptDocs(docs));
+    } catch (_) {}
+  }
+
+  Future<void> _syncAllDepartmentsForLeadership(String tid, String uid) async {
+    await _primeDepartmentsFromHive(tid);
+    final cached = await _loadDepartmentsFromFirestoreCache(tid);
+    if (cached.isNotEmpty && mounted) {
+      setState(() => _departments = cached);
+    }
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.recoverFirestoreWebSession()
+            .timeout(const Duration(seconds: 3))
+            .catchError((_) {});
+      }
+      final snap = await firebaseDefaultFirestore
+          .collection('igrejas')
+          .doc(tid)
+          .collection('departamentos')
+          .limit(120)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 10));
+      final entries = _entriesFromDeptDocs(snap.docs);
       if (!mounted) return;
-      setState(() => _departments = entries);
-      final ids = entries.map((e) => e.id).toList();
+      if (entries.isNotEmpty) {
+        setState(() => _departments = entries);
+      }
       unawaited(
         ChurchChatService.syncUserChatProfile(
           tenantId: tid,
-          departmentIds: ids,
-        ).timeout(const Duration(seconds: 14)).catchError((_) {}),
+          departmentIds: entries.map((e) => e.id).toList(),
+        ).timeout(const Duration(seconds: 10)).catchError((_) {}),
       );
       unawaited(_ensureDeptThreadsBackground(tid, uid, entries));
     } catch (e) {
       if (kDebugMode) debugPrint('chat grupos (liderança): $e');
       if (!mounted) return;
-      setState(() => _departments = const []);
+      if (_departments.isEmpty && cached.isEmpty) {
+        setState(() => _departments = const []);
+      }
     }
   }
 
@@ -926,8 +1076,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       return;
     }
     try {
-      final snap = await ChurchTenantResilientReads.departamentos(tid, limit: 120)
-          .timeout(const Duration(seconds: 22));
+      final snap = await firebaseDefaultFirestore
+          .collection('igrejas')
+          .doc(tid)
+          .collection('departamentos')
+          .limit(120)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
       for (final doc in snap.docs) {
         final data = doc.data();
         if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(data, cpfDigits) ||
@@ -936,37 +1091,110 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           deptIds.add(doc.id);
         }
       }
+      if (deptIds.isEmpty) {
+        final snapNet = await ChurchTenantResilientReads.departamentos(tid, limit: 120)
+            .timeout(const Duration(seconds: 12));
+        for (final doc in snapNet.docs) {
+          final data = doc.data();
+          if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(data, cpfDigits) ||
+              ChurchDepartmentLeaders.leaderUidsFromDepartmentData(data)
+                  .contains(uid)) {
+            deptIds.add(doc.id);
+          }
+        }
+      }
     } catch (_) {}
   }
 
-  Future<void> _syncMemberDepartments(String tid) async {
+  Future<void> _syncMemberDepartments(
+    String tid, {
+    bool showLoadingIndicator = true,
+  }) async {
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) {
       if (mounted) setState(() => _departmentsLoading = false);
       return;
     }
     final syncGen = ++_deptSyncGeneration;
-    if (mounted) setState(() => _departmentsLoading = true);
+
+    unawaited(_primeDepartmentsFromHive(tid));
+
+    final cached = await _loadDepartmentsFromFirestoreCache(tid);
+    if (cached.isNotEmpty && mounted) {
+      setState(() {
+        _departments = cached;
+        _departmentsLoading = false;
+      });
+    } else if (mounted &&
+        _departments.isEmpty &&
+        showLoadingIndicator) {
+      setState(() => _departmentsLoading = true);
+    }
+
+    Timer? cap;
+    cap = Timer(const Duration(seconds: 6), () {
+      if (mounted && syncGen == _deptSyncGeneration && _departmentsLoading) {
+        setState(() => _departmentsLoading = false);
+      }
+    });
+
     try {
       if (_chatHubSeesAllDepartmentGroups(widget.role, widget.permissions)) {
         await _syncAllDepartmentsForLeadership(tid, uid);
-        return;
+      } else {
+        await _syncMemberDepartmentsForMember(tid, uid, syncGen);
       }
+    } finally {
+      cap.cancel();
+      if (mounted && syncGen == _deptSyncGeneration) {
+        setState(() => _departmentsLoading = false);
+      }
+    }
+  }
+
+  Future<void> _syncMemberDepartmentsForMember(
+    String tid,
+    String uid,
+    int syncGen,
+  ) async {
+    try {
       final digits = widget.cpf.replaceAll(RegExp(r'\D'), '');
-      final base =
-          FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('membros');
+      final base = firebaseDefaultFirestore
+          .collection('igrejas')
+          .doc(tid)
+          .collection('membros');
 
       DocumentSnapshot<Map<String, dynamic>>? membro;
       try {
         if (digits.length == 11) {
-          final byCpf = await base.doc(digits).get();
+          final byCpf = await base
+              .doc(digits)
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 2));
           if (byCpf.exists) membro = byCpf;
         }
-        membro ??= await base.doc(uid).get();
-        if (!membro.exists) {
-          final q =
-              await base.where('authUid', isEqualTo: uid).limit(1).get();
-          if (q.docs.isNotEmpty) membro = q.docs.first;
+        membro ??= await base
+            .doc(uid)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 2));
+        if (membro != null && !membro.exists) {
+          if (digits.length == 11) {
+            final byCpfNet = await base.doc(digits).get().timeout(
+                  const Duration(seconds: 8),
+                );
+            if (byCpfNet.exists) membro = byCpfNet;
+          }
+          membro ??= await base.doc(uid).get().timeout(
+                const Duration(seconds: 8),
+              );
+          if (!membro.exists) {
+            final q = await base
+                .where('authUid', isEqualTo: uid)
+                .limit(1)
+                .get()
+                .timeout(const Duration(seconds: 10));
+            if (q.docs.isNotEmpty) membro = q.docs.first;
+          }
         }
       } catch (_) {}
 
@@ -979,20 +1207,29 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         }
         final depNames = d['DEPARTAMENTOS'];
         if (depNames is List) {
-          final col = FirebaseFirestore.instance
+          final col = firebaseDefaultFirestore
               .collection('igrejas')
               .doc(tid)
               .collection('departamentos');
-          for (final name in depNames) {
-            final key = normalizeChurchDepartmentNameKey(name.toString());
-            if (key.isEmpty) continue;
+          final nameFutures = depNames.map((name) async {
             try {
-              final hit = await col.where('nome', isEqualTo: name.toString()).limit(1).get();
-              if (hit.docs.isNotEmpty) {
-                deptIds.add(hit.docs.first.id);
-              }
+              final hit = await col
+                  .where('nome', isEqualTo: name.toString())
+                  .limit(1)
+                  .get(const GetOptions(source: Source.cache))
+                  .timeout(const Duration(seconds: 3));
+              if (hit.docs.isNotEmpty) return hit.docs.first.id;
+              final hitNet = await col
+                  .where('nome', isEqualTo: name.toString())
+                  .limit(1)
+                  .get()
+                  .timeout(const Duration(seconds: 6));
+              if (hitNet.docs.isNotEmpty) return hitNet.docs.first.id;
             } catch (_) {}
-          }
+            return null;
+          });
+          final resolved = await Future.wait(nameFutures);
+          deptIds.addAll(resolved.whereType<String>());
         }
       }
 
@@ -1000,41 +1237,31 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       await _appendLeaderDepartmentIds(tid, uid, digits, deptIdSet);
 
       final uniqueIds = deptIdSet.toList();
-      await ChurchChatService.syncUserChatProfile(
-        tenantId: tid,
-        departmentIds: uniqueIds,
-        memberDocId: membro?.id,
-      ).timeout(const Duration(seconds: 14)).catchError((_) {});
-
-      final deptCol =
-          FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('departamentos');
-      final entries = <_DeptEntry>[];
-      for (final id in uniqueIds) {
-        try {
-          final doc = await deptCol
-              .doc(id)
-              .get()
-              .timeout(const Duration(seconds: 10));
-          final name = doc.exists
-              ? churchDepartmentNameFromData(doc.data() ?? {}, docId: doc.id)
-              : id;
-          entries.add(_DeptEntry(
-            id: id,
-            name: name,
-            deptData: doc.exists ? doc.data() : null,
-          ));
-        } catch (_) {}
+      if (uniqueIds.isNotEmpty) {
+        final cachedEntries = await _fetchDeptEntriesParallel(tid, uniqueIds);
+        if (cachedEntries.isNotEmpty && mounted) {
+          setState(() => _departments = cachedEntries);
+        }
       }
-      entries.sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+
+      unawaited(
+        ChurchChatService.syncUserChatProfile(
+          tenantId: tid,
+          departmentIds: uniqueIds,
+          memberDocId: membro?.id,
+        ).timeout(const Duration(seconds: 10)).catchError((_) {}),
       );
+
+      final entries = await _fetchDeptEntriesParallel(tid, uniqueIds);
       if (!mounted) return;
       setState(() => _departments = entries);
       unawaited(_ensureDeptThreadsBackground(tid, uid, entries));
     } catch (e) {
       if (kDebugMode) debugPrint('chat grupos (membro): $e');
       if (!mounted) return;
-      setState(() => _departments = const []);
+      if (_departments.isEmpty) {
+        setState(() => _departments = const []);
+      }
     } finally {
       if (mounted && syncGen == _deptSyncGeneration) {
         setState(() => _departmentsLoading = false);
@@ -2444,17 +2671,35 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   ) async {
     if (peerUid.trim().isEmpty) return;
     final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
-    ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
-      threadId: threadId,
-      tenantId: tid,
-      peerUid: peerUid,
-      displayName: displayName,
+    var title = displayName.trim();
+    if (title.isEmpty) title = 'Membro';
+
+    unawaited(
+      ChurchChatService.ensureDmThreadResilient(
+        tenantId: tid,
+        uidA: myUid,
+        uidB: peerUid,
+        titleA: firebaseDefaultAuth.currentUser?.displayName ?? 'Eu',
+        titleB: title,
+      ).timeout(const Duration(seconds: 12)).catchError((_) => false),
     );
-    if (mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) unawaited(_tryConsumePendingChatThread());
-      });
-    }
+
+    if (!context.mounted) return;
+    final nav = Navigator.of(context, rootNavigator: true);
+    await nav.push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => ChurchChatThreadPage(
+          tenantId: tid,
+          threadId: threadId,
+          title: title,
+          isDepartment: false,
+          peerUid: peerUid,
+          memberRole: widget.role,
+          memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+        ),
+      ),
+    );
   }
 
   Future<void> _showDepartmentMembersSheet(
@@ -3438,8 +3683,31 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   Map<String, bool> _presenceOnlineByUid = {};
   Timer? _presencePollTimer;
   Timer? _filterDebounce;
+  Timer? _loadCapTimer;
   ChurchChatMemberPrefsModel _prefs = const ChurchChatMemberPrefsModel();
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _prefsSub;
+  StreamSubscription<MembersDirectorySnapshot>? _directorySub;
+
+  void _applyDirectoryRows(MembersDirectorySnapshot directory) {
+    if (!directory.hasEntries) return;
+    final rows = _rowsFromDirectory(directory);
+    if (!mounted) return;
+    setState(() {
+      _rows = rows;
+      _loading = false;
+      _loadFailed = false;
+    });
+    _schedulePresencePoll();
+    final refs = rows
+        .map((r) {
+          final auth = _authUidFromMemberData(r.docId, r.data);
+          if (auth == null) return null;
+          return churchChatMemberRefFromMemberDoc(r.docId, r.data);
+        })
+        .whereType<ChurchChatMemberRef>()
+        .toList();
+    ChurchGalleryPhotoWarmup.warmBytesForChatRefs(widget.tenantId, refs);
+  }
 
   void _onFilterChanged() {
     _filterDebounce?.cancel();
@@ -3456,6 +3724,22 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       if (!mounted) return;
       setState(() => _prefs = ChurchChatMemberPrefs.parse(snap));
     });
+    final mem = MembersDirectorySnapshotService.peekMemory(widget.tenantId);
+    if (mem != null && mem.hasEntries) {
+      _rows = _rowsFromDirectory(mem);
+      _loading = false;
+    }
+    _directorySub =
+        MembersDirectorySnapshotService.watch(widget.tenantId).listen((dir) {
+      if (dir.hasEntries) _applyDirectoryRows(dir);
+    });
+    _loadCapTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted || !_loading) return;
+      setState(() {
+        _loading = false;
+        _loadFailed = _rows.isEmpty;
+      });
+    });
     unawaited(_loadInstantFromCache());
     unawaited(_load());
   }
@@ -3466,25 +3750,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       final directory =
           await MembersDirectorySnapshotService.readOnce(widget.tenantId);
       if (!mounted || !directory.hasEntries) return;
-      final rows = _rowsFromDirectory(directory);
-      setState(() {
-        _rows = rows;
-        _loading = false;
-        _loadFailed = false;
-      });
-      _schedulePresencePoll();
-      final refs = rows
-          .map((r) {
-            final auth = _authUidFromMemberData(r.docId, r.data);
-            if (auth == null) return null;
-            return churchChatMemberRefFromMemberDoc(r.docId, r.data);
-          })
-          .whereType<ChurchChatMemberRef>()
-          .toList();
-      ChurchGalleryPhotoWarmup.warmBytesForChatRefs(
-        widget.tenantId,
-        refs,
-      );
+      _applyDirectoryRows(directory);
     } catch (_) {}
   }
 
@@ -3492,7 +3758,9 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
   void dispose() {
     widget.filterCtrl.removeListener(_onFilterChanged);
     _filterDebounce?.cancel();
+    _loadCapTimer?.cancel();
     _prefsSub?.cancel();
+    _directorySub?.cancel();
     _presencePollTimer?.cancel();
     super.dispose();
   }
@@ -3562,7 +3830,7 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
 
   Future<void> _load() async {
     final hadRows = _rows.isNotEmpty;
-    if (!hadRows) {
+    if (!hadRows && mounted) {
       setState(() {
         _loading = true;
         _loadFailed = false;
@@ -3571,8 +3839,6 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
     var rows = <_ChatDirectoryMemberRow>[];
     var fetchFailed = false;
     try {
-      await ChurchTenantResilientReads.preparePanelRead();
-
       try {
         final directory =
             await MembersDirectorySnapshotService.readOnce(widget.tenantId);
@@ -3585,13 +3851,13 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
 
       if (rows.isEmpty) {
         try {
-          final snap = await ChurchTenantResilientReads.membrosRecent(
+          final warmed =
+              await MembersDirectorySnapshotService.warmFromCallableIfStale(
             widget.tenantId,
-            limit: 600,
-          );
-          rows = snap.docs
-              .map((d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()))
-              .toList();
+          ).timeout(const Duration(seconds: 18));
+          if (warmed.hasEntries) {
+            rows = _rowsFromDirectory(warmed);
+          }
         } catch (_) {
           fetchFailed = true;
         }
@@ -3599,13 +3865,13 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
 
       if (rows.isEmpty) {
         try {
-          final warmed =
-              await MembersDirectorySnapshotService.warmFromCallableIfStale(
+          final snap = await ChurchTenantResilientReads.membrosRecent(
             widget.tenantId,
-          );
-          if (warmed.hasEntries) {
-            rows = _rowsFromDirectory(warmed);
-          }
+            limit: 80,
+          ).timeout(const Duration(seconds: 12));
+          rows = snap.docs
+              .map((d) => _ChatDirectoryMemberRow(docId: d.id, data: d.data()))
+              .toList();
         } catch (_) {
           fetchFailed = true;
         }
@@ -3615,15 +3881,16 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
     }
 
     if (!mounted) return;
+    _loadCapTimer?.cancel();
     setState(() {
-      _rows = rows;
+      if (rows.isNotEmpty) _rows = rows;
       _loading = false;
-      _loadFailed = rows.isEmpty && fetchFailed;
+      _loadFailed = _rows.isEmpty && fetchFailed;
     });
 
-    if (rows.isNotEmpty) {
+    if (_rows.isNotEmpty) {
       _schedulePresencePoll();
-      final refs = rows
+      final refs = _rows
           .map((r) {
             final auth = _authUidFromMemberData(r.docId, r.data);
             if (auth == null) return null;

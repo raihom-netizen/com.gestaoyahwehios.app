@@ -150,6 +150,22 @@ class MembersDirectorySnapshotService {
   static final _functions =
       FirebaseFunctions.instanceFor(region: 'us-central1');
 
+  static final Map<String, MembersDirectorySnapshot> _memoryByTenant = {};
+
+  static void rememberInMemory(String tenantId, MembersDirectorySnapshot snap) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty || !snap.hasEntries) return;
+    _memoryByTenant[tid] = snap;
+  }
+
+  static MembersDirectorySnapshot? peekMemory(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return null;
+    final m = _memoryByTenant[tid];
+    if (m != null && m.hasEntries) return m;
+    return null;
+  }
+
   static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
     return firebaseDefaultFirestore
         .collection('igrejas')
@@ -171,20 +187,29 @@ class MembersDirectorySnapshotService {
   static Future<MembersDirectorySnapshot> readOnce(String tenantId) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const MembersDirectorySnapshot();
+    final mem = peekMemory(tid);
+    if (mem != null) return mem;
     try {
-      final cached = await cacheRef(tid).get(
-        const GetOptions(source: Source.cache),
-      );
+      final cached = await cacheRef(tid)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
       final fromCache = MembersDirectorySnapshot.fromMap(cached.data());
-      if (fromCache.hasEntries) return fromCache;
+      if (fromCache.hasEntries) {
+        rememberInMemory(tid, fromCache);
+        return fromCache;
+      }
     } catch (_) {}
     try {
-      final snap = await cacheRef(tid).get(
-        const GetOptions(source: Source.serverAndCache),
-      );
-      return MembersDirectorySnapshot.fromMap(snap.data());
+      final snap = await cacheRef(tid)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 8));
+      final fromServer = MembersDirectorySnapshot.fromMap(snap.data());
+      if (fromServer.hasEntries) {
+        rememberInMemory(tid, fromServer);
+      }
+      return fromServer;
     } catch (_) {
-      return const MembersDirectorySnapshot();
+      return peekMemory(tid) ?? const MembersDirectorySnapshot();
     }
   }
 
@@ -195,30 +220,47 @@ class MembersDirectorySnapshotService {
   ) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const MembersDirectorySnapshot();
+    final mem = peekMemory(tid);
+    if (mem != null) return mem;
     try {
-      final doc = await cacheRef(tid).get();
+      final doc = await cacheRef(tid)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
       final u = doc.data()?['updatedAt'];
       if (u is Timestamp &&
           DateTime.now().difference(u.toDate()) < _staleAfter) {
-        return MembersDirectorySnapshot.fromMap(doc.data());
+        final fresh = MembersDirectorySnapshot.fromMap(doc.data());
+        if (fresh.hasEntries) {
+          rememberInMemory(tid, fresh);
+          return fresh;
+        }
       }
     } catch (_) {}
-    return warmFromCallable();
+    return warmFromCallable(tenantId: tid);
   }
 
-  static Future<MembersDirectorySnapshot> warmFromCallable() async {
+  static Future<MembersDirectorySnapshot> warmFromCallable({
+    String? tenantId,
+  }) async {
     try {
       final callable = _functions.httpsCallable(
         'getChurchMembersDirectory',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 18)),
       );
-      final res = await callable.call<Map<String, dynamic>>({});
+      final res = await callable
+          .call<Map<String, dynamic>>({})
+          .timeout(const Duration(seconds: 20));
       final data = res.data;
       final directory = data['directory'];
       if (directory is Map) {
-        return MembersDirectorySnapshot.fromMap(
+        final snap = MembersDirectorySnapshot.fromMap(
           Map<String, dynamic>.from(directory),
         );
+        final tid = (tenantId ?? data['tenantId'] ?? '').toString().trim();
+        if (tid.isNotEmpty && snap.hasEntries) {
+          rememberInMemory(tid, snap);
+        }
+        return snap;
       }
     } catch (_) {}
     return const MembersDirectorySnapshot();

@@ -18,11 +18,12 @@ import 'package:gestao_yahweh/core/app_startup_preheat.dart';
 import 'package:gestao_yahweh/core/app_startup_route.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/auth_session_service.dart';
+import 'package:gestao_yahweh/services/auth_service.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/ui/pages/firebase_bootstrap_recovery_page.dart';
 import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
-import 'package:gestao_yahweh/core/offline/offline_bootstrap.dart';
+import 'package:gestao_yahweh/core/offline/offline_first_coordinator.dart';
 import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/url_strategy.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -57,6 +58,7 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
+import 'package:gestao_yahweh/services/auth_profile_cache_service.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
@@ -79,7 +81,6 @@ import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:gestao_yahweh/core/app_deep_link.dart';
 import 'package:gestao_yahweh/core/app_navigator.dart';
-import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/core/public_web_route_parser.dart';
 import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
@@ -374,12 +375,15 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Controle Total: um único initializeApp (firebase/firebase_bootstrap.dart).
   await FirebaseBootstrap.ensureInitialized();
-  // Fase offline-first: Hive + SyncEngine (sem alterar UI).
   try {
-    await OfflineBootstrap.init();
+    if (kIsWeb) {
+      unawaited(OfflineFirstCoordinator.initialize());
+    } else {
+      await OfflineFirstCoordinator.initialize();
+    }
   } catch (e, st) {
     if (kDebugMode) {
-      debugPrint('OfflineBootstrap.init (main): $e\n$st');
+      debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
     }
   }
   // Controle Total: cache de imagens conservador (menos GC em listas com fotos).
@@ -393,39 +397,41 @@ void main() async {
   initUrlStrategy();
 
   // Mesmo padrão do Controle Total: iPhone (todas as versões) e Android
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ]);
-  // Android 15+: evitar cores opacas nas barras (alinhado a edge-to-edge / APIs deprecadas na Play).
-  if (defaultTargetPlatform == TargetPlatform.android) {
-    SystemChrome.setSystemUIOverlayStyle(
-      const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        statusBarBrightness: Brightness.light,
-        systemNavigationBarColor: Colors.transparent,
-        systemNavigationBarIconBrightness: Brightness.dark,
-        systemNavigationBarDividerColor: Colors.transparent,
-        systemNavigationBarContrastEnforced: false,
-      ),
-    );
-  } else {
-    SystemChrome.setSystemUIOverlayStyle(
-      const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        statusBarBrightness: Brightness.light,
-        systemNavigationBarColor: Colors.white,
-        systemNavigationBarIconBrightness: Brightness.dark,
-        systemNavigationBarDividerColor: Colors.transparent,
-        systemNavigationBarContrastEnforced: true,
-      ),
-    );
+  if (!kIsWeb) {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    // Android 15+: evitar cores opacas nas barras (alinhado a edge-to-edge / APIs deprecadas na Play).
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      SystemChrome.setSystemUIOverlayStyle(
+        const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: Brightness.light,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarIconBrightness: Brightness.dark,
+          systemNavigationBarDividerColor: Colors.transparent,
+          systemNavigationBarContrastEnforced: false,
+        ),
+      );
+    } else {
+      SystemChrome.setSystemUIOverlayStyle(
+        const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+          statusBarBrightness: Brightness.light,
+          systemNavigationBarColor: Colors.white,
+          systemNavigationBarIconBrightness: Brightness.dark,
+          systemNavigationBarDividerColor: Colors.transparent,
+          systemNavigationBarContrastEnforced: true,
+        ),
+      );
+    }
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
-  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   // Health check + Firestore settings — sem segundo initializeApp.
   final firebaseBoot = await FirebaseBootstrapService.initialize();
@@ -433,6 +439,7 @@ void main() async {
     LoginPreferences.warmUpForStartup(),
     AppShellSessionCache.warmUp(),
   ]);
+  await AuthProfileCacheService.warmUpForStartup();
   if (!firebaseBoot.isReady) {
     runApp(
       MaterialApp(
@@ -466,7 +473,11 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
     } catch (_) {}
   }
   ensureBrasiliaTimeZoneInitialized();
-  await YahwehObservability.ensureInitialized();
+  if (kIsWeb) {
+    unawaited(YahwehObservability.ensureInitialized());
+  } else {
+    await YahwehObservability.ensureInitialized();
+  }
   // Crashlytics: só Android/iOS (evita desktop/web onde o plugin não aplica).
   final crashlyticsOk = !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
@@ -530,14 +541,13 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
   // Garante que a sessão não “some” quando o usuário fechar/renovar a aba no web
   // ou ao reabrir pelo ícone (fica até o usuário clicar em Sair).
   try {
-    await firebaseDefaultAuth.setPersistence(Persistence.LOCAL);
+    await AuthService.configurePersistentSession();
   } catch (_) {}
   if (kIsWeb) {
     try {
       await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
     } catch (_) {}
   }
-  configureFirestoreForOfflineAndSpeed();
   // Apple Guideline 3.1.1: em iOS, le `exibir_pagamento_ios` do Remote Config
   // antes de qualquer rota que possa exibir checkout/precos. Nao bloqueante:
   // mantem default conservador (sem cobranca no app) se o fetch falhar.
@@ -593,8 +603,7 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
         await prefs.setString('last_route', '/painel');
       }
       final last = prefs.getString('last_route');
-      final cu = FirebaseAuth.instance.currentUser;
-      final hasSession = cu != null && !cu.isAnonymous;
+      final hasSession = AuthService.hasActiveSession;
       if (last != null && last.isNotEmpty) {
         final isPublicRoot =
             kIsWeb && (initialRoute == '/' || initialRoute.isEmpty);
@@ -615,13 +624,17 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       } else if (!kIsWeb &&
           (defaultTargetPlatform == TargetPlatform.android ||
               defaultTargetPlatform == TargetPlatform.iOS)) {
-        // Android/iOS: sem rota salva — com sessão Firebase persistida abre direto o painel.
-        final cu = FirebaseAuth.instance.currentUser;
-        initialRoute = (cu != null && !cu.isAnonymous)
+        // Android/iOS: com sessão Firebase persistida abre directo o painel.
+        initialRoute = AuthService.hasActiveSession
             ? '/painel'
             : (defaultTargetPlatform == TargetPlatform.iOS
                 ? '/igreja/login'
                 : '/login');
+      }
+      if (kIsWeb &&
+          AuthService.hasActiveSession &&
+          (initialRoute == '/' || initialRoute.isEmpty)) {
+        initialRoute = '/painel';
       }
       final autoPainel = await ChurchAutoSessionService
           .painelRouteIfSessionRestored(initialRoute)
@@ -635,8 +648,7 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS) &&
         (initialRoute == '/' || initialRoute.isEmpty)) {
-      final cu = FirebaseAuth.instance.currentUser;
-      initialRoute = (cu != null && !cu.isAnonymous)
+      initialRoute = AuthService.hasActiveSession
           ? '/painel'
           : (defaultTargetPlatform == TargetPlatform.iOS
               ? '/igreja/login'
@@ -655,7 +667,7 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
             initialRoute.startsWith('/painel/'));
     final painelReopen = initialRoute == '/painel' ||
         initialRoute.startsWith('/painel/');
-    if (shellFast && painelReopen) {
+    if (shellFast && painelReopen && !kIsWeb) {
       try {
         await PanelPreheatCoordinator.preheatOnce().timeout(
           const Duration(seconds: 2),

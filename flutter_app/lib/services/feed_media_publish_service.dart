@@ -29,6 +29,7 @@ abstract final class FeedMediaPublishService {
   static const String statusDraft = PublicationEngine.statusDraft;
 
   static const int kMaxPhotosPerPost = PublicationEngine.kMaxPhotosPerPost;
+  static const int kMaxPhotosPerEvento = PublicationEngine.kMaxPhotosPerEvento;
   static const int kMaxVideosPerPost = PublicationEngine.kMaxVideosPerPost;
 
   static Future<DocumentReference<Map<String, dynamic>>> postRef({

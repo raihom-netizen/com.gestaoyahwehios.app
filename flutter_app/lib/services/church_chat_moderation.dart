@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 
 /// Quem pode **apagar para todos** (alinhado a `chatMessageDeleteForEveryoneAllowed` nas regras).
@@ -34,7 +33,8 @@ abstract final class ChurchChatModeration {
         }.contains(normalized);
   }
 
-  /// [memberCpfDigits] — só dígitos; usado para conferir líder no doc do departamento.
+  /// Apagar mensagem de **outro** no grupo — só pastoral/gestão (adm, gestor, pastor, secretário, tesoureiro).
+  /// Líder de departamento e membro comum só apagam a **própria** mensagem ([canDeleteMessageForEveryone]).
   static bool canDeleteChatMessage({
     required String memberRole,
     required String memberCpfDigits,
@@ -44,20 +44,7 @@ abstract final class ChurchChatModeration {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return false;
     final n = ChurchRolePermissions.normalize(memberRole);
-    if (_churchWideChatModerator(n)) return true;
-    if (isDepartmentThread && departmentData != null) {
-      if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(
-            departmentData,
-            memberCpfDigits,
-          )) {
-        return true;
-      }
-      if (ChurchDepartmentLeaders.leaderUidsFromDepartmentData(departmentData)
-          .contains(uid)) {
-        return true;
-      }
-    }
-    return false;
+    return _churchWideChatModerator(n);
   }
 
   /// Apagar para **todos** (alinhado a `chatMessageDeleteForEveryoneAllowed` nas regras):

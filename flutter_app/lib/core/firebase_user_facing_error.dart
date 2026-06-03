@@ -28,7 +28,12 @@ String formatFirebaseErrorForUser(
 
   if (error is TimeoutException) {
     final m = error.message?.trim();
-    if (m != null && m.isNotEmpty) return m;
+    if (m != null && m.isNotEmpty) {
+      if (m.contains('Future not completed')) {
+        return 'Demorou demais a carregar. Verifique a rede e toque em Tentar de novo.';
+      }
+      return m;
+    }
     return 'Tempo esgotado. Verifique a rede e tente de novo.';
   }
 
@@ -51,8 +56,12 @@ String formatFirebaseErrorForUser(
     final m = error.message?.trim();
     if (code == 'permission-denied' || code == 'unauthorized') {
       return plugin == 'firebase_storage'
-          ? 'Sem permissão no Storage ($code). Confirme que está logado no painel.'
+          ? 'Sem permissão no Storage ($code). Confirme que está logado no painel e tente de novo.'
           : 'Sem permissão no Firestore ($code).';
+    }
+    if (plugin == 'firebase_storage' &&
+        (code == 'unauthenticated' || code == 'object-not-found')) {
+      return 'Erro no Storage ($code). Saia e entre de novo no painel, depois tente o envio.';
     }
     if (_isNoFirebaseAppError(error)) {
       return 'Firebase não inicializou ($plugin/$code). '
@@ -88,6 +97,9 @@ String formatFirebaseErrorForUser(
   if (raw.contains('Sessão expirada')) return raw;
   if (raw.contains('Tempo esgotado')) {
     return 'Tempo esgotado no envio. Use Wi‑Fi ou tente de novo.';
+  }
+  if (raw.contains('Future not completed')) {
+    return 'Demorou demais a carregar. Verifique a rede e toque em Tentar de novo.';
   }
   if (raw.length > 200) {
     return 'Falha na operação. Tente de novo.';

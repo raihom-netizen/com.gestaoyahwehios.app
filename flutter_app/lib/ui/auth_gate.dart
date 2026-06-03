@@ -30,6 +30,7 @@ import '../services/persistent_auth_session_service.dart';
 import '../services/session_restore_service.dart';
 import '../services/church_sign_out_navigation.dart';
 import '../services/app_session_stability.dart';
+import '../core/firebase_auth_token_guard.dart';
 import '../core/roles_permissions.dart';
 
 /// Tela quando usuário logou mas não tem igreja vinculada em claims nem em users.
@@ -352,6 +353,8 @@ class AuthGate extends StatefulWidget {
 class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   bool _scheduledLoginRedirect = false;
   Timer? _signOutConfirmTimer;
+  Timer? _webSessionCapTimer;
+  bool _webSessionCapHit = false;
   bool _restoreInFlight = false;
 
   @override
@@ -359,12 +362,22 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     AppSessionStability.rememberUser(FirebaseAuth.instance.currentUser);
+    if (kIsWeb) {
+      _webSessionCapTimer = Timer(const Duration(milliseconds: 2000), () {
+        if (!mounted) return;
+        final u = FirebaseAuth.instance.currentUser;
+        if (u == null || u.isAnonymous) {
+          setState(() => _webSessionCapHit = true);
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _signOutConfirmTimer?.cancel();
+    _webSessionCapTimer?.cancel();
     super.dispose();
   }
 
@@ -396,7 +409,9 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
 
   void _scheduleSignOutIfStillLoggedOut() {
     _signOutConfirmTimer?.cancel();
-    _signOutConfirmTimer = Timer(const Duration(milliseconds: 900), () async {
+    _signOutConfirmTimer = Timer(
+      kIsWeb ? const Duration(milliseconds: 450) : const Duration(milliseconds: 900),
+      () async {
       if (!mounted) return;
       final current = FirebaseAuth.instance.currentUser;
       if (current != null && !current.isAnonymous) {
@@ -405,7 +420,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         if (mounted) setState(() {});
         return;
       }
-      if (AppSessionStability.hasReturningSessionHints()) {
+      if (!kIsWeb && AppSessionStability.hasReturningSessionHints()) {
         final restored =
             await PersistentAuthSessionService.currentPersistedUser();
         if (restored != null && mounted) {
@@ -428,16 +443,26 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       return cached;
     }
     if (repairDepth == 0 && AppConnectivityService.instance.isOnline) {
-      final fast = await _loadProfileOnlineFast(user, cached);
-      if (fast != null) {
-        await AuthProfileCacheService.instance.save(user.uid, fast);
-        unawaited(_enrichProfileWithMemberAsync(user, fast));
-        return fast;
+      if (kIsWeb) {
+        final claimsFast = await _loadProfileFromClaimsFast(user, cached);
+        if (claimsFast != null) {
+          await AuthProfileCacheService.instance.save(user.uid, claimsFast);
+          unawaited(_enrichProfileWithMemberAsync(user, claimsFast));
+          return claimsFast;
+        }
+      } else {
+        final fast = await _loadProfileOnlineFast(user, cached);
+        if (fast != null) {
+          await AuthProfileCacheService.instance.save(user.uid, fast);
+          unawaited(_enrichProfileWithMemberAsync(user, fast));
+          return fast;
+        }
       }
     }
     try {
       final db = FirebaseFirestore.instance;
-      const loadTimeout = Duration(seconds: 10);
+      final loadTimeout =
+          kIsWeb ? const Duration(seconds: 4) : const Duration(seconds: 10);
 
       // `false` = não força refresh na rede; permite abrir com sessão persistida sem internet.
       late final IdTokenResult token;
@@ -759,6 +784,96 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     return null;
   }
 
+  /// Web: abre o painel com claims + cache local — sem esperar callable (12s+).
+  Future<Map<String, dynamic>?> _loadProfileFromClaimsFast(
+    User user,
+    Map<String, dynamic>? cached,
+  ) async {
+    if (FirebaseAuthTokenGuard.isInQuotaBackoff) {
+      if (cached != null &&
+          (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+        return cached;
+      }
+      return null;
+    }
+    try {
+      final token = await user
+          .getIdTokenResult(false)
+          .timeout(const Duration(seconds: 3));
+      final claims = token.claims ?? {};
+      var igrejaId =
+          (claims['igrejaId'] ?? claims['tenantId'] ?? '').toString().trim();
+      var role = (claims['role'] ?? '').toString().trim();
+      if (igrejaId.isEmpty && cached != null) {
+        igrejaId = (cached['igrejaId'] ?? '').toString().trim();
+      }
+      if (role.isEmpty && cached != null) {
+        role = (cached['role'] ?? '').toString().trim();
+      }
+      if (igrejaId.isEmpty) {
+        try {
+          final userDoc = await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 2));
+          final userData = userDoc.data() ?? {};
+          igrejaId = (userData['igrejaId'] ?? userData['tenantId'] ?? '')
+              .toString()
+              .trim();
+          if (role.isEmpty) {
+            role = (userData['role'] ?? '').toString().trim();
+          }
+        } catch (_) {}
+      }
+      if (igrejaId.isEmpty) return null;
+
+      Map<String, dynamic> churchData;
+      if (cached?['church'] is Map) {
+        churchData = Map<String, dynamic>.from(cached!['church'] as Map);
+      } else {
+        try {
+          final ch = await FirebaseFirestore.instance
+              .collection('igrejas')
+              .doc(igrejaId)
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 2));
+          churchData = ch.exists
+              ? (ch.data() ?? <String, dynamic>{'id': igrejaId})
+              : <String, dynamic>{'id': igrejaId};
+        } catch (_) {
+          churchData = <String, dynamic>{'id': igrejaId};
+        }
+      }
+
+      return {
+        'igrejaId': igrejaId,
+        'role': role.isNotEmpty ? role : 'membro',
+        'cpf': (cached?['cpf'] ?? '').toString(),
+        'active': cached?['active'] != false,
+        'memberStatusPending': cached?['memberStatusPending'] == true,
+        'mustChangePass': cached?['mustChangePass'] == true,
+        'mustCompleteRegistration':
+            cached?['mustCompleteRegistration'] == true,
+        'church': churchData,
+        if (cached?['subscription'] is Map)
+          'subscription': Map<String, dynamic>.from(cached!['subscription'] as Map),
+        'permissions': AppPermissions.normalizePermissions(
+          cached?['permissions'],
+        ),
+      };
+    } catch (e) {
+      if (FirebaseAuthTokenGuard.isQuotaExceeded(e)) {
+        FirebaseAuthTokenGuard.recordQuotaExceeded(e);
+      }
+      if (cached != null &&
+          (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+        return cached;
+      }
+      return null;
+    }
+  }
+
   /// Uma ida ao servidor (users + subscription + igreja) — evita dezenas de leituras no cliente.
   Future<Map<String, dynamic>?> _loadProfileOnlineFast(
     User user,
@@ -902,8 +1017,21 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         );
 
         if (user == null || user.isAnonymous) {
-          if (snap.connectionState == ConnectionState.waiting ||
-              AppSessionStability.hasReturningSessionHints()) {
+          if (kIsWeb && _webSessionCapHit) {
+            if (!_scheduledLoginRedirect) {
+              _scheduledLoginRedirect = true;
+              _scheduleSignOutIfStillLoggedOut();
+            }
+            return _authGateWaitingScaffold(message: 'A ir para o login…');
+          }
+
+          final webAuthWaiting = kIsWeb &&
+              snap.connectionState == ConnectionState.waiting &&
+              !_webSessionCapHit;
+          final mobileSessionRestore = !kIsWeb &&
+              (snap.connectionState == ConnectionState.waiting ||
+                  AppSessionStability.hasReturningSessionHints());
+          if (webAuthWaiting || mobileSessionRestore) {
             _kickSessionRestore();
             final sticky = AppSessionStability.effectiveAuthUser(
               snap.data,
@@ -918,7 +1046,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
               );
             }
             return _authGateWaitingScaffold(
-              message: 'A restaurar a sua sessão…',
+              message: kIsWeb ? 'A carregar…' : 'A restaurar a sua sessão…',
             );
           }
 
@@ -927,10 +1055,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
             _scheduleSignOutIfStillLoggedOut();
           }
           if (kIsWeb) {
-            return const ColoredBox(
-              color: Color(0xFFF8FAFC),
-              child: SizedBox.expand(),
-            );
+            return _authGateWaitingScaffold(message: 'A carregar…');
           }
           return _authGateWaitingScaffold();
         }
@@ -1036,7 +1161,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
       if (igrejaId.isEmpty) {
         final token = await widget.user
             .getIdTokenResult(false)
-            .timeout(const Duration(seconds: 4));
+            .timeout(kIsWeb ? const Duration(seconds: 2) : const Duration(seconds: 4));
         final claims = token.claims ?? {};
         igrejaId = (claims['igrejaId'] ?? claims['tenantId'] ?? '')
             .toString()
@@ -1094,19 +1219,24 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
         setState(() => _bootstrapProfile = c);
       }
     }());
+    if (kIsWeb) {
+      unawaited(_tryEmergencyBootstrapFromLocalFirestore());
+    }
     _emergencyBootstrapTimer = Timer(
-      const Duration(seconds: 4),
+      kIsWeb ? const Duration(milliseconds: 300) : const Duration(seconds: 4),
       () => unawaited(_tryEmergencyBootstrapFromLocalFirestore()),
     );
     _profileFuture = _profileFutureCacheFirst();
     // Biometric em paralelo ao perfil para não somar tempo de espera no mobile
     _biometricFuture = kIsWeb
         ? Future.value(false)
-        : BiometricService().isEnabled().catchError((_, __) => false);
+        : BiometricService()
+            .shouldRequireBiometricUnlock()
+            .catchError((_, __) => false);
     _readyFuture = Future.wait([_profileFuture, _biometricFuture])
         .then((list) => (list[0] as Map<String, dynamic>?, list[1] as bool))
         .timeout(
-          const Duration(seconds: 12),
+          kIsWeb ? const Duration(seconds: 4) : const Duration(seconds: 12),
           onTimeout: () async {
             final c =
                 await AuthProfileCacheService.instance.load(widget.user.uid);

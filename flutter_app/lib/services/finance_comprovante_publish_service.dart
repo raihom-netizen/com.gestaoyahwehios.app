@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/unified_upload_service.dart';
 
@@ -72,11 +74,14 @@ abstract final class FinanceComprovantePublishService {
     YahwehFlowLog.uploadStart('comprovante');
     final compressed = await ImageHelper.compressImage(
       rawBytes,
-      minWidth: 800,
-      minHeight: 600,
-      quality: 80,
+      minWidth: kStandardUploadImageMaxEdge,
+      minHeight: kStandardUploadImageMaxEdge,
+      quality: kStandardUploadImageQuality,
     );
-    final path = 'igrejas/$tenantId/comprovantes/${docRef.id}.jpg';
+    final path = ChurchStorageLayout.financeComprovantePath(
+      tenantId: tenantId,
+      lancamentoId: docRef.id,
+    );
     final url = await UnifiedUploadService.uploadJpegBytes(
       storagePath: path,
       bytes: compressed,

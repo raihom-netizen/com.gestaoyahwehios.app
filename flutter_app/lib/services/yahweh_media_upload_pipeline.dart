@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
+import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/analytics_service.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
@@ -20,7 +21,8 @@ import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart'
+    hide formatUploadErrorForUser;
 
 /// Módulos com fila, compressão, retry, pending e progresso unificados.
 enum YahwehUploadModule { chat, aviso, evento, generic }
@@ -136,6 +138,14 @@ abstract final class YahwehMediaUploadPipeline {
       AnalyticsService.logUploadPipeline(module: mod.name, phase: 'upload_start'),
     );
 
+    final progressLabel = switch (mod) {
+      YahwehUploadModule.chat => 'A enviar no chat…',
+      YahwehUploadModule.aviso => 'A enviar foto do aviso…',
+      YahwehUploadModule.evento => 'A enviar mídia do evento…',
+      YahwehUploadModule.generic => 'A enviar ficheiro…',
+    };
+    showProgress(progressLabel);
+
     try {
       String url;
       try {
@@ -210,7 +220,9 @@ abstract final class YahwehMediaUploadPipeline {
           ),
         );
       }
-      rethrow;
+      throw StateError(formatUploadErrorForUser(e));
+    } finally {
+      hideProgress();
     }
   }
 
@@ -271,11 +283,15 @@ abstract final class YahwehMediaUploadPipeline {
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         final ref = firebaseStorageRef(storagePath);
+        final ct = StorageUploadMetadata.contentTypeForPut(
+          contentType: contentType,
+          storagePath: storagePath,
+        );
         final task = ref.putData(
           bytes,
           SettableMetadata(
-            contentType: contentType,
-            cacheControl: cacheControl,
+            contentType: ct,
+            cacheControl: StorageUploadMetadata.cacheControl,
           ),
         );
         onTaskStarted?.call(task);
@@ -294,7 +310,7 @@ abstract final class YahwehMediaUploadPipeline {
           FirebaseBootstrapService.invalidateStorageUploadBootstrap();
           try {
             await FirebaseBootstrapService.ensureAlwaysOn(
-              refreshAuthToken: true,
+              refreshAuthToken: false,
             );
             await ensureUploadBootstrapForStoragePath(storagePath);
           } catch (_) {}
@@ -307,6 +323,8 @@ abstract final class YahwehMediaUploadPipeline {
         );
       }
     }
-    throw lastError ?? StateError('Falha de upload');
+    throw StateError(
+      formatUploadErrorForUser(lastError ?? StateError('Falha de upload')),
+    );
   }
 }

@@ -1,57 +1,62 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-
-/// Configura o Firestore **antes** de qualquer leitura/escrita.
-///
-/// Equivalente V4 a `enablePersistence` + `PersistenceSettings(synchronizeTabs: true)` na web.
-/// - **Mobile (igual Controle Total)**: `persistenceEnabled: true` + cache ilimitado —
-///   leituras/escritas locais sincronizam com o servidor mais depressa.
-/// - **Web (igual Controle Total)**: sem IndexedDB; long-polling estável.
-///   Pré-carga opcional das coleções principais: serviço `church_tenant_offline_warmup_service.dart`.
-/// - **ignoreUndefinedProperties**: merges mais limpos ao atualizar documentos.
-/// - **Web**: deteção de long-polling (redes/proxies instáveis) e cache multi‑aba.
-void configureFirestoreForOfflineAndSpeed() {
-  if (!isFirebaseReady) {
-    debugPrint(
-      'configureFirestoreForOfflineAndSpeed: Firebase ainda nao pronto — ignorado.',
-    );
-    return;
-  }
-  final db = firebaseDefaultFirestore;
-  try {
-    if (kIsWeb) {
-      // Controle Total: sem IndexedDB na web — login Google/Apple mais estável; long-polling fixo.
-      db.settings = const Settings(
-        persistenceEnabled: false,
-        ignoreUndefinedProperties: true,
-        webExperimentalForceLongPolling: true,
-      );
-    } else {
-      db.settings = Settings(
-        persistenceEnabled: true,
-        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-        ignoreUndefinedProperties: true,
-      );
-    }
-  } catch (e, st) {
-    debugPrint('configureFirestoreForOfflineAndSpeed: $e\n$st');
-    try {
-      if (kIsWeb) {
-        db.settings = const Settings(
-          persistenceEnabled: false,
-          ignoreUndefinedProperties: true,
-          webExperimentalForceLongPolling: true,
-        );
-      } else {
-        db.settings = Settings(
-          persistenceEnabled: true,
-          cacheSizeBytes: 200 * 1024 * 1024,
-          ignoreUndefinedProperties: true,
-        );
-      }
-    } catch (e2) {
-      debugPrint('configureFirestoreForOfflineAndSpeed fallback: $e2');
-    }
-  }
-}
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+
+/// Estado efectivo da persistência Firestore (Android / iOS / Web).
+abstract final class FirestoreOfflineConfig {
+  FirestoreOfflineConfig._();
+
+  static bool persistenceEnabled = false;
+  static bool webIndexedDbFallback = false;
+}
+
+/// Configura o Firestore **antes** de qualquer leitura/escrita.
+///
+/// Offline-first (Controle Total): `persistenceEnabled: true` em **todas** as plataformas.
+/// - **Mobile:** cache ilimitado + sync silenciosa.
+/// - **Web:** IndexedDB quando suportado; fallback long-polling + warmup Hive memória.
+void configureFirestoreForOfflineAndSpeed() {
+  if (!isFirebaseReady) {
+    debugPrint(
+      'configureFirestoreForOfflineAndSpeed: Firebase ainda nao pronto — ignorado.',
+    );
+    return;
+  }
+  final db = firebaseDefaultFirestore;
+  try {
+    db.settings = Settings(
+      persistenceEnabled: true,
+      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      ignoreUndefinedProperties: true,
+      webExperimentalAutoDetectLongPolling: kIsWeb,
+    );
+    FirestoreOfflineConfig.persistenceEnabled = true;
+    FirestoreOfflineConfig.webIndexedDbFallback = false;
+  } catch (e, st) {
+    debugPrint('configureFirestoreForOfflineAndSpeed: $e\n$st');
+    _applyFallbackSettings(db);
+  }
+}
+
+void _applyFallbackSettings(FirebaseFirestore db) {
+  try {
+    if (kIsWeb) {
+      db.settings = const Settings(
+        persistenceEnabled: false,
+        ignoreUndefinedProperties: true,
+        webExperimentalAutoDetectLongPolling: true,
+      );
+      FirestoreOfflineConfig.persistenceEnabled = false;
+      FirestoreOfflineConfig.webIndexedDbFallback = true;
+    } else {
+      db.settings = Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: 200 * 1024 * 1024,
+        ignoreUndefinedProperties: true,
+      );
+      FirestoreOfflineConfig.persistenceEnabled = true;
+    }
+  } catch (e2) {
+    debugPrint('configureFirestoreForOfflineAndSpeed fallback: $e2');
+  }
+}

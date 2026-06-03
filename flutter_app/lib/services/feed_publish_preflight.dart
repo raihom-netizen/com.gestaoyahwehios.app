@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
@@ -15,9 +16,14 @@ abstract final class FeedPublishPreflight {
     YahwehFlowLog.start('AVISOS_PREFLIGHT');
     try {
       await ensureFirebaseCore(requireAuth: true)
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 8));
       YahwehFlowLog.success('AVISOS_PREFLIGHT');
     } catch (e, st) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null && !user.isAnonymous) {
+        YahwehFlowLog.success('AVISOS_PREFLIGHT (sessão em cache)');
+        return;
+      }
       if (kDebugMode) {
         debugPrint('FIREBASE APPS=${Firebase.apps.length} (preflight)');
         debugPrint('ERROR=$e');

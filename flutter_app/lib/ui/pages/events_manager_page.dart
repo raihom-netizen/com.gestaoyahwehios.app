@@ -2448,15 +2448,11 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadEvents() async {
-    await ensureFirebaseReadyForPanelRead().catchError((_) {});
-    final q = widget.noticias
-        .orderBy('startAt', descending: true)
-        .limit(200);
     try {
-      final snap = await FirestoreReadResilience.getQuery(
-        q,
-        cacheKey: 'events_feed_${widget.tenantId}',
-      );
+      final snap = await ChurchTenantResilientReads.noticiasByStartAt(
+        widget.tenantId,
+        limit: 200,
+      ).timeout(const Duration(seconds: 14));
       _lastGoodEventsSnap = snap;
       _showingOfflineEvents = false;
       return snap;
@@ -2466,6 +2462,21 @@ class _FeedTabState extends State<_FeedTab> {
         _showingOfflineEvents = true;
         return mem;
       }
+      try {
+        final cacheSnap = await firebaseDefaultFirestore
+            .collection('igrejas')
+            .doc(widget.tenantId)
+            .collection('noticias')
+            .orderBy('startAt', descending: true)
+            .limit(200)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 4));
+        if (cacheSnap.docs.isNotEmpty) {
+          _lastGoodEventsSnap = cacheSnap;
+          _showingOfflineEvents = true;
+          return cacheSnap;
+        }
+      } catch (_) {}
       rethrow;
     }
   }
@@ -5687,7 +5698,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   double? _locationLng;
   static int get _maxVideoSeconds => kMediaEventVideoMaxSeconds;
   static const int _maxVideosPerEvent = FeedMediaPublishService.kMaxVideosPerPost;
-  static const int _maxPhotosPerEvent = FeedMediaPublishService.kMaxPhotosPerPost;
+  static const int _maxPhotosPerEvent = FeedMediaPublishService.kMaxPhotosPerEvento;
 
   static String _buildEnderecoFromTenant(Map<String, dynamic> data) {
     final endereco = (data['endereco'] ?? '').toString().trim();
@@ -6469,8 +6480,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         if (slot < 0) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: const Text(
-                  'Limite de 1 vídeo no Storage. Remova o vídeo para adicionar outro.'),
+              content: Text(
+                  'Limite de $_maxVideosPerEvent vídeos no Storage. Remova um vídeo para adicionar outro.'),
               backgroundColor: ThemeCleanPremium.error,
               behavior: SnackBarBehavior.floating,
             ));
@@ -6842,9 +6853,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   /// Reconexão Firestore após INTERNAL ASSERTION — **Firestore primeiro** (sem upload→set legado).
   Future<void> _retryEventPublishFirestoreFirst() async {
-    await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
-    await firebaseDefaultAuth.currentUser?.getIdToken(true);
-    await Future.delayed(const Duration(milliseconds: 150));
+    await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
     final docRef = _eventDocRef;
     final postId = docRef.id;
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
@@ -7007,7 +7016,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       final msg = e.toString();
       final isAssertionOrPerm = msg.contains('INTERNAL ASSERTION') ||
-          msg.contains('permission-denied');
+          msg.contains('permission-denied') ||
+          msg.contains('WatchChangeAggregator') ||
+          msg.contains('PersistentListenStream') ||
+          msg.contains('Unexpected state');
       if (mounted && isAssertionOrPerm) {
         try {
           await _retryEventPublishFirestoreFirst();

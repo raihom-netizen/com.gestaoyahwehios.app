@@ -10,6 +10,8 @@ import 'package:video_compress/video_compress.dart';
 
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
     show kMediaEventVideoMaxSeconds;
+import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
+    show kMaxEventFeedPhotosPerPost;
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_service.dart';
@@ -26,7 +28,7 @@ class EventoGalleryService {
   Future<FirebaseFirestore> _firestore() => FirebaseService.firestore(requireAuth: true);
   static const int _maxVideosPerEvent = 2;
   static const int _maxVideoSeconds = kMediaEventVideoMaxSeconds;
-  static const int _maxPhotosPerEvent = 20;
+  static const int _maxPhotosPerEvent = kMaxEventFeedPhotosPerPost;
   static const int _photoQuality = 90;
   static const int _photoMaxWidth = 1920;
   static const int _photoMaxHeight = 1080;

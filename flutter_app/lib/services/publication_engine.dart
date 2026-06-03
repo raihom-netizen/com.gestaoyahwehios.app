@@ -82,8 +82,36 @@ abstract final class PublicationEngine {
   static const String statusFailed = MuralFastPublishService.stateFailed;
   static const String statusDraft = MuralFastPublishService.stateDraft;
 
-  static const int kMaxPhotosPerPost = 5;
-  static const int kMaxVideosPerPost = 1;
+  static const int kMaxPhotosAviso = 5;
+  static const int kMaxPhotosEvento = 10;
+  static const int kMaxVideosEvento = 2;
+
+  /// Legado — avisos (5 fotos).
+  static const int kMaxPhotosPerPost = kMaxPhotosAviso;
+
+  /// Eventos — 10 fotos / 2 vídeos.
+  static const int kMaxPhotosPerEvento = kMaxPhotosEvento;
+  static const int kMaxVideosPerPost = kMaxVideosEvento;
+
+  static int maxPhotosForKind(PublicationKind kind) {
+    switch (kind) {
+      case PublicationKind.evento:
+      case PublicationKind.noticia:
+        return kMaxPhotosEvento;
+      default:
+        return kMaxPhotosAviso;
+    }
+  }
+
+  static int maxVideosForKind(PublicationKind kind) {
+    switch (kind) {
+      case PublicationKind.evento:
+      case PublicationKind.noticia:
+        return kMaxVideosEvento;
+      default:
+        return 0;
+    }
+  }
 
   // —— Fase 1: Firestore (bloqueante; falha = publicação não concluída) ——
 

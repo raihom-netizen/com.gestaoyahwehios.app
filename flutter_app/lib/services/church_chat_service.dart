@@ -2198,11 +2198,11 @@ class ChurchChatService {
     int maxAttempts = 5,
   }) async {
     await ensureFirebaseReadyForChatSend();
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
     Object? last;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        if (attempt > 1) {
+        if (attempt > 2) {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
           await ensureFirebaseReadyForChatSend();
         }

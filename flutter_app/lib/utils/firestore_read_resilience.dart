@@ -70,9 +70,7 @@ class FirestoreReadResilience {
           await Future<void>.delayed(
             Duration(milliseconds: 220 + attempt * 280),
           );
-          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
-            force: attempt > 1,
-          );
+          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: false);
         }
         final snap = await ref.get().timeout(attemptTimeout);
         if (key.isNotEmpty) _lastDocByKey[key] = snap;
@@ -116,9 +114,7 @@ class FirestoreReadResilience {
           await Future<void>.delayed(
             Duration(milliseconds: 220 + attempt * 280),
           );
-          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
-            force: attempt > 1,
-          );
+          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: false);
           if (kIsWeb && attempt >= 1) {
             try {
               await FirestoreWebGuard.recoverFirestoreWebSession(
