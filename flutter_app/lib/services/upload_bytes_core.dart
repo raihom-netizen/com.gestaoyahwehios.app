@@ -10,6 +10,7 @@ import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 
@@ -89,6 +90,19 @@ Future<String> uploadStoragePutFileWithRetry({
   bool useOfflineQueue = false,
 
 }) async {
+  if (kIsWeb) {
+    final bytes = await file.readAsBytes();
+    return uploadStoragePutDataWithRetry(
+      storagePath: storagePath,
+      bytes: bytes,
+      contentType: contentType,
+      cacheControl: cacheControl,
+      maxAttempts: maxAttempts,
+      onProgress: onProgress,
+      onTaskStarted: onTaskStarted,
+      useOfflineQueue: useOfflineQueue,
+    );
+  }
   if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
     await ensureUploadBootstrapForStoragePath(storagePath);
   }

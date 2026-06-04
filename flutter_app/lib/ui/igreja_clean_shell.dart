@@ -253,46 +253,41 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       ),
     ];
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const VersionFooter(safeAreaBottom: false),
-        Material(
-          color: Colors.transparent,
-          child: Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.white,
-                  Color.lerp(Colors.white, const Color(0xFFEFF6FF), 0.65)!,
+    return Material(
+      color: Colors.white,
+      elevation: 0,
+      child: SafeArea(
+        top: false,
+        minimum: EdgeInsets.zero,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.white,
+                    Color.lerp(Colors.white, const Color(0xFFEFF6FF), 0.5)!,
+                  ],
+                ),
+                border: Border(
+                  top: BorderSide(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                  ),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0F172A).withValues(alpha: 0.06),
+                    blurRadius: 10,
+                    offset: const Offset(0, -3),
+                  ),
                 ],
               ),
-              border: Border(
-                top: BorderSide(
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
-                ),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF0F172A).withValues(alpha: 0.1),
-                  blurRadius: 22,
-                  offset: const Offset(0, -8),
-                ),
-                BoxShadow(
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
-                  blurRadius: 12,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: SafeArea(
-              top: false,
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+                padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
                 child: Row(
                   children: [
                     for (var s = 0; s < shortcuts.length; s++)
@@ -338,9 +333,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 ),
               ),
             ),
-          ),
+            const ChurchShellBottomVerseStrip(),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -2545,7 +2541,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 /// do MaterialIcons — quadrados vazios no menu/cabeçalho. Referências
                 /// diretas + `--no-tree-shake-icons` nos scripts de build cobrem o caso.
                 if (kIsWeb) const _ChurchShellNavMaterialIconsKeepalive(),
-                if (!_isMobile) const VersionFooter(),
+                if (!_isMobile) const ChurchShellBottomVerseStrip(),
               ],
             ),
           );
@@ -2746,8 +2742,8 @@ class _PremiumShellFooterShortcut extends StatelessWidget {
                   accent: c,
                   selected: selected,
                   shape: ChurchShellIconShape.circle,
-                  size: 50,
-                  iconSize: 26,
+                  size: 46,
+                  iconSize: 24,
                 ),
                 const SizedBox(height: 5),
                 Text(

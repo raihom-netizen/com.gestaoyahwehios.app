@@ -1,0 +1,2080 @@
+﻿================================================================================
+ FIREBASE SECURITY RULES — Gestão YAHWEH (gestaoyahweh-21e23)
+ Gerado automaticamente a partir do repositório. Copie cada secção para o
+ console Firebase OU execute: .\scripts\deploy_firebase_rules.ps1
+================================================================================
+
+===== FIRESTORE RULES (firestore.rules) =====
+
+rules_version = '2';
+// Deploy Ã¢â‚¬â€ membros: indisponibilidade escala por e-mail (campos dedicados) + leitura sÃƒÂ³ na prÃƒÂ³pria igreja (+ operador global); CPF pÃƒÂºblico via Cloud Function.
+// Operador global (multi-tenant): e-mail raihom@gmail.com OU CPF 94536368191 em users/{uid} OU documento admins/{uid}.
+// ADM/gestor/pastor **da igreja** ficam isolados ao tenant (sameChurch / canAccessTenant); nÃƒÂ£o recebem bypass por role() ADM/MASTER no doc users.
+//
+// GravaÃƒÂ§ÃƒÂ£o simples (padrÃƒÂ£o Controle Total): ficheiros Ã¢â€ â€™ Firebase Storage (putData); metadados Ã¢â€ â€™ coleÃƒÂ§ÃƒÂµes de negÃƒÂ³cio.
+// `pending_uploads` estÃƒÂ¡ descontinuada no cliente Ã¢â‚¬â€ sÃƒÂ³ leitura/delete para limpar jobs antigos.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isMasterEmail() { return isSignedIn() && request.auth.token.email == 'raihom@gmail.com'; }
+    /// ReforÃƒÂ§o ao e-mail: mesmo CPF que [AppConstants.productMasterCpfDigits] no doc users (formatos comuns).
+    function userIsProductMasterByCpf() {
+      let p = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(p)
+        && (
+          ('cpf' in get(p).data && (get(p).data.cpf == '94536368191' || get(p).data.cpf == '945.363.681-91'))
+          || ('CPF' in get(p).data && (get(p).data.CPF == '94536368191' || get(p).data.CPF == '945.363.681-91'))
+          || ('linkedCpf' in get(p).data && get(p).data.linkedCpf == '94536368191')
+        );
+    }
+    /// Painel SaaS / leitura cruzada: sÃƒÂ³ operador do produto ou entrada em admins/{uid} Ã¢â‚¬â€ nÃƒÂ£o usar role ADM/GESTOR da igreja.
+    function isPlatformOperator() {
+      return isSignedIn() && (
+        isMasterEmail()
+        || userIsProductMasterByCpf()
+        || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+    // role: documento users primeiro (campo role ou array roles); fallback em custom claims (sem "if", sÃƒÂ³ expressÃƒÂµes)
+    function role() {
+      let p = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && exists(p)
+        ? (get(p).data.role != null
+            ? get(p).data.role
+            : (get(p).data.roles != null && get(p).data.roles is list
+                ? ('MASTER' in get(p).data.roles || 'master' in get(p).data.roles ? 'MASTER'
+                    : ('ADMIN' in get(p).data.roles || 'ADM' in get(p).data.roles || 'admin' in get(p).data.roles || 'adm' in get(p).data.roles ? 'ADM'
+                        : ('GESTOR' in get(p).data.roles || 'gestor' in get(p).data.roles ? 'GESTOR' : request.auth.token.role)))
+                : request.auth.token.role))
+        : request.auth.token.role;
+    }
+    /// Legado: nome conservado; significado = operador global (e-mail/CPF/admins), **sem** role MASTER/ADM no cadastro users.
+    function isMaster() { return isPlatformOperator(); }
+    function isAdm() { return isSignedIn() && role() != null && (role() == 'ADM' || role() == 'ADMIN' || role() == 'adm' || role() == 'admin' || role() == 'Adm' || role() == 'Admin' || role() == 'administrador' || role() == 'administradora' || role() == 'Administrador' || role() == 'Administradora'); }
+    // Painel master YAHWEH (vendas, licenÃƒÂ§as, analytics global): sÃƒÂ³ operador de plataforma Ã¢â‚¬â€ nÃƒÂ£o ADM local da igreja.
+    function isAdminPanel() {
+      return isSignedIn() && isMaster();
+    }
+    // sameChurch: documento users ou custom claims (igrejaId/tenantId) Ã¢â‚¬â€ evita permission-denied Mural/Departamentos/Eventos
+    function sameChurch(tenantId) {
+      let p = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && ((exists(p) && (get(p).data.igrejaId == tenantId || get(p).data.tenantId == tenantId)) || (request.auth.token.igrejaId == tenantId || request.auth.token.tenantId == tenantId));
+    }
+    // Inclui capitalizaÃƒÂ§ÃƒÂ£o comum no app (ex.: "Gestor", "Master") Ã¢â‚¬â€ sem isto canWriteTenant falha e nada grava (avisos, departamentos, mÃƒÂ­dia-meta).
+    function canManageChurch() {
+      return isSignedIn() && role() != null && (
+        role() == 'ADMIN' || role() == 'ADM' || role() == 'GESTOR' || role() == 'MASTER' ||
+        role() == 'admin' || role() == 'adm' || role() == 'gestor' || role() == 'master' ||
+        role() == 'Gestor' || role() == 'Master' || role() == 'Admin' || role() == 'Adm' ||
+        role() == 'administrador' || role() == 'administradora' || role() == 'Administrador' || role() == 'Administradora'
+      );
+    }
+    function isTreasurer() {
+      let r = role();
+      return isSignedIn() && r != null && (
+        r == 'TESOUREIRO' || r == 'tesoureiro' || r == 'Tesoureiro' ||
+        r == 'TESOURARIA' || r == 'tesouraria' || r == 'Tesouraria'
+      );
+    }
+    function isDepartmentLeaderRole() {
+      let r = role();
+      return r != null && (
+        r == 'lider' || r == 'LIDER' || r == 'Lider' ||
+        r == 'lÃƒÂ­der' || r == 'LÃƒÂ­der' || r == 'LÃƒÂDER' ||
+        r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento' ||
+        r == 'lider_depto' || r == 'LIDER_DEPTO' ||
+        r == 'lider_grupo' || r == 'LIDER_GRUPO' || r == 'Lider grupo' || r == 'Lider Grupo' ||
+        r == 'LÃƒÂ­der de grupo' || r == 'lÃƒÂ­der de grupo' || r == 'Lider de grupo' || r == 'LIDER DE GRUPO' ||
+        r == 'lider_de_grupo' || r == 'LIDER_DE_GRUPO'
+      );
+    }
+    function isPastorAuxiliarRole() {
+      let r = role();
+      return r != null && (
+        r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar' ||
+        r == 'ministerial' || r == 'pastor_auxiliar_ministerial'
+      );
+    }
+    /// Hub de departamentos: gestor/pastoral + tesoureiro + lÃƒÂ­der de grupo + permissÃƒÂ£o granular + pastor auxiliar.
+    function canWriteIgrejaDepartamentos(tenantId) {
+      return isAdminPanel() || canWriteTenant(tenantId)
+        || (canAccessTenant(tenantId) && isPastoralOrSecretariatRole())
+        || (canAccessTenant(tenantId) && isTreasurer())
+        || (canAccessTenant(tenantId) && isDepartmentLeaderRole())
+        || (canAccessTenant(tenantId) && isPastorAuxiliarRole())
+        || (canAccessTenant(tenantId) && hasTenantModulePermission(tenantId, 'departamentos'));
+    }
+    function canPost() { return canManageChurch(); }
+    // Acesso ÃƒÂ  igreja por e-mail do gestor (evita permission-denied em PresenÃƒÂ§a, Eventos, etc. quando claims/users ainda nÃƒÂ£o tÃƒÂªm igrejaId)
+    function emailMatchesTenant(tenantId) {
+      return request.auth != null && request.auth.token.email != null && exists(/databases/$(database)/documents/igrejas/$(tenantId))
+          && (get(/databases/$(database)/documents/igrejas/$(tenantId)).data.email == request.auth.token.email
+              || get(/databases/$(database)/documents/igrejas/$(tenantId)).data.gestorEmail == request.auth.token.email);
+    }
+    function canAccessTenant(tenantId) {
+      return isMaster() || sameChurch(tenantId) || emailMatchesTenant(tenantId)
+        || exists(/databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid))
+        || memberLinkedToTenant(tenantId);
+    }
+    /// Membro cadastrado na igreja (doc por UID ou por CPF 11 dÃƒÂ­gitos vinculado ao authUid).
+    /// Evita bloqueio de gravaÃƒÂ§ÃƒÂ£o para quem estÃƒÂ¡ ativo em `membros`, mas sem espelho completo em `users`.
+    /// Inclui `memberDocId` / `linkedCpf` / `cpfDigits` no `users` (doc `membros` muitas vezes com id = CPF).
+    function memberLinkedToTenant(tenantId) {
+      let byUid = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid);
+      let rootUser = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && (
+        exists(byUid)
+        || (exists(rootUser) && (
+          memberDocIdLinksAuthToMembro(tenantId, get(rootUser).data)
+          || cpf11MembroDocLinksAuth(tenantId, get(rootUser).data)
+        ))
+      );
+    }
+    function memberDocIdLinksAuthToMembro(tenantId, d) {
+      let chosen = ('memberDocId' in d && d.memberDocId is string && d.memberDocId.size() > 0)
+        ? d.memberDocId
+        : (('member_doc_id' in d && d.member_doc_id is string && d.member_doc_id.size() > 0)
+            ? d.member_doc_id : '');
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(chosen);
+      return chosen.size() > 0 && exists(p)
+        && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid);
+    }
+    /// CPF 11 dÃƒÂ­gitos em `users` (cpf / CPF / linkedCpf / cpfDigits) Ã¢â€ â€™ doc `membros/{cpf}`.
+    function memberDocIdFromUserData(d) {
+      return ('memberDocId' in d && d.memberDocId is string && d.memberDocId.size() > 0)
+        ? d.memberDocId
+        : (('member_doc_id' in d && d.member_doc_id is string && d.member_doc_id.size() > 0)
+            ? d.member_doc_id : '');
+    }
+    /// O utilizador autenticado ÃƒÂ© o titular desta ficha (`membros/{memberId}`), incluindo doc id = CPF.
+    function requesterOwnsMemberDoc(tenantId, memberId) {
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(memberId);
+      let rootU = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && exists(p) && (
+        memberId == request.auth.uid
+        || get(p).data.authUid == request.auth.uid
+        || get(p).data.firebaseUid == request.auth.uid
+        || (exists(rootU) && memberDocIdFromUserData(get(rootU).data) == memberId
+          && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid))
+        || (exists(rootU) && cpf11MembroDocLinksAuth(tenantId, get(rootU).data)
+          && memberId.matches('^[0-9]{11}$'))
+      );
+    }
+    /// Gestor, pastoral, secretariado ou tesouraria Ã¢â‚¬â€ editar ficha/foto de qualquer membro no mÃƒÂ³dulo Membros.
+    function canStaffEditAnyMemberRecord(tenantId) {
+      return isMaster() || isAdminPanel() || canWriteTenant(tenantId)
+        || (canAccessTenant(tenantId) && (
+          canManageChurch()
+          || isPastoralOrSecretariatRole()
+          || isPastorAuxiliarRole()
+          || isTreasurer()
+        ))
+        || (emailMatchesTenant(tenantId) && (
+          isPastoralOrSecretariatRole()
+          || isPastorAuxiliarRole()
+          || isTreasurer()
+        ));
+    }
+    function cpf11MembroDocLinksAuth(tenantId, d) {
+      let c1 = ('cpf' in d && d.cpf is string) ? d.cpf : '';
+      let c2 = ('CPF' in d && d.CPF is string) ? d.CPF : '';
+      let c3 = ('linkedCpf' in d && d.linkedCpf is string) ? d.linkedCpf : '';
+      let c4 = ('cpfDigits' in d && d.cpfDigits is string) ? d.cpfDigits : '';
+      let c5 = ('CPF_DIGITS' in d && d.CPF_DIGITS is string) ? d.CPF_DIGITS : '';
+      let cpf = c1.size() == 11 && c1.matches('^[0-9]{11}$') ? c1
+        : (c2.size() == 11 && c2.matches('^[0-9]{11}$') ? c2
+        : (c3.size() == 11 && c3.matches('^[0-9]{11}$') ? c3
+        : (c4.size() == 11 && c4.matches('^[0-9]{11}$') ? c4
+        : (c5.size() == 11 && c5.matches('^[0-9]{11}$') ? c5 : ''))));
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(cpf);
+      return cpf.size() == 11 && exists(p)
+        && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid);
+    }
+    /// PapÃƒÂ©is em arrays `roles` (root `users` ou `igrejas/{tenant}/users`) Ã¢â‚¬â€ o app grava listas; [role()] sÃƒÂ³ tratavia MASTER/ADM/GESTOR na lista.
+    /// Mural avisos/eventos: gestor, pastoral, secretariado, tesouraria, lÃƒÂ­der de departamento (sem diÃƒÂ¡cono/evangelista/presbÃƒÂ­tero).
+    function muralRolesArrayMatches(roles) {
+      return roles is list && roles.hasAny([
+        'GESTOR', 'gestor', 'Gestor',
+        'ADMIN', 'ADM', 'admin', 'adm', 'Adm', 'Admin',
+        'administrador', 'administradora', 'Administrador', 'Administradora',
+        'PASTOR', 'pastor', 'PASTORA', 'pastora', 'Pastor', 'Pastora',
+        'pastor_presidente', 'PASTOR_PRESIDENTE', 'Pastor Presidente',
+        'pastora_presidente', 'pastora presidente',
+        'pastor_auxiliar', 'PASTOR_AUXILIAR', 'Pastor Auxiliar',
+        'ministerial', 'pastor_auxiliar_ministerial',
+        'SECRETARIO', 'secretario', 'SecretÃƒÂ¡rio', 'SECRETÃƒÂRIO', 'Secretario', 'secretÃƒÂ¡ria', 'Secretaria',
+        'lider', 'LIDER', 'Lider', 'lÃƒÂ­der', 'LÃƒÂDER', 'LÃƒÂ­der',
+        'lider_departamento', 'LIDER_DEPARTAMENTO', 'Lider Departamento',
+        'lider_depto', 'LIDER_DEPTO', 'lider_de_departamento', 'lider_ministerio',
+        'LÃƒÂ­der de Departamento', 'lÃƒÂ­der de departamento',
+        'lider_grupo', 'LIDER_GRUPO', 'Lider grupo', 'Lider Grupo',
+        'LÃƒÂ­der de grupo', 'lÃƒÂ­der de grupo', 'Lider de grupo', 'LIDER DE GRUPO', 'lider de grupo',
+        'lider_de_grupo', 'LIDER_DE_GRUPO',
+        'tesoureiro', 'TESOUREIRO', 'Tesoureiro',
+        'tesouraria', 'TESOURARIA', 'Tesouraria'
+      ]);
+    }
+    function muralRoleFromRolesArrays(tenantId) {
+      let rootU = /databases/$(database)/documents/users/$(request.auth.uid);
+      let tenantU = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+      return (exists(rootU) && muralRolesArrayMatches(get(rootU).data.roles))
+        || (exists(tenantU) && muralRolesArrayMatches(get(tenantU).data.roles));
+    }
+    /// Papel singular em `membros/{doc}` Ã¢â‚¬â€ quem sÃƒÂ³ tem ficha membro (sem `users.role`) edita mural.
+    function muralSingleRoleAllowsMural(r) {
+      return r != null && (
+        r == 'PASTOR' || r == 'pastor' || r == 'PASTORA' || r == 'pastora' || r == 'Pastor' || r == 'Pastora' ||
+        r == 'pastor_presidente' || r == 'PASTOR_PRESIDENTE' || r == 'Pastor Presidente' || r == 'pastora_presidente' ||
+        r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar' ||
+        r == 'ministerial' || r == 'pastor_auxiliar_ministerial' ||
+        r == 'SECRETARIO' || r == 'secretario' || r == 'SecretÃƒÂ¡rio' || r == 'SECRETÃƒÂRIO' || r == 'Secretario' || r == 'secretÃƒÂ¡ria' || r == 'Secretaria' ||
+        r == 'lider' || r == 'LIDER' || r == 'Lider' || r == 'lÃƒÂ­der' || r == 'LÃƒÂDER' || r == 'LÃƒÂ­der' ||
+        r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento' ||
+        r == 'lider_depto' || r == 'LIDER_DEPTO' || r == 'lider_de_departamento' || r == 'lider_ministerio' ||
+        r == 'lider_grupo' || r == 'LIDER_GRUPO' || r == 'Lider grupo' || r == 'Lider Grupo' ||
+        r == 'LÃƒÂ­der de grupo' || r == 'lÃƒÂ­der de grupo' || r == 'Lider de grupo' || r == 'LIDER DE GRUPO' || r == 'lider de grupo' ||
+        r == 'lider_de_grupo' || r == 'LIDER_DE_GRUPO' ||
+        r == 'tesoureiro' || r == 'TESOUREIRO' || r == 'Tesoureiro' ||
+        r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria' ||
+        r == 'GESTOR' || r == 'gestor' || r == 'Gestor' ||
+        r == 'ADMIN' || r == 'ADM' || r == 'admin' || r == 'adm' || r == 'Adm' || r == 'Admin' ||
+        r == 'administrador' || r == 'administradora' || r == 'Administrador' || r == 'Administradora'
+      );
+    }
+    function muralRoleFromMemberDoc(tenantId) {
+      let byUid = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid);
+      let rootUser = /databases/$(database)/documents/users/$(request.auth.uid);
+      return (exists(byUid) && memberMembroDataAllowsMural(get(byUid).data))
+        || (exists(rootUser) && cpf11MembroDocLinksAuthMural(tenantId, get(rootUser).data));
+    }
+    /// Papel/permissÃƒÂµes em `igrejas/{tenant}/users/{uid}` (sem depender sÃƒÂ³ de `users/{uid}.role`).
+    function muralRoleFromTenantUserDoc(tenantId) {
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+      return exists(p) && memberMembroDataAllowsMural(get(p).data);
+    }
+    function muralRoleFromLinkedMemberDoc(tenantId) {
+      let rootUser = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(rootUser) && (
+        memberDocIdLinksAuthToMembroMural(tenantId, get(rootUser).data)
+        || cpf11MembroDocLinksAuthMural(tenantId, get(rootUser).data)
+      );
+    }
+    function memberDocIdLinksAuthToMembroMural(tenantId, d) {
+      let chosen = ('memberDocId' in d && d.memberDocId is string && d.memberDocId.size() > 0)
+        ? d.memberDocId
+        : (('member_doc_id' in d && d.member_doc_id is string && d.member_doc_id.size() > 0)
+            ? d.member_doc_id : '');
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(chosen);
+      return chosen.size() > 0 && exists(p)
+        && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid)
+        && memberMembroDataAllowsMural(get(p).data);
+    }
+    function cpf11MembroDocLinksAuthMural(tenantId, d) {
+      let c1 = ('cpf' in d && d.cpf is string) ? d.cpf : '';
+      let c2 = ('CPF' in d && d.CPF is string) ? d.CPF : '';
+      let c3 = ('linkedCpf' in d && d.linkedCpf is string) ? d.linkedCpf : '';
+      let c4 = ('cpfDigits' in d && d.cpfDigits is string) ? d.cpfDigits : '';
+      let c5 = ('CPF_DIGITS' in d && d.CPF_DIGITS is string) ? d.CPF_DIGITS : '';
+      let cpf = c1.size() == 11 && c1.matches('^[0-9]{11}$') ? c1
+        : (c2.size() == 11 && c2.matches('^[0-9]{11}$') ? c2
+        : (c3.size() == 11 && c3.matches('^[0-9]{11}$') ? c3
+        : (c4.size() == 11 && c4.matches('^[0-9]{11}$') ? c4
+        : (c5.size() == 11 && c5.matches('^[0-9]{11}$') ? c5 : ''))));
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(cpf);
+      return cpf.size() == 11 && exists(p)
+        && (get(p).data.authUid == request.auth.uid || get(p).data.firebaseUid == request.auth.uid)
+        && memberMembroDataAllowsMural(get(p).data);
+    }
+    /// Igual ao critÃƒÂ©rio de lÃƒÂ­der no app, mas lendo sÃƒÂ³ `roles[]` (quem nÃƒÂ£o tem `role` singular preenchido).
+    function deptLeaderRolesArrayMatches(roles) {
+      return roles is list && roles.hasAny([
+        'lider', 'LIDER', 'Lider', 'lÃƒÂ­der', 'LÃƒÂ­der', 'LÃƒÂDER',
+        'lider_departamento', 'LIDER_DEPARTAMENTO', 'Lider Departamento',
+        'lider_depto', 'LIDER_DEPTO', 'lider_de_departamento', 'lider_ministerio',
+        'LÃƒÂ­der de Departamento', 'lÃƒÂ­der de departamento',
+        'lider_grupo', 'LIDER_GRUPO', 'Lider grupo', 'Lider Grupo',
+        'LÃƒÂ­der de grupo', 'lÃƒÂ­der de grupo', 'Lider de grupo', 'LIDER DE GRUPO', 'lider de grupo',
+        'lider_de_grupo', 'LIDER_DE_GRUPO'
+      ]);
+    }
+    function deptLeaderFromRolesArrays(tenantId) {
+      let rootU = /databases/$(database)/documents/users/$(request.auth.uid);
+      let tenantU = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+      return (exists(rootU) && get(rootU).data.roles is list
+          && deptLeaderRolesArrayMatches(get(rootU).data.roles))
+        || (exists(tenantU) && get(tenantU).data.roles is list
+          && deptLeaderRolesArrayMatches(get(tenantU).data.roles));
+    }
+    /// LanÃƒÂ§amento em `finance` cujo `memberDocId` aponta para o doc em `membros` do usuÃƒÂ¡rio logado (authUid).
+    function financeDocReadBySubjectMember(tenantId) {
+      return isSignedIn()
+        && resource.data.keys().hasAll(['memberDocId'])
+        && resource.data.memberDocId is string
+        && resource.data.memberDocId.size() > 0
+        && exists(/databases/$(database)/documents/igrejas/$(tenantId)/membros/$(resource.data.memberDocId))
+        && get(/databases/$(database)/documents/igrejas/$(tenantId)/membros/$(resource.data.memberDocId)).data.get('authUid', '') == request.auth.uid;
+    }
+    // `permissions` ÃƒÂ© lista de strings no app Ã¢â‚¬â€ usar `list.hasAny`; o operador `in` sÃƒÂ³ serve para chaves de mapa.
+    function hasTenantModulePermission(tenantId, moduleKey) {
+      let tenantUserPath = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+      let rootUserPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && (
+        (exists(tenantUserPath) && get(tenantUserPath).data.permissions is list
+          && get(tenantUserPath).data.permissions.hasAny([moduleKey]))
+        || (exists(rootUserPath) && get(rootUserPath).data.permissions is list
+          && get(rootUserPath).data.permissions.hasAny([moduleKey]))
+      );
+    }
+    /// Igual a [AppPermissions.hasModulePermission] para mural/eventos/avisos no app.
+    function hasTenantMuralEventosPermission(tenantId) {
+      return hasTenantModulePermission(tenantId, 'eventos')
+        || hasTenantModulePermission(tenantId, 'eventos_avisos_edicao')
+        || hasTenantModulePermission(tenantId, 'mural_avisos_edicao');
+    }
+    function muralPermissionKeysMatch(perms) {
+      return perms is list && perms.hasAny([
+        'eventos', 'eventos_avisos_edicao', 'mural_avisos_edicao'
+      ]);
+    }
+    function memberMembroRoleString(d) {
+      return ('role' in d && d.role is string) ? d.role
+        : (('FUNCAO' in d && d.FUNCAO is string) ? d.FUNCAO
+        : (('funcao' in d && d.funcao is string) ? d.funcao : ''));
+    }
+    function memberMembroDataAllowsMural(d) {
+      return muralSingleRoleAllowsMural(memberMembroRoleString(d))
+        || (d.roles is list && muralRolesArrayMatches(d.roles));
+    }
+    /// EdiÃƒÂ§ÃƒÂ£o de fichas / diretÃƒÂ³rio: `membros` (legado) ou `membros_edicao` Ã¢â‚¬â€ nÃƒÂ£o usar sÃƒÂ³ `membros_ver` (leitura).
+    function hasTenantMembrosDirectoryEditPermission(tenantId) {
+      return hasTenantModulePermission(tenantId, 'membros')
+        || hasTenantModulePermission(tenantId, 'membros_edicao');
+    }
+    function canWriteTenant(tenantId) {
+      return canAccessTenant(tenantId) && (canManageChurch() || emailMatchesTenant(tenantId));
+    }
+    /// Portaria / coleta: papel membro ou visitante (app) na prÃƒÂ³pria igreja pode gravar sÃƒÂ³ em `visitantes`.
+    function isMembroPortariaRole() {
+      let r = role();
+      return r != null && (
+        r == 'membro' || r == 'MEMBRO' || r == 'Membro' ||
+        r == 'visitante' || r == 'VISITANTE' || r == 'Visitante'
+      );
+    }
+    // Pastoral/secretariado na prÃƒÂ³pria igreja Ã¢â‚¬â€ alinhado ao app (AppRoles.canAccessEditDepartments).
+    // Sem isto, pastor/secretÃƒÂ¡rio/presbÃƒÂ­tero nÃƒÂ£o passavam em canWriteTenant e o bootstrap dos presets falhava (lista vazia).
+    function isPastoralOrSecretariatRole() {
+      let r = role();
+      return r != null && (
+        r == 'PASTOR' || r == 'pastor' || r == 'PASTORA' || r == 'pastora' || r == 'Pastor' || r == 'Pastora' ||
+        r == 'pastor_presidente' || r == 'PASTOR_PRESIDENTE' || r == 'Pastor Presidente' || r == 'pastora_presidente' ||
+        r == 'SECRETARIO' || r == 'secretario' || r == 'SecretÃƒÂ¡rio' || r == 'SECRETÃƒÂRIO' || r == 'Secretario' ||
+        r == 'PRESBITERO' || r == 'presbitero' || r == 'PRESBITERA' || r == 'presbitera' || r == 'Presbitero' || r == 'Presbitera'
+      );
+    }
+    /// EmissÃƒÂ£o / histÃƒÂ³rico de certificados (protocolo + ÃƒÂ­ndice QR) Ã¢â‚¬â€ alinhado a [AppPermissions.canAccessCertificados]:
+    /// gestor/e-mail da igreja, pastoral/secretariado, tesouraria ou permissÃƒÂ£o granular `certificados`.
+    function canWriteCertificadosPainel(tenantId) {
+      return canAccessTenant(tenantId) && (
+        canWriteTenant(tenantId)
+        || isPastoralOrSecretariatRole()
+        || isTreasurer()
+        || hasTenantModulePermission(tenantId, 'certificados')
+      );
+    }
+    /// Tesouraria e lÃƒÂ­der de departamento no token `users.role` (sem diÃƒÂ¡cono/evangelista).
+    function isEventosMuralEditorRole() {
+      let r = role();
+      return r != null && (
+        r == 'lider' || r == 'LIDER' || r == 'Lider' ||
+        r == 'lÃƒÂ­der' || r == 'LÃƒÂDER' || r == 'LÃƒÂ­der' ||
+        r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento' ||
+        r == 'lider_depto' || r == 'LIDER_DEPTO' ||
+        r == 'lider_grupo' || r == 'LIDER_GRUPO' || r == 'Lider grupo' || r == 'Lider Grupo' ||
+        r == 'LÃƒÂ­der de grupo' || r == 'lÃƒÂ­der de grupo' || r == 'Lider de grupo' || r == 'LIDER DE GRUPO' ||
+        r == 'lider_de_grupo' || r == 'LIDER_DE_GRUPO' ||
+        r == 'tesoureiro' || r == 'TESOUREIRO' || r == 'Tesoureiro' ||
+        r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria'
+      );
+    }
+    /// Pastor/secretÃƒÂ¡rio no token Ã¢â‚¬â€ mural (sem presbÃƒÂ­tero; certificados usam [isPastoralOrSecretariatRole]).
+    function isPastoralOrSecretariatMuralRole() {
+      let r = role();
+      return r != null && (
+        r == 'PASTOR' || r == 'pastor' || r == 'PASTORA' || r == 'pastora' || r == 'Pastor' || r == 'Pastora' ||
+        r == 'pastor_presidente' || r == 'PASTOR_PRESIDENTE' || r == 'Pastor Presidente' || r == 'pastora_presidente' ||
+        r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar' ||
+        r == 'ministerial' || r == 'pastor_auxiliar_ministerial' ||
+        r == 'SECRETARIO' || r == 'secretario' || r == 'SecretÃƒÂ¡rio' || r == 'SECRETÃƒÂRIO' || r == 'Secretario' ||
+        r == 'secretÃƒÂ¡ria' || r == 'Secretaria'
+      );
+    }
+    /// Alguns cadastros guardam papel em `igrejas/{tenant}/users/{uid}.role` (string), sem popular `users/{uid}.role`.
+    function tenantUserRoleAllowsMural(tenantId) {
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid);
+      let r = exists(p) && get(p).data.role is string ? get(p).data.role : '';
+      return muralSingleRoleAllowsMural(r);
+    }
+    /// Mural: avisos/eventos/agenda Ã¢â‚¬â€ gestor, pastor, admin, secretÃƒÂ¡rio, tesoureiro, lÃƒÂ­der de departamento.
+    /// Membro comum e permissÃƒÂ£o granular `eventos` isolada nÃƒÂ£o publicam (chat continua aberto a todos).
+    function canWriteMuralFeed(tenantId) {
+      return isAdminPanel() || canWriteTenant(tenantId)
+        || muralRoleFromMemberDoc(tenantId)
+        || muralRoleFromLinkedMemberDoc(tenantId)
+        || muralRoleFromTenantUserDoc(tenantId)
+        || (canAccessTenant(tenantId) && (
+          isPastoralOrSecretariatMuralRole()
+          || isEventosMuralEditorRole()
+          || muralRoleFromRolesArrays(tenantId)
+          || tenantUserRoleAllowsMural(tenantId)
+        ))
+        || (emailMatchesTenant(tenantId) && (
+          isPastoralOrSecretariatMuralRole()
+          || isEventosMuralEditorRole()
+          || muralRoleFromRolesArrays(tenantId)
+          || tenantUserRoleAllowsMural(tenantId)
+        ));
+    }
+
+    /// Membro da igreja Ã¢â‚¬â€ caminho rÃƒÂ¡pido (exists/claims) + [memberLinkedToTenant] (ficha em `membros/{cpf}`).
+    function chatTenantMemberFast(tenantId) {
+      return isSignedIn() && (
+        isMaster()
+        || sameChurch(tenantId)
+        || emailMatchesTenant(tenantId)
+        || request.auth.token.igrejaId == tenantId
+        || request.auth.token.tenantId == tenantId
+        || exists(/databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid))
+        || exists(/databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid))
+        || memberLinkedToTenant(tenantId)
+      );
+    }
+
+    /// FinalizaÃƒÂ§ÃƒÂ£o de fotos em segundo plano (`publishState` uploading Ã¢â€ â€™ published/failed).
+    function muralPostPublishFinalizeAllowed(tenantId) {
+      return canWriteMuralFeed(tenantId)
+        && resource.data.publishState == 'uploading'
+        && request.resource.data.publishState is string
+        && (request.resource.data.publishState == 'published'
+          || request.resource.data.publishState == 'failed')
+        && (!('createdByUid' in resource.data)
+          || resource.data.createdByUid == request.auth.uid);
+    }
+    // Fallback: usuÃƒÂ¡rio autenticado pode ler/gravar (evita permission-denied em Departamentos, PresenÃƒÂ§a, etc.)
+    function canWriteTenantIfSignedIn(tenantId) {
+      return isSignedIn();
+    }
+    function canReadTenantIfSignedIn(tenantId) {
+      return isSignedIn();
+    }
+
+    // Site pÃƒÂºblico: post visÃƒÂ­vel se `publicSite` ausente ou true (legado: != false).
+    function noticiaPublicReadable(tenantId, noticiaId) {
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/noticias/$(noticiaId);
+      return exists(p) && (!get(p).data.keys().hasAll(['publicSite']) || get(p).data.publicSite != false);
+    }
+    function avisoPostPublicReadable(tenantId, avisoId) {
+      let p = /databases/$(database)/documents/igrejas/$(tenantId)/avisos/$(avisoId);
+      return exists(p) && (!get(p).data.keys().hasAll(['publicSite']) || get(p).data.publicSite != false);
+    }
+    /// Leitura anÃƒÂ´nima alinhada ÃƒÂ  query `.where('publicSite', '==', true)` (list + get).
+    function noticiaDocPublicSiteReadable() {
+      return resource.data.publicSite == true
+        || !('publicSite' in resource.data);
+    }
+    function avisoDocPublicSiteReadable() {
+      return resource.data.publicSite == true
+        || !('publicSite' in resource.data);
+    }
+
+    // Indisponibilidade para escalas: sÃƒÂ³ estes campos em `membros/{id}` (evita permission-denied quando authUid ainda nÃƒÂ£o foi gravado).
+    function memberEmailMatchesAuth() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && (
+          ('EMAIL' in resource.data && resource.data.EMAIL == request.auth.token.email)
+          || ('email' in resource.data && resource.data.email == request.auth.token.email)
+        );
+    }
+    function escalaIndisponibilidadeUpdateOnly() {
+      return request.resource.data.diff(resource.data).changedKeys()
+        .hasOnly(['escalaIndisponivelYmds', 'escalaIndisponivelUpdatedAt']);
+    }
+
+    // Membros da igreja podem atualizar sÃƒÂ³ campos sociais no post (curtida/RSVP/contagem)
+    function noticiaSocialFieldsOnly() {
+      return request.resource.data.diff(resource.data).changedKeys()
+        .hasOnly(['likes', 'likesCount', 'rsvp', 'rsvpCount', 'commentsCount', 'likedBy']);
+    }
+
+    // PadrÃƒÂ£o: tudo vinculado ÃƒÂ  igreja e ao gestor Ã¢â‚¬â€ patrimÃƒÂ´nio, fotos, vÃƒÂ­deos, notÃƒÂ­cias, escalas, membros, financeiro, etc.
+    // igrejas/{id}/membros, noticias, eventos, patrimonio, finance, escalas, departamentos, cargos, visitantes, config, users...
+    match /igrejas/{id} {
+      // Leitura pÃƒÂºblica para busca de igreja (CPF/e-mail) e perfil da igreja
+      allow read: if true;
+      // Escrita da igreja: somente painel admin/master ou gestor da prÃƒÂ³pria igreja
+      allow write: if isAdminPanel() || canWriteTenant(id);
+
+      match /membros/{memberId} {
+        // SÃƒÂ³ gestores/membros da igreja (ou master). CPF no site sem login: resolveCpfToChurchPublic (Functions).
+        allow read: if isMaster() || canAccessTenant(id);
+
+        // Cadastro pelo painel (usuÃƒÂ¡rio autenticado) ou pÃƒÂºblico (sem login) Ã¢â‚¬â€ status pendente atÃƒÂ© gestor aprovar
+        allow create: if request.auth != null
+          || (request.auth == null
+          && request.resource.data.PUBLIC_SIGNUP == true
+          && request.resource.data.MEMBER_ID == memberId
+          && (request.resource.data.CPF is string)
+          && (request.resource.data.STATUS == 'pendente' || request.resource.data.STATUS == 'ativo')
+          && request.resource.data.NOME_COMPLETO is string
+          && request.resource.data.DATA_NASCIMENTO is timestamp
+          && request.resource.data.FOTO_URL_OU_ID is string
+          && request.resource.data.EMAIL is string
+          && request.resource.data.TELEFONES is string
+          && request.resource.data.SEXO is string
+          && request.resource.data.FAIXA_ETARIA is string
+          && request.resource.data.IDADE is int
+          && request.resource.data.ENDERECO is string
+          && request.resource.data.CEP is string
+          && request.resource.data.CIDADE is string
+          && request.resource.data.BAIRRO is string
+          && request.resource.data.ESTADO is string
+          && request.resource.data.ESTADO_CIVIL is string
+          && request.resource.data.ESCOLARIDADE is string
+          && request.resource.data.NOME_CONJUGE is string
+          && request.resource.data.FILIACAO is string
+          && request.resource.data.DEPARTAMENTOS is list);
+
+        // GravaÃƒÂ§ÃƒÂ£o: equipe (gestor, pastoral, secretÃƒÂ¡rio, tesoureiro) ou o prÃƒÂ³prio membro (ficha/CPF/authUid).
+        // Foto de perfil: membro altera a sua; equipe altera qualquer uma no mÃƒÂ³dulo Membros (Storage + estes campos).
+        allow update: if (request.auth == null
+              && resource.data.PUBLIC_SIGNUP == true
+              && resource.data.STATUS == 'pendente'
+              && request.resource.data.STATUS == 'pendente')
+          || (request.auth != null && (
+              isMaster()
+              || canStaffEditAnyMemberRecord(id)
+              || (canAccessTenant(id) && isDepartmentLeaderRole())
+              || (canAccessTenant(id) && deptLeaderFromRolesArrays(id))
+              || (canAccessTenant(id) && hasTenantMembrosDirectoryEditPermission(id))
+              || requesterOwnsMemberDoc(id, memberId)
+              || (canAccessTenant(id) && escalaIndisponibilidadeUpdateOnly() && memberEmailMatchesAuth())
+            ));
+        allow delete: if request.auth != null
+          && (isMaster() || canWriteTenant(id) || (canAccessTenant(id) && isPastoralOrSecretariatRole())
+              || (canAccessTenant(id) && hasTenantMembrosDirectoryEditPermission(id)));
+      }
+
+      // Legado: leitura sÃƒÂ³ na prÃƒÂ³pria igreja (backup se Functions ainda nÃƒÂ£o rodaram).
+      // Delete alinhado a `membros` Ã¢â‚¬â€ o app remove o par ao excluir membro; `write: false` bloqueava o batch inteiro.
+      match /members/{memberId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update: if false;
+        allow delete: if request.auth != null
+          && (isMaster() || canWriteTenant(id) || (canAccessTenant(id) && isPastoralOrSecretariatRole())
+              || (canAccessTenant(id) && hasTenantMembrosDirectoryEditPermission(id)));
+      }
+
+      match /config/{docId} {
+        // `payment_receiving`: sÃƒÂ³ links pÃƒÂºblicos (InitPay/outros) Ã¢â‚¬â€ leitura ampla para doaÃƒÂ§ÃƒÂ£o web/iOS.
+        // `mercado_pago`: credenciais Ã¢â‚¬â€ sÃƒÂ³ gestÃƒÂ£o.
+        allow read: if docId == 'payment_receiving'
+          || isMaster()
+          || (canAccessTenant(id) && (
+            docId != 'mercado_pago'
+            || canManageChurch()
+            || hasTenantModulePermission(id, 'configuracoes_banco')
+          ));
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      // Credenciais MP por igreja (Access Token) Ã¢â‚¬â€ sÃƒÂ³ servidor
+      match /private/{docId} {
+        allow read, write: if false;
+      }
+      // Resumo do painel (totais por mÃƒÂªs) Ã¢â‚¬â€ escrita sÃƒÂ³ Firebase Admin (Cloud Function); leitura gestÃƒÂ£o.
+      match /_panel_cache/{docId} {
+        allow read: if isMaster() || canAccessTenant(id) || memberLinkedToTenant(id);
+        allow write: if false;
+      }
+      // Contadores leves da Home (`members`, `avisos`, `eventos`) Ã¢â‚¬â€ leitura rÃƒÂ¡pida do painel.
+      match /dashboard/{docId} {
+        allow read: if isMaster() || canAccessTenant(id) || memberLinkedToTenant(id);
+        allow write: if isMaster() || canWriteTenant(id);
+      }
+      // Cache de performance Ã¢â‚¬â€ `public_feed` legÃƒÂ­vel no site pÃƒÂºblico (visitante / anÃƒÂ³nimo).
+      match /_performance_cache/{docId} {
+        allow read: if docId == 'public_feed'
+          || isMaster()
+          || canAccessTenant(id)
+          || memberLinkedToTenant(id);
+        allow write: if false;
+      }
+      match /finance_mp_notifications/{docId} {
+        allow read: if isMaster()
+          || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
+        allow write: if false;
+      }
+      // HistÃƒÂ³rico leve de dÃƒÂ­zimos/ofertas (MP) Ã¢â‚¬â€ retenÃƒÂ§ÃƒÂ£o ~5 meses; escrita sÃƒÂ³ servidor (webhook / prune).
+      match /contribuicoes_dizimo_historico/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if false;
+      }
+      // HistÃƒÂ³rico legado (reimpressÃƒÂ£o) Ã¢â‚¬â€ novos protocolos vÃƒÂ£o sÃƒÂ³ em certificados_emitidos.
+      match /certificados_historico/{certId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id);
+      }
+      // Cartas (apresentaÃƒÂ§ÃƒÂ£o / transferÃƒÂªncia) Ã¢â‚¬â€ histÃƒÂ³rico de emissÃƒÂµes no painel da igreja.
+      match /cartas_historico/{hid} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id);
+      }
+      // Certificados emitidos (dados completos + QR) Ã¢â‚¬â€ por igreja.
+      match /certificados_emitidos/{certId} {
+        allow get: if true;
+        allow list: if isMaster() || canAccessTenant(id);
+        allow create: if isSignedIn()
+          && request.resource.data.certificadoId == certId
+          && request.resource.data.tenantId == id
+          && request.resource.data.memberId is string
+          && request.resource.data.nomeMembro is string
+          && request.resource.data.emitidoPorUid is string
+          && canWriteCertificadosPainel(id);
+        allow update, delete: if isSignedIn()
+          && resource.data.tenantId == id
+          && canWriteCertificadosPainel(id);
+      }
+      // Frota Jim Sabores Ã¢â‚¬â€ dados por igreja; escrita autenticada (alinhado a fleet_* legado).
+      match /abastecimentos/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if isMaster() || canAccessTenant(id);
+      }
+      match /combustiveis/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if isMaster() || canAccessTenant(id);
+      }
+      match /veiculos/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if isMaster() || canAccessTenant(id);
+      }
+      match /patrimonio/{docId} {
+        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+        // SubcoleÃƒÂ§ÃƒÂµes do bem (manutenÃƒÂ§ÃƒÂµes, transferÃƒÂªncias) Ã¢â‚¬â€ mesmas permissÃƒÂµes do documento pai.
+        match /manutencoes/{mid} {
+          allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+          allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+        }
+        match /transferencias/{tid} {
+          allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+          allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+        }
+      }
+      // SessÃƒÂµes de inventÃƒÂ¡rio finalizadas (aba InventÃƒÂ¡rio Ã¢â‚¬â€ histÃƒÂ³rico auditÃƒÂ¡vel).
+      match /patrimonio_inventario_historico/{hid} {
+        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id) || hasTenantModulePermission(id, 'patrimonio');
+      }
+      // LanÃƒÂ§amentos: sem lista fechada de chaves no cliente Ã¢â‚¬â€ importaÃƒÂ§ÃƒÂ£o inteligente pode gravar
+      // `smartPasteBatchId`, `source`, `parsedSnippet`, etc. (alinhado Controle Total; ver regras de merge no app).
+      match /finance/{docId} {
+        allow read: if isMaster()
+          || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')))
+          || (canAccessTenant(id) && financeDocReadBySubjectMember(id));
+        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro');
+      }
+      // Auditoria: exclusÃƒÂµes e aÃƒÂ§ÃƒÂµes (somente append; sem ediÃƒÂ§ÃƒÂ£o pelo cliente).
+      match /finance_logs/{logId} {
+        allow read: if isMaster()
+          || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
+        allow create: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro');
+        allow update, delete: if false;
+      }
+      match /fornecedores/{docId} {
+        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro') || hasTenantModulePermission(id, 'fornecedores')));
+        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro') || hasTenantModulePermission(id, 'fornecedores');
+      }
+      match /fornecedor_compromissos/{docId} {
+        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
+        allow write: if isAdminPanel() || canWriteTenant(id) || isTreasurer() || hasTenantModulePermission(id, 'financeiro');
+      }
+      match /categorias_receitas/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /categorias_despesas/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /contas/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /despesas_fixas/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /receitas_recorrentes/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /usersIndex/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /users/{userId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /fleet_vehicles/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if false;
+      }
+      match /fleet_fuelings/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if false;
+      }
+      match /fleet_documents/{docId} {
+        allow read, create, update: if request.auth != null;
+        allow delete: if false;
+      }
+      match /departamentos/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if canWriteIgrejaDepartamentos(id);
+        // DenormalizaÃƒÂ§ÃƒÂ£o: membros vinculados ao grupo (performance em listas).
+        match /membros_vinculados/{memberDocId} {
+          allow read: if isMaster() || canAccessTenant(id);
+          allow write: if canWriteIgrejaDepartamentos(id);
+        }
+      }
+      match /cargos/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      match /funcoesControle/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+      }
+      // HorÃƒÂ¡rios/capas de cultos fixos no site pÃƒÂºblico (visitante sem login).
+      // Escrita: mesmo critÃƒÂ©rio do mural (`canWriteMuralFeed`) Ã¢â‚¬â€ lideranÃƒÂ§a da igreja, nÃƒÂ£o membro comum.
+      match /event_templates/{docId} {
+        allow read: if isMaster() || canAccessTenant(id)
+          || !resource.data.keys().hasAll(['active']) || resource.data.active == true;
+        allow write: if canWriteMuralFeed(id);
+      }
+      // Categorias do mural de eventos (cor, nome) Ã¢â‚¬â€ painel e app.
+      match /event_categories/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if canWriteMuralFeed(id);
+      }
+      match /eventos/{docId} {
+        allow read: if isMaster() || canAccessTenant(id)
+          || noticiaDocPublicSiteReadable();
+        allow create, delete: if canWriteMuralFeed(id);
+        allow update: if muralPostPublishFinalizeAllowed(id)
+          || canWriteMuralFeed(id)
+          || (sameChurch(id) && isSignedIn() && noticiaSocialFieldsOnly());
+        match /comentarios/{commentId} {
+          allow read: if isMaster() || canAccessTenant(id) || noticiaPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id)
+            && request.resource.data.authorUid == request.auth.uid
+            && (request.resource.data.text is string || request.resource.data.texto is string);
+          allow delete: if isAdminPanel() || canWriteTenant(id)
+            || (isSignedIn() && resource.data.authorUid == request.auth.uid);
+          allow update: if false;
+        }
+        match /curtidas/{uid} {
+          allow read: if isMaster() || canAccessTenant(id) || noticiaPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id) && request.auth.uid == uid
+            && request.resource.data.uid == uid
+            && request.resource.data.memberName is string;
+          allow delete: if isSignedIn() && sameChurch(id) && request.auth.uid == uid;
+          allow update: if false;
+        }
+        match /confirmacoes/{uid} {
+          allow read: if isMaster() || canAccessTenant(id) || noticiaPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id) && request.auth.uid == uid
+            && request.resource.data.uid == uid
+            && request.resource.data.memberName is string;
+          allow delete: if isSignedIn() && sameChurch(id) && request.auth.uid == uid;
+          allow update: if false;
+        }
+      }
+      // Fila de upload descontinuada Ã¢â‚¬â€ limpeza pelo autor; app nÃƒÂ£o cria novos docs.
+      match /pending_uploads/{uploadId} {
+        allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && resource.data.ownerUid == request.auth.uid;
+        allow delete: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && resource.data.ownerUid == request.auth.uid;
+        allow create, update: if false;
+      }
+
+      // Mural de avisos (Firestore): separado de `noticias` (eventos).
+      match /avisos/{docId} {
+        allow read: if isMaster() || canAccessTenant(id)
+          || avisoDocPublicSiteReadable();
+        allow create, delete: if canWriteMuralFeed(id);
+        allow update: if muralPostPublishFinalizeAllowed(id)
+          || canWriteMuralFeed(id)
+          || (sameChurch(id) && isSignedIn() && noticiaSocialFieldsOnly());
+        match /comentarios/{commentId} {
+          allow read: if isMaster() || canAccessTenant(id) || avisoPostPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id)
+            && request.resource.data.authorUid == request.auth.uid
+            && (request.resource.data.text is string || request.resource.data.texto is string);
+          allow delete: if isAdminPanel() || canWriteTenant(id)
+            || (isSignedIn() && resource.data.authorUid == request.auth.uid);
+          allow update: if false;
+        }
+        match /curtidas/{uid} {
+          allow read: if isMaster() || canAccessTenant(id) || avisoPostPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id) && request.auth.uid == uid
+            && request.resource.data.uid == uid
+            && request.resource.data.memberName is string;
+          allow delete: if isSignedIn() && sameChurch(id) && request.auth.uid == uid;
+          allow update: if false;
+        }
+        match /confirmacoes/{uid} {
+          allow read: if isMaster() || canAccessTenant(id) || avisoPostPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id) && request.auth.uid == uid
+            && request.resource.data.uid == uid
+            && request.resource.data.memberName is string;
+          allow delete: if isSignedIn() && sameChurch(id) && request.auth.uid == uid;
+          allow update: if false;
+        }
+      }
+      // Eventos (subcoleÃƒÂ§ÃƒÂ£o legada/alternativa ao feed) Ã¢â‚¬â€ alinhado ao mural de eventos.
+      match /eventos/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if canWriteMuralFeed(id);
+      }
+      match /cultos/{cultoId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id);
+        match /presencas/{presencaId} {
+          allow read: if isMaster() || canAccessTenant(id);
+          allow write: if isAdminPanel() || canWriteTenant(id);
+        }
+      }
+      match /visitantes/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if isAdminPanel() || canWriteTenant(id)
+          || (canAccessTenant(id) && isMembroPortariaRole());
+        match /followups/{followupId} {
+          allow read: if isMaster() || canAccessTenant(id);
+          allow write: if isAdminPanel() || canWriteTenant(id)
+            || (canAccessTenant(id) && isMembroPortariaRole());
+        }
+      }
+      // Mensagens pastorais (push) Ã¢â‚¬â€ leitura para membros da igreja; escrita sÃƒÂ³ Cloud Functions / callables.
+      match /pastoral_mensagens/{msgId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update, delete: if false;
+        match /leituras/{uid} {
+          allow read: if isMaster() || canAccessTenant(id);
+          allow create, update: if isSignedIn() && canAccessTenant(id) && request.auth.uid == uid
+            && (
+              (request.resource.data.keys().hasOnly(['readAt']))
+              || (request.resource.data.keys().hasOnly(['readAt', 'reply'])
+                  && request.resource.data.reply is string
+                  && request.resource.data.reply.size() <= 2000)
+            );
+        }
+      }
+      // HistÃƒÂ³rico de envios do devocional automÃƒÂ¡tico Ã¢â‚¬â€ escrita sÃƒÂ³ Cloud Functions; leitura no painel.
+      match /devocional_envios/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update, delete: if false;
+      }
+      match /pedidosOracao/{docId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update, delete: if isAdminPanel() || canWriteTenant(id);
+      }
+
+      /// CPF 11 dÃƒÂ­gitos em `users/{uid}` Ã¢â‚¬â€ bate com `leaderCpfs` no departamento (escalas + chat).
+      function userElevenDigitCpfFromUserData(d) {
+        let raw = d.cpf is string ? d.cpf : (d.CPF is string ? d.CPF : '');
+        return raw.size() == 11 && raw.matches('^[0-9]{11}$') ? raw : '';
+      }
+      function userElevenDigitCpfOrEmpty() {
+        let u = /databases/$(database)/documents/users/$(request.auth.uid);
+        return exists(u) ? userElevenDigitCpfFromUserData(get(u).data) : '';
+      }
+      /// CPF do login: `users/{uid}` ou ficha `membros/{authUid}` (comum em lÃƒÂ­deres de departamento).
+      function userElevenDigitCpfForTenant(tenantId) {
+        let fromUsers = userElevenDigitCpfOrEmpty();
+        let pM = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid);
+        let fromMembro = exists(pM)
+          ? (
+              get(pM).data.CPF is string
+              && get(pM).data.CPF.size() == 11
+              && get(pM).data.CPF.matches('^[0-9]{11}$')
+                ? get(pM).data.CPF
+                : (
+                    get(pM).data.cpf is string
+                    && get(pM).data.cpf.size() == 11
+                    && get(pM).data.cpf.matches('^[0-9]{11}$')
+                      ? get(pM).data.cpf
+                      : ''
+                  )
+            )
+          : '';
+        return fromUsers.size() == 11 ? fromUsers : fromMembro;
+      }
+      function departmentLeaderListsMatch(tenantId, dd) {
+        let cpf = userElevenDigitCpfForTenant(tenantId);
+        return dd.leaderUid == request.auth.uid
+          || dd.leader_uid == request.auth.uid
+          || (dd.leaderUids is list && dd.leaderUids.hasAny([request.auth.uid]))
+          || (dd.leader_uids is list && dd.leader_uids.hasAny([request.auth.uid]))
+          || (cpf.size() == 11 && (
+            (dd.leaderCpfs is list && dd.leaderCpfs.hasAny([cpf])) ||
+            (dd.leader_cpfs is list && dd.leader_cpfs.hasAny([cpf])) ||
+            (dd.liderCpfs is list && dd.liderCpfs.hasAny([cpf])) ||
+            (dd.lider_cpfs is list && dd.lider_cpfs.hasAny([cpf]))
+          ));
+      }
+      function departmentDocListsRequesterAsLeader(tenantId, deptId) {
+        let dpath = /databases/$(database)/documents/igrejas/$(tenantId)/departamentos/$(deptId);
+        return exists(dpath) && departmentLeaderListsMatch(tenantId, get(dpath).data);
+      }
+      function escalaDeptIdFromRequest() {
+        return request.resource.data.keys().hasAll(['departmentId'])
+          && request.resource.data.departmentId is string
+          ? request.resource.data.departmentId
+          : '';
+      }
+      function escalaDeptIdFromResource() {
+        return resource.data.keys().hasAll(['departmentId'])
+          && resource.data.departmentId is string
+          ? resource.data.departmentId
+          : '';
+      }
+      function departmentLeaderMayWriteEscalaCreate(tenantId) {
+        let deptId = escalaDeptIdFromRequest();
+        return deptId.size() > 0
+          && canAccessTenant(tenantId)
+          && departmentDocListsRequesterAsLeader(tenantId, deptId);
+      }
+      function departmentLeaderMayWriteEscalaExisting(tenantId) {
+        let deptId = escalaDeptIdFromResource();
+        return deptId.size() > 0
+          && canAccessTenant(tenantId)
+          && departmentDocListsRequesterAsLeader(tenantId, deptId);
+      }
+
+      match /escala_templates/{tplId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create: if (isAdminPanel() || canWriteTenant(id))
+          || departmentLeaderMayWriteEscalaCreate(id);
+        allow update, delete: if (isAdminPanel() || canWriteTenant(id))
+          || departmentLeaderMayWriteEscalaExisting(id);
+      }
+      // Membro na escala pode atualizar sÃƒÂ³ confirmaÃƒÂ§ÃƒÂ£o / indisponibilidade (prÃƒÂ³prio CPF no users).
+      function userScheduleCpfDigits() {
+        let p = /databases/$(database)/documents/users/$(request.auth.uid);
+        let fromDoc = exists(p)
+          ? (get(p).data.cpf is string
+              ? get(p).data.cpf
+              : (get(p).data.CPF is string ? get(p).data.CPF : ''))
+          : '';
+        let fromClaim = request.auth.token.cpf is string ? request.auth.token.cpf : '';
+        return fromDoc.size() == 11 && fromDoc.matches('^[0-9]{11}$')
+          ? fromDoc
+          : (fromClaim.size() == 11 && fromClaim.matches('^[0-9]{11}$') ? fromClaim : '');
+      }
+      /// CPF da escala pode estar sÃƒÂ³ com pontuaÃƒÂ§ÃƒÂ£o em memberCpfs; ficha em membros/{uid} ou users bate com 11 dÃƒÂ­gitos.
+      // NÃƒÂ£o exigir cpf em users antes de checar membros/{authUid}: muitos perfis sÃƒÂ³ tÃƒÂªm CPF na ficha.
+      function scheduleMemberOnEscalaList(tenantId, memberCpfsList, cpfDigits) {
+        return memberCpfsList is list
+          && (
+            (cpfDigits.size() == 11 && cpfDigits in memberCpfsList)
+            || scheduleMembroCpfFieldsInMemberCpfsList(tenantId, memberCpfsList)
+          );
+      }
+      function scheduleMembroCpfFieldsInMemberCpfsListViaCpf(tenantId, memberCpfsList) {
+        let cp = userScheduleCpfDigits();
+        let pC = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(cp);
+        return cp.size() == 11
+          && cp.matches('^[0-9]{11}$')
+          && exists(pC)
+          && (
+            (get(pC).data.authUid == request.auth.uid)
+            || (get(pC).data.firebaseUid == request.auth.uid)
+          )
+          && cp in memberCpfsList;
+      }
+      function scheduleMembroCpfFieldsInMemberCpfsList(tenantId, memberCpfsList) {
+        let pU = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid);
+        return exists(pU)
+          ? (
+              (get(pU).data.CPF is string && get(pU).data.CPF in memberCpfsList)
+              || (get(pU).data.cpf is string && get(pU).data.cpf in memberCpfsList)
+            )
+          : scheduleMembroCpfFieldsInMemberCpfsListViaCpf(tenantId, memberCpfsList);
+      }
+      function scheduleMemberSelfConfirmOnly(tenantId) {
+        let cpf = userScheduleCpfDigits();
+        return isSignedIn()
+          && canAccessTenant(tenantId)
+          && !canWriteTenant(tenantId)
+          && resource.data.memberCpfs is list
+          && scheduleMemberOnEscalaList(tenantId, resource.data.memberCpfs, cpf)
+          && request.resource.data.diff(resource.data).changedKeys()
+            .hasOnly(['confirmations', 'unavailabilityReasons']);
+      }
+      // Forma mÃƒÂ­nima: listas de membros com tamanho razoÃƒÂ¡vel. Conflito de horÃƒÂ¡rio / ausÃƒÂªncias
+      // sÃƒÂ£o validados no app (e em Cloud Functions onde aplicÃƒÂ¡vel); regras nÃƒÂ£o fazem get em N escalas.
+      function escalaMemberListsShapeOk() {
+        let d = request.resource.data;
+        return d.memberCpfs is list
+          && d.memberNames is list
+          && d.memberCpfs.size() <= 120
+          && d.memberNames.size() <= 120;
+      }
+      match /escalas/{escId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create: if escalaMemberListsShapeOk()
+          && (
+            isAdminPanel() || canWriteTenant(id)
+            || departmentLeaderMayWriteEscalaCreate(id)
+          );
+        allow delete: if isAdminPanel() || canWriteTenant(id)
+          || departmentLeaderMayWriteEscalaExisting(id);
+        allow update: if scheduleMemberSelfConfirmOnly(id)
+          || (
+            escalaMemberListsShapeOk()
+            && (
+              isAdminPanel() || canWriteTenant(id)
+              || departmentLeaderMayWriteEscalaExisting(id)
+            )
+          );
+      }
+      // Pedido de troca de escala (membro Ã¢â€ â€™ lÃƒÂ­der aprova).
+      match /escala_trocas/{trocaId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        // pendente = fluxo legado (lÃƒÂ­der aprova no app); pendente_alvo = convite ao substituto (aceite via Cloud Function).
+        allow create: if isSignedIn()
+          && canAccessTenant(id)
+          && request.resource.data.keys().hasAll(['escalaId', 'departmentId', 'solicitanteCpf', 'alvoCpf', 'status', 'createdAt'])
+          && request.resource.data.escalaId is string
+          && request.resource.data.departmentId is string
+          && request.resource.data.solicitanteCpf is string
+          && request.resource.data.alvoCpf is string
+          && (request.resource.data.status == 'pendente' || request.resource.data.status == 'pendente_alvo')
+          && scheduleTrocaSolicitanteMatches(id, request.resource.data.solicitanteCpf)
+          && request.resource.data.solicitanteCpf != request.resource.data.alvoCpf;
+        allow update, delete: if isAdminPanel() || canWriteTenant(id)
+          || (
+            canAccessTenant(id)
+            && resource.data.departmentId is string
+            && departmentDocListsRequesterAsLeader(id, resource.data.departmentId)
+          );
+      }
+      function scheduleTrocaSolicitanteMatches(tenantId, solCpf) {
+        return solCpf is string
+          && solCpf.size() == 11
+          && solCpf.matches('^[0-9]{11}$')
+          && (
+            solCpf == userScheduleCpfDigits()
+            || scheduleTrocaSolicitanteViaMembroDoc(tenantId, solCpf)
+            || scheduleTrocaSolicitanteViaMembroDocIdCpf(tenantId, solCpf)
+          );
+      }
+      /// Ficha em `membros/{authUid}` com CPF igual ao solicitante.
+      function scheduleTrocaSolicitanteViaMembroDoc(tenantId, solCpf) {
+        let pU = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid);
+        return exists(pU)
+          && (
+            (get(pU).data.CPF is string && get(pU).data.CPF == solCpf)
+            || (get(pU).data.cpf is string && get(pU).data.cpf == solCpf)
+          );
+      }
+      /// Ficha em `membros/{cpf11}` (ID = CPF) com vÃƒÂ­nculo ao login Ã¢â‚¬â€ caso mais comum nas igrejas.
+      function scheduleTrocaSolicitanteViaMembroDocIdCpf(tenantId, solCpf) {
+        let pC = /databases/$(database)/documents/igrejas/$(tenantId)/membros/$(solCpf);
+        return exists(pC)
+          && (
+            get(pC).data.authUid == request.auth.uid
+            || get(pC).data.firebaseUid == request.auth.uid
+          );
+      }
+      // Agenda inteligente (calendÃƒÂ¡rio interno Ã¢â‚¬â€ startTime / endTime / category).
+      // Escrita: permissÃƒÂ£o granular `eventos` + papÃƒÂ©is do mural (nÃƒÂ£o sÃƒÂ³ gestor Ã¢â‚¬â€ igual `noticias`).
+      match /agenda/{eventId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow write: if canWriteMuralFeed(id);
+      }
+
+      // Chat membro-a-membro / grupos por departamento (retenÃƒÂ§ÃƒÂ£o por expiresAt Ã¢â‚¬â€ limpeza via Cloud Function).
+      function chatUserDeptIds(tenantId) {
+        let p = /databases/$(database)/documents/igrejas/$(tenantId)/users_profile_chat/$(request.auth.uid);
+        return exists(p) && get(p).data.departmentIds is list
+          ? get(p).data.departmentIds
+          : [];
+      }
+      /// Gestor/pastor/secretÃ¡rio/tesoureiro/adm â€” leem **todos** os grupos de departamento (aba Grupos).
+      function chatGroupChurchLeadership(tenantId) {
+        return canAccessTenant(tenantId) && (
+          canWriteTenant(tenantId)
+          || isPastoralOrSecretariatRole()
+          || isTreasurer()
+          || isAdminPanel()
+        );
+      }
+      /// DM pelo id `dm_{uidA}_{uidB}` Ã¢â‚¬â€ legado sem `participantUids` ainda pode listar/ler.
+      function dmThreadAuthUserInThreadId(threadId) {
+        return threadId.matches('^dm_[^_]+_[^_]+$')
+          && (
+            threadId.matches('^dm_' + request.auth.uid + '_')
+            || threadId.matches('_' + request.auth.uid + '$')
+          );
+      }
+
+      /// Leitura do doc do thread Ã¢â‚¬â€ usa `resource.data` + [threadId] (sem `get(thread)` em listagens).
+      /// Fallback `dm_` / `dept_` no id quando `type` em falta (dados antigos / merge parcial).
+      /// Importante: em queries `where participantUids arrayContains uid`, se **um** documento
+      /// devolvido falhar `allow read`, o Firestore falha a **lista inteira** (permission-denied).
+      /// Por isso: quem estÃƒÂ¡ em `participantUids` pode ler o thread (metadados), mesmo com `type`/id atÃƒÂ­picos.
+      function canReadChatThreadData(tenantId, threadId, d) {
+        let inParticipants = d.participantUids is list && request.auth.uid in d.participantUids;
+        let asDm = d.type == 'dm' || threadId.matches('^dm_.+');
+        let asDept = d.type == 'department' || threadId.matches('^dept_.+');
+        return (asDm && (inParticipants || dmThreadAuthUserInThreadId(threadId)))
+          || (asDept && (
+            chatGroupChurchLeadership(tenantId)
+            || inParticipants
+            || (d.departmentId is string && chatUserDeptIds(tenantId).hasAny([d.departmentId]))
+          ))
+          || inParticipants
+          || dmThreadAuthUserInThreadId(threadId);
+      }
+
+      /// Mensagens / typing / helpers Ã¢â‚¬â€ leem o doc pai via `get()`.
+      function canReadChatThreadDoc(tenantId, threadId) {
+        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
+        return exists(path) && canReadChatThreadData(tenantId, threadId, get(path).data);
+      }
+
+      /// Envio de mensagem Ã¢â‚¬â€ um `get(thread)`; sem `canReadChatThreadData` (menos latÃƒÂªncia no create).
+      function chatSenderMayPostToThread(tenantId, threadId) {
+        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
+        let t = exists(path) ? get(path).data : {};
+        let isDept = t.type == 'department' || threadId.matches('^dept_.+');
+        return exists(path) && (
+          (t.participantUids is list && request.auth.uid in t.participantUids)
+          || dmThreadAuthUserInThreadId(threadId)
+          || (isDept && (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId)))
+          || (memberLinkedToTenant(tenantId) && dmThreadAuthUserInThreadId(threadId))
+        );
+      }
+
+      /// ApÃƒÂ³s enviar mensagem o app faz merge sÃƒÂ³ nestes campos do thread.
+      function chatThreadLastMessagePatchAllowed() {
+        return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'lastMessageAt', 'lastMessagePreview', 'lastMessage', 'lastMessageType',
+          'lastSenderUid', 'updatedAt', 'hasConversation'
+        ]);
+      }
+
+      /// Pastores / pastoral auxiliar Ã¢â‚¬â€ moderar remoÃƒÂ§ÃƒÂ£o de mensagens (alinhado ao app).
+      function chatPastoralModeratorRole() {
+        let r = role();
+        return r != null && (
+          r == 'PASTOR' || r == 'pastor' || r == 'PASTORA' || r == 'pastora' || r == 'Pastor' || r == 'Pastora' ||
+          r == 'pastor_presidente' || r == 'PASTOR_PRESIDENTE' || r == 'Pastor Presidente' ||
+          r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar' ||
+          r == 'ministerial' || r == 'pastor_auxiliar_ministerial'
+        );
+      }
+
+      /// Ã‚Â«Apagar para todosÃ‚Â» (DELETE): DM Ã¢â‚¬â€ qualquer participante pode apagar qualquer mensagem (estilo limpar conversa).
+      /// Grupo Ã¢â‚¬â€ o autor apaga a prÃƒÂ³pria; pastor/gestor/ADM (canWriteTenant + pastoral) ou lÃƒÂ­der do departamento apagam qualquer uma.
+      function chatMessageDeleteForEveryoneAllowed(tenantId, threadId) {
+        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
+        let t = get(path).data;
+        let participants = t.participantUids is list && request.auth.uid in t.participantUids;
+        let isDm = t.type == 'dm' || threadId.matches('^dm_.+');
+        let isDept = t.type == 'department' || threadId.matches('^dept_.+');
+        return isSignedIn() && exists(path)
+          && resource.data.keys().hasAll(['senderUid'])
+          && resource.data.senderUid is string
+          && (
+            isAdminPanel()
+            || canWriteTenant(tenantId)
+            || chatPastoralModeratorRole()
+            || isTreasurer()
+            || isPastoralOrSecretariatRole()
+            || (isDm && participants)
+            || (
+              isDept
+              && participants
+              && resource.data.senderUid == request.auth.uid
+            )
+          );
+      }
+
+      /// Apagar o documento do thread (ex.: grupo de departamento): sÃƒÂ³ gestÃƒÂ£o/pastoral (nÃƒÂ£o lÃƒÂ­der de dept).
+      function chatThreadDeleteAllowed(tenantId, threadId) {
+        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
+        return isAdminPanel()
+          || canWriteTenant(tenantId)
+          || chatPastoralModeratorRole()
+          || isTreasurer()
+          || isPastoralOrSecretariatRole();
+      }
+
+      /// Ã‚Â«Apagar para mimÃ‚Â»: sÃƒÂ³ acrescenta o prÃƒÂ³prio uid em `hiddenForUids` (merge seguro).
+      function chatMessageHideForMeOnly(tenantId, threadId) {
+        return canAccessTenant(tenantId)
+          && canReadChatThreadDoc(tenantId, threadId)
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['hiddenForUids'])
+          && request.resource.data.hiddenForUids is list
+          && request.auth.uid in request.resource.data.hiddenForUids
+          && (
+            !('hiddenForUids' in resource.data)
+            || !(request.auth.uid in resource.data.hiddenForUids)
+          );
+      }
+
+      /// ReaÃƒÂ§ÃƒÂµes: sÃƒÂ³ o mapa `reactionsByUid` pode mudar (merge transacional no cliente).
+      function chatMessageReactionsByUidOnly(tenantId, threadId) {
+        return canAccessTenant(tenantId)
+          && canReadChatThreadDoc(tenantId, threadId)
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['reactionsByUid'])
+          && request.resource.data.reactionsByUid is map
+          && request.resource.data.reactionsByUid.size() <= 48;
+      }
+
+      /// MÃƒÂ­dia: stub Ã‚Â«uploadingÃ‚Â» Ã¢â€ â€™ `sent` apÃƒÂ³s Storage Ã¢â‚¬â€ sem segundo `get(thread)` (sÃƒÂ³ valida remetente).
+      function chatMessageSendingFinalizeAllowed(tenantId, threadId) {
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+          && resource.data.senderUid == request.auth.uid
+          && resource.data.deliveryStatus == 'sending'
+          && request.resource.data.deliveryStatus == 'sent'
+          && (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['deliveryStatus'])
+            || (
+              resource.data.type == 'sticker'
+              && request.resource.data.mediaUrl is string
+              && request.resource.data.mediaUrl.size() > 8
+              && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+                'deliveryStatus', 'mediaUrl', 'storagePath', 'stickerSource'
+              ])
+            )
+          );
+      }
+
+      function chatMessageMediaDeliveryPatchAllowed(tenantId, threadId) {
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+          && resource.data.senderUid == request.auth.uid
+          && resource.data.deliveryStatus in ['uploading', 'queued']
+          && request.resource.data.deliveryStatus == 'sent'
+          && request.resource.data.mediaUrl is string
+          && request.resource.data.mediaUrl.size() > 8
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'mediaUrl', 'storagePath', 'fileName', 'deliveryStatus', 'uploadProgress', 'thumbUrl'
+          ]);
+      }
+
+      function chatMessageUploadProgressOnly(tenantId, threadId) {
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+          && resource.data.senderUid == request.auth.uid
+          && resource.data.deliveryStatus in ['uploading', 'queued']
+          && request.resource.data.deliveryStatus in ['uploading', 'queued']
+          && request.resource.data.uploadProgress is number
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['uploadProgress', 'deliveryStatus']);
+      }
+
+      function chatMessageUploadQueuedOnly(tenantId, threadId) {
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+          && resource.data.senderUid == request.auth.uid
+          && resource.data.deliveryStatus in ['uploading', 'queued']
+          && request.resource.data.deliveryStatus == 'queued'
+          && request.resource.data.uploadProgress is number
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['deliveryStatus', 'uploadProgress']);
+      }
+
+      /// DestinatÃƒÂ¡rio marca mensagens do remetente como entregues (Ã¢Å“â€œÃ¢Å“â€œ).
+      function chatMessageDeliveredByRecipient(tenantId, threadId) {
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+          && canReadChatThreadDoc(tenantId, threadId)
+          && resource.data.senderUid != request.auth.uid
+          && resource.data.deliveryStatus == 'sent'
+          && request.resource.data.deliveryStatus == 'delivered'
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['deliveryStatus']);
+      }
+
+      match /users_profile_chat/{uid} {
+        allow read: if isSignedIn() && request.auth.uid == uid
+          && (canAccessTenant(id) || memberLinkedToTenant(id));
+        allow create, update: if isSignedIn() && request.auth.uid == uid
+          && (canAccessTenant(id) || memberLinkedToTenant(id));
+        allow delete: if false;
+      }
+
+      match /chat_presence/{uid} {
+        allow read: if canAccessTenant(id) || memberLinkedToTenant(id);
+        allow create, update: if isSignedIn() && request.auth.uid == uid
+          && (canAccessTenant(id) || memberLinkedToTenant(id));
+        allow delete: if false;
+      }
+
+      // Cache de foto/nome para Chat Igreja (escrito pelo Admin SDK ao atualizar membros).
+      match /chat_peer_profiles/{authUid} {
+        allow read: if canAccessTenant(id);
+        allow write: if false;
+      }
+
+      // Favoritos / silenciar conversa / bloquear contacto (chat) Ã¢â‚¬â€ sÃƒÂ³ o prÃƒÂ³prio doc.
+      match /chat_member_prefs/{uid} {
+        allow read: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
+        allow create, update: if isSignedIn() && request.auth.uid == uid && canAccessTenant(id);
+        allow delete: if false;
+      }
+
+      // Uploads de mÃƒÂ­dia do chat em curso (retoma apÃƒÂ³s fechar o app).
+      match /chat_uploads/{uploadId} {
+        allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && resource.data.ownerUid == request.auth.uid;
+        allow create: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.threadId is string
+          && request.resource.data.localId is string
+          && request.resource.data.kind is string
+          && request.resource.data.status is string
+          && request.resource.data.progress is number
+          && request.resource.data.keys().size() <= 18;
+        allow update: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'status', 'progress', 'messageId', 'storagePath', 'localPath',
+            'updatedAt', 'lastError', 'fileName', 'mime'
+          ]);
+        allow delete: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && isSignedIn()
+          && resource.data.ownerUid == request.auth.uid;
+      }
+
+      // Figurinhas do chat Ã¢â‚¬â€ biblioteca partilhada por igreja (importaÃƒÂ§ÃƒÂ£o de imagens).
+      match /chat_stickers/{stickerId} {
+        allow read: if canAccessTenant(id);
+        allow create: if canAccessTenant(id) && isSignedIn()
+          && request.resource.data.createdByUid == request.auth.uid
+          && request.resource.data.keys().hasAll(['createdAt', 'createdByUid', 'mediaUrl', 'storagePath', 'source'])
+          && request.resource.data.createdByUid is string
+          && request.resource.data.mediaUrl is string
+          && request.resource.data.storagePath is string
+          && request.resource.data.source == 'upload'
+          && request.resource.data.keys().size() <= 10
+          && (!('label' in request.resource.data) || request.resource.data.label is string);
+        allow update: if false;
+        allow delete: if canAccessTenant(id) && isSignedIn()
+          && resource.data.createdByUid == request.auth.uid;
+      }
+
+      match /chats/{threadId} {
+        // Lista/query: `where participantUids arrayContains uid` Ã¢â‚¬â€ cada doc devolvido tem de passar `read`.
+        // `memberLinkedToTenant`: nativo sem `igrejaId` no token (sÃƒÂ³ ficha em `membros/{cpf}`).
+        allow read: if (canAccessTenant(id) || memberLinkedToTenant(id)) && (
+            (resource.data.participantUids is list
+              && request.auth.uid in resource.data.participantUids)
+            || dmThreadAuthUserInThreadId(threadId)
+            || canReadChatThreadData(id, threadId, resource.data)
+          );
+        allow create: if (canAccessTenant(id) || memberLinkedToTenant(id))
+          && (
+            (request.resource.data.type == 'dm'
+              && request.resource.data.participantUids is list
+              && request.auth.uid in request.resource.data.participantUids)
+            || (request.resource.data.type == 'department'
+              && request.resource.data.departmentId is string
+              && (
+                chatUserDeptIds(id).hasAny([request.resource.data.departmentId])
+                || memberLinkedToTenant(id)
+              ))
+          );
+        allow update: if (
+          (resource.data.participantUids is list
+            && request.auth.uid in resource.data.participantUids
+            && chatThreadLastMessagePatchAllowed())
+          || (chatTenantMemberFast(id) && chatThreadLastMessagePatchAllowed())
+          || ((canAccessTenant(id) || memberLinkedToTenant(id))
+            && canReadChatThreadData(id, threadId, resource.data))
+          || dmThreadAuthUserInThreadId(threadId)
+        );
+        allow delete: if chatThreadDeleteAllowed(id, threadId);
+
+        match /typing/{typingUid} {
+          allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
+            && canReadChatThreadDoc(id, threadId);
+          allow create, update: if (canAccessTenant(id) || memberLinkedToTenant(id))
+            && canReadChatThreadDoc(id, threadId)
+            && request.auth.uid == typingUid
+            && request.resource.data.keys().hasAll(['updatedAt'])
+            && request.resource.data.updatedAt is timestamp
+            && request.resource.data.keys().hasOnly(['updatedAt', 'label'])
+            && (!('label' in request.resource.data) || request.resource.data.label is string);
+          allow delete: if (canAccessTenant(id) || memberLinkedToTenant(id))
+            && canReadChatThreadDoc(id, threadId)
+            && request.auth.uid == typingUid;
+        }
+
+        match /messages/{msgId} {
+          allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
+            && canReadChatThreadDoc(id, threadId);
+          allow create: if (chatTenantMemberFast(id) || memberLinkedToTenant(id))
+            && chatSenderMayPostToThread(id, threadId)
+            && request.resource.data.senderUid == request.auth.uid
+            && request.resource.data.keys().hasAll(['senderUid', 'type', 'createdAt', 'expiresAt'])
+            && (!('senderDisplayName' in request.resource.data) || (
+              request.resource.data.senderDisplayName is string
+              && request.resource.data.senderDisplayName.size() > 0
+              && request.resource.data.senderDisplayName.size() <= 100
+            ))
+            && !('reactionsByUid' in request.resource.data)
+            && (!('mentionedUids' in request.resource.data) || (
+              request.resource.data.mentionedUids is list
+              && request.resource.data.mentionedUids.size() <= 24
+            ))
+            && (!('replyTo' in request.resource.data) || (
+              request.resource.data.replyTo is map
+              && request.resource.data.replyTo.keys().hasOnly(['messageId', 'senderUid', 'preview', 'type'])
+              && request.resource.data.replyTo.messageId is string
+              && request.resource.data.replyTo.senderUid is string
+              && request.resource.data.replyTo.preview is string
+              && request.resource.data.replyTo.type is string
+              && request.resource.data.replyTo.messageId.size() > 0
+              && request.resource.data.replyTo.preview.size() <= 240
+            ));
+          allow update: if chatMessageMediaDeliveryPatchAllowed(id, threadId)
+            || chatMessageSendingFinalizeAllowed(id, threadId)
+            || chatMessageUploadProgressOnly(id, threadId)
+            || chatMessageUploadQueuedOnly(id, threadId)
+            || chatMessageDeliveredByRecipient(id, threadId)
+            || chatMessageHideForMeOnly(id, threadId)
+            || chatMessageReactionsByUidOnly(id, threadId);
+          allow delete: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId)
+            && chatMessageDeleteForEveryoneAllowed(id, threadId);
+        }
+      }
+
+      // Pontes Mercado Pago (webhook Ã¢â‚¬â€ sÃƒÂ³ Admin SDK / Functions).
+      match /mp_payment_bridge/{bridgeId} {
+        allow read, write: if false;
+      }
+      match /mp_preference_bridge/{bridgeId} {
+        allow read, write: if false;
+      }
+      // ÃƒÂndice mÃƒÂ­nimo UUID Ã¢â€ â€™ validaÃƒÂ§ÃƒÂ£o pÃƒÂºblica do QR (dados em certificados_emitidos).
+      match /certificados_protocol_index/{certId} {
+        allow get: if true;
+        allow list: if false;
+        allow create: if isSignedIn() && canWriteCertificadosPainel(id);
+        allow update, delete: if false;
+      }
+    }
+
+    // Perfil do prÃƒÂ³prio usuÃƒÂ¡rio; listagem Membros: ver users do mesmo tenant (por doc do leitor ou token).
+    function onlyDismissAnnouncementKeys() {
+      let k = request.resource.data.keys();
+      return k.hasOnly(['dismissedGlobalAnnouncementAt'])
+        || k.hasOnly(['dismissedGlobalAnnouncementRev'])
+        || k.hasOnly(['dismissedGlobalAnnouncementMsgHash'])
+        || k.hasOnly(['dismissedGlobalAnnouncementAt', 'dismissedGlobalAnnouncementRev'])
+        || k.hasOnly(['dismissedGlobalAnnouncementAt', 'dismissedGlobalAnnouncementMsgHash']);
+    }
+
+    match /users/{uid} {
+      allow read, update: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn() && request.auth.uid == uid && onlyDismissAnnouncementKeys();
+      allow read: if isMaster()
+        || (canManageChurch() && (sameChurch(resource.data.igrejaId) || sameChurch(resource.data.tenantId)))
+        || (isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == resource.data.tenantId
+                || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.igrejaId == resource.data.igrejaId
+                || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tenantId == resource.data.igrejaId
+                || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.igrejaId == resource.data.tenantId))
+        || (isSignedIn() && request.auth.token.tenantId != null && (resource.data.tenantId == request.auth.token.tenantId || resource.data.igrejaId == request.auth.token.tenantId))
+        || (isSignedIn() && request.auth.token.igrejaId != null && (resource.data.tenantId == request.auth.token.igrejaId || resource.data.igrejaId == request.auth.token.igrejaId))
+        || (isSignedIn());  // fallback: autenticado pode ler (evita lista de membros vazia)
+      // ExclusÃƒÂ£o pelo painel: mesma ideia que igrejas/{id}/membros/{id} (gestor + pastoral + mÃƒÂ³dulo membros).
+      // Admin painel YAHWEH + legado sem tenantId/igrejaId no doc `users/`.
+      allow delete: if isMaster() || isAdminPanel()
+        || (isSignedIn() && (
+          (resource.data.tenantId is string && resource.data.tenantId != ''
+            && (canWriteTenant(resource.data.tenantId)
+              || (canAccessTenant(resource.data.tenantId) && isPastoralOrSecretariatRole())
+              || (canAccessTenant(resource.data.tenantId) && hasTenantMembrosDirectoryEditPermission(resource.data.tenantId))))
+          || (resource.data.igrejaId is string && resource.data.igrejaId != ''
+            && (canWriteTenant(resource.data.igrejaId)
+              || (canAccessTenant(resource.data.igrejaId) && isPastoralOrSecretariatRole())
+              || (canAccessTenant(resource.data.igrejaId) && hasTenantMembrosDirectoryEditPermission(resource.data.igrejaId))))
+        ));
+
+      match /fcmTokens/{token} {
+        allow read, create, update, delete: if isSignedIn() && request.auth.uid == uid;
+      }
+    }
+
+    match /subscriptions/{id} {
+      allow read: if (canManageChurch() && sameChurch(resource.data.igrejaId)) || isAdminPanel();
+      allow write: if false; // server only
+    }
+
+    match /config/plans/items/{id} {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
+
+    // ÃƒÂndice mÃƒÂ­nimo CPF Ã¢â€ â€™ igreja (escrita sÃƒÂ³ Admin SDK / Functions)
+    match /publicCpfIndex/{cpfKey} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /config/appVersion {
+      allow read: if true;
+      allow write: if isMaster();
+    }
+    match /config/appDownloads {
+      allow read: if true;
+      allow write: if isMaster();
+    }
+
+    // Links oficiais Instagram / YouTube / WhatsApp + nome de exibiÃƒÂ§ÃƒÂ£o (site divulgaÃƒÂ§ÃƒÂ£o + login)
+    match /config/marketing_official {
+      allow read: if true;
+      allow write: if isMaster();
+    }
+
+    match /config/memberCard {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
+    // Acessos ao domÃƒÂ­nio Ã¢â‚¬â€ painel master (config/analytics ou analytics/domain/daily_hits)
+    // Aviso global (melhorias / manutenÃƒÂ§ÃƒÂ£o) Ã¢â‚¬â€ leitura por qualquer usuÃƒÂ¡rio logado; escrita: master/adm (doc, roles array ou token)
+    match /config/global_announcement {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
+
+    // HistÃƒÂ³rico de avisos globais (somente operador de plataforma).
+    match /global_announcement_audit/{id} {
+      allow read, create, delete: if isMaster();
+      allow update: if false;
+    }
+
+    // Resumo KPIs Painel Master Ã¢â‚¬â€ escrita sÃƒÂ³ Admin SDK (Cloud Functions).
+    match /config/master_dashboard_summary {
+      allow read: if isAdminPanel();
+      allow write: if false;
+    }
+    match /config/_master_dashboard_lock {
+      allow read, write: if false;
+    }
+
+    match /config/analytics {
+      allow read: if isSignedIn() && isMaster();
+      allow write: if isMaster();
+    }
+    match /analytics/{docId} {
+      allow read: if isSignedIn() && isMaster();
+      allow write: if isMaster();
+      match /daily_hits/{hitId} {
+        allow read: if isSignedIn() && isMaster();
+        allow write: if isMaster();
+      }
+    }
+
+    // Recebimentos / licenÃƒÂ§as: mesmo critÃƒÂ©rio do painel (MASTER, ADM ou doc admins/{uid})
+    match /sales/{id} {
+      allow read: if isAdminPanel();
+      allow create, update: if isAdminPanel();
+      allow delete: if false;
+    }
+
+    // Pagamentos Mercado Pago (painel admin Ã¢â‚¬â€ Recebimentos de LicenÃƒÂ§as)
+    match /mp_payments/{id} {
+      allow read: if isAdminPanel();
+      allow create, update: if isAdminPanel();
+      allow delete: if false;
+    }
+
+    // Ponte MP igreja Ã¢â€ â€™ webhook (somente Cloud Functions / Admin SDK)
+    match /church_mp_payments/{id} {
+      allow read, write: if false;
+    }
+
+    match /licenses/{id} {
+      allow read: if isAdminPanel();
+      allow create, update: if isAdminPanel();
+      allow delete: if false;
+    }
+
+    match /frota_customers/{id} {
+      allow read: if isAdminPanel();
+      allow create, update: if isAdminPanel();
+      allow delete: if false;
+    }
+
+    match /drive_archives/{id} {
+      allow read: if isAdminPanel();
+      allow write: if false;
+    }
+
+    // Config Mercado Pago (painel admin): master/adm/admins doc
+    match /config/mercado_pago {
+      allow read, write: if isAdminPanel();
+    }
+
+    // CustomizaÃƒÂ§ÃƒÂ£o do sistema (tÃƒÂ­tulo, boas-vindas, tema) Ã¢â‚¬â€ escrita: master; leitura: logados (modal boas-vindas gestor)
+    match /config/sistema {
+      allow read: if isSignedIn();
+      allow write: if isAdminPanel();
+    }
+
+    match /planos/{id} {
+      allow read, write: if isAdminPanel();
+    }
+
+    match /pagamentos/{id} {
+      allow read, write: if isAdminPanel();
+    }
+
+    match /alertas/{id} {
+      allow read: if isAdminPanel();
+      allow write: if isAdminPanel();
+    }
+
+    // Chamados de suporte (painel master)
+    match /suporte/{id} {
+      allow read, update: if isAdminPanel();
+      allow create: if isSignedIn();
+      allow delete: if isAdminPanel();
+    }
+
+    // SugestÃƒÂµes/CrÃƒÂ­ticas Ã¢â‚¬â€ operador global ou autor do documento.
+    match /suggestions/{id} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn() && (isMaster() || resource.data.userId == request.auth.uid);
+      allow update: if isMaster();
+      allow delete: if isMaster();
+    }
+
+    // ADMIN (painel master atual) Ã¢â‚¬â€ leitura para todo painel master (inclui quem entra sÃƒÂ³ por admins/{uid})
+    match /admins/{uid} {
+      allow read: if isAdminPanel();
+      allow write: if false;
+    }
+
+    // Auditoria: leitura apenas painel master; escrita somente backend (Admin SDK / Functions).
+    match /auditoria/{id} {
+      allow read: if isAdminPanel();
+      allow write: if false;
+    }
+
+    // Rate-limit de eventos de seguranÃƒÂ§a: somente backend escreve.
+    match /security_events_rate/{uid} {
+      allow read, write: if false;
+    }
+
+    // Multi-Admin (delegaÃƒÂ§ÃƒÂ£o) usa a coleÃƒÂ§ÃƒÂ£o raiz `usuarios`
+    // - leitura: apenas o Painel Master / Admins
+    // - update: apenas o Painel Master / Admins
+    // - create: somente o prÃƒÂ³prio usuÃƒÂ¡rio
+    match /usuarios/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdminPanel());
+      allow update: if isAdminPanel();
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    // Galeria de eventos (coleÃƒÂ§ÃƒÂ£o raiz) Ã¢â‚¬â€ leitura pÃƒÂºblica para site; escrita autenticada (EventoGalleryService)
+    match /eventos/{eventoId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+      match /comentarios/{commentId} {
+        allow read, write: if request.auth != null;
+      }
+    }
+
+    // Site institucional Ã¢â‚¬â€ leitura pÃƒÂºblica. Galeria `institutional_gallery`: equipe da igreja pode ordenar/upload (painel igreja = master).
+    // Outros docs (ex.: `site`) sÃƒÂ³ painel master/adm.
+    match /app_public/{docId} {
+      allow read: if true;
+      allow create, update, delete: if isAdminPanel()
+        || (docId == 'institutional_gallery' && canManageChurch());
+    }
+
+    // Legado: protocolo na raiz (antes da migraÃƒÂ§ÃƒÂ£o para igrejas/{id}/certificados_emitidos).
+    match /certificados_emitidos/{certId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if false;
+      allow update, delete: if isSignedIn()
+        && resource.data.tenantId is string
+        && canAccessTenant(resource.data.tenantId)
+        && canWriteTenant(resource.data.tenantId);
+    }
+
+    // Legado: ÃƒÂ­ndice UUID Ã¢â€ â€™ tenantId na raiz (migraÃƒÂ§ÃƒÂ£o para igrejas/{id}/certificados_protocol_index).
+    match /certificados_protocol_index/{certId} {
+      allow get: if true;
+      allow list: if false;
+      allow create: if isSignedIn()
+        && request.resource.data.tenantId is string
+        && canAccessTenant(request.resource.data.tenantId)
+        && canWriteTenant(request.resource.data.tenantId);
+      allow update, delete: if false;
+    }
+
+    // Espelho global descontinuado Ã¢â‚¬â€ sÃƒÂ³ leitura/limpeza.
+    match /pendingUploads/{docId} {
+      allow read: if isMaster()
+        || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
+      allow delete: if isMaster()
+        || (isSignedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create, update: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+
+===== STORAGE RULES (storage.rules) =====
+
+rules_version = '2';
+// PadrÃ£o de pastas: mÃ­dia de cada igreja cliente sob `igrejas/{igrejaId}/`
+// (membros, noticias, eventos, patrimonio, logo, etc.). ConteÃºdo institucional
+// da GestÃ£o YAHWEH (divulgaÃ§Ã£o) nÃ£o deve usar o prefixo `igrejas/`.
+//
+// Leitura pÃºblica: jÃ¡ coberta por regras explÃ­citas (membros, notÃ­cias, eventos,
+// patrimÃ´nio, logos, etc.). NÃƒO substitua este arquivo por um Ãºnico
+// `match /{allPaths=**} { allow read: if true; }` â€” isso expÃµe qualquer objeto
+// futuro no bucket e, com a semÃ¢ntica OR do Storage, pode anular regras mais restritas.
+//
+// Deploy: na raiz do repo, `.\scripts\deploy_firebase_rules.ps1` (ver regra do projeto).
+//
+// PadrÃ£o Controle Total: write autenticado + limite de tamanho; MIME flexÃ­vel (octet-stream / vazio).
+// Ficheiro no Storage â†’ URL no documento Firestore (sem fila pending_uploads).
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Imagem ou vÃ­deo + tipos que Flutter/Web enviam (octet-stream / vazio)
+    function mediaImageVideoOrBlob() {
+      return request.resource.contentType.matches('image/.*')
+        || request.resource.contentType.matches('video/.*')
+        || request.resource.contentType == 'application/octet-stream'
+        || request.resource.contentType == '';
+    }
+
+    /// Chat: fotos, vÃ­deos, Ã¡udio (voz / ficheiro), PDF, Office, ZIP/RAR, APK, etc.
+    /// iOS/Android podem enviar MIME atÃ­pico (ex.: audio/x-caf, image/heic, video/quicktime).
+    function chatMediaOrBlob() {
+      return mediaImageVideoOrBlob()
+        || request.resource.contentType.matches('audio/.*')
+        || request.resource.contentType.matches('application/pdf')
+        || request.resource.contentType.matches('application/msword')
+        || request.resource.contentType == 'application/vnd.ms-excel'
+        || request.resource.contentType == 'application/vnd.ms-powerpoint'
+        || request.resource.contentType.matches('application/vnd.ms-.*')
+        || request.resource.contentType ==
+             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        || request.resource.contentType ==
+             'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        || request.resource.contentType.matches(
+             'application/vnd.openxmlformats-officedocument.*')
+        || request.resource.contentType.matches('text/.*')
+        || request.resource.contentType.matches('application/rtf')
+        || request.resource.contentType == 'audio/x-caf'
+        || request.resource.contentType == 'audio/amr'
+        || request.resource.contentType == 'audio/x-m4a'
+        || request.resource.contentType == 'image/heic'
+        || request.resource.contentType == 'image/heif'
+        || request.resource.contentType == 'video/quicktime'
+        || request.resource.contentType == 'video/x-m4v'
+        || request.resource.contentType == 'application/zip'
+        || request.resource.contentType == 'application/vnd.rar'
+        || request.resource.contentType == 'application/x-rar-compressed'
+        || request.resource.contentType == 'application/x-7z-compressed'
+        || request.resource.contentType == 'application/java-archive'
+        || request.resource.contentType ==
+             'application/vnd.android.package-archive';
+    }
+
+    /// Upload autenticado (mobile): nÃ£o bloquear por MIME quando o cliente envia octet-stream ou tipo vazio.
+    function authMediaWriteMax(maxBytes) {
+      return request.auth != null
+        && request.resource != null
+        && request.resource.size < maxBytes;
+    }
+
+    // SÃ³ imagem (foto de membro, logo, patrimÃ´nio) + octet-stream / vazio
+    function photoImageOrBlob() {
+      return request.resource.contentType.matches('image/.*')
+        || request.resource.contentType == 'application/octet-stream'
+        || request.resource.contentType == '';
+    }
+
+    // Cadastro pÃºblico (web): path canÃ³nico `membros/{id}/foto_perfil.jpg` â€” um segmento + nome fixo
+    function isMemberCanonicalProfilePhotoPath(p) {
+      return p.matches('^[^/]+/foto_perfil\\.jpg$');
+    }
+
+    // Comprovantes: imagem ou PDF + blob
+    function comprovanteOrBlob() {
+      return request.resource.contentType.matches('image/.*')
+        || request.resource.contentType.matches('application/pdf')
+        || request.resource.contentType == 'application/octet-stream'
+        || request.resource.contentType == '';
+    }
+
+    function pkcs12OrBlob() {
+      return request.resource.contentType == 'application/x-pkcs12'
+        || request.resource.contentType == 'application/pkcs12'
+        || request.resource.contentType == 'application/octet-stream';
+    }
+
+    function publicMediaPdfOrBlob() {
+      return request.resource.contentType.matches('video/.*')
+        || request.resource.contentType.matches('image/.*')
+        || request.resource.contentType.matches('application/pdf')
+        || request.resource.contentType == 'application/octet-stream'
+        || request.resource.contentType == '';
+    }
+
+    // Upload pÃºblico de foto de membro (cadastro sem login) â€” sem vÃ­deo
+    match /members/{tenantId}/{fileName} {
+      allow write: if request.auth == null
+        && request.resource.size < 15 * 1024 * 1024
+        && photoImageOrBlob();
+      allow read: if true;
+    }
+
+    // Fotos de membros: painel (auth) OU cadastro pÃºblico sem sessÃ£o estÃ¡vel (foto canÃ³nica sÃ³)
+    match /igrejas/{igrejaId}/membros/{path=**} {
+      allow read: if true;
+      allow write: if request.resource.size < 20 * 1024 * 1024
+        && photoImageOrBlob()
+        && (
+          request.auth != null
+          || isMemberCanonicalProfilePhotoPath(path)
+        );
+    }
+
+    // Certificado digital A1 (PKCS#12) â€” leitura sÃ³ autenticada
+    match /igrejas/{igrejaId}/certificados_gestor/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && pkcs12OrBlob();
+    }
+
+    // Logo na raiz da igreja (Cadastro: igrejas/{id}/logo_*.jpg etc.)
+    match /igrejas/{igrejaId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 25 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Identidade: `configuracoes/logo_igreja.png` (overwrite no mesmo path), assinatura, etc.
+    // Utilizador autenticado; objeto criado no primeiro put (nÃ£o hÃ¡ â€œpasta vaziaâ€ no GCS).
+    match /igrejas/{igrejaId}/configuracoes/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 15 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Foto do gestor em path estÃ¡vel: igrejas/{id}/gestor/foto_perfil.jpg
+    match /igrejas/{igrejaId}/gestor/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 20 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /noticias/{tenantId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 60 * 1024 * 1024
+        && mediaImageVideoOrBlob();
+    }
+
+    match /departamentos/{tenantId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /patrimonio/{tenantId}/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 20 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /igrejas/{igrejaId}/comprovantes/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 15 * 1024 * 1024
+        && comprovanteOrBlob();
+    }
+
+    // Financeiro (Controle Total): igrejas/{id}/financeiro/YYYY_MM/{lancamentoId}.jpg|pdf
+    match /igrejas/{igrejaId}/financeiro/{path=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 15 * 1024 * 1024
+        && comprovanteOrBlob();
+    }
+
+    // Mural eventos/avisos â€” write autenticado; quem pode publicar valida-se no Firestore (`canWriteMuralFeed`).
+    match /igrejas/{igrejaId}/eventos/{path=**} {
+      allow read: if true;
+      allow write: if authMediaWriteMax(120 * 1024 * 1024);
+    }
+
+    match /igrejas/{igrejaId}/noticias/{path=**} {
+      allow read: if true;
+      allow write: if authMediaWriteMax(120 * 1024 * 1024);
+    }
+
+    match /igrejas/{igrejaId}/avisos/{path=**} {
+      allow read: if true;
+      allow write: if authMediaWriteMax(120 * 1024 * 1024);
+    }
+
+    match /tenants/{tenantId}/media/{path=**} {
+      allow read: if true;
+      allow write: if authMediaWriteMax(120 * 1024 * 1024);
+    }
+
+    // Chat igreja â€” membro autenticado + MIME (PDF, Office, Ã¡udio, vÃ­deo, octet-stream).
+    match /igrejas/{igrejaId}/chat_media/{path=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 200 * 1024 * 1024
+        && chatMediaOrBlob();
+    }
+
+    // Biblioteca de figurinhas do chat (imagens â€” pasta por igreja).
+    match /igrejas/{igrejaId}/chat_stickers/{path=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 8 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /eventos/{eventoId}/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 100 * 1024 * 1024
+        && mediaImageVideoOrBlob();
+    }
+
+    match /certificado_logos/{tenantId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /carteira_logos/{tenantId}/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // CartÃ£o de membro â€” logo dedicada (padrÃ£o: igrejas/{id}/cartao_membro/; legado: carteira_logos/).
+    match /igrejas/{igrejaId}/cartao_membro/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Certificados â€” logo dedicada e mÃ­dias do mÃ³dulo (padrÃ£o: igrejas/{id}/certificados/; legado: certificado_logos/).
+    // Fundos HD continuam em igrejas/{id}/templates/certificados/.
+    match /igrejas/{igrejaId}/certificados/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 25 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /igrejas/{igrejaId}/patrimonio/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 20 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    // Uploads genÃ©ricos por igreja â€” anexos diversos (chat legado, importaÃ§Ãµes, ficheiros mistos).
+    match /igrejas/{igrejaId}/uploads/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 300 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*')
+          || request.resource.contentType.matches('video/.*')
+          || request.resource.contentType.matches('audio/.*')
+          || request.resource.contentType.matches('text/.*')
+          || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType == 'application/octet-stream'
+          || request.resource.contentType == ''
+          || request.resource.contentType.matches('application/.*')
+        );
+    }
+
+    // DivulgaÃ§Ã£o GestÃ£o YAHWEH (`public/gestao_yahweh/...`). Em DELETE, `request.resource` Ã© nulo â€”
+    // a regra antiga sÃ³ com `request.resource.size` bloqueava a exclusÃ£o pelo painel master.
+    match /public/{path=**} {
+      allow read: if true;
+      allow delete: if request.auth != null;
+      allow create, update: if request.auth != null
+        && request.resource.size < 200 * 1024 * 1024
+        && publicMediaPdfOrBlob();
+    }
+
+    // Demais pastas sob igrejas/{id}/... (eventos, notÃ­cias, avisos, configuracoes, gestor jÃ¡ cobertos acima).
+    match /igrejas/{igrejaId}/{seg}/{rest=**} {
+      allow read: if seg != 'certificados_gestor';
+      allow write: if request.auth != null
+        && seg != 'eventos'
+        && seg != 'noticias'
+        && seg != 'avisos'
+        && seg != 'configuracoes'
+        && seg != 'gestor'
+        && seg != 'chat_media'
+        && seg != 'chat_stickers'
+        && seg != 'uploads'
+        && seg != 'patrimonio'
+        && seg != 'certificados'
+        && seg != 'cartao_membro'
+        && seg != 'comprovantes'
+        && seg != 'financeiro'
+        && seg != 'certificados_gestor'
+        && request.resource.size < 10 * 1024 * 1024
+        && photoImageOrBlob();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

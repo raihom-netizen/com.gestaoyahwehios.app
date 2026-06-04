@@ -100,26 +100,30 @@ abstract final class MuralPublishOutboxService {
     await prefs.setString(_prefsKey, jsonEncode(list));
   }
 
-  /// Arranque da app — conclui uploads com ficheiros ainda em cache.
+  /// Arranque da app — reenvia jobs pendentes (um de cada vez via [BackgroundUploadWorker]).
   static void resumePendingOnAppStart() {
     bindConnectivityResume();
-    unawaited(
-      runFirebaseBackgroundTask<void>(
-        () async {
-          final prefs = await SharedPreferences.getInstance();
-          final raw = prefs.getString(_prefsKey);
-          if (raw == null || raw.isEmpty) return;
-          final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
-          for (final m in list) {
-            final attempts =
-                (m['attemptCount'] is num ? (m['attemptCount'] as num).toInt() : 0);
-            if (attempts >= 6) continue;
-            await _retryFromJson(m, attemptCount: attempts + 1);
-          }
-        },
-        debugLabel: 'mural_outbox_resume',
-      ).catchError((_) {}),
-    );
+    unawaited(drainPendingJobs());
+  }
+
+  /// Drena todos os jobs do mural outbox em série (sobrevive a fecho da app).
+  static Future<void> drainPendingJobs() async {
+    bindConnectivityResume();
+    await runFirebaseBackgroundTask<void>(
+      () async {
+        final prefs = await SharedPreferences.getInstance();
+        final raw = prefs.getString(_prefsKey);
+        if (raw == null || raw.isEmpty) return;
+        final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+        for (final m in list) {
+          final attempts =
+              (m['attemptCount'] is num ? (m['attemptCount'] as num).toInt() : 0);
+          if (attempts >= 6) continue;
+          await _retryFromJson(m, attemptCount: attempts + 1);
+        }
+      },
+      debugLabel: 'mural_outbox_drain',
+    ).catchError((_) {});
   }
 
   static void bindConnectivityResume() {

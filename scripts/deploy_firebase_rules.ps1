@@ -26,6 +26,9 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 . (Join-Path $RepoRoot "scripts\ensure_gestao_yahweh_toolchain_path.ps1")
+. (Join-Path $RepoRoot "scripts\firebase_rules_preflight.ps1")
+
+$ProjectId = Get-FirebaseDeployProjectId -RepoRoot $RepoRoot
 
 if (-not (Test-Path (Join-Path $RepoRoot "firebase.json"))) {
     Write-Host "Erro: firebase.json nao encontrado na raiz: $RepoRoot" -ForegroundColor Red
@@ -33,8 +36,12 @@ if (-not (Test-Path (Join-Path $RepoRoot "firebase.json"))) {
 }
 
 if ($ForcePublish) {
-    $MaxAttempts = [Math]::Max($MaxAttempts, 25)
-    Write-Host "ForcePublish: ate $MaxAttempts tentativas com backoff longo (503 firebaserules)." -ForegroundColor Yellow
+    if ($MaxAttempts -gt 8) {
+        $MaxAttempts = [Math]::Max($MaxAttempts, 25)
+        Write-Host "ForcePublish: ate $MaxAttempts tentativas com backoff longo (503 firebaserules)." -ForegroundColor Yellow
+    } else {
+        Write-Host "ForcePublish: max $MaxAttempts tentativas (deploy completo — web/AAB nao bloqueia)." -ForegroundColor Yellow
+    }
 }
 
 $BackoffSec = @(15, 30, 60, 90, 120, 150, 180, 240, 300, 300, 360, 420, 480, 540, 600)
@@ -160,7 +167,7 @@ function Get-MicroRetryWaitSec {
     $base = if ($ForcePublish) { 75 } else { 45 }
     $wait = $base + (($InnerAttempt - 1) * 35) + (Get-Random -Maximum 25)
     if ($Kind -eq 'rules_test_503' -or $Kind -eq 'rules_api_unavailable') {
-        $min = if ($ForcePublish) { 150 } else { 90 }
+        $min = if ($ForcePublish) { 55 } else { 35 }
         $wait = [Math]::Max($wait, $min)
     }
     if ($Kind -eq 'rules_release_409' -or $Kind -eq 'conflict_409') {
@@ -223,7 +230,9 @@ function Invoke-FirebaseDeployGranular {
     param([switch] $ForcePublish)
 
     $allText = ""
-    $innerMax = if ($ForcePublish) { 8 } else { 5 }
+    $innerMax = if ($ForcePublish) {
+        if ($MaxAttempts -le 6) { 2 } else { 5 }
+    } else { 4 }
 
     if (-not $OnlyFirestoreRules -and -not $OnlyFirestoreIndexes) {
         if (-not $script:SessionStorageOk) {
@@ -236,29 +245,44 @@ function Invoke-FirebaseDeployGranular {
         }
     }
 
-    # Indices antes de rules: quando rules passa, indexes costuma seguir; se rules falha em /test,
-    # indexes tambem falha - micro-retries independentes evitam reiniciar storage.
-    if (-not $OnlyStorage -and -not $OnlyFirestoreRules) {
-        if (-not $script:SessionFirestoreIndexesOk) {
-            Start-Sleep -Seconds 2
-            $i = Invoke-FirebaseTargetResilient -OnlyTarget 'firestore:indexes' -Label 'firestore:indexes' -InnerAttempts $innerMax -ForcePublish:$ForcePublish
-            $allText += $i.Text
-            if ($i.Kind -eq 'fatal') { return @{ Exit = $i.Exit; Text = $allText } }
-        }
-        else {
-            Write-Host "   [firestore:indexes] ja OK nesta sessao - skip" -ForegroundColor DarkGray
-        }
-    }
-
+    # Regras antes de indices: publicar rules libera compilacao remota; indices evita /test repetido.
     if (-not $OnlyStorage -and -not $OnlyFirestoreIndexes) {
         if (-not $script:SessionFirestoreRulesOk) {
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 1
             $r = Invoke-FirebaseTargetResilient -OnlyTarget 'firestore:rules' -Label 'firestore:rules' -InnerAttempts $innerMax -ForcePublish:$ForcePublish
             $allText += $r.Text
             if ($r.Kind -eq 'fatal') { return @{ Exit = $r.Exit; Text = $allText } }
+            if (-not $script:SessionFirestoreRulesOk -and ($r.Kind -eq 'rules_test_503' -or $r.Kind -eq 'rules_api_unavailable')) {
+                Write-Host '   [fallback] REST publish firestore.rules (contorna CLI /test 503)...' -ForegroundColor DarkYellow
+                $rest = Publish-FirestoreRulesViaRest -RepoRoot $RepoRoot -ProjectId $ProjectId
+                $allText += $rest.Text
+                if ($rest.Ok) {
+                    $script:SessionFirestoreRulesOk = $true
+                    if ($pf.FirestoreIndexesOk) {
+                        $script:SessionFirestoreIndexesOk = $true
+                    }
+                    Write-Host '   [fallback] firestore.rules publicadas via REST.' -ForegroundColor Green
+                }
+            }
         }
         else {
             Write-Host "   [firestore:rules] ja OK nesta sessao - skip" -ForegroundColor DarkGray
+        }
+    }
+
+    if (-not $OnlyStorage -and -not $OnlyFirestoreRules) {
+        if (-not $script:SessionFirestoreIndexesOk) {
+            if (-not $script:SessionFirestoreRulesOk -and $MaxAttempts -le 6) {
+                Write-Host "   [firestore:indexes] skip (rules pendentes + deploy completo; evita /test 503)" -ForegroundColor DarkYellow
+            } else {
+            Start-Sleep -Seconds 1
+            $i = Invoke-FirebaseTargetResilient -OnlyTarget 'firestore:indexes' -Label 'firestore:indexes' -InnerAttempts $innerMax -ForcePublish:$ForcePublish
+            $allText += $i.Text
+            if ($i.Kind -eq 'fatal') { return @{ Exit = $i.Exit; Text = $allText } }
+            }
+        }
+        else {
+            Write-Host "   [firestore:indexes] ja OK nesta sessao - skip" -ForegroundColor DarkGray
         }
     }
 
@@ -308,6 +332,30 @@ function Write-SessionStatus {
             $(if ($script:SessionFirestoreIndexesOk) { 'OK' } else { '...' })) -ForegroundColor DarkGray
 }
 
+function Save-DeployStateIfSuccess {
+    if (-not (Test-FirebaseRulesDeployEffectiveSuccess)) { return }
+    Write-DeployState -RepoRoot $RepoRoot `
+        -FirestoreRulesSha (Get-LocalFileSha256 (Join-Path $RepoRoot 'firestore.rules')) `
+        -StorageRulesSha (Get-LocalFileSha256 (Join-Path $RepoRoot 'storage.rules')) `
+        -IndexesSha (Get-LocalFileSha256 (Join-Path $RepoRoot 'firestore.indexes.json'))
+}
+
+Write-Host "=== Google Cloud auth (gcloud / conta de servico) ===" -ForegroundColor Cyan
+Ensure-GoogleCloudAuth -RepoRoot $RepoRoot
+
+Write-Host "=== Preflight (skip /test se ja sincronizado) ===" -ForegroundColor Cyan
+$pf = Invoke-FirebaseRulesPreflight -RepoRoot $RepoRoot -VerbosePreflight
+if ($pf.AllOk) {
+    $script:SessionStorageOk = $true
+    $script:SessionFirestoreRulesOk = $true
+    $script:SessionFirestoreIndexesOk = $true
+    Write-Host "`n=== Concluido (preflight) | sem chamar firebaserules.googleapis.com/test ===" -ForegroundColor Green
+    Write-SessionStatus
+    Write-Host "Console: https://console.firebase.google.com/project/$ProjectId/overview" -ForegroundColor DarkGray
+    exit 0
+}
+Write-Host "   $($pf.Message)" -ForegroundColor DarkGray
+
 for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     Write-Host "=== firebase deploy rules (tentativa $attempt de $MaxAttempts) ===" -ForegroundColor Cyan
     Write-SessionStatus
@@ -318,9 +366,10 @@ for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     Update-SessionFlagsFromText -OutputText $text
 
     if ($exit -eq 0 -or (Test-FirebaseRulesDeployEffectiveSuccess)) {
+        Save-DeployStateIfSuccess
         Write-Host "`n=== Concluido | Firestore (rules + indexes) + Storage rules ===" -ForegroundColor Green
         Write-SessionStatus
-        Write-Host "Console: https://console.firebase.google.com/project/gestaoyahweh-21e23/overview" -ForegroundColor DarkGray
+        Write-Host "Console: https://console.firebase.google.com/project/$ProjectId/overview" -ForegroundColor DarkGray
         exit 0
     }
 
@@ -334,6 +383,7 @@ for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         $r2 = Invoke-FirebaseDeployCombined
         $text += $r2.Text
         if ($r2.Exit -eq 0 -or (Test-FirebaseRulesDeployEffectiveSuccess)) {
+            Save-DeployStateIfSuccess
             Write-Host "`n=== Concluido (combinado) ===" -ForegroundColor Green
             exit 0
         }
@@ -345,6 +395,7 @@ for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         Write-SessionStatus
         Write-Host "503 na API Google: https://status.firebase.google.com/" -ForegroundColor DarkGray
         Write-Host "Repita: .\scripts\deploy_firebase_rules.ps1 -ForcePublish" -ForegroundColor DarkGray
+        Start-FirebaseRulesBackgroundRetry -RepoRoot $RepoRoot
         exit $exit
     }
 
@@ -354,7 +405,7 @@ for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
     $idx = [Math]::Min($attempt - 1, $BackoffSec.Length - 1)
     $wait = $BackoffSec[$idx]
     if ($kind -eq 'rules_test_503' -or $kind -eq 'rules_api_unavailable') {
-        $minRulesApiWait = if ($ForcePublish) { 180 } else { 120 }
+        $minRulesApiWait = if ($ForcePublish) { 90 } else { 60 }
         $wait = [Math]::Max($wait, $minRulesApiWait)
     }
     if ($kind -eq 'rules_release_409' -or $kind -eq 'conflict_409') {

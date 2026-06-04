@@ -263,7 +263,7 @@ final class ChurchDataService {
     }
   }
 
-  /// Upload a partir de ficheiro local (Android/iOS).
+  /// Upload a partir de ficheiro local (Android/iOS). Na Web use [uploadBytes].
   Future<String> uploadFile({
     required String churchId,
     required String folder,
@@ -271,6 +271,11 @@ final class ChurchDataService {
     required File file,
     String? module,
   }) async {
+    if (kIsWeb) {
+      throw UnsupportedError(
+        'uploadFile(File) não é suportado na Web — use uploadBytes(Uint8List).',
+      );
+    }
     await ensureReadyForWrite();
     final ts = DateTime.now().millisecondsSinceEpoch;
     final storagePath =

@@ -9,6 +9,7 @@
 #                               sem alteracao em /functions
 #   -ForceClean                 forca `flutter clean` (cache corrompido)
 #   -SkipProductionGate         pula gate verify_production_checklist.ps1 (emergencia)
+#   -ContinueOnRulesFailure     apos tentativas de regras (503 API), segue web+AAB+iOS
 
 param(
     [string] $CopyTo = 'D:\Temporarios',
@@ -16,7 +17,8 @@ param(
     [switch] $ForceFunctions,
     [switch] $ForceClean,
     [switch] $ForceFirestoreRules,
-    [switch] $SkipProductionGate
+    [switch] $SkipProductionGate,
+    [switch] $ContinueOnRulesFailure
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,6 +37,11 @@ if ($ForceFunctions)       { $invokeArgs.ForceFunctions       = $true }
 if ($ForceClean)           { $invokeArgs.ForceClean           = $true }
 if ($ForceFirestoreRules)  { $invokeArgs.ForceFirestoreRules  = $true }
 if ($SkipProductionGate)   { $invokeArgs.SkipProductionGate   = $true }
+if ($ContinueOnRulesFailure) { $invokeArgs.ContinueOnRulesFailure = $true }
 
+# Padrao otimizado: nao bloquear horas em 503 da API Rules — web/AAB/iOS seguem.
+if (-not $PSBoundParameters.ContainsKey('ContinueOnRulesFailure')) {
+    $invokeArgs.ContinueOnRulesFailure = $true
+}
 & $release @invokeArgs
 exit $LASTEXITCODE

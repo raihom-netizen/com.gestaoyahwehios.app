@@ -7,9 +7,8 @@ import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/media_upload_limits.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
-import 'package:gestao_yahweh/services/unified_upload_service.dart';
+import 'package:gestao_yahweh/services/storage_service.dart';
+import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 /// Financeiro — lançamento gravado primeiro; comprovante em background.
 abstract final class FinanceComprovantePublishService {
@@ -72,19 +71,15 @@ abstract final class FinanceComprovantePublishService {
     void Function(String url)? onSuccess,
   }) async {
     YahwehFlowLog.uploadStart('comprovante');
-    final compressed = await ImageHelper.compressImage(
-      rawBytes,
-      minWidth: kStandardUploadImageMaxEdge,
-      minHeight: kStandardUploadImageMaxEdge,
-      quality: kStandardUploadImageQuality,
-    );
     final path = ChurchStorageLayout.financeComprovantePath(
       tenantId: tenantId,
       lancamentoId: docRef.id,
     );
-    final url = await UnifiedUploadService.uploadJpegBytes(
+    final url = await StorageService.uploadCompressedImage(
       storagePath: path,
-      bytes: compressed,
+      rawBytes: rawBytes,
+      module: YahwehUploadModule.generic,
+      contentType: 'image/jpeg',
     );
     await docRef.set(
       {

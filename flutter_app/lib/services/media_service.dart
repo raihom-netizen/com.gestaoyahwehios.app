@@ -158,13 +158,15 @@ abstract final class MediaService {
     return bytes.isEmpty ? null : bytes;
   }
 
-  /// Comprime vídeo (equilíbrio tamanho/qualidade).
+  /// Comprime vídeo (H.264/AAC) — 720p ou 480p conforme tamanho do ficheiro.
   static Future<MediaInfo?> compressVideo(File file) async {
     if (kIsWeb || !file.existsSync()) return null;
     try {
+      final byteLen = await file.length();
+      final quality = videoCompressQualityForByteLength(byteLen);
       return await VideoCompress.compressVideo(
         file.path,
-        quality: mediaVideoCompressQuality,
+        quality: quality,
         deleteOrigin: false,
         includeAudio: true,
       );
@@ -172,6 +174,18 @@ abstract final class MediaService {
       return null;
     }
   }
+
+  /// Eventos (até 2×90s): sempre transcode H.264/AAC 720p/480p + miniatura antes do upload.
+  static Future<MediaVideoPrepareResult?> prepareEventVideoForUpload(
+    String inputPath, {
+    void Function(double progress)? onCompressProgress,
+  }) =>
+      prepareVideoForUpload(
+        inputPath,
+        onCompressProgress: onCompressProgress,
+        generateThumbnail: true,
+        forceTranscode: true,
+      );
 
   /// Miniatura instantânea do vídeo (chat/eventos).
   static Future<File?> getVideoThumbnail(
@@ -195,6 +209,7 @@ abstract final class MediaService {
     String inputPath, {
     void Function(double progress)? onCompressProgress,
     bool generateThumbnail = true,
+    bool forceTranscode = false,
   }) async {
     if (kIsWeb || inputPath.isEmpty) {
       return MediaVideoPrepareResult(outputPath: inputPath);
@@ -211,7 +226,8 @@ abstract final class MediaService {
       );
     }
 
-    final skipTranscode = byteLen <= mediaVideoSkipTranscodeMaxBytes &&
+    final skipTranscode = !forceTranscode &&
+        byteLen <= mediaVideoSkipTranscodeMaxBytes &&
         (lower.endsWith('.mp4') || lower.endsWith('.m4v'));
 
     onCompressProgress?.call(0.05);

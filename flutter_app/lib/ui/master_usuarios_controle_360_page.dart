@@ -6,7 +6,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -54,6 +57,9 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
   String? _loadError;
   List<_User360Row> _rows = [];
   final Map<String, String> _igrejaNomePorId = {};
+  int _usersQueryLimit = YahwehPerformanceV4.masterUsersPageSize;
+  bool _usersHasMore = false;
+  bool _usersLoadingMore = false;
   String _search = '';
   String? _filtroIgrejaId;
   String _filtroPlataforma = 'todos';
@@ -71,15 +77,21 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool resetUsersLimit = true}) async {
+    if (resetUsersLimit) {
+      _usersQueryLimit = YahwehPerformanceV4.masterUsersPageSize;
+    }
     setState(() {
       _loading = true;
       _loadError = null;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final igSnap =
-          await FirebaseFirestore.instance.collection('igrejas').get();
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
+      final igSnap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .orderBy('nome')
+          .limit(YahwehPerformanceV4.masterChurchesListLimit)
+          .get();
       final map = <String, String>{};
       for (final d in igSnap.docs) {
         final n =
@@ -87,8 +99,19 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
         map[d.id] = n.isEmpty ? d.id : n;
       }
 
-      final usersSnap =
-          await FirebaseFirestore.instance.collection('users').limit(1200).get();
+      QuerySnapshot<Map<String, dynamic>> usersSnap;
+      try {
+        usersSnap = await FirebaseFirestore.instance
+            .collection('users')
+            .orderBy('lastClientPlatformAt', descending: true)
+            .limit(_usersQueryLimit)
+            .get();
+      } catch (_) {
+        usersSnap = await FirebaseFirestore.instance
+            .collection('users')
+            .limit(_usersQueryLimit)
+            .get();
+      }
       final list = usersSnap.docs
           .map((d) => _User360Row(d.id, d.data()))
           .toList()
@@ -107,6 +130,7 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
           ..clear()
           ..addAll(map);
         _rows = list;
+        _usersHasMore = usersSnap.docs.length >= _usersQueryLimit;
         _loading = false;
         _loadError = null;
       });
@@ -115,10 +139,24 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
       final msg = e.toString();
       setState(() {
         _rows = [];
+        _usersHasMore = false;
         _loading = false;
         _loadError =
             msg.length > 280 ? '${msg.substring(0, 280)}…' : msg;
       });
+    }
+  }
+
+  Future<void> _loadMoreUsers() async {
+    if (_usersLoadingMore || !_usersHasMore) return;
+    setState(() {
+      _usersLoadingMore = true;
+      _usersQueryLimit += YahwehPerformanceV4.masterUsersPageSize;
+    });
+    try {
+      await _load(resetUsersLimit: false);
+    } finally {
+      if (mounted) setState(() => _usersLoadingMore = false);
     }
   }
 
@@ -728,6 +766,21 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
                           delegate: SliverChildBuilderDelegate(
                             (context, i) => userTile(filtrados[i]),
                             childCount: filtrados.length,
+                          ),
+                        ),
+                      ),
+                    if (_usersHasMore && _loadError == null)
+                      SliverPadding(
+                        padding: EdgeInsets.fromLTRB(
+                          pad.left,
+                          0,
+                          pad.right,
+                          24,
+                        ),
+                        sliver: SliverToBoxAdapter(
+                          child: LazyLoadMoreFooter(
+                            loading: _usersLoadingMore,
+                            onLoadMore: _loadMoreUsers,
                           ),
                         ),
                       ),

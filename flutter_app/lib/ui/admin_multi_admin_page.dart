@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
@@ -41,7 +42,10 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
     try {
       final merged = <String, Map<String, dynamic>>{};
 
-      final usuSnap = await FirebaseFirestore.instance.collection('usuarios').limit(500).get(_getServer);
+      final usuSnap = await FirebaseFirestore.instance
+          .collection('usuarios')
+          .limit(YahwehPerformanceV4.masterAdminUsersLimit)
+          .get(_getServer);
       for (final d in usuSnap.docs) {
         final data = d.data();
         if (_isAdminPapel(data)) {
@@ -50,7 +54,10 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
       }
 
       try {
-        final admSnap = await FirebaseFirestore.instance.collection('admins').limit(200).get(_getServer);
+        final admSnap = await FirebaseFirestore.instance
+            .collection('admins')
+            .limit(YahwehPerformanceV4.masterCacheAlertsLimit)
+            .get(_getServer);
         for (final doc in admSnap.docs) {
           final uid = doc.id;
           if (merged.containsKey(uid)) continue;

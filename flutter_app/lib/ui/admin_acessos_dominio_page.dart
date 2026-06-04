@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -167,7 +168,7 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
             .doc('domain')
             .collection('daily_hits')
             .orderBy('date', descending: true)
-            .limit(400)
+            .limit(YahwehPerformanceV4.masterAnalyticsSampleLimit)
             .get();
 
         if (colSnap.docs.isNotEmpty) {

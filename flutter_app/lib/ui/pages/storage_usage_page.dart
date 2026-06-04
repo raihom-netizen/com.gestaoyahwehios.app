@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -64,11 +66,18 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
       'pedidosOracao',
     ];
     var totalDocs = 0;
+    var sampledCollections = 0;
     for (final name in collections) {
       try {
-        final snap = await ref.collection(name).limit(9999).get();
+        final snap = await ref
+            .collection(name)
+            .limit(YahwehPerformanceV4.masterStorageEstimateSampleLimit)
+            .get();
         final c = snap.docs.length;
+        final atCap =
+            c >= YahwehPerformanceV4.masterStorageEstimateSampleLimit;
         counts[name] = c;
+        if (atCap) sampledCollections++;
         totalDocs += c;
       } catch (_) {
         counts[name] = 0;
@@ -80,6 +89,7 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
         'docCounts': counts,
         'totalDocs': totalDocs,
         'estimateBytes': estimateBytes,
+        'sampledCollections': sampledCollections,
       },
     };
   }
@@ -104,7 +114,7 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
       _usingLocalFirestoreEstimate = false;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final callable = _functions.httpsCallable('getChurchStorageUsage');
       final result = await callable.call<Map<dynamic, dynamic>>(
           {'tenantId': widget.tenantId});
@@ -316,7 +326,7 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
                       child: _InfoPill(
                         icon: Icons.info_outline_rounded,
                         text:
-                            'Estimativa local: a função getChurchStorageUsage não respondeu; contagens foram feitas no app.',
+                            'Estimativa local: amostra até ${YahwehPerformanceV4.masterStorageEstimateSampleLimit} docs por coleção; totais podem ser maiores.',
                         color: Colors.amber.shade800,
                         bg: Colors.amber.shade50,
                       ),
@@ -944,10 +954,19 @@ class _StorageUsageMasterPageState extends State<StorageUsageMasterPage> {
   Future<void> _loadTenants() async {
     setState(() => _loadingTenants = true);
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .orderBy('nome')
-          .get();
+      QuerySnapshot<Map<String, dynamic>> snap;
+      try {
+        snap = await FirebaseFirestore.instance
+            .collection('igrejas')
+            .orderBy('nome')
+            .limit(YahwehPerformanceV4.masterChurchesListLimit)
+            .get();
+      } catch (_) {
+        snap = await FirebaseFirestore.instance
+            .collection('igrejas')
+            .limit(YahwehPerformanceV4.masterChurchesListLimit)
+            .get();
+      }
       if (mounted) {
         setState(() {
           _tenants = snap.docs;

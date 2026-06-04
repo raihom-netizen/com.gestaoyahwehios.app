@@ -11,6 +11,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -32,6 +34,7 @@ import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/unified_upload_service.dart';
@@ -862,7 +865,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       ),
     );
     if (res != true) return;
-    await firebaseDefaultAuth.currentUser?.getIdToken(true);
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     await Future.delayed(const Duration(milliseconds: 150));
     final now = Timestamp.now();
     final payload = <String, dynamic>{
@@ -8473,6 +8476,8 @@ class _FixosTabState extends State<_FixosTab> {
   DateTime? _upcomingCustomEnd;
   bool _upcomingSelectMode = false;
   final Set<String> _selectedNoticiaIds = <String>{};
+  int _proximosNoticiasLimit = YahwehPerformanceV4.defaultPageSize;
+  bool _proximosNoticiasLoadingMore = false;
 
   @override
   void initState() {
@@ -8527,7 +8532,7 @@ class _FixosTabState extends State<_FixosTab> {
               isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
           .where('startAt', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
           .orderBy('startAt')
-          .limit(250)
+          .limit(_proximosNoticiasLimit)
           .get();
       return snap.docs;
     } catch (_) {
@@ -8535,10 +8540,10 @@ class _FixosTabState extends State<_FixosTab> {
       try {
         snap = await widget.noticias
             .orderBy('startAt', descending: false)
-            .limit(200)
+            .limit(_proximosNoticiasLimit)
             .get();
       } catch (_) {
-        snap = await widget.noticias.limit(250).get();
+        snap = await widget.noticias.limit(_proximosNoticiasLimit).get();
       }
       final out = snap.docs.where((d) {
         if ((d.data()['type'] ?? '').toString() != 'evento') return false;
@@ -8555,6 +8560,27 @@ class _FixosTabState extends State<_FixosTab> {
       });
       return out;
     }
+  }
+
+  Future<void> _loadMoreProximosNoticias() async {
+    if (_proximosNoticiasLoadingMore) return;
+    setState(() {
+      _proximosNoticiasLoadingMore = true;
+      _proximosNoticiasLimit += YahwehPerformanceV4.defaultPageSize;
+    });
+    final f = _loadProximosNoticias();
+    setState(() => _proximosNoticiasFuture = f);
+    await f;
+    if (mounted) setState(() => _proximosNoticiasLoadingMore = false);
+  }
+
+  Widget _buildProximosLoadMoreFooter(int rawFetched) {
+    return LazyLoadMoreFooter(
+      visible: rawFetched >= _proximosNoticiasLimit,
+      loading: _proximosNoticiasLoadingMore,
+      label: 'Carregar mais eventos',
+      onLoadMore: () => unawaited(_loadMoreProximosNoticias()),
+    );
   }
 
   String _formatNoticiaEventoDataLinha(Map<String, dynamic> data) {
@@ -9316,9 +9342,9 @@ class _FixosTabState extends State<_FixosTab> {
                           ),
                         ),
                       )
-                    else
+                    else ...[
                       SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 88),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
                         sliver: SliverList(
                           delegate: SliverChildBuilderDelegate(
                             (context, i) {
@@ -9328,6 +9354,10 @@ class _FixosTabState extends State<_FixosTab> {
                           ),
                         ),
                       ),
+                      SliverToBoxAdapter(
+                        child: _buildProximosLoadMoreFooter(upcoming.length),
+                      ),
+                    ],
                   ],
                 ),
               );
@@ -9546,8 +9576,10 @@ class _FixosTabState extends State<_FixosTab> {
                                       fontSize: 13),
                                 ),
                               )
-                            else
-                              ...vis.map(_buildUpcomingNoticiaCard).toList(),
+                            else ...[
+                              ...vis.map(_buildUpcomingNoticiaCard),
+                              _buildProximosLoadMoreFooter(upcoming.length),
+                            ],
                           ],
                         ),
                       );
@@ -9985,11 +10017,13 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       try {
         snap = await widget.noticias
             .orderBy('startAt', descending: true)
-            .limit(100)
+            .limit(YahwehPerformanceV4.dashboardStatsSampleLimit)
             .get();
       } catch (_) {
         // Fallback sem orderBy (evita exigir índice no Firestore).
-        snap = await widget.noticias.limit(150).get();
+        snap = await widget.noticias
+            .limit(YahwehPerformanceV4.dashboardStatsSampleLimit)
+            .get();
       }
       var allSorted = snap.docs.where(noticiaDocEhEventoSpecialFeed).toList();
       if (allSorted.length > 1 &&

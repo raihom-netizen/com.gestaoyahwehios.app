@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
@@ -12,7 +12,8 @@ import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/church_data_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
-import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/services/storage_service.dart';
+import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
@@ -251,10 +252,10 @@ abstract final class MuralFastPublishService {
       rethrow;
     }
     try {
-      await FeedPostMediaUpload.warmAuthToken().timeout(const Duration(seconds: 25));
+      await StorageService.warmAuthToken().timeout(const Duration(seconds: 25));
       Map<String, dynamic>? firstVariants;
       final maxConc = _feedUploadConcurrency(newImages.length);
-      final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
+      final uploaded = await StorageService.uploadPhotosParallel<String>(
         count: newImages.length,
         maxConcurrent: maxConc,
         progressLabel: 'A enviar imagens…',
@@ -345,10 +346,10 @@ abstract final class MuralFastPublishService {
       return;
     }
     try {
-      await FeedPostMediaUpload.warmAuthToken()
+      await StorageService.warmAuthToken()
           .timeout(const Duration(seconds: 25));
       Map<String, dynamic>? firstVariants;
-      final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
+      final uploaded = await StorageService.uploadPhotosParallel<String>(
         count: paths.length,
         maxConcurrent: _feedUploadConcurrency(paths.length),
         progressLabel: 'A enviar imagens…',
@@ -479,6 +480,11 @@ abstract final class MuralFastPublishService {
       );
     }
     ChurchPublishFlowLog.moduleFinalOk(isEvento: postType != 'aviso');
+    unawaited(
+      postType == 'aviso'
+          ? DashboardStatsCounterService.onAvisoPublished(tenantId)
+          : DashboardStatsCounterService.onEventoPublished(tenantId),
+    );
     if (onPublished != null) {
       try {
         await onPublished();

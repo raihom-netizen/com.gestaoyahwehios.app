@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_detail_sheet.dart';
 
 /// Pesquisa global de igrejas (⌘K / Ctrl+K) — padrão SaaS.
@@ -33,6 +34,21 @@ class _MasterGlobalSearchDialogState extends State<MasterGlobalSearchDialog> {
     super.dispose();
   }
 
+  bool _matches(
+    QueryDocumentSnapshot<Map<String, dynamic>> d,
+    String query,
+  ) {
+    final data = d.data();
+    final nome = '${data['nome'] ?? data['name'] ?? ''}'.toLowerCase();
+    final slug = '${data['slug'] ?? ''}'.toLowerCase();
+    final email =
+        '${data['gestorEmail'] ?? data['email'] ?? ''}'.toLowerCase();
+    return nome.contains(query) ||
+        slug.contains(query) ||
+        email.contains(query) ||
+        d.id.toLowerCase().contains(query);
+  }
+
   Future<void> _search(String q) async {
     final query = q.trim().toLowerCase();
     if (query.isEmpty) {
@@ -41,19 +57,32 @@ class _MasterGlobalSearchDialogState extends State<MasterGlobalSearchDialog> {
     }
     setState(() => _loading = true);
     try {
-      final snap =
-          await FirebaseFirestore.instance.collection('igrejas').limit(400).get();
-      final out = snap.docs.where((d) {
-        final data = d.data();
-        final nome = '${data['nome'] ?? data['name'] ?? ''}'.toLowerCase();
-        final slug = '${data['slug'] ?? ''}'.toLowerCase();
-        final email =
-            '${data['gestorEmail'] ?? data['email'] ?? ''}'.toLowerCase();
-        return nome.contains(query) ||
-            slug.contains(query) ||
-            email.contains(query) ||
-            d.id.toLowerCase().contains(query);
-      }).take(24).toList();
+      final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      var scanLimit = YahwehPerformanceV4.masterGlobalSearchScanLimit;
+      while (out.length < 24) {
+        QuerySnapshot<Map<String, dynamic>> snap;
+        try {
+          snap = await FirebaseFirestore.instance
+              .collection('igrejas')
+              .orderBy('nome')
+              .limit(scanLimit)
+              .get();
+        } catch (_) {
+          snap = await FirebaseFirestore.instance
+              .collection('igrejas')
+              .limit(scanLimit)
+              .get();
+        }
+        for (final d in snap.docs) {
+          if (_matches(d, query)) {
+            out.add(d);
+            if (out.length >= 24) break;
+          }
+        }
+        if (snap.docs.length < scanLimit || out.length >= 24) break;
+        scanLimit += YahwehPerformanceV4.masterGlobalSearchScanLimit;
+        if (scanLimit > YahwehPerformanceV4.masterChurchesListLimit * 3) break;
+      }
       if (mounted) setState(() => _hits = out);
     } finally {
       if (mounted) setState(() => _loading = false);

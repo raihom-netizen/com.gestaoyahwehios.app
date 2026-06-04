@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
@@ -319,11 +320,14 @@ abstract final class MasterDashboardCacheService {
     try {
       final igCount = await db.collection('igrejas').count().get();
       final userCount = await db.collection('users').count().get();
-      final alertSnap = await db.collection('alertas').limit(200).get();
+      final alertSnap = await db
+          .collection('alertas')
+          .limit(YahwehPerformanceV4.masterCacheAlertsLimit)
+          .get();
       final paySnap = await db
           .collection('pagamentos')
           .where('status', whereIn: ['approved', 'paid', 'accredited'])
-          .limit(400)
+          .limit(YahwehPerformanceV4.masterCachePaymentsLimit)
           .get();
 
       igrejas = igCount.count ?? 0;
@@ -340,7 +344,10 @@ abstract final class MasterDashboardCacheService {
             : double.tryParse('$amt') ?? 0;
       }
 
-      final igSnap = await db.collection('igrejas').limit(300).get();
+      final igSnap = await db
+          .collection('igrejas')
+          .limit(YahwehPerformanceV4.masterCacheChurchesScanLimit)
+          .get();
       final now = DateTime.now();
       final in7 = now.add(const Duration(days: 7));
       for (final doc in igSnap.docs) {

@@ -3,11 +3,10 @@ import 'package:flutter/material.dart';
 
 import 'safe_network_image.dart'
     show FreshFirebaseStorageImage, isValidImageUrl, sanitizeImageUrl;
+import 'unavailable_media_widget.dart';
 
-/// Exibição de mídia (fotos de membros, painel, site) com cache e fallback.
-/// Na **web**, [Image.network] costuma falhar com URLs do Firebase Storage (CanvasKit);
-/// usamos [StorageFriendlyImage] (HTTP + memória), igual patrimônio/certificados.
-class MediaView extends StatelessWidget {
+/// Exibição de mídia (fotos de membros, painel, site) com cache, fallback e retry.
+class MediaView extends StatefulWidget {
   final String url;
   final double size;
   final double borderRadius;
@@ -21,78 +20,72 @@ class MediaView extends StatelessWidget {
     this.fit = BoxFit.cover,
   });
 
-  String get _normalized => sanitizeImageUrl(url);
+  @override
+  State<MediaView> createState() => _MediaViewState();
+}
+
+class _MediaViewState extends State<MediaView> {
+  int _generation = 0;
+
+  String get _normalized => sanitizeImageUrl(widget.url);
 
   bool get _isValidUrl => isValidImageUrl(_normalized);
 
+  void _retry() => setState(() => _generation++);
+
   @override
   Widget build(BuildContext context) {
-    if (!_isValidUrl) return _errorPlaceholder();
-
-    if (kIsWeb) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(borderRadius),
-        child: FreshFirebaseStorageImage(
-          imageUrl: url,
-          width: size,
-          height: size,
-          fit: fit,
-          memCacheWidth: (size * (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0)).round().clamp(48, 1024),
-          memCacheHeight: (size * (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0)).round().clamp(48, 1024),
-          placeholder: _loadingPlaceholder(),
-          errorWidget: _errorPlaceholder(),
-        ),
-      );
+    if (!_isValidUrl) {
+      return _errorPlaceholder(onRetry: null);
     }
 
+    final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0;
+    final mem = (widget.size * dpr).round().clamp(48, 1024);
+
     return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: FreshFirebaseStorageImage(
-        imageUrl: url,
-        width: size,
-        height: size,
-        fit: fit,
-        memCacheWidth:
-            (size * (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0))
-                .round()
-                .clamp(48, 1024),
-        memCacheHeight:
-            (size * (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0))
-                .round()
-                .clamp(48, 1024),
-        placeholder: _loadingPlaceholder(),
-        errorWidget: _errorPlaceholder(),
+      borderRadius: BorderRadius.circular(widget.borderRadius),
+      child: KeyedSubtree(
+        key: ValueKey<int>(_generation),
+        child: FreshFirebaseStorageImage(
+          imageUrl: widget.url,
+          width: widget.size,
+          height: widget.size,
+          fit: widget.fit,
+          memCacheWidth: mem,
+          memCacheHeight: mem,
+          placeholder: _loadingPlaceholder(),
+          errorWidget: _errorPlaceholder(onRetry: _retry),
+        ),
       ),
     );
   }
 
   Widget _loadingPlaceholder() {
     return Container(
-      width: size,
-      height: size,
+      width: widget.size,
+      height: widget.size,
       decoration: BoxDecoration(
         color: Colors.grey.shade300,
-        borderRadius: BorderRadius.circular(borderRadius),
+        borderRadius: BorderRadius.circular(widget.borderRadius),
       ),
       child: Center(
         child: SizedBox(
-          width: size * 0.4,
-          height: size * 0.4,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          width: widget.size * 0.4,
+          height: widget.size * 0.4,
+          child: const CircularProgressIndicator(strokeWidth: 2),
         ),
       ),
     );
   }
 
-  Widget _errorPlaceholder() {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(borderRadius),
-      ),
-      child: Icon(Icons.person_rounded, size: size * 0.5, color: Colors.grey.shade500),
+  Widget _errorPlaceholder({VoidCallback? onRetry}) {
+    return UnavailableMediaWidget(
+      width: widget.size,
+      height: widget.size,
+      message: 'Imagem indisponível',
+      onRetry: onRetry,
+      compact: widget.size < 72,
+      icon: Icons.person_rounded,
     );
   }
 }

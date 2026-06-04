@@ -161,13 +161,32 @@ Evitar:
 
 ### 6.2 Como publicar (recomendado)
 
+**Uma vez por máquina** — alinhar Google Cloud ao projeto (token para preflight/REST; evita «Sem gcloud token»):
+
+```powershell
+.\scripts\setup_google_cloud_automatico.ps1
+```
+
+Usa `gestaoyahweh-21e23`, `gcloud auth login`, ADC e, se existir localmente, chave em `ANDROID/*-firebase-adminsdk*.json` ou `secrets/`.
+
 Na raiz do repositório (PowerShell):
 
 ```powershell
 .\scripts\deploy_firebase_rules.ps1
 ```
 
-Isto publica **Firestore + índices + Storage** de uma vez, com retry em erros 503.
+Isto publica **Firestore + índices + Storage** com:
+
+1. **GCP auth** — `ensure_google_cloud_auth.ps1` (PATH gcloud + token utilizador/ADC/conta de serviço).
+2. **Preflight** — compara local vs remoto (REST read-only); se igual, **não chama** `firebaserules.googleapis.com/test` (evita 503).
+3. **Fallback REST** — se CLI `/test` falhar com 503, publica `firestore.rules` via API Rules (retry 503).
+4. **Retry background** — `deploy_firebase_rules_background.ps1` (log em `.deploy-state/firebase-rules-background.log`).
+
+```powershell
+.\scripts\deploy_firebase_rules.ps1 -ForcePublish
+# Deploy completo (web+AAB+iOS continuam se regras falharem):
+.\scripts\deploy_completo.ps1
+```
 
 Colar manualmente no console só se não tiver CLI — copie **o ficheiro inteiro** (`Ctrl+A` no VS Code/Cursor).
 
@@ -238,10 +257,10 @@ Após alterar: `cd flutter_app` → `flutter pub get`.
 ```
 lib/
 ├── core/           # offline, firestore config, bootstrap
-├── repositories/   # fachadas UI → serviços (NOVO)
+├── repositories/   # fachadas UI → serviços
 │   ├── auth_repository.dart      → AuthService
-│   └── storage_repository.dart   → FeedPostMediaUpload + YahwehMediaUploadPipeline
-├── services/       # lógica Firebase, upload, chat, mural
+│   └── storage_repository.dart   → StorageService
+├── services/       # auth_service.dart, storage_service.dart, chat, mural
 ├── ui/pages/       # só UI + navegação — sem queries Firestore directas
 └── ui/widgets/
 ```
@@ -249,7 +268,7 @@ lib/
 **Regras**
 
 - Telas **não** chamam `FirebaseFirestore.instance` / `FirebaseStorage.instance` directamente.
-- Preferir `AuthRepository`, `StorageRepository`, `ChurchDataService`, `OptimisticFirestoreWrite`.
+- Preferir `AuthService`, `StorageService`, `AuthRepository`, `StorageRepository`, `ChurchDataService`, `OptimisticFirestoreWrite`.
 - Uploads múltiplos: `StorageRepository.uploadPhotosParallel` ou `FeedPostMediaUpload.uploadParallel` (já usado em avisos, eventos, património) — paralelismo limitado via `Future.wait` em lotes, não sequencial.
 
 **Já implementado**
@@ -260,9 +279,79 @@ lib/
 
 ---
 
-## 9. Versão e deploy
+## 9. Compatibilidade Flutter Web
 
-### 9.1 Controlo de versão
+- Seleção/compressão: **`XFile.readAsBytes()`** / `Uint8List` — ver `lib/core/web_safe_media.dart`.
+- Upload: **`putData`** via `uploadStoragePutDataWithRetry` / `StorageService.uploadBytes` — `putFile` só mobile (`upload_bytes_core` redirecciona na Web).
+- `MediaHandlerService` usa imports condicionais (`media_handler_service_io` / `_web`).
+
+## 10. Cache de imagens na UI
+
+- Firebase (membros, património, chat, eventos): **`SafeNetworkImage`** ou **`ResilientNetworkImage`** (delegam a `CachedNetworkImage` quando seguro).
+- **`Image.network`** apenas como último recurso interno em `safe_network_image.dart` (CORS web).
+- Preview local (picker): **`MemoryImage(Uint8List)`**, nunca `FileImage`/`NetworkImage` para blob na Web.
+
+## 11. Chat realtime + paginação
+
+- **`ChurchChatService.recentMessagesStream`** — `snapshots()` + `orderBy(messageTimestampField)` (`createdAt`) **desc** + `limit(20)`.
+- Histórico: **`loadOlderMessagesPage`** ao scroll (`church_chat_thread_page.dart`).
+- Texto optimista + mídia assíncrona (stub + progresso no balão).
+
+---
+
+## 12. Fila de upload em background (Upload Queue)
+
+- **Objetivo:** mídias pesadas (2 vídeos 90s em Eventos, 10 fotos) **não cancelam** ao fechar/minimizar o app.
+- **Serviço:** `lib/services/background_upload_worker.dart` — drena em série: mural outbox → `pending_uploads` (disco) → chat outbox → sync offline.
+- **Persistência:** `StorageUploadPersistenceService` copia bytes para `pending_uploads/` + manifest SharedPreferences; `MuralPublishOutboxService.registerJob` para avisos/eventos.
+- **Arranque/resume:** `AppFinalizeBootstrap.runAutomaticRecovery()` → `BackgroundUploadWorker.drainAll()`.
+- **Mobile:** fila local sobrevive ao fecho; retoma no cold start e ao voltar do background (`AppSessionStability.onGlobalResume`). WorkManager opcional futuro para Android com app morto.
+
+## 13. Compressão nativa de vídeo (H.264/AAC)
+
+- **Pacote:** `video_compress` — `includeAudio: true`, codec H.264 + AAC.
+- **Qualidade:** `lib/core/media_video_compress_quality.dart` — 720p default; **480p** se ficheiro > 50 MB.
+- **Eventos:** `MediaService.prepareEventVideoForUpload` (sempre transcode) + `EventoGalleryService` antes do upload.
+- **Limite:** duração máxima eventos = `kMediaEventVideoMaxSeconds` (90s); rejeitar antes de comprimir.
+
+## 14. Contadores denormalizados (dashboard_stats)
+
+- **Documento:** `igrejas/{tenantId}/dashboard_stats/summary` — campos `members`, `avisos`, `eventos`.
+- **Leitura:** `ChurchTenantDashboardDocService.readOnce` — cache-first, **sem** `count()` na coleção `membros`.
+- **Escrita:** `DashboardStatsCounterService.onMemberCreated/onMemberDeleted` — `FieldValue.increment` síncrono ao criar/apagar membro; espelha `_panel_cache/dashboard_summary.membersTotalCount`.
+
+## 15. Empty states e retry na UI
+
+- **Widget:** `lib/ui/widgets/unavailable_media_widget.dart` — «Imagem indisponível» + botão «Tentar novamente».
+- **Uso:** `defaultImageErrorWidget`, `MediaView`, `SafeNetworkImage` / `ResilientNetworkImage` (fallback de erro).
+- **Regra:** nunca tela branca por 404 Storage ou falha de cache — sempre placeholder amigável.
+
+## 16. Chat — retenção seletiva de Storage (90 dias)
+
+- **Serviço:** `ChurchChatStorageRetentionService` — remove mídia de chat comum > 90 dias.
+- **Preserva:** `preserveMedia`, threads oficiais/anúncio, paths `/avisos/` e `/eventos/`, mensagens favoritas (star → `preserveMedia: true`).
+- **Execução:** `BackgroundUploadWorker.drainAll` (≈1×/20h por tenant); texto da mensagem mantém-se.
+
+## 17. Paginação em listas (lazy loading)
+
+- **Padrão:** `YahwehPerformanceV4.defaultPageSize` = **20** — Membros, Patrimônio, Financeiro, Fornecedores, Eventos.
+- **Helper:** `LazyFirestoreListController` + botão «Carregar mais» nas telas grandes.
+- **Regra:** nunca `.get()` / `.limit(500+)` na lista principal sem paginação.
+
+## 18. Conflitos offline (Last Write Wins)
+
+- **Carimbo:** `FirestoreLastWriteWins` — `updatedAt: FieldValue.serverTimestamp()` + `clientWriteSeq` em toda escrita via `TenantOfflineWrite`.
+- **Política:** última gravação com timestamp do servidor prevalece; evita corrupção em edições simultâneas offline.
+
+## 19. Compartilhar via WhatsApp (`share_plus`)
+
+- **Serviço:** `YahwehShareService` — PDF em memória ou texto sem guardar manualmente.
+- **Widget:** `YahwehShareButton` / `shareAvisoWhatsApp` — Certificados, Cartão, Avisos, Relatórios financeiros.
+- **Pacote:** `share_plus` — folha nativa; utilizador escolhe WhatsApp.
+
+## 20. Versão e deploy
+
+### 20.1 Controlo de versão
 
 Alinhar sempre (marketing fixo **11.2.295** salvo pedido explícito):
 
@@ -272,7 +361,7 @@ Alinhar sempre (marketing fixo **11.2.295** salvo pedido explícito):
 
 Incrementar `+N` quando houver código a entregar; obrigatório em publicação lojas.
 
-### 9.2 Scripts
+### 20.2 Scripts
 
 | Pedido | Comando |
 |--------|---------|
@@ -284,21 +373,20 @@ URL produção: **https://gestaoyahweh-21e23.web.app** — após deploy, **Ctrl+
 
 ---
 
-## 10. Comando mestre (colar no Composer)
+## 21. Comando mestre (Composer — opcional)
+
+> **Cursor já está configurado:** regras `prompt-mestre-arquitetura.mdc` e `configuracao-mestre-automatica.mdc` têm `alwaysApply: true`. Ver também `AGENTS.md`.
+
+Para reforçar numa tarefa específica, use `@prompt_mestre_cursor.md` ou cole:
 
 ```text
-Atue como Arquiteto de Software e Desenvolvedor Sênior Flutter/Firebase.
-Transforme o Gestão Igreja em plataforma offline-first (Android, iOS, Web)
-com sync silenciosa, login persistente, biometria, compressão 1024/70%,
-uploads com progresso/timeout 30s, e módulos conforme prompt_mestre_cursor.md.
-Priorize código existente (OfflineFirstCoordinator, OptimisticFirestoreWrite,
-AuthService, YahwehMediaUploadPipeline). Não regredir quota Auth nem web persistence
-sem fallback documentado. Responda em português; diff mínimo e focado.
+Implementação alinhada ao prompt_mestre_cursor.md — offline-first, AuthService, StorageService,
+sem regressões de quota Auth. Responda em português; diff mínimo.
 ```
 
 ---
 
-## 11. Checklist de validação pós-alteração
+## 22. Checklist de validação pós-alteração
 
 - [ ] `dart analyze` nos ficheiros tocados (zero `error`)
 - [ ] Cold start com sessão → biometria → painel
@@ -306,8 +394,43 @@ sem fallback documentado. Responda em português; diff mínimo e focado.
 - [ ] Chat: enviar foto → bolha com progresso → URL final
 - [ ] Evento: vídeo > 90 s rejeitado antes do upload
 - [ ] Web: publicar aviso sem «Future not completed»
-- [ ] `version.json` build alinhado ao rodapé do painel
+- [ ] Web: picker usa bytes (`XFile`); upload `putData`; preview `MemoryImage`
+- [ ] Upload pesado: fechar app → reabrir → fila retoma (`BackgroundUploadWorker`)
+- [ ] Evento: vídeo comprime para 720p/480p antes do envio
+- [ ] Dashboard: total membros vem de `dashboard_stats/summary` (sem count live)
+- [ ] Chat: mídia > 90d apagada do Storage; favoritas preservadas
+- [ ] Listas: 20 itens iniciais + «Carregar mais» (membros, patrimônio, financeiro, fornecedores, eventos)
+- [ ] Offline: duas edições no mesmo doc — LWW com `updatedAt` servidor
+- [ ] Compartilhar: PDF/texto abre folha nativa (WhatsApp)
 
 ---
 
-*Última revisão arquitectural: build 11.2.295+1751 — offline-first coordinator, persistence explícita, qualidade imagem 70%.*
+## 23. Veredicto de conformidade (build 11.2.295+1764)
+
+| § | Requisito | Estado | Implementação |
+|---|-----------|--------|---------------|
+| 0 | Auth sem `getIdToken(true)` em leituras | **OK** | `FirebaseAuthTokenGuard` + `FirestoreStreamUtils` nos módulos §12–19 e aprovações |
+| 8 | UI → serviços (não Firestore cru) | **OK** | `ChurchTenantResilientReads`, serviços dedicados (upload, stats, share, retention) |
+| 12 | Fila upload background serial | **OK** | `BackgroundUploadWorker` + `AppFinalizeBootstrap` |
+| 13 | Vídeo 720p/480p H.264 | **OK** | `MediaService.prepareEventVideoForUpload` |
+| 14 | Contadores `dashboard_stats` | **OK** | `DashboardStatsCounterService` (membros, mural, cadastro público) |
+| 15 | Empty states + retry mídia | **OK** | `UnavailableMediaWidget`, `defaultImageErrorWidget` |
+| 16 | Retenção chat 90d | **OK** | `ChurchChatStorageRetentionService` + `preserveMedia` |
+| 17 | Paginação lazy 20 | **OK** | `LazyLoadMoreFooter` + certificados/finance/liderança |
+| 18 | LWW offline | **OK** | `firestore_last_write_wins` em `tenant_offline_write` |
+| 19 | Partilha WhatsApp | **OK** | `YahwehShareService` |
+| — | Cadastro público + foto | **OK** | Firestore-first; `MemberProfilePhotoUpdateService` BG (`requireAuth: false` visitante) |
+| — | Certificados lista membros | **OK** | `membrosRecent` 20+«Carregar mais» (não `.get()` ilimitado) |
+| — | Financeiro gráficos home | **OK** | `financeChartsSampleLimit` (100) em vez de 2500 |
+
+| — | Cartão membro | **OK** | Índice signatários + paginação 40 + cache foto PDF + CF `refreshCarteiraSignatoriesIndex` |
+| — | Património leituras | **OK** | Lista 20+lazy; formulário/tabs via `ChurchTenantResilientReads` (cache-first, sem `Source.server`) |
+| — | Chat igreja envio | **OK** | Texto otimista local; mídia stub+bytes paralelos; thumb+full paralelo; outbox prioridade; pickers sem await Firebase |
+
+**Políticas documentadas:** exportações admin usam `adminExportBatchLimit` (500); gráficos/dashboard master usam constantes `master*` em `YahwehPerformanceV4`.
+
+---
+
+| — | Deploy Firebase / GCP | **OK** | `setup_google_cloud_automatico.ps1`, `ensure_google_cloud_auth.ps1`, preflight REST, fallback Rules API |
+
+*Última revisão arquitectural: build 11.2.295+1764 — Cursor auto-configurado via `.cursor/rules/prompt-mestre-arquitetura.mdc` + `AGENTS.md`.*

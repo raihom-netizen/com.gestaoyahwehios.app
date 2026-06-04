@@ -10,14 +10,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/carteirinha_visual_tokens.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/services/member_card_directory_service.dart';
+import 'package:gestao_yahweh/services/member_card_photo_cache.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         churchTenantLogoUrl,
@@ -64,7 +69,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show SafeMemberProfilePhoto, memberPhotoDisplayCacheRevision;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gal/gal.dart';
 import 'package:screenshot/screenshot.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -287,6 +292,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   String _memberSearch = '';
   late Future<List<_MemberItem>> _membersListFuture;
+  int _membersListLimit = YahwehPerformanceV4.memberCardListPageSize;
+  bool _membersListLoadingMore = false;
+  bool _membersListHasMore = true;
 
   /// Departamentos da igreja (para filtro e correspondência com nome legado).
   List<({String id, String name})> _deptFilterItems = [];
@@ -413,30 +421,56 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
   }
 
-  Future<List<_MemberItem>> _loadMemberItemsForPicker({int limit = 120}) async {
+  Future<List<_MemberItem>> _loadMemberItemsForPicker({int? limit}) async {
     final tid = await _effectiveIgrejaDocId();
-    await ChurchTenantResilientReads.preparePanelRead();
-    final membersSnap =
-        await ChurchTenantResilientReads.membrosRecent(tid, limit: limit);
-    final list = <_MemberItem>[];
-    for (final d in membersSnap.docs) {
-      final data = Map<String, dynamic>.from(d.data());
-      final name =
-          (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? d.id)
-              .toString();
-      final url = imageUrlFromMap(data);
-      list.add(_MemberItem(
-          id: d.id,
-          name: name,
-          photoUrl: url.isNotEmpty ? url : null,
-          data: data));
-    }
-    list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    return list;
+    final lim = limit ?? YahwehPerformanceV4.memberCardListPageSize;
+    final entries = await MemberCardDirectoryService.loadMembers(
+      tenantId: tid,
+      limit: lim,
+    );
+    return entries
+        .map((e) => _MemberItem(
+              id: e.id,
+              name: e.name,
+              photoUrl: e.photoUrl,
+              data: e.data,
+            ))
+        .toList();
   }
 
   Future<List<_MemberItem>> _loadMembersList() =>
-      _loadMemberItemsForPicker(limit: 120);
+      _loadMemberItemsForPicker(limit: _membersListLimit);
+
+  Future<void> _reloadMembersList() async {
+    setState(() {
+      _membersListLimit = YahwehPerformanceV4.memberCardListPageSize;
+      _membersListHasMore = true;
+      _membersListFuture = _loadMembersList();
+    });
+    try {
+      final list = await _membersListFuture;
+      if (mounted) {
+        setState(() => _membersListHasMore = list.length >= _membersListLimit);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadMoreMembersList() async {
+    if (_membersListLoadingMore || !_membersListHasMore) return;
+    setState(() => _membersListLoadingMore = true);
+    _membersListLimit += YahwehPerformanceV4.memberCardListPageSize;
+    try {
+      final list = await _loadMemberItemsForPicker(limit: _membersListLimit);
+      if (!mounted) return;
+      setState(() {
+        _membersListFuture = Future.value(list);
+        _membersListHasMore = list.length >= _membersListLimit;
+        _membersListLoadingMore = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _membersListLoadingMore = false);
+    }
+  }
 
   /// Filtro por departamento alinhado à página Membros (lista de ids ou campo texto legado).
   bool _memberMatchesDepartment(Map<String, dynamic> data, String deptDocId,
@@ -609,7 +643,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       _membersListFuture = Future.value([]);
       _loadFuture = _load();
     } else {
-      _membersListFuture = _loadMembersList();
+      _reloadMembersList();
       _loadDepartmentsForCarteira().then((list) {
         if (mounted) setState(() => _deptFilterItems = list);
       });
@@ -1250,7 +1284,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final membersCol =
         db.collection('igrejas').doc(tpl.igrejaDocId).collection('membros');
 
-    final emitMembers = await _loadMemberItemsForPicker(limit: 500);
+    final emitMembers = await _loadMemberItemsForPicker(
+      limit: _membersListLimit,
+    );
     if (emitMembers.isEmpty) {
       if (context.mounted)
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2164,20 +2200,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
       );
       return;
     }
-    final db = FirebaseFirestore.instance;
-    final membersCol =
-        db.collection('igrejas').doc(widget.tenantId).collection('membros');
-    final List<({String id, String name})> members = [];
-    try {
-      final snap = await membersCol.limit(500).get();
-      for (final d in snap.docs) {
-        final m = d.data();
-        members.add((
-          id: d.id,
-          name: (m['NOME_COMPLETO'] ?? m['nome'] ?? d.id).toString()
-        ));
-      }
-    } catch (_) {}
+    final members = (await _loadMemberItemsForPicker(limit: _membersListLimit))
+        .map((m) => (id: m.id, name: m.name))
+        .toList();
     if (members.isEmpty && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Nenhum membro encontrado.')));
@@ -2702,14 +2727,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
         return;
       }
       final zipBytes = CarteirinhaZipExport.buildZip(zipEntries);
-      await Share.shareXFiles([
-        XFile.fromData(
-          zipBytes,
-          name:
-              'carteirinhas_png_${zipEntries.length}_${DateTime.now().millisecondsSinceEpoch}.zip',
-          mimeType: 'application/zip',
-        ),
-      ]);
+      await YahwehShareService.shareBytes(
+        bytes: zipBytes,
+        fileName:
+            'carteirinhas_png_${zipEntries.length}_${DateTime.now().millisecondsSinceEpoch}.zip',
+        mimeType: 'application/zip',
+        message:
+            '${zipEntries.length} PNG(s) no ZIP — envie por WhatsApp ou salve no dispositivo.',
+      );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2788,14 +2813,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
         return;
       }
       final zipBytes = CarteirinhaZipExport.buildZip(zipEntries);
-      await Share.shareXFiles([
-        XFile.fromData(
-          zipBytes,
-          name:
-              'carteirinhas_cr80_${zipEntries.length}_${DateTime.now().millisecondsSinceEpoch}.zip',
-          mimeType: 'application/zip',
-        ),
-      ]);
+      await YahwehShareService.shareBytes(
+        bytes: zipBytes,
+        fileName:
+            'carteirinhas_cr80_${zipEntries.length}_${DateTime.now().millisecondsSinceEpoch}.zip',
+        mimeType: 'application/zip',
+      );
     } catch (e) {
       if (context.mounted) {
         Navigator.of(context).pop();
@@ -3655,8 +3678,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final zipBytes = CarteirinhaZipExport.buildZip(zipEntries);
       final fname =
           'carteirinhas_${ids.length}_${DateTime.now().millisecondsSinceEpoch}.zip';
-      await Share.shareXFiles(
-          [XFile.fromData(zipBytes, name: fname, mimeType: 'application/zip')]);
+      await YahwehShareService.shareBytes(
+        bytes: zipBytes,
+        fileName: fname,
+        mimeType: 'application/zip',
+      );
 
       final pm = padesMsg;
       if (context.mounted && (pm != null && pm.isNotEmpty)) {
@@ -3898,7 +3924,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
           await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
         } catch (_) {}
         try {
-          await FirebaseAuth.instance.currentUser?.getIdToken(true);
+          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
         } catch (_) {}
       }
       final tpl = await _loadCarteiraTemplateContext();
@@ -4382,7 +4408,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
             await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
           } catch (_) {}
           try {
-            await FirebaseAuth.instance.currentUser?.getIdToken(true);
+            await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
           } catch (_) {}
         }
         var fu = u;
@@ -4441,7 +4467,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
             await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
           } catch (_) {}
           try {
-            await FirebaseAuth.instance.currentUser?.getIdToken(true);
+            await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
           } catch (_) {}
         }
         var fu = u;
@@ -4591,34 +4617,17 @@ class _MemberCardPageState extends State<MemberCardPage> {
             String? cpf,
             String? assinaturaUrl
           })>> _loadSignatoryOptions() async {
-    final db = FirebaseFirestore.instance;
-    final col =
-        db.collection('igrejas').doc(widget.tenantId).collection('membros');
-    final snap = await col.limit(500).get();
-    final list = <({
-      String memberId,
-      String nome,
-      String cargo,
-      String? cpf,
-      String? assinaturaUrl
-    })>[];
-    for (final doc in snap.docs) {
-      final d = doc.data();
-      if (!memberCanSignChurchDocuments(d)) continue;
-      final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
-      if (nome.isEmpty) continue;
-      final url =
-          (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim();
-      final cpfFmt = _formatCpfForCard(_memberCpfRaw(d)).trim();
-      list.add((
-        memberId: doc.id,
-        nome: nome,
-        cargo: signatoryCargoDisplayLabel(d),
-        cpf: cpfFmt.isEmpty ? null : cpfFmt,
-        assinaturaUrl: url.isEmpty ? null : url
-      ));
-    }
-    return list;
+    final list =
+        await MemberCardDirectoryService.loadSignatories(widget.tenantId);
+    return list
+        .map((s) => (
+              memberId: s.memberId,
+              nome: s.nome,
+              cargo: s.cargo,
+              cpf: s.cpf,
+              assinaturaUrl: s.assinaturaUrl,
+            ))
+        .toList();
   }
 
   /// Usa [defaultSignatoryMemberId] da config da carteirinha quando existir na lista.
@@ -6706,6 +6715,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }) async {
     final tid = (igrejaDocId ?? widget.tenantId).trim();
     final mid = memberId.trim();
+    final cached = MemberCardPhotoCache.get(tid, mid);
+    if (cached != null && cached.isNotEmpty) return cached;
+
     final cpf = _val(member, 'CPF').replaceAll(RegExp(r'[^0-9]'), '');
     final mapHttps = _photoUrlFromMember(member);
     final fromService = await AppStorageImageService.instance
@@ -6724,7 +6736,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
             .timeout(const Duration(seconds: 4), onTimeout: () => primary);
         primary = sanitizeImageUrl(fresh ?? primary);
       }
-      if (isValidImageUrl(primary)) return primary;
+      if (isValidImageUrl(primary)) {
+        MemberCardPhotoCache.put(tid, mid, primary);
+        return primary;
+      }
     }
     if (tid.isEmpty || mid.isEmpty) return '';
     final authPdf =
@@ -6743,7 +6758,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
       nomeCompleto: nomePdf,
       memberFirestoreHint: member,
     ).timeout(const Duration(seconds: 14), onTimeout: () => null);
-    return (fromStorage != null && fromStorage.isNotEmpty) ? fromStorage : '';
+    final url =
+        (fromStorage != null && fromStorage.isNotEmpty) ? fromStorage : '';
+    if (url.isNotEmpty) MemberCardPhotoCache.put(tid, mid, url);
+    return url;
   }
 
   void _warmupCarteiraAssets(_CardData data, _CardConfig cfg) {
@@ -7508,9 +7526,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       textAlign: TextAlign.center),
                                   const SizedBox(height: 8),
                                   TextButton.icon(
-                                      onPressed: () => setState(() =>
-                                          _membersListFuture =
-                                              _loadMembersList()),
+                                      onPressed: () => _reloadMembersList(),
                                       icon: const Icon(Icons.refresh_rounded,
                                           size: 18),
                                       label: const Text('Tentar novamente')),
@@ -7607,13 +7623,19 @@ class _MemberCardPageState extends State<MemberCardPage> {
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
                                 child: Text(
-                                  '${filtered.length} membro(s) na lista',
+                                  '${filtered.length} visível(is) · ${all.length} carregado(s)',
                                   style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade600,
                                       fontWeight: FontWeight.w500),
                                 ),
                               ),
+                              if (_membersListHasMore)
+                                LazyLoadMoreFooter(
+                                  loading: _membersListLoadingMore,
+                                  onLoadMore: _loadMoreMembersList,
+                                ),
+                              const SizedBox(height: 4),
                               if (_canManage &&
                                   _carteiraListaSelecionados.isNotEmpty) ...[
                                 Container(
@@ -8295,14 +8317,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
       );
       return;
     }
-    await Share.shareXFiles(
-      [
-        XFile.fromData(
-          bytes,
-          mimeType: 'image/png',
-          name: 'carteira_digital.png',
-        ),
-      ],
+    await YahwehShareService.shareBytes(
+      bytes: bytes,
+      fileName: 'carteira_digital.png',
+      mimeType: 'image/png',
     );
   }
 
@@ -8337,14 +8355,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final bytes = await _walletScreenshotController.capture(pixelRatio: pr);
       if (!context.mounted) return;
       if (bytes != null && bytes.isNotEmpty) {
-        await Share.shareXFiles(
-          [
-            XFile.fromData(
-              bytes,
-              mimeType: 'image/png',
-              name: 'carteirinha_${data.memberId}.png',
-            ),
-          ],
+        await YahwehShareService.shareBytes(
+          bytes: bytes,
+          fileName: 'carteirinha_${data.memberId}.png',
+          mimeType: 'image/png',
         );
         if (context.mounted && digits.isNotEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -8360,7 +8374,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     } catch (_) {}
     if (!context.mounted) return;
     if (digits.isEmpty) {
-      await Share.share(
+      await YahwehShareService.shareText(
         'Carteirinha digital — $church. Validade: $validade',
         subject: 'Carteirinha — $church',
       );

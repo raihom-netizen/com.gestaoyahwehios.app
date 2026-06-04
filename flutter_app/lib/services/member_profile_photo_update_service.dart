@@ -125,23 +125,26 @@ class MemberProfilePhotoUpdateService {
   }
 
   /// Firestore primeiro → upload em background (não bloqueia UI).
+  /// [requireAuth] false no cadastro público (visitante anónimo).
   static void scheduleBackgroundPhotoUpload({
     required String tenantId,
     required String memberDocId,
     required Map<String, dynamic> memberData,
     required Uint8List rawBytes,
+    bool requireAuth = true,
     void Function(MemberProfilePhotoUpdateResult result)? onSuccess,
     void Function(Object error)? onError,
   }) {
     unawaited(
       () async {
-        await ensureFirebaseCore(requireAuth: true);
+        await ensureFirebaseCore(requireAuth: requireAuth);
         YahwehFlowLog.membrosStart();
         final result = await _uploadAndPatchMemberCore(
           tenantId: tenantId,
           memberDocId: memberDocId,
           memberData: memberData,
           rawBytes: rawBytes,
+          requireAuth: requireAuth,
         );
         YahwehFlowLog.membrosSuccess();
         onSuccess?.call(result);
@@ -221,8 +224,9 @@ class MemberProfilePhotoUpdateService {
     required String memberDocId,
     required Map<String, dynamic> memberData,
     required Uint8List rawBytes,
+    bool requireAuth = true,
   }) async {
-    await ensureFirebaseCore(requireAuth: true);
+    await ensureFirebaseCore(requireAuth: requireAuth);
     YahwehFlowLog.uploadStart('member_profile');
     ChurchPublishFlowLog.uploadStart('member_profile');
     final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));

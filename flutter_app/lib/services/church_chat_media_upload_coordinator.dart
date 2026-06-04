@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
+
 /// Limita uploads de mídia do chat em paralelo (evita saturar rede — estilo WhatsApp estável).
 abstract final class ChurchChatMediaUploadCoordinator {
   ChurchChatMediaUploadCoordinator._();
 
-  static const int maxConcurrent = 3;
+  static const int maxConcurrent = kChatMaxConcurrentMediaUploads;
 
   static int _active = 0;
   static final List<Completer<void>> _waiters = [];

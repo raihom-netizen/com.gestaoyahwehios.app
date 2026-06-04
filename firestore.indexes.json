@@ -585,6 +585,20 @@
       ]
     },
     {
+      "collectionGroup": "membros",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "FUNCOES", "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "collectionGroup": "membros",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "certificadoSignatario", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "messages",
       "fieldPath": "createdAt",
       "indexes": [

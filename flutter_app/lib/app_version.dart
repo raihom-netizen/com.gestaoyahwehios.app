@@ -1,4 +1,12 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.295+1759: Cartão membro — índice signatários, paginação 40, cache foto PDF.
+/// 11.2.295+1758: Painel master — paginação users/igrejas, storage amostra 100, limites unificados.
+/// 11.2.295+1757: Cadastro público Firestore-first + foto BG; certificados/finance/liderança paginados.
+/// 11.2.295+1756: Evolução total prompt mestre — share unificado, lazy load 20, counters, docs §12–19.
+/// 11.2.295+1755: Chat retention 90d, lazy lists 20, LWW offline, share_plus WhatsApp.
+/// 11.2.295+1754: Upload queue serial, vídeo eventos H.264 720p/480p, dashboard_stats increment, UI retry mídia.
+/// 11.2.295+1753: Refactor offline-first — Web putData, eventos 70%, upload 30s imagens, AuthService biometria.
+/// 11.2.295+1752: Configuração mestre — StorageService, FIREBASE_RULES_SECURITY.txt, chat page 20, CachedNetworkImage.
 /// 11.2.295+1751: Offline-first coordinator — Firestore persistence explícita, sync silenciosa, manual arquitetural, imagem 70%.
 /// 11.2.295+1750: Prompt mestre — sync optimista, eventos 10f+2v, financeiro path, upload 30s, biometria estrita.
 /// 11.2.295+1749: Upload 1024/75 global, AuthService + biometria auto, Storage com loading/erros claros.
@@ -266,7 +274,7 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1751';
+const String appBuildNumber = '1764';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

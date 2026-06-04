@@ -29,6 +29,7 @@ import 'package:gestao_yahweh/core/member_photo_storage_naming.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show memberPhotoDisplayCacheRevision;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -38,8 +39,9 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         isValidImageUrl,
         sanitizeImageUrl,
         preloadNetworkImages;
-import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
+import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
+import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
@@ -334,7 +336,7 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Bytes JPEG/WebP já comprimidos — mostra a foto na lista antes do upload concluir.
   final Map<String, Uint8List> _optimisticProfilePhotoBytes = {};
-  static const int _membersPageSize = 40;
+  static const int _membersPageSize = YahwehPerformanceV4.defaultPageSize;
   static const int _membersListInstantCap = 100;
   int _membersVisibleCount = _membersPageSize;
 
@@ -899,7 +901,7 @@ class _MembersPageState extends State<MembersPage> {
         .doc(effectiveId)
         .collection('membros')
         .where('status', isEqualTo: 'pendente')
-        .limit(500)
+        .limit(YahwehPerformanceV4.adminExportBatchLimit)
         .get(getOpts);
 
     try {
@@ -951,11 +953,7 @@ class _MembersPageState extends State<MembersPage> {
   /// [forceServer] true ao recarregar após salvar/upload — evita cache e garante foto atualizada na lista.
   Future<List<QuerySnapshot<Map<String, dynamic>>>> _loadMembersData(
       {bool forceServer = false}) async {
-    if (forceServer) {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    } else {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
-    }
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: forceServer);
     final resolved = await _resolveEffectiveTenantId();
     if (mounted) setState(() => _resolvedTenantId = resolved);
     final tenantId = resolved.isNotEmpty ? resolved : widget.tenantId;
@@ -1770,7 +1768,7 @@ class _MembersPageState extends State<MembersPage> {
 
   Future<void> _aprovarMembrosPorIds(Set<String> ids) async {
     if (ids.isEmpty || !mounted) return;
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     final linkage = await _getTenantLinkage();
     final col = FirebaseFirestore.instance
         .collection('igrejas')
@@ -2807,18 +2805,16 @@ class _MembersPageState extends State<MembersPage> {
                                   CircleAvatar(
                                     radius: 45,
                                     backgroundColor: avatarBg,
-                                    backgroundImage: () {
-                                      if (newPhotoBytes != null &&
-                                          newPhotoBytes!.isNotEmpty) {
-                                        return MemoryImage(newPhotoBytes!);
-                                      }
-                                      final p = newPhoto!.path;
-                                      if (p.isEmpty) return null;
-                                      if (kIsWeb) {
-                                        return NetworkImage(p);
-                                      }
-                                      return FileImage(File(p));
-                                    }() as ImageProvider<Object>?,
+                                    backgroundImage:
+                                        (newPhotoBytes != null &&
+                                                newPhotoBytes!.isNotEmpty)
+                                            ? MemoryImage(newPhotoBytes!)
+                                            : null,
+                                    child: (newPhotoBytes == null ||
+                                            newPhotoBytes!.isEmpty)
+                                        ? Icon(Icons.person,
+                                            size: 45, color: avatarBg)
+                                        : null,
                                   )
                                 else
                                   _MemberAvatar(
@@ -3308,9 +3304,9 @@ class _MembersPageState extends State<MembersPage> {
                                                       Random()
                                                           .nextInt(36)]).join();
                                           try {
-                                            await FirebaseAuth
-                                                .instance.currentUser
-                                                ?.getIdToken(true);
+                                            await FirestoreStreamUtils
+                                                .refreshAuthTokenIfNeeded(
+                                                    force: true);
                                             final functions =
                                                 FirebaseFunctions.instanceFor(
                                                     region: 'us-central1');
@@ -4583,7 +4579,7 @@ class _MembersPageState extends State<MembersPage> {
         final curUid = FirebaseAuth.instance.currentUser?.uid;
         if (curUid != null && curUid == authUid) {
           try {
-            await FirebaseAuth.instance.currentUser?.getIdToken(true);
+            await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
           } catch (_) {}
         }
       }
@@ -4786,7 +4782,7 @@ class _MembersPageState extends State<MembersPage> {
               } catch (_) {}
               if (FirebaseAuth.instance.currentUser?.uid == uidRetry) {
                 try {
-                  await FirebaseAuth.instance.currentUser?.getIdToken(true);
+                  await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
                 } catch (_) {}
               }
             }
@@ -4821,7 +4817,7 @@ class _MembersPageState extends State<MembersPage> {
       return (signedOut: false, newAuthUid: null);
     }
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('recreateMemberAuthForNewEmail')
           .call({
@@ -4926,7 +4922,7 @@ class _MembersPageState extends State<MembersPage> {
         .trim();
     setState(() => _optimisticRemovedMemberIds.add(mid));
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       try {
         final payload = <String, dynamic>{
           'tenantId': _effectiveTenantId,
@@ -4982,6 +4978,9 @@ class _MembersPageState extends State<MembersPage> {
       }
 
       if (mounted) {
+        unawaited(
+          DashboardStatsCounterService.onMemberDeleted(_effectiveTenantId),
+        );
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('"$name" excluído.'));
         _refreshMembers(
@@ -5116,7 +5115,7 @@ class _MembersPageState extends State<MembersPage> {
       return;
     }
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
       final res = await functions.httpsCallable('setMemberPassword').call({
         'tenantId': _effectiveTenantId,
@@ -5279,20 +5278,15 @@ class _MembersPageState extends State<MembersPage> {
         delegate: SliverChildBuilderDelegate(
           (context, i) {
           if (!instantList && i >= visibleCount) {
-            return const Padding(
-              padding: EdgeInsets.fromLTRB(
-                ThemeCleanPremium.spaceMd,
-                8,
-                ThemeCleanPremium.spaceMd,
-                12,
-              ),
-              child: Center(
-                child: SizedBox(
-                  width: 22,
-                  height: 22,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
+            return LazyLoadMoreFooter(
+              visible: visibleCount < docs.length,
+              label: 'Carregar mais membros',
+              onLoadMore: () {
+                setState(() {
+                  _membersVisibleCount = (_membersVisibleCount + _membersPageSize)
+                      .clamp(0, docs.length);
+                });
+              },
             );
           }
           final data = docs[i].data;
@@ -6040,19 +6034,19 @@ class _MembersPageState extends State<MembersPage> {
 
   Future<void> _exportCsv(BuildContext context) async {
     try {
-      final snapMembers = await _members.limit(500).get();
-      final snapMembros = await _membros.limit(500).get();
-      final snapMembersIgrejas = await _membersIgrejas.limit(500).get();
-      final snapMembrosIgrejas = await _membrosIgrejas.limit(500).get();
+      final snapMembers = await _members.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
+      final snapMembros = await _membros.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
+      final snapMembersIgrejas = await _membersIgrejas.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
+      final snapMembrosIgrejas = await _membrosIgrejas.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
       final snapUsersT = await FirebaseFirestore.instance
           .collection('users')
           .where('tenantId', isEqualTo: _effectiveTenantId)
-          .limit(500)
+          .limit(YahwehPerformanceV4.adminExportBatchLimit)
           .get();
       final snapUsersI = await FirebaseFirestore.instance
           .collection('users')
           .where('igrejaId', isEqualTo: _effectiveTenantId)
-          .limit(500)
+          .limit(YahwehPerformanceV4.adminExportBatchLimit)
           .get();
       final combined = <String, _MemberDoc>{};
       for (final d in snapMembers.docs)
@@ -6100,19 +6094,19 @@ class _MembersPageState extends State<MembersPage> {
 
   Future<void> _exportPdf(BuildContext context) async {
     try {
-      final snapMembers = await _members.limit(500).get();
-      final snapMembros = await _membros.limit(500).get();
-      final snapMembersIgrejas = await _membersIgrejas.limit(500).get();
-      final snapMembrosIgrejas = await _membrosIgrejas.limit(500).get();
+      final snapMembers = await _members.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
+      final snapMembros = await _membros.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
+      final snapMembersIgrejas = await _membersIgrejas.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
+      final snapMembrosIgrejas = await _membrosIgrejas.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
       final snapUsersT = await FirebaseFirestore.instance
           .collection('users')
           .where('tenantId', isEqualTo: _effectiveTenantId)
-          .limit(500)
+          .limit(YahwehPerformanceV4.adminExportBatchLimit)
           .get();
       final snapUsersI = await FirebaseFirestore.instance
           .collection('users')
           .where('igrejaId', isEqualTo: _effectiveTenantId)
-          .limit(500)
+          .limit(YahwehPerformanceV4.adminExportBatchLimit)
           .get();
       final combined = <String, _MemberDoc>{};
       for (final d in snapMembers.docs)

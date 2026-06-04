@@ -6,12 +6,14 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:video_compress/video_compress.dart';
 
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
-    show kMediaEventVideoMaxSeconds;
+    show kMediaEventVideoMaxSeconds, kStandardUploadImageQuality;
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show kMaxEventFeedPhotosPerPost;
+import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_service.dart';
@@ -29,7 +31,7 @@ class EventoGalleryService {
   static const int _maxVideosPerEvent = 2;
   static const int _maxVideoSeconds = kMediaEventVideoMaxSeconds;
   static const int _maxPhotosPerEvent = kMaxEventFeedPhotosPerPost;
-  static const int _photoQuality = 90;
+  static const int _photoQuality = kStandardUploadImageQuality;
   static const int _photoMaxWidth = 1920;
   static const int _photoMaxHeight = 1080;
 
@@ -83,38 +85,24 @@ class EventoGalleryService {
       }
     }
 
-    final auth = await FirebaseService.auth();
-    await auth.currentUser?.getIdToken(true);
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
 
     final fileName = '${DateTime.now().millisecondsSinceEpoch}';
 
     if (isVideo) {
-      final p = arquivo.path;
-      final lower = p.toLowerCase();
-      final byteLen = await arquivo.length();
-      const maxSkip = 26 * 1024 * 1024;
-      final useOriginal =
-          byteLen <= maxSkip && (lower.endsWith('.mp4') || lower.endsWith('.m4v'));
-
-      late final File compressed;
-      if (useOriginal) {
-        compressed = arquivo;
-      } else {
-        final MediaInfo? info = await VideoCompress.compressVideo(
-          p,
-          quality: VideoQuality.Res1280x720Quality,
-          deleteOrigin: false,
-          includeAudio: true,
-        );
-        if (info == null || info.file == null) {
-          throw Exception('Falha ao comprimir o vídeo.');
-        }
-        compressed = info.file!;
+      final prepared = await MediaService.prepareEventVideoForUpload(arquivo.path);
+      if (prepared == null) {
+        throw Exception('Falha ao preparar o vídeo para envio.');
       }
-      File? thumbFile;
-      try {
-        thumbFile = await VideoCompress.getFileThumbnail(compressed.path);
-      } catch (_) {}
+      final compressed = File(prepared.outputPath);
+      File? thumbFile = prepared.thumbnailFile;
+      final storageVideoPath = '$storagePathPrefix/$fileName.mp4';
+
+      await StorageUploadPersistenceService.enqueueFileJob(
+        storagePath: storageVideoPath,
+        localFilePath: compressed.path,
+        contentType: 'video/mp4',
+      );
 
       final videoUrlFuture = _uploadToStorage(
         storagePathPrefix,

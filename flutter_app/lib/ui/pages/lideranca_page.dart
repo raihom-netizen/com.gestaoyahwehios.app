@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
@@ -72,12 +74,10 @@ class _LiderancaPageState extends State<LiderancaPage> {
         return;
       }
 
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('membros')
-          .limit(500)
-          .get();
+      final snap = await ChurchTenantResilientReads.membrosRecent(
+        tid,
+        limit: YahwehPerformanceV4.dashboardStatsSampleLimit,
+      );
       final cargoMeta = await _loadCargoHierarchy(tid);
       final rows = <_LeaderRow>[];
       for (final d in snap.docs) {

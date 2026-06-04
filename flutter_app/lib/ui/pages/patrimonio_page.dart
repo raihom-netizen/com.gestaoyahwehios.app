@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatFirebaseErrorForUser, isFirebaseNoAppError;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -829,7 +830,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       _searchCtrl.text = s;
       _q = s.toLowerCase();
     }
-    firebaseDefaultAuth.currentUser?.getIdToken(true);
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
     unawaited(FastMediaPublishBootstrap.warmForPatrimonioSave());
     unawaited(_loadCategoriasExtras());
     _startPatrimonioRealtimeSync();
@@ -843,7 +844,10 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   Future<void> _openResumedPatrimonioDoc(String itemDocId) async {
     try {
-      final snap = await _col.doc(itemDocId).get();
+      final snap = await ChurchTenantResilientReads.patrimonioItem(
+        widget.tenantId,
+        itemDocId,
+      );
       if (!mounted || !snap.exists) return;
       await _openForm(doc: snap);
     } catch (e, st) {
@@ -863,12 +867,8 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   Future<void> _loadCategoriasExtras() async {
     try {
-      final snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('config')
-          .doc('patrimonio')
-          .get();
+      final snap =
+          await ChurchTenantResilientReads.patrimonioConfig(widget.tenantId);
       final extra = snap.data()?['categoriasExtras'];
       if (!mounted) return;
       setState(() {
@@ -1152,7 +1152,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   Future<void> _exportPdfFromPage(BuildContext context) async {
     try {
-      await firebaseDefaultAuth.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final snap = await _col.orderBy('nome').get();
       final docs = snap.docs;
       if (docs.isEmpty) {
@@ -2244,6 +2244,7 @@ class _BensTabState extends State<_BensTab> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
   /// Lista compacta por padrão; galeria em grade se o utilizador alternar.
   bool _galleryView = false;
+  int _patrimonioFetchLimit = YahwehPerformanceV4.patrimonioListPageSize;
 
   /// `nome` — ordem alfabética; `aquisicao` / `conferencia` — mais recente primeiro (sem data por último).
   String _sortMode = 'nome';
@@ -2321,7 +2322,14 @@ class _BensTabState extends State<_BensTab> {
     if (tid.isEmpty) {
       return const MergedFirestoreQuerySnapshot([]);
     }
-    return ChurchTenantResilientReads.patrimonio(tid, limit: 400);
+    return ChurchTenantResilientReads.patrimonio(tid, limit: _patrimonioFetchLimit);
+  }
+
+  void _loadMorePatrimonio() {
+    setState(() {
+      _patrimonioFetchLimit += YahwehPerformanceV4.patrimonioListPageSize;
+      _future = _loadPatrimonioResilient();
+    });
   }
 
   /// Cache Firestore + rede com retry; refresh em background.
@@ -2964,6 +2972,16 @@ class _BensTabState extends State<_BensTab> {
                   ),
                 ),
               );
+              if (allDocs.length >= _patrimonioFetchLimit && q.isEmpty) {
+                contentSlivers.add(
+                  SliverToBoxAdapter(
+                    child: LazyLoadMoreFooter(
+                      label: 'Carregar mais bens',
+                      onLoadMore: _loadMorePatrimonio,
+                    ),
+                  ),
+                );
+              }
             } else {
               contentSlivers.add(
                 SliverPadding(
@@ -3772,7 +3790,7 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
       );
       return;
     }
-    await firebaseDefaultAuth.currentUser?.getIdToken(true);
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     if (!context.mounted) return;
     await _exportPatrimonioRelatorioPdf(
       context: context,
@@ -4221,7 +4239,7 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
       );
       return;
     }
-    await firebaseDefaultAuth.currentUser?.getIdToken(true);
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     if (!context.mounted) return;
     await _exportPatrimonioRelatorioPdf(
       context: context,
@@ -4433,31 +4451,39 @@ class _DashboardTabState extends State<_DashboardTab> {
     _future = _loadDashboardFirstPaint();
   }
 
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() =>
+      ChurchTenantResilientReads.patrimonioAll(widget.tenantId);
+
   Future<QuerySnapshot<Map<String, dynamic>>> _loadDashboardFirstPaint() async {
     try {
-      final cached =
-          await widget.col.get(const GetOptions(source: Source.cache));
+      final snap = await _loadPatrimonioAllResilient();
+      if (snap.docs.isNotEmpty) {
+        unawaited(_refreshDashboardInBackground());
+        return snap;
+      }
+    } catch (_) {}
+    try {
+      final cached = await widget.col
+          .orderBy('nome')
+          .get(const GetOptions(source: Source.cache));
       if (cached.docs.isNotEmpty) {
-        unawaited(_refreshDashboardFromServer());
+        unawaited(_refreshDashboardInBackground());
         return cached;
       }
     } catch (_) {}
-    return widget.col.get(const GetOptions(source: Source.server));
+    return _loadPatrimonioAllResilient();
   }
 
-  Future<void> _refreshDashboardFromServer() async {
+  Future<void> _refreshDashboardInBackground() async {
     try {
-      final server =
-          await widget.col.get(const GetOptions(source: Source.server));
+      final server = await _loadPatrimonioAllResilient();
       if (!mounted) return;
       setState(() => _future = Future.value(server));
     } catch (_) {}
   }
 
   void refresh() {
-    setState(() {
-      _future = widget.col.get(const GetOptions(source: Source.server));
-    });
+    setState(() => _future = _loadPatrimonioAllResilient());
   }
 
   @override
@@ -5317,38 +5343,40 @@ class _InventarioTabState extends State<_InventarioTab> {
     _future = _loadInventarioFirstPaint();
   }
 
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() =>
+      ChurchTenantResilientReads.patrimonioAll(widget.tenantId);
+
   Future<QuerySnapshot<Map<String, dynamic>>>
       _loadInventarioFirstPaint() async {
+    try {
+      final snap = await _loadPatrimonioAllResilient();
+      if (snap.docs.isNotEmpty) {
+        unawaited(_refreshInventarioInBackground());
+        return snap;
+      }
+    } catch (_) {}
     try {
       final cached = await widget.col
           .orderBy('nome')
           .get(const GetOptions(source: Source.cache));
       if (cached.docs.isNotEmpty) {
-        unawaited(_refreshInventarioFromServer());
+        unawaited(_refreshInventarioInBackground());
         return cached;
       }
     } catch (_) {}
-    return widget.col
-        .orderBy('nome')
-        .get(const GetOptions(source: Source.server));
+    return _loadPatrimonioAllResilient();
   }
 
-  Future<void> _refreshInventarioFromServer() async {
+  Future<void> _refreshInventarioInBackground() async {
     try {
-      final server = await widget.col
-          .orderBy('nome')
-          .get(const GetOptions(source: Source.server));
+      final server = await _loadPatrimonioAllResilient();
       if (!mounted) return;
       setState(() => _future = Future.value(server));
     } catch (_) {}
   }
 
   void refresh() {
-    setState(() {
-      _future = widget.col
-          .orderBy('nome')
-          .get(const GetOptions(source: Source.server));
-    });
+    setState(() => _future = _loadPatrimonioAllResilient());
   }
 
   Future<void> _marcarConferido(

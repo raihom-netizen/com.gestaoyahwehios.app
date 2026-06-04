@@ -1,4 +1,5 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -60,12 +61,12 @@ void showGestaoForegroundNotificationSnackBar(
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image.network(
-              AppConstants.gestaoBrandLogoUrl,
+            child: CachedNetworkImage(
+              imageUrl: AppConstants.gestaoBrandLogoUrl,
               width: 48,
               height: 48,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _logoFallback(accent),
+              errorWidget: (_, __, ___) => _logoFallback(accent),
             ),
           ),
           const SizedBox(width: 12),

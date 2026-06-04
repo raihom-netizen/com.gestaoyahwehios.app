@@ -17,7 +17,10 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
@@ -772,7 +775,7 @@ class _FinanceMetasEditorSheetState extends State<_FinanceMetasEditorSheet> {
     setState(() => _saving = true);
     try {
       await _ensureFinanceWriteReady();
-      await firebaseDefaultAuth.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final lim = _parseMoneyField(_limiteCtrl.text) ?? 0.0;
       final orc = <String, double>{};
       for (final r in _rows) {
@@ -2268,14 +2271,18 @@ class _ResumoTabState extends State<_ResumoTab> {
   @override
   void initState() {
     super.initState();
-    _future = ChurchTenantResilientReads.financeRecent(widget.tenantId, limit: 2500);
+    _future = ChurchTenantResilientReads.financeRecent(
+        widget.tenantId,
+        limit: YahwehPerformanceV4.financeChartsSampleLimit);
     _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
     _futureSettings = FinanceTenantSettings.load(widget.tenantId);
   }
 
   Future<void> _refresh() async {
     setState(() {
-      _future = ChurchTenantResilientReads.financeRecent(widget.tenantId, limit: 2500);
+      _future = ChurchTenantResilientReads.financeRecent(
+        widget.tenantId,
+        limit: YahwehPerformanceV4.financeChartsSampleLimit);
       _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
       _futureSettings = FinanceTenantSettings.load(widget.tenantId);
     });
@@ -3351,6 +3358,7 @@ class _MovimentacoesContaPage extends StatefulWidget {
 
 class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+  int _fetchLimit = YahwehPerformanceV4.defaultPageSize;
   /// Mês do extrato (sempre mês calendário).
   late DateTime _mesRefM;
   /// todos | entrada | saida | transferencia
@@ -3370,12 +3378,28 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
       final n = DateTime.now();
       _mesRefM = DateTime(n.year, n.month, 1);
     }
-    _future = widget.financeCol.orderBy('createdAt', descending: true).get();
+    _future = widget.financeCol
+        .orderBy('createdAt', descending: true)
+        .limit(_fetchLimit)
+        .get();
+  }
+
+  void _loadMoreLancamentos() {
+    setState(() {
+      _fetchLimit += YahwehPerformanceV4.defaultPageSize;
+      _future = widget.financeCol
+          .orderBy('createdAt', descending: true)
+          .limit(_fetchLimit)
+          .get();
+    });
   }
 
   void _refresh() {
     setState(() {
-      _future = widget.financeCol.orderBy('createdAt', descending: true).get();
+      _future = widget.financeCol
+          .orderBy('createdAt', descending: true)
+          .limit(_fetchLimit)
+          .get();
     });
   }
 
@@ -3739,8 +3763,16 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                         ThemeCleanPremium.spaceSm,
                         ThemeCleanPremium.spaceLg,
                         80),
-                    itemCount: docs.length,
-                    itemBuilder: (context, i) => _LancamentoCard(
+                    itemCount: docs.length +
+                        ((snap.data?.docs.length ?? 0) >= _fetchLimit ? 1 : 0),
+                    itemBuilder: (context, i) {
+                      if (i >= docs.length) {
+                        return LazyLoadMoreFooter(
+                          label: 'Carregar mais lançamentos',
+                          onLoadMore: _loadMoreLancamentos,
+                        );
+                      }
+                      return _LancamentoCard(
                       doc: docs[i],
                       tenantId: widget.tenantId,
                       role: widget.role,
@@ -3751,8 +3783,8 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                       onDelete: () => _excluirLancamento(docs[i]),
                       onApprove: () async {
                         try {
-                          await firebaseDefaultAuth.currentUser
-                              ?.getIdToken(true);
+                          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
+                              force: true);
                           await docs[i].reference.update({
                             'aprovacaoPendente': false,
                             'aprovadoPorUid':
@@ -3767,7 +3799,8 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                           }
                         }
                       },
-                    ),
+                    );
+                    },
                   ),
                 ),
               ),
@@ -3975,8 +4008,8 @@ class _ListaLancamentosPorTipoPageState
                         onDelete: () => _excluirLancamento(doc),
                         onApprove: () async {
                           try {
-                            await firebaseDefaultAuth.currentUser
-                                ?.getIdToken(true);
+                            await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
+                                force: true);
                             await doc.reference.update({
                               'aprovacaoPendente': false,
                               'aprovadoPorUid':
@@ -4090,7 +4123,7 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   @override
   void initState() {
     super.initState();
-    firebaseDefaultAuth.currentUser?.getIdToken(true);
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
     _future = widget.financeCol.orderBy('createdAt', descending: true).get();
     _futureContas = firebaseDefaultFirestore
         .collection('igrejas')
@@ -4792,8 +4825,8 @@ class _LancamentosTabState extends State<_LancamentosTab> {
                       onDelete: () => _excluirLancamento(doc),
                       onApprove: () async {
                         try {
-                          await firebaseDefaultAuth.currentUser
-                              ?.getIdToken(true);
+                          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
+                              force: true);
                           await doc.reference.update({
                             'aprovacaoPendente': false,
                             'aprovadoPorUid':
@@ -5237,7 +5270,7 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
   @override
   void initState() {
     super.initState();
-    firebaseDefaultAuth.currentUser?.getIdToken(true);
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
     _future = _col.orderBy('descricao').get();
   }
 
@@ -5964,7 +5997,7 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
 
     if (result == null) return;
     await _ensureFinanceWriteReady();
-    await firebaseDefaultAuth.currentUser?.getIdToken(true);
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     if (isEdit) {
       await doc.reference.set(result, SetOptions(merge: true));
     } else {
@@ -6477,7 +6510,7 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
   @override
   void initState() {
     super.initState();
-    firebaseDefaultAuth.currentUser?.getIdToken(true);
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
     _future = _col.orderBy('nome').get();
   }
 
@@ -7366,7 +7399,7 @@ Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
         .doc(tenantId)
         .collection('fornecedores')
         .orderBy('nome')
-        .limit(400)
+        .limit(YahwehPerformanceV4.defaultPageSize)
         .get();
     final out = <({String id, String nome})>[];
     for (final d in snap.docs) {
@@ -7389,7 +7422,7 @@ Future<List<({String id, String nome})>> _membrosParaFinanceDropdown(
         .collection('igrejas')
         .doc(tenantId)
         .collection('membros')
-        .limit(600)
+        .limit(YahwehPerformanceV4.defaultPageSize)
         .get();
     final out = <({String id, String nome})>[];
     for (final d in snap.docs) {
@@ -8478,7 +8511,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
 
   try {
     await _ensureFinanceWriteReady();
-    await firebaseDefaultAuth.currentUser?.getIdToken(true);
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     Uint8List? pendingComprovanteBytes;
     if (isEdit) {
       final novoComp = comprovanteFile;

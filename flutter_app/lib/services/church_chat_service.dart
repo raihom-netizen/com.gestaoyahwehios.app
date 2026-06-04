@@ -82,6 +82,11 @@ class ChurchChatService {
   }
 
   /// Histórico por páginas no cliente (`startAfter` + stream da página recente).
+  ///
+  /// **Realtime (§11):** `snapshots()` em [recentMessagesStream] com
+  /// `orderBy(createdAt, descending: true)` — campo canónico = «timestamp» da mensagem.
+  static const String messageTimestampField = 'createdAt';
+
   static const int defaultMessagePageSize =
       YahwehPerformanceV4.chatMessagesPageSize;
   static const int maxOlderMessagePages = 50;
@@ -95,7 +100,7 @@ class ChurchChatService {
     int pageSize = defaultMessagePageSize,
   }) {
     return messagesCol(tenantId, threadId)
-        .orderBy('createdAt', descending: true)
+        .orderBy(messageTimestampField, descending: true)
         .limit(pageSize);
   }
 
@@ -150,7 +155,7 @@ class ChurchChatService {
     int pageSize = defaultMessagePageSize,
   }) async {
     final snap = await messagesCol(tenantId, threadId)
-        .orderBy('createdAt', descending: true)
+        .orderBy(messageTimestampField, descending: true)
         .startAfterDocument(startAfterDoc)
         .limit(pageSize)
         .get();
@@ -328,7 +333,6 @@ class ChurchChatService {
     String? peerUid,
     String? peerDisplayName,
   }) async {
-    await mergeDmThreadIndexIfNeeded(tenantId, threadId);
     final batch = _db.batch();
     batch.set(msgRef, messageData);
     batch.set(
@@ -341,6 +345,7 @@ class ChurchChatService {
       SetOptions(merge: true),
     );
     await batch.commit();
+    unawaited(mergeDmThreadIndexIfNeeded(tenantId, threadId));
     unawaited(
       ChurchChatLocalConversations.recordFromOutbound(
         tenantId: tenantId,

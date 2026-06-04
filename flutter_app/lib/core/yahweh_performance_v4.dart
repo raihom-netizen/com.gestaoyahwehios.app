@@ -29,13 +29,33 @@ abstract final class YahwehPerformanceV4 {
 
   // ——— Paginação Firestore ———
   static const int defaultPageSize = 20;
+  /// Exportações admin (CSV/PDF) — lote único, não é lista UI.
+  static const int adminExportBatchLimit = 500;
+  /// Amostra para gráficos/estatísticas do dashboard (não lista paginada).
+  static const int dashboardStatsSampleLimit = 100;
+  static const int financeChartsSampleLimit = 100;
   static const int publicFeedPageSize = 20;
-  static const int chatMessagesPageSize = 30;
+  static const int chatMessagesPageSize = 20;
   static const int chatThreadsListLimit = 50;
   static const int chatThreadsFallbackLimit = 30;
   static const int upcomingEventsLimit = 20;
   static const int birthdayQueryLimit = 20;
   static const int masterChurchesPageSize = 25;
+  /// Listagens master (utilizadores, pesquisa, cache fallback).
+  static const int masterUsersPageSize = 50;
+  static const int masterChurchesListLimit = 100;
+  static const int masterStorageEstimateSampleLimit = 100;
+  static const int masterPaymentsSampleLimit = 100;
+  static const int masterAnalyticsSampleLimit = 100;
+  static const int masterAuditLogLimit = 100;
+  static const int masterGlobalSearchScanLimit = 100;
+  static const int masterAdminUsersLimit = 100;
+  static const int masterCacheAlertsLimit = 50;
+  static const int masterCachePaymentsLimit = 100;
+  static const int masterCacheChurchesScanLimit = 100;
+  static const int memberCardListPageSize = 40;
+  static const int memberCardSignatoryQueryLimit = 24;
+  static const int memberCardPdfPhotoParallel = 4;
   static const int patrimonioListPageSize = 20;
   static const int financeSummaryFirstLimit = 20;
 

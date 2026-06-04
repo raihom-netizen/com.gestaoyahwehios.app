@@ -285,7 +285,7 @@ abstract final class ChurchChatMediaOutboxService {
     });
   }
 
-  static const int _maxJobsPerResumeWave = 2;
+  static const int _maxJobsPerResumeWave = 4;
   static bool _resumeScheduled = false;
   static const int _maxAttemptsPerJob = 4;
 

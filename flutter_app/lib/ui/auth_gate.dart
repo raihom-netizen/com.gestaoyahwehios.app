@@ -17,6 +17,7 @@ import 'widgets/global_announcement_overlay.dart';
 import 'widgets/gestao_foreground_notification_snackbar.dart';
 import '../services/app_connectivity_service.dart';
 import '../services/auth_profile_cache_service.dart';
+import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 import '../services/church_funcoes_controle_service.dart';
 import '../services/fcm_service.dart';
@@ -1230,8 +1231,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     // Biometric em paralelo ao perfil para não somar tempo de espera no mobile
     _biometricFuture = kIsWeb
         ? Future.value(false)
-        : BiometricService()
-            .shouldRequireBiometricUnlock()
+        : AuthService.shouldRequireBiometricUnlock()
             .catchError((_, __) => false);
     _readyFuture = Future.wait([_profileFuture, _biometricFuture])
         .then((list) => (list[0] as Map<String, dynamic>?, list[1] as bool))

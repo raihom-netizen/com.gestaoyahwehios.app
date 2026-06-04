@@ -7,6 +7,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -182,7 +183,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       );
       if (ok != true) return;
       try {
-        await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
         final batch = FirebaseFirestore.instance.batch();
         for (final id in ids) {
           batch.delete(_membersCol.doc(id));
@@ -200,7 +201,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     }
 
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final linkage = await _getTenantLinkage();
       final batch = FirebaseFirestore.instance.batch();
       for (final id in ids) {
@@ -252,7 +253,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     if (ok != true) return;
     final n = docs.length;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final linkage = await _getTenantLinkage();
       final batch = FirebaseFirestore.instance.batch();
       for (final d in docs) {

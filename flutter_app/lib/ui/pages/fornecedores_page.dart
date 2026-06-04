@@ -7,6 +7,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/pdf/fornecedor_recibo_pdf.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
@@ -824,7 +827,7 @@ Future<void> showFornecedorCompromissoEditor(
   valorCtrl.dispose();
 
   if (ok != true || !context.mounted) return;
-  await firebaseDefaultAuth.currentUser?.getIdToken(true);
+  await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
   final dt = DateTime(
     dEnd.year,
     dEnd.month,
@@ -882,6 +885,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     with SingleTickerProviderStateMixin {
   final _searchCtrl = TextEditingController();
   String _q = '';
+  int _fornecedoresListLimit = YahwehPerformanceV4.defaultPageSize;
   Timer? _searchDebounce;
   late TabController _tabMain;
   QuerySnapshot<Map<String, dynamic>>? _fornecedoresCacheSnap;
@@ -1207,7 +1211,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _col.orderBy('nome').limit(500).snapshots(),
+            stream: _col.orderBy('nome').limit(_fornecedoresListLimit).snapshots(),
             initialData: _fornecedoresCacheSnap,
             builder: (context, snap) {
               if (snap.hasError) {
@@ -1283,10 +1287,21 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                       );
                     }
 
+                    final showLoadMore =
+                        docs.length >= _fornecedoresListLimit && _q.isEmpty;
                     return ListView.builder(
                       padding: ThemeCleanPremium.pagePadding(context).copyWith(bottom: 88),
-                      itemCount: docs.length,
+                      itemCount: docs.length + (showLoadMore ? 1 : 0),
                       itemBuilder: (_, i) {
+                        if (showLoadMore && i == docs.length) {
+                          return LazyLoadMoreFooter(
+                            label: 'Carregar mais fornecedores',
+                            onLoadMore: () => setState(() {
+                              _fornecedoresListLimit +=
+                                  YahwehPerformanceV4.defaultPageSize;
+                            }),
+                          );
+                        }
                         final d = docs[i];
                         final m = d.data();
                         final nome = (m['nome'] ?? '').toString().trim();
@@ -1484,7 +1499,9 @@ class _FornecedoresCompromissosListaTabState
   Query<Map<String, dynamic>> get _query {
     final f = (widget.fornecedorIdFilter ?? '').trim();
     if (f.isEmpty) {
-      return _compCol.orderBy('dataVencimento', descending: true).limit(400);
+      return _compCol
+          .orderBy('dataVencimento', descending: true)
+          .limit(YahwehPerformanceV4.defaultPageSize);
     }
     return _compCol
         .where('fornecedorId', isEqualTo: f)
@@ -1525,7 +1542,10 @@ class _FornecedoresCompromissosListaTabState
     return KeyedSubtree(
       key: ValueKey<int>(_retryNonce),
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: widget.colFornecedores.orderBy('nome').limit(500).snapshots(),
+        stream: widget.colFornecedores
+            .orderBy('nome')
+            .limit(YahwehPerformanceV4.defaultPageSize)
+            .snapshots(),
         builder: (context, fnSnap) {
           if (fnSnap.hasError) {
             return ChurchPanelErrorBody(
@@ -2149,7 +2169,10 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
   Widget build(BuildContext context) {
     super.build(context);
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: widget.colFornecedores.orderBy('nome').limit(500).snapshots(),
+      stream: widget.colFornecedores
+          .orderBy('nome')
+          .limit(YahwehPerformanceV4.defaultPageSize)
+          .snapshots(),
       builder: (context, fnSnap) {
         final nomePorId = <String, String>{};
         for (final d in fnSnap.data?.docs ?? []) {
@@ -2158,7 +2181,7 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: _compCol
               .orderBy('dataVencimento', descending: false)
-              .limit(400)
+              .limit(YahwehPerformanceV4.defaultPageSize)
               .snapshots(),
           builder: (context, snap) {
             if (snap.hasError) {
@@ -2765,7 +2788,7 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      await firebaseDefaultAuth.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final payload = <String, dynamic>{
         'nome': _nomeCtrl.text.trim(),
         'tipoPessoa': _tipo,

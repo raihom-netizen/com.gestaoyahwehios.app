@@ -619,9 +619,11 @@ abstract final class OptimisticChatMediaUpload {
 
       reportProgress(0.08);
 
-      await FastMediaPublishBootstrap.warmForChatSend()
-          .timeout(const Duration(seconds: 14))
-          .catchError((_) {});
+      unawaited(
+        FastMediaPublishBootstrap.warmForChatSend()
+            .timeout(const Duration(seconds: 4))
+            .catchError((_) {}),
+      );
 
 
 
@@ -716,59 +718,68 @@ abstract final class OptimisticChatMediaUpload {
           pending.localPath = uploadPath;
 
           final ts = ChurchChatService.timestampMsFromChatMediaPath(
-
             storagePath ?? '',
-
           );
 
+          Future<String?>? thumbFuture;
           if (prepared.thumbnailBytes != null &&
-
               prepared.thumbnailBytes!.isNotEmpty) {
-
             final thumbPath = ChurchChatService.buildChatVideoThumbStoragePath(
-
               tenantId: tenantId,
-
               threadId: threadId,
-
               timestampMs: ts,
-
             );
-
-            final thumbUp = await ChurchChatService.uploadChatBytes(
-
+            thumbFuture = ChurchChatService.uploadChatBytes(
               tenantId: tenantId,
-
               threadId: threadId,
-
               bytes: prepared.thumbnailBytes!,
-
               fileName: 'thumb.webp',
-
               contentType: 'image/webp',
-
               storagePathOverride: thumbPath,
-
               skipClientPrepare: true,
-
               onProgress: (t) => _mapProgress(reportProgress, 0.40, 0.48, t),
-
-            );
-
-            thumbUrl = thumbUp.url;
-
+            ).then((up) => up.url);
           }
 
+          void uploadProgress(double t) =>
+              _mapProgress(reportProgress, 0.40, 0.96, t);
+
+          final mainFuture = ChurchChatService.uploadChatFile(
+            tenantId: tenantId,
+            threadId: threadId,
+            localPath: uploadPath,
+            fileName: pending.fileName,
+            contentType: pending.mime,
+            storagePathOverride: storagePath,
+            skipRecompress: true,
+            onProgress: uploadProgress,
+          );
+
+          if (thumbFuture != null) {
+            final pair = await Future.wait<Object?>([thumbFuture, mainFuture]);
+            thumbUrl = pair[0] as String?;
+            final up = pair[1] as ({String url, String path});
+            await _finalizeChatMediaUpload(
+              tenantId: tenantId,
+              threadId: threadId,
+              messageId: messageId!,
+              pending: pending,
+              downloadUrl: up.url,
+              storagePath: up.path,
+              thumbUrl: thumbUrl,
+              uploadDocId: activeUploadId,
+              reportProgress: reportProgress,
+              onSuccess: onSuccess,
+            );
+            return;
+          }
         }
 
       }
 
-
-
       final ({String url, String path}) up;
 
       void uploadProgress(double t) =>
-
           _mapProgress(reportProgress, 0.48, 0.96, t);
 
 
@@ -1004,65 +1015,45 @@ abstract final class OptimisticChatMediaUpload {
 
     final ts = ChurchChatService.timestampMsFromChatMediaPath(storagePath);
 
-    String? thumbUrl;
-
+    Future<String?>? thumbFuture;
     if (prepared.thumbBytes != null && prepared.thumbBytes!.isNotEmpty) {
-
       final thumbPath = ChurchChatService.buildChatImageThumbStoragePath(
-
         tenantId: tenantId,
-
         threadId: threadId,
-
         timestampMs: ts,
-
       );
-
-      final thumbUp = await ChurchChatService.uploadChatBytes(
-
+      thumbFuture = ChurchChatService.uploadChatBytes(
         tenantId: tenantId,
-
         threadId: threadId,
-
         bytes: prepared.thumbBytes!,
-
         fileName: 'thumb.webp',
-
         contentType: 'image/webp',
-
         storagePathOverride: thumbPath,
-
         skipClientPrepare: true,
-
         onProgress: (t) => _mapProgress(reportProgress, 0.12, 0.22, t),
-
-      );
-
-      thumbUrl = thumbUp.url;
-
+      ).then((up) => up.url);
     }
 
-
-
-    final up = await ChurchChatService.uploadChatBytes(
-
+    final fullFuture = ChurchChatService.uploadChatBytes(
       tenantId: tenantId,
-
       threadId: threadId,
-
       bytes: prepared.fullBytes,
-
       fileName: prepared.fullFileName,
-
       contentType: prepared.fullMime,
-
       storagePathOverride: storagePath,
-
       skipClientPrepare: true,
-
       onProgress: uploadProgress,
-
     );
+
+    String? thumbUrl;
+    late final ({String url, String path}) up;
+    if (thumbFuture != null) {
+      final pair = await Future.wait<Object?>([thumbFuture, fullFuture]);
+      thumbUrl = pair[0] as String?;
+      up = pair[1] as ({String url, String path});
+    } else {
+      up = await fullFuture;
+    }
 
     return (url: up.url, path: up.path, thumbUrl: thumbUrl);
 

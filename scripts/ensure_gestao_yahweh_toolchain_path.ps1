@@ -14,3 +14,10 @@ if (Test-Path $flutterBin) { $prepend += $flutterBin }
 if ($prepend.Count -gt 0) {
     $env:Path = (($prepend -join ';') + ';' + $env:Path)
 }
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$gcpAuth = Join-Path $repoRoot 'scripts\ensure_google_cloud_auth.ps1'
+if (Test-Path $gcpAuth) {
+    . $gcpAuth
+    Ensure-GoogleCloudAuth -RepoRoot $repoRoot -Quiet | Out-Null
+}

@@ -12,6 +12,9 @@ class ChurchChatOutboundPending {
     this.previewBytes,
     this.localPath,
     this.replyPreview,
+    this.textBody,
+    this.replyToData,
+    this.mentionedUids,
     this.albumGroupId,
     this.albumIndex = 0,
     this.albumCount = 1,
@@ -21,6 +24,10 @@ class ChurchChatOutboundPending {
   final String kind;
   final String fileName;
   final String mime;
+  /// Texto instantâneo (bolha local antes do Firestore).
+  final String? textBody;
+  final Map<String, dynamic>? replyToData;
+  final List<String>? mentionedUids;
   Uint8List? previewBytes;
   String? localPath;
   final String? replyPreview;

@@ -62,12 +62,15 @@ abstract final class UnifiedUploadService {
     await _ensureReady(module: module.name);
     logFirebasePublishPhase('UPLOAD_START', '$platformLabel|${module.name}|$storagePath|image');
     try {
-      Future<T> withUploadTimeout<T>(Future<T> fut) => fut.timeout(
-            const Duration(seconds: 60),
-            onTimeout: () => throw TimeoutException(
-              'Upload excedeu 60s ($storagePath)',
-            ),
-          );
+      Future<T> withUploadTimeout<T>(Future<T> fut) {
+        final secs = bytes.length <= 3 * 1024 * 1024 ? 30 : 60;
+        return fut.timeout(
+          Duration(seconds: secs),
+          onTimeout: () => throw TimeoutException(
+            'Upload excedeu ${secs}s ($storagePath)',
+          ),
+        );
+      }
       if (!kIsWeb &&
           localPath != null &&
           localPath.trim().isNotEmpty &&

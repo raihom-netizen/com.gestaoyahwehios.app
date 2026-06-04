@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/resumable_upload_service.dart';
+import 'package:gestao_yahweh/services/background_upload_worker.dart';
 import 'package:gestao_yahweh/services/upload_bytes_core.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
 
@@ -49,6 +50,7 @@ abstract final class StorageUploadPersistenceService {
       'contentType': contentType,
     });
     await prefs.setString(_manifestKey, jsonEncode(list));
+    BackgroundUploadWorker.scheduleDrain(reason: 'pending_upload_enqueue');
     if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
       final tenant =
           PendingUploadsFirestoreService.tenantFromStoragePath(storagePath);

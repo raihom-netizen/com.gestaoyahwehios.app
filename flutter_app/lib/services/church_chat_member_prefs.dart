@@ -253,7 +253,32 @@ class ChurchChatMemberPrefs {
       },
       SetOptions(merge: true),
     );
+
+    if (value) {
+      unawaited(_markMessagePreserveMedia(
+        tenantId: tenantId,
+        threadId: tid,
+        messageId: mid,
+      ));
+    }
     return true;
+  }
+
+  static Future<void> _markMessagePreserveMedia({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+  }) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tenantId.trim())
+          .collection('chats')
+          .doc(threadId)
+          .collection('messages')
+          .doc(messageId)
+          .set({'preserveMedia': true}, SetOptions(merge: true));
+    } catch (_) {}
   }
 
   static Future<bool> setFavorite({

@@ -10,6 +10,7 @@ IOS/*.mobileprovision
 *.p12
 
 # Saidas de deploy_completo.ps1 (artefatos AAB / ZIP iOS).
+.deploy-state/
 # `-CopyTo/` acidental quando o splatting falhou — bloquear sempre.
 -CopyTo/
 **/-CopyTo/

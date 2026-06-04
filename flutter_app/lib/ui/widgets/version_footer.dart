@@ -208,6 +208,14 @@ class VersionFooter extends StatelessWidget {
     );
   }
 
+  static Future<void> openLegalRoute(BuildContext context, String route) =>
+      _openLegalPage(
+        context,
+        route,
+        false,
+        true,
+      );
+
   static Future<void> _openLegalPage(
     BuildContext context,
     String route,
@@ -301,6 +309,59 @@ class _OfficialSocialFooterIcons extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Faixa discreta — só versículo (painel igreja: abaixo dos atalhos do rodapé).
+class ChurchShellBottomVerseStrip extends StatelessWidget {
+  const ChurchShellBottomVerseStrip({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.sizeOf(context).width < 600;
+    final verseSize = isNarrow ? 8.5 : 9.0;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(
+        horizontal: isNarrow ? 8 : 12,
+        vertical: isNarrow ? 3 : 4,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1565C0).withValues(alpha: 0.035),
+        border: Border(
+          top: BorderSide(
+            color: const Color(0xFF1565C0).withValues(alpha: 0.07),
+          ),
+        ),
+      ),
+      child: Text.rich(
+        TextSpan(
+          style: TextStyle(
+            fontSize: verseSize,
+            height: 1.18,
+            color: Colors.grey[600],
+          ),
+          children: [
+            TextSpan(
+              text: '"$kVersiculoRodape" ',
+              style: const TextStyle(fontStyle: FontStyle.italic),
+            ),
+            TextSpan(
+              text: '— $kVersiculoRef',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF1565C0).withValues(alpha: 0.88),
+                fontStyle: FontStyle.normal,
+                fontSize: verseSize,
+              ),
+            ),
+          ],
+        ),
+        textAlign: TextAlign.center,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
     );
   }
 }

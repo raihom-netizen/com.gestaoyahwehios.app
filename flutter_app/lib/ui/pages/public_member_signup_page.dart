@@ -1,3 +1,6 @@
+import 'dart:async' show unawaited;
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -15,7 +18,9 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
@@ -1095,10 +1100,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
           : (cpfDigits.length == 11 ? col.doc(cpfDigits) : col.doc());
       final docPhotoId = cpfDigits.isNotEmpty ? cpfDigits : ref.id;
       String? photoStoragePathField;
-      final photoUrl = _photoFile != null
-          ? await _uploadPhoto(_tenantId!, ref.id, _photoFile!)
-          : _buildAutoAvatarUrl(docPhotoId);
-      if (_photoFile != null) {
+      Uint8List? photoBytesForBackground;
+      final photoUrl = _buildAutoAvatarUrl(docPhotoId);
+      if (_photoBytes != null && _photoBytes!.isNotEmpty) {
+        photoBytesForBackground =
+            await ImageHelper.compressMemberProfileForUpload(_photoBytes!);
         photoStoragePathField = ChurchStorageLayout.memberCanonicalProfilePhotoPath(
             _tenantId!, ref.id);
       }
@@ -1149,8 +1155,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         'FUNCAO': 'Membro',
         'FUNCOES': <String>['membro'],
         'CRIADO_EM': FieldValue.serverTimestamp(),
-        if (_photoFile != null)
-          'fotoUrlCacheRevision': DateTime.now().millisecondsSinceEpoch,
+        if (photoBytesForBackground != null)
+          ...MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
         'FILIACAO_PAI': _filiacaoPaiCtrl.text.trim(),
         'FILIACAO_MAE': _filiacaoMaeCtrl.text.trim(),
         'FILIACAO': _buildFiliacaoLegado(
@@ -1165,6 +1171,22 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
             await MemberCodigoService.allocateNext(_tenantId!);
         data.addAll(MemberCodigoService.fieldsForFirestore(codigoMembro));
         await ref.set(data);
+        if (_tenantId != null && _tenantId!.trim().isNotEmpty) {
+          DashboardStatsCounterService.onMemberCreated(_tenantId!.trim());
+        }
+      }
+
+      if (photoBytesForBackground != null && _tenantId != null) {
+        final authUser = FirebaseAuth.instance.currentUser;
+        final isPublicVisitor =
+            authUser == null || authUser.isAnonymous;
+        MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
+          tenantId: _tenantId!,
+          memberDocId: ref.id,
+          memberData: data,
+          rawBytes: photoBytesForBackground,
+          requireAuth: !isPublicVisitor,
+        );
       }
 
       if (!mounted) return;

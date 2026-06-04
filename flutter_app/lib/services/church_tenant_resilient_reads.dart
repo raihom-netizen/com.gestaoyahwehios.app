@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/church_tenant_list_limits.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 
 /// Leituras Firestore do tenant (padrão Controle Total): cache → retry → último bom.
@@ -248,15 +249,64 @@ abstract final class ChurchTenantResilientReads {
 
   static Future<QuerySnapshot<Map<String, dynamic>>> patrimonio(
     String tenantId, {
-    int limit = 250,
+    int limit = YahwehPerformanceV4.patrimonioListPageSize,
   }) =>
       TenantStaleWhileRevalidate.loadQuery(
         tenantId: tenantId,
         module: TenantModuleKeys.patrimonio,
         networkFetch: () => FirestoreReadResilience.getQuery(
-          _church(tenantId).collection('patrimonio').limit(limit),
+          _church(tenantId)
+              .collection('patrimonio')
+              .orderBy('nome')
+              .limit(limit),
           cacheKey: _key(tenantId, 'patrimonio_$limit'),
         ),
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> patrimonioPage(
+    String tenantId, {
+    int limit = YahwehPerformanceV4.patrimonioListPageSize,
+    DocumentSnapshot<Map<String, dynamic>>? startAfter,
+  }) {
+    var q = _church(tenantId)
+        .collection('patrimonio')
+        .orderBy('nome')
+        .limit(limit);
+    if (startAfter != null) {
+      q = q.startAfterDocument(startAfter);
+    }
+    return FirestoreReadResilience.getQuery(
+      q,
+      cacheKey: _key(tenantId, 'patrimonio_page_${startAfter?.id ?? '0'}_$limit'),
+    );
+  }
+
+  /// Coleção completa (dashboard, inventário/conferência) — cache → rede com retry.
+  static Future<QuerySnapshot<Map<String, dynamic>>> patrimonioAll(
+    String tenantId,
+  ) =>
+      FirestoreReadResilience.getQuery(
+        _church(tenantId).collection('patrimonio').orderBy('nome'),
+        cacheKey: _key(tenantId, 'patrimonio_all'),
+      );
+
+  /// Um bem ao abrir formulário / retomar sessão — cache → rede com retry.
+  static Future<DocumentSnapshot<Map<String, dynamic>>> patrimonioItem(
+    String tenantId,
+    String itemDocId,
+  ) =>
+      FirestoreReadResilience.getDocument(
+        _church(tenantId).collection('patrimonio').doc(itemDocId.trim()),
+        cacheKey: _key(tenantId, 'patrimonio_item_${itemDocId.trim()}'),
+      );
+
+  /// Categorias extras (`config/patrimonio`) — cache → rede com retry.
+  static Future<DocumentSnapshot<Map<String, dynamic>>> patrimonioConfig(
+    String tenantId,
+  ) =>
+      FirestoreReadResilience.getDocument(
+        _church(tenantId).collection('config').doc('patrimonio'),
+        cacheKey: _key(tenantId, 'patrimonio_config'),
       );
 
   static Future<QuerySnapshot<Map<String, dynamic>>> contas(
@@ -278,7 +328,7 @@ abstract final class ChurchTenantResilientReads {
 
   static Future<QuerySnapshot<Map<String, dynamic>>> fornecedores(
     String tenantId, {
-    int limit = 500,
+    int limit = YahwehPerformanceV4.defaultPageSize,
   }) =>
       TenantStaleWhileRevalidate.loadQuery(
         tenantId: tenantId,

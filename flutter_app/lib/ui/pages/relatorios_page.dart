@@ -1,4 +1,5 @@
-﻿import 'dart:convert';
+﻿import 'dart:async' show unawaited;
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -14,7 +15,8 @@ import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:share_plus/share_plus.dart';
+import 'package:gestao_yahweh/services/yahweh_share_service.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
@@ -471,7 +473,7 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
     _loadDepartamentos();
   }
 
@@ -580,7 +582,7 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
   CollectionReference<Map<String, dynamic>> get _membrosIgrejas => FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('membros');
 
   Future<List<Map<String, dynamic>>> _fetchMembers() async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     final snap = await _members
         .limit(YahwehPerformanceV4.defaultPageSize * 25)
         .get();
@@ -874,7 +876,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
     _carregarMembros();
   }
 
@@ -884,7 +886,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
       _erroMembros = null;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final snapM = await _members.limit(1000).get();
       await Future<void>.delayed(const Duration(milliseconds: 50));
       final snapMb = await _membros.limit(1000).get();
@@ -1755,7 +1757,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
   bool get _embedded => widget.embeddedInFinanceModule;
 
   Future<void> _loadCategoriasContas() async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     final catsReceita = await _tenantRef.collection('categorias_receitas').orderBy('nome').get();
     final catsDespesa = await _tenantRef.collection('categorias_despesas').orderBy('nome').get();
     final cats = <String>{};
@@ -1776,7 +1778,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
     final now = DateTime.now();
     _mes = now.month;
     _ano = now.year;
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
     _loadCategoriasContas();
   }
 
@@ -1899,7 +1901,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
   }
 
   Future<Map<String, dynamic>> _loadFinanceSummary() async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     final rows = await financeFirestoreOpWithRetry(_queryFinanceRows);
     final contaLabels = <String, String>{
       for (final c in _contas) c.id: c.nome,
@@ -2351,8 +2353,9 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
           : _periodMode == _FinancePeriodMode.fullYear
               ? 'financeiro_ano_${p.inicio.year}.csv'
               : 'financeiro_${DateFormat('yyyyMMdd').format(p.inicio)}_${DateFormat('yyyyMMdd').format(p.fim)}.csv';
-      await Share.shareXFiles(
-        [XFile.fromData(Uint8List.fromList(bytes), name: name, mimeType: 'text/csv')],
+      await YahwehShareService.shareCsvBytes(
+        bytes: Uint8List.fromList(bytes),
+        fileName: name,
         subject: 'Exportação financeira CSV',
       );
     } catch (e) {
@@ -4001,7 +4004,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
     _load();
   }
 
@@ -4011,7 +4014,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
       _loadError = null;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final snap = await _col.orderBy('nome').get();
       if (mounted) {
         setState(() {
@@ -4326,7 +4329,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
     });
     _eventos = [];
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final snap = await _noticias.where('type', isEqualTo: 'evento').get();
       final now = DateTime.now();
       DateTime start;

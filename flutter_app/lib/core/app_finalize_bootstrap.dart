@@ -6,15 +6,9 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/offline/offline_first_coordinator.dart';
+import 'package:gestao_yahweh/services/background_upload_worker.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:gestao_yahweh/services/app_connectivity_service.dart';
-import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
-import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
-import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
-import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
-import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
-import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/services/system_health_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
@@ -55,17 +49,7 @@ abstract final class AppFinalizeBootstrap {
   /// Modo recuperação automática — reenvia pendentes sem intervenção do utilizador.
   static Future<void> runAutomaticRecovery() async {
     YahwehFlowLog.sync('RECOVERY', 'start');
-    await ChurchChatAutoRecoveryService.recoverOnSessionStart();
-    MuralPublishOutboxService.resumePendingOnAppStart();
-    ChurchChatMediaOutboxService.resumePendingOnAppStart();
-    await StorageUploadPersistenceService.resumePendingOnAppStart();
-    await PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded();
-    if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
-      await PendingUploadsFirestoreService.resumeForCurrentUserTenant();
-    }
-    if (AppConnectivityService.instance.isOnline) {
-      await SyncEngine.flushAll(reason: 'automatic_recovery');
-    }
+    await BackgroundUploadWorker.drainAll(reason: 'automatic_recovery');
     YahwehFlowLog.success('RECOVERY');
   }
 

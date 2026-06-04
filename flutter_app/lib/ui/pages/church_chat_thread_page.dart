@@ -230,6 +230,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     unawaited(
       ImmediateMediaWarm.warmFeed().catchError((_) {}),
     );
+    unawaited(
+      ensureFirebaseReadyForChatSend().catchError((_) {}),
+    );
+    unawaited(
+      FastMediaPublishBootstrap.warmForChatSend()
+          .timeout(const Duration(seconds: 4))
+          .catchError((_) {}),
+    );
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
@@ -811,6 +819,19 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         _mentionedUidsPending.clear();
       });
     }
+    final localId = 't_${DateTime.now().millisecondsSinceEpoch}';
+    final pending = ChurchChatOutboundPending(
+      localId: localId,
+      kind: 'text',
+      fileName: '',
+      mime: 'text/plain',
+      textBody: t,
+      replyPreview: replyPayload?['preview']?.toString(),
+      replyToData: replyPayload,
+      mentionedUids: mentions,
+    );
+    _enqueuePending(pending);
+    _setPendingProgress(localId, 0.12);
     ChurchChatInstantSendService.enqueueText(
       tenantId: widget.tenantId,
       threadId: widget.threadId,
@@ -819,13 +840,64 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
       mentionedUids: mentions,
       onComplete: (ok) {
-        if (!ok || !mounted) return;
+        if (!mounted) return;
+        if (ok) {
+          _removePending(localId);
+        } else {
+          final i =
+              _pendingOutbound.indexWhere((p) => p.localId == localId);
+          if (i >= 0) {
+            _pendingOutbound[i].failed = true;
+            _pendingOutbound[i].errorMessage =
+                'Não foi possível enviar. Toque para tentar de novo.';
+            setState(() {});
+          }
+        }
       },
       onError: (msg) {
         if (!mounted) return;
+        final i = _pendingOutbound.indexWhere((p) => p.localId == localId);
+        if (i >= 0) {
+          _pendingOutbound[i].failed = true;
+          _pendingOutbound[i].errorMessage = msg;
+          setState(() {});
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(msg), backgroundColor: ThemeCleanPremium.error),
         );
+      },
+    );
+  }
+
+  void _retryPendingText(ChurchChatOutboundPending p) {
+    final t = (p.textBody ?? '').trim();
+    if (t.isEmpty) return;
+    p.failed = false;
+    p.errorMessage = null;
+    _setPendingProgress(p.localId, 0.12);
+    if (mounted) setState(() {});
+    ChurchChatInstantSendService.enqueueText(
+      tenantId: widget.tenantId,
+      threadId: widget.threadId,
+      text: t,
+      replyTo: p.replyToData,
+      senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
+      mentionedUids: p.mentionedUids,
+      onComplete: (ok) {
+        if (!mounted) return;
+        if (ok) {
+          _removePending(p.localId);
+        } else if (mounted) {
+          p.failed = true;
+          p.errorMessage = 'Não foi possível enviar.';
+          setState(() {});
+        }
+      },
+      onError: (msg) {
+        if (!mounted) return;
+        p.failed = true;
+        p.errorMessage = msg;
+        setState(() {});
       },
     );
   }
@@ -1549,23 +1621,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
   }
 
-  Future<void> _ensureChatFirebaseBeforePicker() async {
-    try {
-      await ensureFirebaseReadyForChatSend();
-    } catch (e) {
-      if (mounted) {
-        _showChatAttachmentError(
-          isFirebaseNoAppError(e)
-              ? 'A ligar ao servidor… tente de novo em instantes.'
-              : ChurchChatService.formatInstantSendError(e),
-        );
-      }
-      rethrow;
-    }
+  void _warmChatFirebaseForPicker() {
+    unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
+    unawaited(
+      FastMediaPublishBootstrap.warmForChatSend()
+          .timeout(const Duration(seconds: 3))
+          .catchError((_) {}),
+    );
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    await _ensureChatFirebaseBeforePicker();
+    _warmChatFirebaseForPicker();
     final picker = ImagePicker();
     final x = await picker.pickImage(
       source: source,
@@ -1580,15 +1646,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         x.name.isNotEmpty ? x.name : 'foto.jpg',
       );
     }
-    await _sendPickedImageFile(
+    unawaited(_sendPickedImageFile(
       x,
       previewBeforeSend: kIsWeb || source == ImageSource.camera,
-    );
+    ));
   }
 
   /// Android/iOS: uma seleção com fotos e vídeos (como galeria de avisos/eventos).
   Future<void> _pickMixedMediaFromGallery() async {
-    await _ensureChatFirebaseBeforePicker();
+    _warmChatFirebaseForPicker();
     final r = await FilePicker.platform.pickFiles(
       type: FileType.media,
       allowMultiple: true,
@@ -1651,7 +1717,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickImagesFromGallery() async {
-    await _ensureChatFirebaseBeforePicker();
+    _warmChatFirebaseForPicker();
     final picker = ImagePicker();
     final list = await picker.pickMultiImage(
       imageQuality: mediaChatImageQuality,
@@ -1744,7 +1810,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickVideosFromGallery() async {
-    await _ensureChatFirebaseBeforePicker();
+    _warmChatFirebaseForPicker();
     final r = await FilePicker.platform.pickFiles(
       type: FileType.video,
       allowMultiple: true,
@@ -1780,7 +1846,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickVideo(ImageSource source) async {
-    await _ensureChatFirebaseBeforePicker();
+    _warmChatFirebaseForPicker();
     final picker = ImagePicker();
     final x = await picker.pickVideo(
       source: source,
@@ -1788,10 +1854,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
     if (x == null) return;
     if (!mounted) return;
-    await _sendPickedVideoXFile(
+    unawaited(_sendPickedVideoXFile(
       x,
       previewBeforeSend: kIsWeb || source == ImageSource.camera,
-    );
+    ));
   }
 
   Future<void> _sendPickedVideoXFile(
@@ -2229,16 +2295,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _setPendingProgress(pending.localId, 0.02);
     unawaited(
       runChatMediaUploadTask(() async {
+        final bytesFuture = _bytesForPendingUpload(
+          pending: pending,
+          bytes: bytes,
+          localPath: localPath,
+        );
         try {
           await _startPendingFirestoreStub(pending);
         } catch (e, st) {
           YahwehFlowLog.error('CHAT', e, st);
         }
-        final uploadBytes = await _bytesForPendingUpload(
-          pending: pending,
-          bytes: bytes,
-          localPath: localPath,
-        );
+        final uploadBytes = await bytesFuture;
         await _flushPendingUpload(
           pending: pending,
           bytes: uploadBytes,
@@ -2311,7 +2378,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickDocument() async {
-    await _ensureChatFirebaseBeforePicker();
+    _warmChatFirebaseForPicker();
     final r = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowMultiple: true,
@@ -2352,7 +2419,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _pickAudioFile() async {
-    await _ensureChatFirebaseBeforePicker();
+    _warmChatFirebaseForPicker();
     final r = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowMultiple: true,
@@ -2428,7 +2495,36 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   ) {
     final maxBubbleW = MediaQuery.sizeOf(context).width * 0.78;
     Widget body;
-    if (p.kind == 'image' && p.previewBytes != null) {
+    if (p.kind == 'text') {
+      final t = (p.textBody ?? '').trim();
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if ((p.replyPreview ?? '').trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                p.replyPreview!.trim(),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: ThemeCleanPremium.onSurface.withValues(alpha: 0.55),
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+          Text(
+            t,
+            style: const TextStyle(
+              fontSize: 15,
+              height: 1.35,
+            ),
+          ),
+        ],
+      );
+    } else if (p.kind == 'image' && p.previewBytes != null) {
       body = ClipRRect(
         borderRadius: BorderRadius.circular(14),
         child: Stack(
@@ -2571,7 +2667,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           children: [
             body,
             const SizedBox(height: 6),
-            if (!p.failed)
+            if (!p.failed && p.kind != 'text')
               ValueListenableBuilder<double>(
                 valueListenable: p.progressListenable,
                 builder: (context, progress, _) => LinearProgressIndicator(
@@ -2580,9 +2676,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   borderRadius: BorderRadius.circular(2),
                 ),
               )
-            else
+            else if (p.failed)
               TextButton(
                 onPressed: () {
+                  if (p.kind == 'text') {
+                    _retryPendingText(p);
+                    return;
+                  }
                   p.failed = false;
                   p.errorMessage = null;
                   p.firestoreMessageId = null;
@@ -2747,7 +2847,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Future<void> _startVoiceRecording() async {
-    await _ensureChatFirebaseBeforePicker();
+    _warmChatFirebaseForPicker();
     try {
       final startedPath = await _chatAudio.startRecording();
       if (startedPath == null && !kIsWeb) {
@@ -3489,12 +3589,27 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         .map((p) => p.firestoreMessageId?.trim() ?? '')
                         .where((id) => id.isNotEmpty)
                         .toSet();
+                    final pendingOutgoingTexts = <String>{
+                      for (final p in _pendingOutbound)
+                        if (p.kind == 'text' && !p.failed && !p.cancelled)
+                          (p.textBody ?? '').trim(),
+                    }..removeWhere((s) => s.isEmpty);
                     final hasActivePending = _pendingOutbound.any(
                       (p) => !p.failed && !p.cancelled,
                     );
                     var streamDocs = visibleDocs.where((d) {
                       if (hideFirestoreMsgIds.contains(d.id)) return false;
                       final m = d.data();
+                      if (pendingOutgoingTexts.isNotEmpty) {
+                        final sender = (m['senderUid'] ?? '').toString();
+                        if (sender == uid &&
+                            (m['type'] ?? 'text').toString() == 'text') {
+                          final txt = (m['text'] ?? '').toString().trim();
+                          if (pendingOutgoingTexts.contains(txt)) {
+                            return false;
+                          }
+                        }
+                      }
                       final delivery =
                           (m['deliveryStatus'] ?? '').toString();
                       if (delivery == 'uploading') {

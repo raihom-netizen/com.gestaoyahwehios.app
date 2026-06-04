@@ -1,11 +1,15 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/finance_audit_log_service.dart';
 import 'package:gestao_yahweh/services/receitas_recorrentes_geracao_service.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
@@ -126,13 +130,17 @@ class _FinanceReceitasFixasTabState extends State<FinanceReceitasFixasTab> {
   @override
   void initState() {
     super.initState();
-    firebaseDefaultAuth.currentUser?.getIdToken(true);
-    _future = _col.get();
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
+    _future = _col
+        .limit(YahwehPerformanceV4.defaultPageSize * 5)
+        .get();
   }
 
   void _refresh() {
     setState(() {
-      _future = _col.get();
+      _future = _col
+          .limit(YahwehPerformanceV4.defaultPageSize * 5)
+          .get();
     });
   }
 
@@ -572,7 +580,7 @@ class _FinanceReceitasFixasTabState extends State<FinanceReceitasFixasTab> {
 
     try {
       await ensureFirebaseReadyForPublishUpload();
-      await firebaseDefaultAuth.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       if (doc != null) {
         await doc.reference.set(payload, SetOptions(merge: true));
       } else {
@@ -957,12 +965,13 @@ class _FinanceConciliacaoReceitasTabState
     super.initState();
     final n = DateTime.now();
     _competencia = competenciaFinanceira(n);
-    firebaseDefaultAuth.currentUser?.getIdToken(true);
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
     _contasFuture = firebaseDefaultFirestore
         .collection('igrejas')
         .doc(widget.tenantId)
         .collection('contas')
         .orderBy('nome')
+        .limit(YahwehPerformanceV4.defaultPageSize * 3)
         .get();
     _catsFuture = _categoriasReceitaTenant(widget.tenantId);
   }

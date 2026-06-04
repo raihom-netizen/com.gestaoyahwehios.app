@@ -25,6 +25,7 @@
 # Forcar deploy de functions mesmo sem mudancas: -ForceFunctions
 # Forcar `flutter clean` (caso suspeite de cache corrompido): -ForceClean
 # Pular gate Modo Producao (emergencia): -SkipProductionGate
+# Continuar web/AAB/iOS se regras falharem (503 API Google): -ContinueOnRulesFailure (padrao no deploy_completo.ps1)
 #
 # Atalho: .\scripts\deploy_completo.ps1 (mesmos parâmetros)
 
@@ -34,7 +35,8 @@ param(
     [switch] $ForceFunctions,
     [switch] $ForceClean,
     [switch] $ForceFirestoreRules,
-    [switch] $SkipProductionGate
+    [switch] $SkipProductionGate,
+    [switch] $ContinueOnRulesFailure
 )
 
 $ErrorActionPreference = "Stop"
@@ -99,13 +101,23 @@ finally { Pop-Location }
 # [1/6] Firestore + Storage rules
 # ========================================================================
 Write-Host "`n=== [1/6] Firestore + Storage (regras e indices) ===" -ForegroundColor Cyan
-# ForcePublish sempre no deploy completo: API firebaserules 503/409 nao pode abortar [1/6].
-$rulesArgs = @{ MaxAttempts = 25; ForcePublish = $true }
+# ForcePublish no deploy completo; poucas rodadas + preflight + background se 503 persistir.
+$rulesMaxAttempts = if ($ContinueOnRulesFailure) { 1 } else { 12 }
+$rulesArgs = @{ MaxAttempts = $rulesMaxAttempts; ForcePublish = $true }
 if (-not $ForceFirestoreRules) {
-    Write-Host "   (regras: modo resiliente ForcePublish - padrao no deploy completo)" -ForegroundColor DarkGray
+    Write-Host "   (regras: preflight + ForcePublish, max $rulesMaxAttempts tentativas)" -ForegroundColor DarkGray
 }
 & (Join-Path $RepoRoot "scripts\deploy_firebase_rules.ps1") @rulesArgs
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$rulesExit = $LASTEXITCODE
+if ($rulesExit -ne 0) {
+    if ($ContinueOnRulesFailure) {
+        Write-Host "`nAVISO [1/6]: regras/indicess nao confirmados (exit $rulesExit). API Rules 503?" -ForegroundColor Yellow
+        Write-Host "   Continuando web + AAB + iOS. Repita depois: .\scripts\deploy_firebase_rules.ps1 -ForcePublish" -ForegroundColor DarkYellow
+    }
+    else {
+        exit $rulesExit
+    }
+}
 
 # ========================================================================
 # [2/6] Cloud Functions -- SKIP se nao mudou

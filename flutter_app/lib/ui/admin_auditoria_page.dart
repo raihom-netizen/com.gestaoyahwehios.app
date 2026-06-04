@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
@@ -28,7 +30,8 @@ class _AdminAuditoriaPageState extends State<AdminAuditoriaPage> {
     setState(() { _loading = true; _error = null; });
     try {
       final user = FirebaseAuth.instance.currentUser;
-      final token = await user?.getIdTokenResult(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
+      final token = await user?.getIdTokenResult(false);
       final role = (token?.claims?['role'] ?? '').toString().toUpperCase();
       final igrejaId = (token?.claims?['igrejaId'] ?? '').toString().trim();
       final isMaster = role == 'MASTER' || role == 'ADMIN' || role == 'ADM';
@@ -36,7 +39,7 @@ class _AdminAuditoriaPageState extends State<AdminAuditoriaPage> {
       Query<Map<String, dynamic>> q = FirebaseFirestore.instance
           .collection('auditoria')
           .orderBy('data', descending: true)
-          .limit(500);
+          .limit(YahwehPerformanceV4.masterAuditLogLimit);
       if (!isMaster && igrejaId.isNotEmpty) {
         q = q.where('igrejaId', isEqualTo: igrejaId);
       }

@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
+import 'package:gestao_yahweh/core/offline/firestore_last_write_wins.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/offline_payload_codec.dart';
 import 'package:gestao_yahweh/core/offline/offline_write_operations.dart';
@@ -76,8 +77,11 @@ abstract final class TenantOfflineWrite {
     String? module,
     String? tenantId,
   }) async {
-    final payload = FirestoreWriteGuard.stripHeavyFields(
-      Map<String, dynamic>.from(data),
+    final payload = FirestoreLastWriteWins.stamp(
+      FirestoreWriteGuard.stripHeavyFields(
+        Map<String, dynamic>.from(data),
+      ),
+      includeCreatedAt: !merge,
     );
     final path = ref.path;
     final tid = tenantId?.trim().isNotEmpty == true
@@ -131,8 +135,10 @@ abstract final class TenantOfflineWrite {
     String? module,
     String? tenantId,
   }) async {
-    final payload = FirestoreWriteGuard.stripHeavyFields(
-      Map<String, dynamic>.from(data),
+    final payload = FirestoreLastWriteWins.stamp(
+      FirestoreWriteGuard.stripHeavyFields(
+        Map<String, dynamic>.from(data),
+      ),
     );
     final path = ref.path;
     final tid = tenantId?.trim().isNotEmpty == true

@@ -6797,6 +6797,7 @@ export const migrateAllIgrejasMembersToMembros = functions
   });
 
 export { carteirinhaValidarHttp } from "./carteirinhaValidarPublic";
+export { refreshCarteiraSignatoriesIndex } from "./carteiraSignatoriesIndex";
 
 /**
  * Validação pública de carteirinha (QR): confere se o membro existe e está ativo — sem expor dados sensíveis.

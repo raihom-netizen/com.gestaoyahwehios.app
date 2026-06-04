@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/media_cache_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/church_payment_receiving_settings_section.dart';
+import 'package:gestao_yahweh/ui/widgets/version_footer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -402,6 +403,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                       title: 'Conta',
                     ),
                     _buildTrocarContaCard(context),
+                    const SizedBox(height: 24),
+                    ..._buildLegalAndVersionSection(context),
                     const SizedBox(height: 32),
                   ] else ...[
                   _SectionTitle(
@@ -752,12 +755,66 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                   const SizedBox(height: 24),
                   ..._buildBackupSection(context),
                   ..._buildDicasSection(),
+                  const SizedBox(height: 24),
+                  ..._buildLegalAndVersionSection(context),
                   const SizedBox(height: 32),
                   ],
                 ],
               ),
       ),
     );
+  }
+
+  List<Widget> _buildLegalAndVersionSection(BuildContext context) {
+    return [
+      _SectionTitle(
+        icon: Icons.policy_outlined,
+        title: 'Legal e versão',
+      ),
+      _Card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.description_outlined,
+                  color: ThemeCleanPremium.primary),
+              title: const Text(
+                'Termos de uso',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => VersionFooter.openLegalRoute(context, '/termodeuso'),
+            ),
+            Divider(height: 1, color: Colors.grey.shade200),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.privacy_tip_outlined,
+                  color: ThemeCleanPremium.primary),
+              title: const Text(
+                'Política de privacidade',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () =>
+                  VersionFooter.openLegalRoute(context, '/privacidade'),
+            ),
+            Divider(height: 1, color: Colors.grey.shade200),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(0, 10, 0, 4),
+              child: Text(
+                'Versão ${appVersionPanelLabel}',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ];
   }
 
   Widget _buildTestFlightUpdateCard(BuildContext context) {

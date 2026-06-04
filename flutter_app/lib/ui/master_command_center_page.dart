@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/ui/admin_dashboard_page.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/master_action_queue_card.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_detail_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -281,7 +283,7 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
   }
 }
 
-class _ClientsTab extends StatelessWidget {
+class _ClientsTab extends StatefulWidget {
   const _ClientsTab({
     required this.search,
     required this.searchCtrl,
@@ -298,8 +300,90 @@ class _ClientsTab extends StatelessWidget {
   final void Function(String id, Map<String, dynamic> data) onOpen;
 
   @override
+  State<_ClientsTab> createState() => _ClientsTabState();
+}
+
+class _ClientsTabState extends State<_ClientsTab> {
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = [];
+  bool _loading = true;
+  bool _loadingMore = false;
+  bool _hasMore = true;
+  int _queryLimit = YahwehPerformanceV4.masterChurchesPageSize;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadChurches(reset: true);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ClientsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.search != widget.search) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _loadChurches({bool reset = false}) async {
+    if (reset) {
+      _queryLimit = YahwehPerformanceV4.masterChurchesPageSize;
+    }
+    if (!reset && _loadingMore) return;
+    setState(() {
+      if (reset) _loading = true;
+      else _loadingMore = true;
+    });
+    try {
+      QuerySnapshot<Map<String, dynamic>> snap;
+      try {
+        snap = await FirebaseFirestore.instance
+            .collection('igrejas')
+            .orderBy('nome')
+            .limit(_queryLimit)
+            .get();
+      } catch (_) {
+        snap = await FirebaseFirestore.instance
+            .collection('igrejas')
+            .limit(_queryLimit)
+            .get();
+      }
+      if (!mounted) return;
+      setState(() {
+        _docs = snap.docs;
+        _hasMore = snap.docs.length >= _queryLimit;
+        _loading = false;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadingMore = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore) return;
+    _queryLimit += YahwehPerformanceV4.masterChurchesPageSize;
+    await _loadChurches(reset: false);
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> get _filteredDocs {
+    final search = widget.search;
+    if (search.isEmpty) return _docs;
+    return _docs.where((d) {
+      final data = d.data();
+      final nome = '${data['nome'] ?? data['name'] ?? ''}'.toLowerCase();
+      return nome.contains(search) || d.id.toLowerCase().contains(search);
+    }).toList();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final pad = ThemeCleanPremium.pagePadding(context);
+    final docs = _filteredDocs;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -309,7 +393,7 @@ class _ClientsTab extends StatelessWidget {
             children: [
               Expanded(
                 child: TextField(
-                  controller: searchCtrl,
+                  controller: widget.searchCtrl,
                   decoration: const InputDecoration(
                     hintText: 'Filtrar clientes…',
                     prefixIcon: Icon(Icons.search_rounded),
@@ -322,98 +406,85 @@ class _ClientsTab extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance
-                .collection('igrejas')
-                .limit(350)
-                .snapshots(),
-            builder: (context, snap) {
-              if (!snap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              var docs = snap.data!.docs;
-              if (search.isNotEmpty) {
-                docs = docs.where((d) {
-                  final data = d.data();
-                  final nome =
-                      '${data['nome'] ?? data['name'] ?? ''}'.toLowerCase();
-                  return nome.contains(search) ||
-                      d.id.toLowerCase().contains(search);
-                }).toList();
-              }
-              return Column(
-                children: [
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: pad.left),
-                    child: Row(
-                      children: [
-                        Text('${docs.length} clientes',
-                            style: const TextStyle(fontWeight: FontWeight.w600)),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: () => onExport(docs),
-                          icon: const Icon(Icons.download_rounded, size: 18),
-                          label: const Text('Exportar CSV'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView.builder(
-                      padding: EdgeInsets.fromLTRB(pad.left, 8, pad.right, 24),
-                      itemCount: docs.length,
-                      itemBuilder: (_, i) {
-                        final doc = docs[i];
-                        final data = doc.data();
-                        final nome =
-                            (data['nome'] ?? data['name'] ?? doc.id).toString();
-                        final plano =
-                            (data['plano'] ?? data['planId'] ?? '—').toString();
-                        return MasterPremiumCard(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : Column(
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: pad.left),
+                      child: Row(
+                        children: [
+                          Text('${docs.length} clientes',
+                              style: const TextStyle(fontWeight: FontWeight.w600)),
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: () => widget.onExport(docs),
+                            icon: const Icon(Icons.download_rounded, size: 18),
+                            label: const Text('Exportar CSV'),
                           ),
-                          child: InkWell(
-                            onTap: () => onOpen(doc.id, data),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(nome,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 15,
-                                          )),
-                                      Text(
-                                        '$plano · ${doc.id}',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.grey.shade600,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                MasterHealthChip(
-                                  health: healthFor(data),
-                                  compact: true,
-                                ),
-                                const Icon(Icons.chevron_right_rounded),
-                              ],
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView.builder(
+                        padding: EdgeInsets.fromLTRB(pad.left, 8, pad.right, 24),
+                        itemCount: docs.length + (_hasMore ? 1 : 0),
+                        itemBuilder: (_, i) {
+                          if (i >= docs.length) {
+                            return LazyLoadMoreFooter(
+                              loading: _loadingMore,
+                              onLoadMore: _loadMore,
+                            );
+                          }
+                          final doc = docs[i];
+                          final data = doc.data();
+                          final nome =
+                              (data['nome'] ?? data['name'] ?? doc.id).toString();
+                          final plano =
+                              (data['plano'] ?? data['planId'] ?? '—').toString();
+                          return MasterPremiumCard(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
                             ),
-                          ),
-                        );
-                      },
+                            child: InkWell(
+                              onTap: () => widget.onOpen(doc.id, data),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(nome,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 15,
+                                            )),
+                                        Text(
+                                          '$plano · ${doc.id}',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey.shade600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  MasterHealthChip(
+                                    health: widget.healthFor(data),
+                                    compact: true,
+                                  ),
+                                  const Icon(Icons.chevron_right_rounded),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                  ),
-                ],
-              );
-            },
-          ),
+                  ],
+                ),
         ),
       ],
     );

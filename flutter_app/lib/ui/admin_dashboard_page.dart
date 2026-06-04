@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
@@ -226,7 +227,11 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       subsAtivas = subSnap.size;
     } catch (_) {}
     try {
-      final analyticsSnap = await db.collection('analytics').orderBy('createdAt', descending: true).limit(500).get();
+      final analyticsSnap = await db
+          .collection('analytics')
+          .orderBy('createdAt', descending: true)
+          .limit(YahwehPerformanceV4.masterAnalyticsSampleLimit)
+          .get();
       acessosRecentes = analyticsSnap.size;
       final byDay = <String, int>{};
       for (final d in analyticsSnap.docs) {

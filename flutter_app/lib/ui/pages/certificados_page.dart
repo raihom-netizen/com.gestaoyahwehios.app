@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -10,7 +11,8 @@ import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:pdf/pdf.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:share_plus/share_plus.dart';
+import 'package:gestao_yahweh/services/yahweh_share_service.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/pdf/cert_pdf_worker.dart'
     show
@@ -25,6 +27,8 @@ import 'package:gestao_yahweh/pdf/certificate_pdf_builder.dart'
     show segundoNomeCasamentoFallbackDoCorpo;
 import 'package:gestao_yahweh/certificates/certificate_visual_template.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/core/certificado_consulta_url.dart';
 import 'package:gestao_yahweh/services/certificate_emitido_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -35,6 +39,7 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableChurchLogo;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
@@ -333,6 +338,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
   Map<String, dynamic>? _certConfig;
   bool _tenantLoaded = false;
   late Future<QuerySnapshot<Map<String, dynamic>>> _membersFuture;
+  int _membersQueryLimit = YahwehPerformanceV4.defaultPageSize;
+  bool _membersLoadingMore = false;
 
   DocumentReference<Map<String, dynamic>> get _certConfigDoc =>
       FirebaseFirestore.instance
@@ -349,23 +356,29 @@ class _CertificadosPageState extends State<CertificadosPage> {
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );
     } catch (_) {}
+    return ChurchTenantResilientReads.membrosRecent(
+      tid,
+      limit: _membersQueryLimit,
+    );
+  }
+
+  Future<void> _loadMoreMembers() async {
+    if (_membersLoadingMore) return;
+    setState(() {
+      _membersLoadingMore = true;
+      _membersQueryLimit += YahwehPerformanceV4.defaultPageSize;
+      _membersFuture = _loadMembers();
+    });
     try {
-      return await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('membros')
-          .get(const GetOptions(source: Source.serverAndCache));
-    } catch (_) {
-      return FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('membros')
-          .get(const GetOptions(source: Source.server));
+      await _membersFuture;
+    } finally {
+      if (mounted) setState(() => _membersLoadingMore = false);
     }
   }
 
   void _refreshMembers() {
     setState(() {
+      _membersQueryLimit = YahwehPerformanceV4.defaultPageSize;
       _membersFuture = _loadMembers();
     });
   }
@@ -373,7 +386,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
   @override
   void initState() {
     super.initState();
-    FirebaseAuth.instance.currentUser?.getIdToken(true);
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
     _membersFuture = _loadMembers();
     _loadTenant();
     _loadCertConfig();
@@ -1148,7 +1161,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                   size: 18,
                                   color: ThemeCleanPremium.primary),
                               label: Text(
-                                'Todos (${allDocs.length})',
+                                'Todos carregados (${allDocs.length})',
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w600, fontSize: 13),
                               ),
@@ -1468,6 +1481,13 @@ class _CertificadosPageState extends State<CertificadosPage> {
                       },
                       childCount: docs.length,
                     ),
+                  ),
+                ),
+              if (allDocs.length >= _membersQueryLimit)
+                SliverToBoxAdapter(
+                  child: LazyLoadMoreFooter(
+                    loading: _membersLoadingMore,
+                    onLoadMore: _loadMoreMembers,
                   ),
                 ),
             ],
@@ -2453,23 +2473,17 @@ class _CertificadosPageState extends State<CertificadosPage> {
         if (mounted && nav.canPop()) nav.pop();
         final openedPdf = await writeCertZipAndOpen(pdfBytes, pdfFname);
         if (openedPdf != null) {
-          await Share.shareXFiles(
-            [
-              XFile(openedPdf),
-            ],
-            text: 'Certificados da igreja (PDF único)',
+          await YahwehShareService.shareFile(
+            path: openedPdf,
+            mimeType: 'application/pdf',
+            message: 'Certificados da igreja (PDF único)',
             subject: 'Certificados',
           );
         } else {
-          await Share.shareXFiles(
-            [
-              XFile.fromData(
-                pdfBytes,
-                name: pdfFname,
-                mimeType: 'application/pdf',
-              ),
-            ],
-            text: 'Certificados da igreja (PDF único)',
+          await YahwehShareService.sharePdfBytes(
+            bytes: pdfBytes,
+            fileName: pdfFname,
+            message: 'Certificados da igreja (PDF único)',
             subject: 'Certificados',
           );
         }
@@ -2696,19 +2710,18 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
       final openedPath = await writeCertZipAndOpen(zipBytes, fname);
       if (openedPath != null) {
-        await Share.shareXFiles(
-          [
-            XFile(openedPath),
-          ],
-          text: 'Certificados da igreja — envie pelo WhatsApp',
+        await YahwehShareService.shareFile(
+          path: openedPath,
+          mimeType: 'application/zip',
+          message: 'Certificados da igreja — envie pelo WhatsApp',
           subject: 'Certificados',
         );
       } else {
-        await Share.shareXFiles(
-          [
-            XFile.fromData(zipBytes, name: fname, mimeType: 'application/zip'),
-          ],
-          text: 'Certificados da igreja — envie pelo WhatsApp',
+        await YahwehShareService.shareBytes(
+          bytes: zipBytes,
+          fileName: fname,
+          mimeType: 'application/zip',
+          message: 'Certificados da igreja — envie pelo WhatsApp',
           subject: 'Certificados',
         );
       }
@@ -3320,7 +3333,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
           .collection('igrejas')
           .doc(widget.tenantId)
           .collection('membros')
-          .limit(800)
+          .limit(YahwehPerformanceV4.defaultPageSize * 5)
           .get();
       if (!mounted) return;
       final docs = q.docs.toList()
@@ -3508,7 +3521,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final templates = <String, Map<String, String>>{};
       for (final t in _templates) {
         final titulo = _tituloByTemplate[t.id]?.text.trim() ?? t.nome;

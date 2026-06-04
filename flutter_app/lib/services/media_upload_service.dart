@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
@@ -223,6 +224,22 @@ class MediaUploadService {
     bool skipRecompress = false,
     bool chatJpegFast = false,
   }) async {
+    // Web: sem putFile — sempre putData via bytes.
+    if (kIsWeb) {
+      return uploadBytesWithRetry(
+        storagePath: storagePath,
+        bytes: await file.readAsBytes(),
+        contentType: contentType,
+        cacheControl: cacheControl,
+        maxAttempts: maxAttempts,
+        deleteFirebaseDownloadUrlsBefore: deleteFirebaseDownloadUrlsBefore,
+        onProgress: onProgress,
+        onUploadTaskCreated: onUploadTaskCreated,
+        useOfflineQueue: useOfflineQueue,
+        skipClientPrepare: skipRecompress,
+        chatJpegFast: chatJpegFast,
+      );
+    }
     if (_shouldCompressJpeg(contentType) && !skipRecompress) {
       final fileBytes = await file.readAsBytes();
       final preparedBytes = await _prepareBytesForUpload(

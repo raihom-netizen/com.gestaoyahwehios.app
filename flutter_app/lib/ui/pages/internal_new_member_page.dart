@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart'
     show FirebaseFunctions, FirebaseFunctionsException;
@@ -13,6 +15,7 @@ import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
+import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -486,6 +489,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       };
 
       await ref.set(data);
+      unawaited(DashboardStatsCounterService.onMemberCreated(widget.tenantId));
       FirebaseStorageService.invalidateMemberPhotoCache(
         tenantId: widget.tenantId,
         memberId: ref.id,

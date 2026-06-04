@@ -35,11 +35,7 @@ abstract final class YahwehMediaUploadPipeline {
     if (FirebaseUploadPolicy.memoryQueueOnNetworkError) {
       StorageUploadQueueService.instance.start();
     }
-    unawaited(StorageUploadPersistenceService.resumePendingOnAppStart());
     unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
-    if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
-      unawaited(PendingUploadsFirestoreService.resumeForCurrentUserTenant());
-    }
   }
 
   static YahwehUploadModule moduleFromStoragePath(String storagePath) {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
@@ -92,7 +93,10 @@ class _RecebimentosResumoWidgetState extends State<_RecebimentosResumoWidget> {
     });
     try {
       final List<Map<String, dynamic>> list = [];
-      final salesSnap = await FirebaseFirestore.instance.collection('sales').limit(1000).get();
+      final salesSnap = await FirebaseFirestore.instance
+          .collection('sales')
+          .limit(YahwehPerformanceV4.masterPaymentsSampleLimit)
+          .get();
       for (final d in salesSnap.docs) {
         final data = d.data();
         final status = (data['status'] ?? '').toString().toLowerCase();
@@ -104,7 +108,10 @@ class _RecebimentosResumoWidgetState extends State<_RecebimentosResumoWidget> {
         }
         list.add(data);
       }
-      final mpSnap = await FirebaseFirestore.instance.collection('mp_payments').limit(1000).get();
+      final mpSnap = await FirebaseFirestore.instance
+          .collection('mp_payments')
+          .limit(YahwehPerformanceV4.masterPaymentsSampleLimit)
+          .get();
       for (final d in mpSnap.docs) {
         final data = d.data();
         if ((data['status'] ?? '').toString() != 'approved') continue;

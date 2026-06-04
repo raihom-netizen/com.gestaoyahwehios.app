@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -64,9 +65,11 @@ Future<void> noticiaShareNativeRich({
             name: 'publicacao.mp4',
             mimeType: 'video/mp4',
           );
-          await Share.shareXFiles(
-            [xFile],
-            text: message,
+          await YahwehShareService.shareBytes(
+            bytes: bytes,
+            fileName: 'publicacao.mp4',
+            mimeType: 'video/mp4',
+            message: message,
             subject: subject,
             sharePositionOrigin: sharePositionOrigin,
           );
@@ -103,9 +106,11 @@ Future<void> noticiaShareNativeRich({
           name: 'convite.jpg',
           mimeType: 'image/jpeg',
         );
-        await Share.shareXFiles(
-          [xFile],
-          text: message,
+        await YahwehShareService.shareBytes(
+          bytes: bytes,
+          fileName: 'convite.jpg',
+          mimeType: 'image/jpeg',
+          message: message,
           subject: subject,
           sharePositionOrigin: sharePositionOrigin,
         );
@@ -114,7 +119,7 @@ Future<void> noticiaShareNativeRich({
     } catch (_) {}
   }
 
-  await Share.share(
+  await YahwehShareService.shareText(
     message,
     subject: subject,
     sharePositionOrigin: sharePositionOrigin,

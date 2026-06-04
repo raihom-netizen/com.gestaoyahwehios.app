@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/yahweh_cache_managers.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart';
+import 'package:gestao_yahweh/ui/widgets/unavailable_media_widget.dart';
 
 /// Tratamento definitivo de imagens em rede: logo, cadastro igreja, eventos, avisos.
 /// Garante exibição no painel e feed — evita tela preta ou erro ao carregar.
@@ -1020,29 +1021,20 @@ Widget defaultImagePlaceholder({double size = 48}) => Shimmer.fromColors(
       ),
     );
 
-Widget defaultImageErrorWidget(
-        {String message = 'Imagem indisponível', double iconSize = 64}) =>
-    Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Image.asset(
-            'assets/LOGO_GESTAO_YAHWEH.png',
-            width: iconSize,
-            height: iconSize,
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => Icon(
-              Icons.broken_image_rounded,
-              size: iconSize,
-              color: Colors.grey.shade400,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(message,
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              textAlign: TextAlign.center),
-        ],
-      ),
+Widget defaultImageErrorWidget({
+  String message = 'Imagem indisponível',
+  double iconSize = 64,
+  VoidCallback? onRetry,
+  double? width,
+  double? height,
+}) =>
+    UnavailableMediaWidget(
+      message: message,
+      onRetry: onRetry,
+      width: width,
+      height: height,
+      icon: Icons.broken_image_rounded,
+      compact: (width ?? iconSize) < 72,
     );
 
 /// Padrão EcoFire: renova token do Storage antes de exibir (patrimônio, avisos, eventos, logo igreja).
