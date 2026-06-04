@@ -1,10 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Logs de uso de banco, Google Drive etc. Master vê todos; Gestor local vê só da sua igreja. Super Premium, responsivo.
 class AdminAuditoriaPage extends StatefulWidget {
@@ -43,7 +46,12 @@ class _AdminAuditoriaPageState extends State<AdminAuditoriaPage> {
       if (!isMaster && igrejaId.isNotEmpty) {
         q = q.where('igrejaId', isEqualTo: igrejaId);
       }
-      final snap = await q.get();
+      final snap = await FirestoreWebGuard.runWithWebRecovery(() {
+        return FirestoreReadResilience.getQuery(
+          q,
+          cacheKey: isMaster ? 'master_auditoria' : 'auditoria_$igrejaId',
+        );
+      });
       if (mounted) {
         _logs = snap.docs.map((d) => d.data()).toList();
         setState(() { _loading = false; _error = null; });
@@ -53,9 +61,10 @@ class _AdminAuditoriaPageState extends State<AdminAuditoriaPage> {
         _logs = [];
         setState(() {
           _loading = false;
-          _error = e.toString().contains('permission-denied') || e.toString().contains('PERMISSION_DENIED')
+          _error = e.toString().contains('permission-denied') ||
+                  e.toString().contains('PERMISSION_DENIED')
               ? 'Sem permissão para acessar auditoria.'
-              : 'Erro ao carregar: $e';
+              : 'Erro ao carregar: ${formatFirebaseErrorForUser(e, logToCrashlytics: false)}';
         });
       }
     }

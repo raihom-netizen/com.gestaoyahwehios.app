@@ -61,4 +61,18 @@ else
   exit 1
 fi
 
+FLOOR=0
+if [[ -f "${CM_BUILD_DIR:-}/flutter_app/ios/asc_build_number_floor.txt" ]]; then
+  FLOOR="$(tr -d '\r\n[:space:]' < "${CM_BUILD_DIR}/flutter_app/ios/asc_build_number_floor.txt" 2>/dev/null || echo 0)"
+elif [[ -f "${FCI_BUILD_DIR:-}/flutter_app/ios/asc_build_number_floor.txt" ]]; then
+  FLOOR="$(tr -d '\r\n[:space:]' < "${FCI_BUILD_DIR}/flutter_app/ios/asc_build_number_floor.txt" 2>/dev/null || echo 0)"
+fi
+case "$FLOOR" in
+  ''|*[!0-9]*) FLOOR=0 ;;
+esac
+if [[ "$FLOOR" -gt "$LATEST" ]]; then
+  echo "ASC: usando floor do repo ($FLOOR) > API ($LATEST)" >&2
+  LATEST="$FLOOR"
+fi
+
 echo "$LATEST"

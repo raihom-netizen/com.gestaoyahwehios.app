@@ -10,6 +10,8 @@ import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 DocumentReference<Map<String, dynamic>> get _marketingClientesDocRef =>
     FirebaseFirestore.instance
@@ -68,13 +70,15 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
     final t = _sectionTitleCtrl.text.trim();
     final st = _sectionSubtitleCtrl.text.trim();
     try {
-      await _marketingClientesDocRef.set(
-        {
-          'sectionTitle': t,
-          'sectionSubtitle': st,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => _marketingClientesDocRef.set(
+          {
+            'sectionTitle': t,
+            'sectionSubtitle': st,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        ),
       );
       if (mounted) {
         setState(() => _titleDirty = false);
@@ -92,12 +96,14 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
   }
 
   Future<void> _persistItems(List<Map<String, dynamic>> items) async {
-    await _marketingClientesDocRef.set(
-      {
-        'items': items,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => _marketingClientesDocRef.set(
+        {
+          'items': items,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      ),
     );
   }
 
@@ -606,7 +612,9 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
   Widget build(BuildContext context) {
     final pad = ThemeCleanPremium.pagePadding(context);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: _marketingClientesDocRef.snapshots(),
+      stream: FirestoreStreamUtils.documentWatchBootstrap(
+        _marketingClientesDocRef,
+      ),
       builder: (context, snap) {
         final data = snap.data?.data();
         final items = _cloneItems(data);

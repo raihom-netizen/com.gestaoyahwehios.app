@@ -1,4 +1,4 @@
-﻿import * as functions from "firebase-functions/v1";
+import * as functions from "firebase-functions/v1";
 import { defineString } from "firebase-functions/params";
 import * as admin from "firebase-admin";
 import { getFirestore, type DocumentReference, type DocumentData } from "firebase-admin/firestore";
@@ -7106,6 +7106,11 @@ export {
   warmChurchPanelFromMaster,
   scheduledRefreshMasterDashboard,
 } from "./masterDashboardCache";
+
+export {
+  getMasterChurchesList,
+  scheduledRefreshMasterChurchesList,
+} from "./masterChurchesListCache";
 
 export { getChurchMembersDirectory } from "./membersDirectoryCache";
 

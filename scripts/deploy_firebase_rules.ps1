@@ -1,4 +1,4 @@
-﻿# Deploy Firestore (rules + indexes) + Storage rules - Gestão YAHWEH
+# Deploy Firestore (rules + indexes) + Storage rules - Gestão YAHWEH
 # Execute na raiz do repo:  .\scripts\deploy_firebase_rules.ps1
 #
 # Erros frequentes (API Google, não bug local):
@@ -11,16 +11,20 @@
 #   • -ForcePublish: mais tentativas + backoff longo (publicação forçada)
 #
 # Parâmetros:
-#   -MaxAttempts 15 (padrão) | -ForcePublish -> 25 tentativas, backoff até 600s
+#   -MaxAttempts 15 (padrão) | -ForcePublish -> 25 tentativas GCP REST + backoff
+#   -UseCliRules -> força firebase CLI (/test); por defeito usa Google Cloud REST
 #   -OnlyStorage | -OnlyFirestoreRules | -OnlyFirestoreIndexes (debug)
 
 param(
     [int] $MaxAttempts = 15,
     [switch] $ForcePublish,
+    [switch] $UseCliRules,
     [switch] $OnlyStorage,
     [switch] $OnlyFirestoreRules,
     [switch] $OnlyFirestoreIndexes
 )
+
+$UseGcpRest = -not $UseCliRules
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -40,7 +44,7 @@ if ($ForcePublish) {
         $MaxAttempts = [Math]::Max($MaxAttempts, 25)
         Write-Host "ForcePublish: ate $MaxAttempts tentativas com backoff longo (503 firebaserules)." -ForegroundColor Yellow
     } else {
-        Write-Host "ForcePublish: max $MaxAttempts tentativas (deploy completo — web/AAB nao bloqueia)." -ForegroundColor Yellow
+        Write-Host "ForcePublish: max $MaxAttempts tentativas (deploy completo - web/AAB nao bloqueia)." -ForegroundColor Yellow
     }
 }
 
@@ -226,6 +230,12 @@ function Invoke-FirebaseTargetResilient {
     return @{ Exit = $lastExit; Text = $accum; Kind = $lastKind }
 }
 
+function Start-FirebaseRulesGcpWatchdog {
+    param([string] $RepoRoot)
+    $wd = Join-Path $RepoRoot 'scripts\firebase_rules_gcp_watchdog.ps1'
+    if (Test-Path $wd) { & $wd -StartBackground }
+}
+
 function Invoke-FirebaseDeployGranular {
     param([switch] $ForcePublish)
 
@@ -234,7 +244,33 @@ function Invoke-FirebaseDeployGranular {
         if ($MaxAttempts -le 6) { 2 } else { 5 }
     } else { 4 }
 
-    if (-not $OnlyFirestoreRules -and -not $OnlyFirestoreIndexes) {
+    if ($UseGcpRest -and -not $OnlyFirestoreIndexes) {
+        $gcpOnly = 'all'
+        if ($OnlyStorage) { $gcpOnly = 'storage' }
+        elseif ($OnlyFirestoreRules) { $gcpOnly = 'firestore' }
+        $gcpMax = if ($ForcePublish) { 40 } else { 15 }
+        Write-Host '   [GCP] Publicacao permanente (firebaserules.googleapis.com, sem CLI /test)...' -ForegroundColor Cyan
+        $gcp = Invoke-FirebaseRulesGcpPublish -RepoRoot $RepoRoot -ProjectId $ProjectId `
+            -Only $gcpOnly -Force -MaxAttempts $gcpMax
+        $allText += $gcp.Text
+        if ($gcp.Ok) {
+            if ($gcpOnly -eq 'all' -or $gcpOnly -eq 'storage') { $script:SessionStorageOk = $true }
+            if ($gcpOnly -eq 'all' -or $gcpOnly -eq 'firestore') { $script:SessionFirestoreRulesOk = $true }
+            if ($pf.FirestoreIndexesOk) { $script:SessionFirestoreIndexesOk = $true }
+            Write-Host '   [GCP] Regras no Google Cloud OK.' -ForegroundColor Green
+        } else {
+            Write-Host '   [GCP] falha — watchdog + CLI storage se necessario.' -ForegroundColor DarkYellow
+            Start-FirebaseRulesGcpWatchdog -RepoRoot $RepoRoot
+            if (-not $script:SessionStorageOk -and -not $OnlyFirestoreRules) {
+                Write-Host '   [CLI] storage.rules (conta firebase login)...' -ForegroundColor DarkYellow
+                $s = Invoke-FirebaseTargetResilient -OnlyTarget 'storage' -Label 'storage' -InnerAttempts 3 -ForcePublish:$ForcePublish
+                $allText += $s.Text
+                if ($s.Kind -eq 'fatal') { return @{ Exit = $s.Exit; Text = $allText } }
+            }
+        }
+    }
+
+    if (-not $UseGcpRest -and -not $OnlyFirestoreRules -and -not $OnlyFirestoreIndexes) {
         if (-not $script:SessionStorageOk) {
             $s = Invoke-FirebaseTargetResilient -OnlyTarget 'storage' -Label 'storage' -InnerAttempts 3 -ForcePublish:$ForcePublish
             $allText += $s.Text
@@ -245,23 +281,22 @@ function Invoke-FirebaseDeployGranular {
         }
     }
 
-    # Regras antes de indices: publicar rules libera compilacao remota; indices evita /test repetido.
-    if (-not $OnlyStorage -and -not $OnlyFirestoreIndexes) {
+    if (-not $UseGcpRest -and -not $OnlyStorage -and -not $OnlyFirestoreIndexes) {
         if (-not $script:SessionFirestoreRulesOk) {
             Start-Sleep -Seconds 1
             $r = Invoke-FirebaseTargetResilient -OnlyTarget 'firestore:rules' -Label 'firestore:rules' -InnerAttempts $innerMax -ForcePublish:$ForcePublish
             $allText += $r.Text
             if ($r.Kind -eq 'fatal') { return @{ Exit = $r.Exit; Text = $allText } }
             if (-not $script:SessionFirestoreRulesOk -and ($r.Kind -eq 'rules_test_503' -or $r.Kind -eq 'rules_api_unavailable')) {
-                Write-Host '   [fallback] REST publish firestore.rules (contorna CLI /test 503)...' -ForegroundColor DarkYellow
-                $rest = Publish-FirestoreRulesViaRest -RepoRoot $RepoRoot -ProjectId $ProjectId
+                Write-Host '   [fallback] GCP REST firestore.rules...' -ForegroundColor DarkYellow
+                $rest = Publish-FirestoreRulesViaRest -RepoRoot $RepoRoot -ProjectId $ProjectId -MaxAttempts 40
                 $allText += $rest.Text
                 if ($rest.Ok) {
                     $script:SessionFirestoreRulesOk = $true
-                    if ($pf.FirestoreIndexesOk) {
-                        $script:SessionFirestoreIndexesOk = $true
-                    }
-                    Write-Host '   [fallback] firestore.rules publicadas via REST.' -ForegroundColor Green
+                    if ($pf.FirestoreIndexesOk) { $script:SessionFirestoreIndexesOk = $true }
+                    Write-Host '   [fallback] firestore.rules GCP OK.' -ForegroundColor Green
+                } else {
+                    Start-FirebaseRulesGcpWatchdog -RepoRoot $RepoRoot
                 }
             }
         }

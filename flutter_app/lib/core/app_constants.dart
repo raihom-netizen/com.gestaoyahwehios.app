@@ -1,11 +1,19 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+import 'package:gestao_yahweh/core/public_web_origin.dart';
+
 /// Constantes centralizadas do app — assinatura, limites, paginação, UX.
 /// Ajuste aqui para alterar carência, tolerância de membros e tamanhos de lista.
 class AppConstants {
   AppConstants._();
 
   // ——— Site público e cadastro (seu domínio) ———
-  /// URL base do site público da igreja, cadastro e site de divulgação (domínio atual em produção).
-  static const String publicWebBaseUrl = 'https://gestaoyahweh.com.br';
+  /// URL canónica de marketing (e-mail, functions). Na web, [effectivePublicWebBaseUrl] usa o host actual.
+  static const String publicWebBaseUrl = PublicWebOrigin.canonicalBaseUrl;
+
+  /// Base efectiva na web (`gestaoyahweh.com.br` ou `gestaoyahweh-21e23.web.app`); nativo → canónico.
+  static String get effectivePublicWebBaseUrl =>
+      kIsWeb ? PublicWebOrigin.effectiveBaseUrl : publicWebBaseUrl;
 
   /// Marca Gestão YAHWEH (PNG no deploy web, `web/brand/`) — notificações in-app e materiais.
   static String get gestaoBrandLogoUrl => '$publicWebBaseUrl/brand/gestao_yahweh_mark.png';
@@ -129,11 +137,14 @@ class AppConstants {
     return brand.contains(slug.trim().toLowerCase());
   }
 
+  /// Link partilhável no contexto actual (web: mesmo domínio onde o utilizador está).
+  static String effectiveShareBaseUrl() => effectivePublicWebBaseUrl;
+
   /// Site público da igreja: `/{slug}` (domínio único + subpasta).
   static String publicChurchHomeUrl(String slug) {
     final s = slug.trim();
-    if (s.isEmpty) return publicWebBaseUrl;
-    return '$publicWebBaseUrl/${Uri.encodeComponent(s)}';
+    if (s.isEmpty) return effectivePublicWebBaseUrl;
+    return '$effectivePublicWebBaseUrl/${Uri.encodeComponent(s)}';
   }
 
   /// Cadastro público de membros (link partilhável).
@@ -152,15 +163,8 @@ class AppConstants {
     return '$base/$enc/cadastro-membro';
   }
 
-  static bool _isGestaoCentralPublicBase(String base) {
-    final b = base.toLowerCase().replaceAll(RegExp(r'/$'), '');
-    const central = {
-      'https://gestaoyahweh.com.br',
-      'https://gestaoyahweh-21e23.web.app',
-      'https://gestaoyahweh-21e23.firebaseapp.com',
-    };
-    return central.contains(b);
-  }
+  static bool _isGestaoCentralPublicBase(String base) =>
+      PublicWebOrigin.isCentralGestaoBase(base);
 
   /// Link da publicação no site: `/{slug}/{noticiaId}` (SPA / deep link no app).
   /// Para **pré-visualização em redes** (og:image), use [shareNoticiaSocialPreviewUrl].

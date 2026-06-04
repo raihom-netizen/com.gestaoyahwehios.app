@@ -14,6 +14,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/ui/pages/visitors_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_attention_member_card.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:intl/intl.dart';
 
 /// Painel "Saúde ministerial & BI" no dashboard da igreja (pastéis, responsivo).
@@ -200,7 +201,6 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       onError: (_, __) {
         if (!mounted) return;
         setState(() {
-          _error = 'Não foi possível carregar o painel de inteligência.';
           _loading = false;
         });
         _notifyDeferredReady();
@@ -208,8 +208,19 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     );
   }
 
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _safeQueryDocs(
+    Future<QuerySnapshot<Map<String, dynamic>>> future,
+  ) async {
+    try {
+      return (await future).docs;
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<void> _load() async {
     if (widget.tenantId.trim().isEmpty) return;
+    final tid = widget.tenantId.trim();
     final useFinanceStream =
         widget.canViewFinance && widget.financeStream != null;
     setState(() {
@@ -217,40 +228,46 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       _error = null;
     });
     try {
-      final base = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId.trim());
-      final futures = <Future<dynamic>>[
-        base.collection('escalas').orderBy('date', descending: true).limit(220).get(),
-        base.collection('eventos').orderBy('createdAt', descending: true).limit(120).get(),
-        base.collection('visitantes').orderBy('createdAt', descending: true).limit(200).get(),
+      await ChurchTenantResilientReads.preparePanelRead();
+      final futures = <Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>>[
+        _safeQueryDocs(
+          ChurchTenantResilientReads.escalasRecent(tid, limit: 220),
+        ),
+        _safeQueryDocs(
+          ChurchTenantResilientReads.noticiasByStartAt(tid, limit: 120),
+        ),
+        _safeQueryDocs(
+          ChurchTenantResilientReads.visitantes(tid, limit: 200),
+        ),
       ];
       if (widget.canViewFinance) {
         if (!useFinanceStream) {
           futures.add(
-            base
-                .collection('finance')
-                .orderBy('createdAt', descending: true)
-                .limit(ChurchDashboardQueryLimits.financeLedgerSnapshotMax)
-                .get(),
+            _safeQueryDocs(
+              ChurchTenantResilientReads.financeRecent(tid,
+                  limit: ChurchDashboardQueryLimits.financeLedgerSnapshotMax),
+            ),
           );
         }
-        futures.add(base.collection('contas').orderBy('nome').get());
+        futures.add(
+          _safeQueryDocs(ChurchTenantResilientReads.contas(tid)),
+        );
       }
-      futures.add(base.get());
+      final churchFuture = ChurchTenantResilientReads.churchDocument(tid);
       final out = await Future.wait(futures);
+      final churchSnap = await churchFuture;
       var i = 0;
-      final esc = out[i++] as QuerySnapshot<Map<String, dynamic>>;
-      final not = out[i++] as QuerySnapshot<Map<String, dynamic>>;
-      final vis = out[i++] as QuerySnapshot<Map<String, dynamic>>;
+      final escDocs = out[i++];
+      final notDocs = out[i++];
+      final visDocs = out[i++];
       List<QueryDocumentSnapshot<Map<String, dynamic>>> finDocs = const [];
       List<QueryDocumentSnapshot<Map<String, dynamic>>> finAll = const [];
       List<QueryDocumentSnapshot<Map<String, dynamic>>> contasList = const [];
       if (widget.canViewFinance) {
         if (!useFinanceStream) {
-          finAll = (out[i++] as QuerySnapshot<Map<String, dynamic>>).docs;
+          finAll = out[i++];
         }
-        contasList = (out[i++] as QuerySnapshot<Map<String, dynamic>>).docs;
+        contasList = out[i++];
         final w = widget.financePeriodRange;
         finDocs = finAll.where((d) {
           final dt = financeLancamentoDate(d.data());
@@ -258,14 +275,13 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
           return !dt.isBefore(w.start) && !dt.isAfter(w.end);
         }).toList();
       }
-      final church =
-          (out[i] as DocumentSnapshot<Map<String, dynamic>>).data();
+      final church = churchSnap.data();
 
       final intel = ChurchMinistryIntelService.build(
         members: widget.memberDocs,
-        escalas: esc.docs,
-        noticias: not.docs,
-        visitantes: vis.docs,
+        escalas: escDocs,
+        noticias: notDocs,
+        visitantes: visDocs,
         financeDocs: finDocs,
         churchData: church,
         includeFinance: widget.canViewFinance,
@@ -274,11 +290,11 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
         if (mounted) {
         setState(() {
           _intel = intel;
-          _visitanteDocs = vis.docs;
+          _visitanteDocs = visDocs;
           _financeAllDocs = finAll;
-          _cachedEscalasDocs = esc.docs;
-          _cachedNoticiasDocs = not.docs;
-          _cachedVisitantesDocs = vis.docs;
+          _cachedEscalasDocs = escDocs;
+          _cachedNoticiasDocs = notDocs;
+          _cachedVisitantesDocs = visDocs;
           _cachedChurchData = church;
           _contasDocs = contasList;
           // Com stream de finanças: não bloquear o cartão inteiro até o 1.º snapshot —
@@ -293,10 +309,27 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _error = 'Não foi possível carregar o painel de inteligência.';
-          _loading = false;
-        });
+        if (widget.memberDocs.isNotEmpty) {
+          final intel = ChurchMinistryIntelService.build(
+            members: widget.memberDocs,
+            escalas: _cachedEscalasDocs,
+            noticias: _cachedNoticiasDocs,
+            visitantes: _cachedVisitantesDocs,
+            financeDocs: const [],
+            churchData: _cachedChurchData,
+            includeFinance: false,
+          );
+          setState(() {
+            _intel = intel;
+            _loading = false;
+            _error = null;
+          });
+        } else {
+          setState(() {
+            _error = 'Não foi possível carregar o painel de inteligência.';
+            _loading = false;
+          });
+        }
         _notifyDeferredReady();
       }
     }

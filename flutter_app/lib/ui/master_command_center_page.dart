@@ -1,15 +1,14 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/admin_dashboard_page.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/master_action_queue_card.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_detail_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -75,16 +74,14 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
     return MasterChurchHealth.ok;
   }
 
-  Future<void> _exportClientsCsv(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) async {
+  Future<void> _exportClientsCsv(List<MasterChurchListItem> items) async {
     final b = StringBuffer('id,nome,plano,status\n');
-    for (final d in docs) {
-      final data = d.data();
+    for (final item in items) {
+      final data = item.data;
       final nome = (data['nome'] ?? data['name'] ?? '').toString().replaceAll(',', ' ');
       final plano = (data['plano'] ?? data['planId'] ?? '').toString();
       final st = SubscriptionGuard.evaluate(church: data).masterBadgeLabel;
-      b.writeln('${d.id},$nome,$plano,$st');
+      b.writeln('${item.id},$nome,$plano,$st');
     }
     await Clipboard.setData(ClipboardData(text: b.toString()));
     if (mounted) {
@@ -99,7 +96,8 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
     final b = StringBuffer()
       ..writeln('metrica,valor')
       ..writeln('igrejas,${s.igrejas}')
-      ..writeln('usuarios,${s.usuarios}')
+      ..writeln('usuarios,${s.usuariosExibicao}')
+      ..writeln('membros_total,${s.membrosTotal}')
       ..writeln('receita,${brl.format(s.receita)}')
       ..writeln('licencas_ativas,${s.licencasAtivas}')
       ..writeln('alertas,${s.alertas}')
@@ -195,10 +193,13 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
                               onTap: () => widget.onNavigateTo(AdminMenuItem.igrejasLista),
                             ),
                             MasterKpiCard(
-                              label: 'Usuários',
-                              value: '${s.usuarios}',
+                              label: 'Membros',
+                              value: '${s.usuariosExibicao}',
                               icon: Icons.people_rounded,
                               accent: const Color(0xFF0D9488),
+                              subtitle: s.membrosTotal > s.usuarios
+                                  ? '${s.usuarios} contas auth'
+                                  : null,
                               onTap: () =>
                                   widget.onNavigateTo(AdminMenuItem.igrejasUsuarios),
                             ),
@@ -295,8 +296,7 @@ class _ClientsTab extends StatefulWidget {
   final String search;
   final TextEditingController searchCtrl;
   final MasterChurchHealth Function(Map<String, dynamic>) healthFor;
-  final void Function(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs)
-      onExport;
+  final void Function(List<MasterChurchListItem> items) onExport;
   final void Function(String id, Map<String, dynamic> data) onOpen;
 
   @override
@@ -304,16 +304,19 @@ class _ClientsTab extends StatefulWidget {
 }
 
 class _ClientsTabState extends State<_ClientsTab> {
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = [];
+  List<MasterChurchListItem> _churches = const [];
   bool _loading = true;
-  bool _loadingMore = false;
-  bool _hasMore = true;
-  int _queryLimit = YahwehPerformanceV4.masterChurchesPageSize;
+  String? _loadError;
 
   @override
   void initState() {
     super.initState();
-    _loadChurches(reset: true);
+    final mem = MasterChurchesListService.peekMemory();
+    if (mem != null && mem.isNotEmpty) {
+      _churches = mem;
+      _loading = false;
+    }
+    unawaited(_loadChurches(force: false));
   }
 
   @override
@@ -324,66 +327,53 @@ class _ClientsTabState extends State<_ClientsTab> {
     }
   }
 
-  Future<void> _loadChurches({bool reset = false}) async {
-    if (reset) {
-      _queryLimit = YahwehPerformanceV4.masterChurchesPageSize;
-    }
-    if (!reset && _loadingMore) return;
+  Future<void> _loadChurches({bool force = false}) async {
+    if (!mounted) return;
     setState(() {
-      if (reset) _loading = true;
-      else _loadingMore = true;
+      if (_churches.isEmpty) _loading = true;
+      _loadError = null;
     });
     try {
-      QuerySnapshot<Map<String, dynamic>> snap;
-      try {
-        snap = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .orderBy('nome')
-            .limit(_queryLimit)
-            .get();
-      } catch (_) {
-        snap = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .limit(_queryLimit)
-            .get();
+      var list = await FirestoreWebGuard.runWithWebRecovery(
+        () => MasterChurchesListService.loadFast(force: force)
+            .timeout(const Duration(seconds: 22)),
+      );
+      if (list.isEmpty && !force) {
+        list = await FirestoreWebGuard.runWithWebRecovery(
+          () => MasterChurchesListService.loadFast(force: true)
+              .timeout(const Duration(seconds: 25)),
+        );
       }
       if (!mounted) return;
       setState(() {
-        _docs = snap.docs;
-        _hasMore = snap.docs.length >= _queryLimit;
+        _churches = list;
         _loading = false;
-        _loadingMore = false;
       });
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _loadingMore = false;
-        });
-      }
+    } catch (e) {
+      if (!mounted) return;
+      final mem = MasterChurchesListService.peekMemory();
+      setState(() {
+        _churches = mem ?? const [];
+        _loadError = mem == null || mem.isEmpty ? e.toString() : null;
+        _loading = false;
+      });
     }
   }
 
-  Future<void> _loadMore() async {
-    if (_loadingMore || !_hasMore) return;
-    _queryLimit += YahwehPerformanceV4.masterChurchesPageSize;
-    await _loadChurches(reset: false);
-  }
-
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> get _filteredDocs {
+  List<MasterChurchListItem> get _filtered {
     final search = widget.search;
-    if (search.isEmpty) return _docs;
-    return _docs.where((d) {
-      final data = d.data();
+    if (search.isEmpty) return _churches;
+    return _churches.where((item) {
+      final data = item.data;
       final nome = '${data['nome'] ?? data['name'] ?? ''}'.toLowerCase();
-      return nome.contains(search) || d.id.toLowerCase().contains(search);
+      return nome.contains(search) || item.id.toLowerCase().contains(search);
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
     final pad = ThemeCleanPremium.pagePadding(context);
-    final docs = _filteredDocs;
+    final items = _filtered;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -402,23 +392,51 @@ class _ClientsTabState extends State<_ClientsTab> {
                   ),
                 ),
               ),
+              IconButton(
+                onPressed: () => _loadChurches(force: true),
+                icon: const Icon(Icons.refresh_rounded),
+                tooltip: 'Atualizar lista',
+              ),
             ],
           ),
         ),
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
-              : Column(
+              : items.isEmpty && _loadError != null
+                  ? Center(
+                      child: Padding(
+                        padding: pad,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Erro ao carregar clientes.',
+                              style: TextStyle(color: ThemeCleanPremium.error),
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton.icon(
+                              onPressed: () => _loadChurches(force: true),
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Tentar novamente'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : Column(
                   children: [
                     Padding(
                       padding: EdgeInsets.symmetric(horizontal: pad.left),
                       child: Row(
                         children: [
-                          Text('${docs.length} clientes',
+                          Text('${items.length} clientes',
                               style: const TextStyle(fontWeight: FontWeight.w600)),
                           const Spacer(),
                           TextButton.icon(
-                            onPressed: () => widget.onExport(docs),
+                            onPressed: items.isEmpty
+                                ? null
+                                : () => widget.onExport(items),
                             icon: const Icon(Icons.download_rounded, size: 18),
                             label: const Text('Exportar CSV'),
                           ),
@@ -426,20 +444,21 @@ class _ClientsTabState extends State<_ClientsTab> {
                       ),
                     ),
                     Expanded(
-                      child: ListView.builder(
+                      child: items.isEmpty
+                          ? ThemeCleanPremium.premiumEmptyState(
+                              icon: Icons.church_rounded,
+                              title: 'Nenhuma igreja cadastrada.',
+                              subtitle:
+                                  'Puxe para atualizar ou use o botão de refresh.',
+                            )
+                          : ListView.builder(
                         padding: EdgeInsets.fromLTRB(pad.left, 8, pad.right, 24),
-                        itemCount: docs.length + (_hasMore ? 1 : 0),
+                        itemCount: items.length,
                         itemBuilder: (_, i) {
-                          if (i >= docs.length) {
-                            return LazyLoadMoreFooter(
-                              loading: _loadingMore,
-                              onLoadMore: _loadMore,
-                            );
-                          }
-                          final doc = docs[i];
-                          final data = doc.data();
+                          final item = items[i];
+                          final data = item.data;
                           final nome =
-                              (data['nome'] ?? data['name'] ?? doc.id).toString();
+                              (data['nome'] ?? data['name'] ?? item.id).toString();
                           final plano =
                               (data['plano'] ?? data['planId'] ?? '—').toString();
                           return MasterPremiumCard(
@@ -449,7 +468,7 @@ class _ClientsTabState extends State<_ClientsTab> {
                               vertical: 10,
                             ),
                             child: InkWell(
-                              onTap: () => widget.onOpen(doc.id, data),
+                              onTap: () => widget.onOpen(item.id, data),
                               child: Row(
                                 children: [
                                   Expanded(
@@ -462,7 +481,7 @@ class _ClientsTabState extends State<_ClientsTab> {
                                               fontSize: 15,
                                             )),
                                         Text(
-                                          '$plano · ${doc.id}',
+                                          '$plano · ${item.id}',
                                           style: TextStyle(
                                             fontSize: 11,
                                             color: Colors.grey.shade600,

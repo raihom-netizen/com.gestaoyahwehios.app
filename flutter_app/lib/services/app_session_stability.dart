@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
@@ -64,6 +65,9 @@ abstract final class AppSessionStability {
       return;
     }
     unawaited(AppFinalizeBootstrap.onAppResume());
+    if (kIsWeb) {
+      unawaited(FirestoreWebGuard.bindWebHostingDomainSession());
+    }
     for (final cb in List<void Function()>.from(_resumeListeners)) {
       try {
         cb();

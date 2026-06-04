@@ -1,4 +1,4 @@
-﻿import 'dart:async' show TimeoutException, unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';

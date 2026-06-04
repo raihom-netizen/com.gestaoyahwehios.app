@@ -34,6 +34,11 @@ abstract final class AppFinalizeBootstrap {
     try {
       await FirebaseBootstrap.ensureInitialized();
       FirebaseBootstrapService.refreshCachedApp();
+      if (kIsWeb) {
+        await FirestoreWebGuard.recoverFirestoreWebSession(
+          allowHardReconnect: true,
+        );
+      }
       await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
       YahwehFlowLog.sync('BOOT', 'queues');
       await runAutomaticRecovery();
@@ -61,6 +66,11 @@ abstract final class AppFinalizeBootstrap {
       await FirebaseBootstrap.ensureInitialized();
       FirebaseBootstrapService.refreshCachedApp();
       await FirebaseAuthTokenGuard.refreshIfStale();
+      if (kIsWeb) {
+        await FirestoreWebGuard.recoverFirestoreWebSession(
+          allowHardReconnect: true,
+        );
+      }
       await _bindQueuesAfterFirebaseCore();
       await OfflineFirstCoordinator.onAppResumed();
     } catch (e, st) {

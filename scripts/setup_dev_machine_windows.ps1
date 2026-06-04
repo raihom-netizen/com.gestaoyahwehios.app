@@ -240,6 +240,12 @@ Ensure-Git
 Ensure-Jdk17
 Ensure-Flutter
 Ensure-AndroidSdk
+$repoEarly = Split-Path -Parent $PSScriptRoot
+$gcloudScript = Join-Path $repoEarly 'scripts\install_google_cloud_sdk.ps1'
+if (Test-Path $gcloudScript) {
+    . $gcloudScript
+    Ensure-GcloudInstalled -RepoRoot $repoEarly | Out-Null
+}
 Set-UserPath
 $repo = Split-Path -Parent $PSScriptRoot
 Write-LocalProperties -RepoRoot $repo

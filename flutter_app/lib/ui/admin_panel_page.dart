@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
+import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -50,6 +51,8 @@ import 'widgets/connectivity_offline_strip.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/core/marketing_official_config.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 part 'admin_igrejas_tab.dart';
 
@@ -160,6 +163,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       });
     }
     unawaited(_loadMasterRbac());
+    unawaited(MasterChurchesListService.loadFast());
+    unawaited(MasterDashboardCacheService.refresh());
     _touchActivity();
     AppSessionStability.registerResumeListener(_onGlobalResume);
   }
@@ -1163,6 +1168,29 @@ class _AdminHeader extends StatelessWidget {
     required this.onLogout,
   });
 
+  static Future<Map<String, dynamic>?>? _marketingCacheFuture;
+  static DateTime? _marketingCachedAt;
+  static const Duration _marketingTtl = Duration(minutes: 12);
+
+  static Future<Map<String, dynamic>?> _loadMarketingOnce() {
+    final now = DateTime.now();
+    if (_marketingCacheFuture != null &&
+        _marketingCachedAt != null &&
+        now.difference(_marketingCachedAt!) < _marketingTtl) {
+      return _marketingCacheFuture!;
+    }
+    _marketingCachedAt = now;
+    _marketingCacheFuture = FirestoreWebGuard.runWithWebRecovery(
+      () async {
+        final snap = await FirebaseFirestore.instance
+            .doc(MarketingOfficialConfig.firestoreDocPath)
+            .get(const GetOptions(source: Source.serverAndCache));
+        return snap.data();
+      },
+    );
+    return _marketingCacheFuture!;
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -1171,12 +1199,10 @@ class _AdminHeader extends StatelessWidget {
         ? fullName.split(RegExp(r'\s+')).first.trim()
         : fullName;
 
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .doc(MarketingOfficialConfig.firestoreDocPath)
-          .snapshots(),
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: _loadMarketingOnce(),
       builder: (context, snap) {
-        final data = snap.data?.data();
+        final data = snap.data;
         final brand = MarketingOfficialConfig.effectiveContactName(data);
         var greetName = shortName;
         var tooltipName = fullName;
@@ -1421,90 +1447,88 @@ class _SecurityChip extends StatelessWidget {
   }
 }
 
-class _AdminStatsCard extends StatelessWidget {
+class _AdminStatsCard extends StatefulWidget {
   const _AdminStatsCard();
 
-  static bool _isRevenueStatusCountable(String rawStatus) {
-    final s = rawStatus.trim().toLowerCase();
-    return s == 'approved' || s == 'paid' || s == 'accredited';
+  @override
+  State<_AdminStatsCard> createState() => _AdminStatsCardState();
+}
+
+class _AdminStatsCardState extends State<_AdminStatsCard> {
+  int _igrejas = MasterChurchesListService.peekCount();
+  double _receita = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_refresh());
   }
 
-  /// Carrega igrejas e vendas em separado: falha em `sales` (permissão) não zera a lista de igrejas.
-  static Future<({int igrejas, double receita})> _loadStats() async {
-    var igrejas = 0;
-    var receita = 0.0;
+  Future<void> _refresh() async {
     try {
-      final igSnap =
-          await FirebaseFirestore.instance.collection('igrejas').get();
-      igrejas = igSnap.size;
-    } catch (_) {}
-    try {
-      final salesSnap =
-          await FirebaseFirestore.instance.collection('sales').get();
-      for (final d in salesSnap.docs) {
-        final status = (d.data()['status'] ?? '').toString();
-        if (!_isRevenueStatusCountable(status)) continue;
-        final amt = d.data()['amount'];
-        if (amt is num) receita += amt.toDouble();
+      var churches = await MasterChurchesListService.loadFast()
+          .timeout(const Duration(seconds: 20));
+      if (churches.isEmpty) {
+        churches = await MasterChurchesListService.loadFast(force: true)
+            .timeout(const Duration(seconds: 25));
       }
-    } catch (_) {}
-    return (igrejas: igrejas, receita: receita);
+      final summary = await MasterDashboardCacheService.refresh()
+          .timeout(const Duration(seconds: 25));
+      if (!mounted) return;
+      setState(() {
+        _igrejas = churches.isNotEmpty ? churches.length : summary.igrejas;
+        _receita = summary.receita;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      final cached = MasterChurchesListService.peekCount();
+      if (cached > 0) setState(() => _igrejas = cached);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<({int igrejas, double receita})>(
-      future: _loadStats(),
-      builder: (context, snap) {
-        int igrejas = 0;
-        double receita = 0;
-        if (snap.hasData) {
-          igrejas = snap.data!.igrejas;
-          receita = snap.data!.receita;
-        }
-        return Material(
-          elevation: 0,
-          color: ThemeCleanPremium.primary.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Row(
+    return Material(
+      elevation: 0,
+      color: ThemeCleanPremium.primary.withValues(alpha: 0.07),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.admin_panel_settings_rounded,
+              color: ThemeCleanPremium.primary,
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.admin_panel_settings_rounded,
-                  color: ThemeCleanPremium.primary,
-                  size: 18,
+                Text(
+                  'Igrejas: $_igrejas',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: ThemeCleanPremium.onSurface,
+                    fontSize: 12,
+                    height: 1.2,
+                  ),
                 ),
-                const SizedBox(width: 8),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Igrejas: $igrejas',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: ThemeCleanPremium.onSurface,
-                        fontSize: 12,
-                        height: 1.2,
-                      ),
-                    ),
-                    Text(
-                      'Receita MP: R\$ ${receita.toStringAsFixed(0)}',
-                      style: TextStyle(
-                        fontSize: 10,
-                        height: 1.2,
-                        color: ThemeCleanPremium.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+                Text(
+                  'Receita MP: R\$ ${_receita.toStringAsFixed(0)}',
+                  style: TextStyle(
+                    fontSize: 10,
+                    height: 1.2,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
                 ),
               ],
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 }

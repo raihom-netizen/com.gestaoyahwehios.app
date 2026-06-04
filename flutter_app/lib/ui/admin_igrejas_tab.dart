@@ -1,4 +1,4 @@
-﻿part of 'admin_panel_page.dart';
+part of 'admin_panel_page.dart';
 
 /// Lista de igrejas no painel master — métricas, filtros, gestão de licença e exclusão total.
 class _IgrejasTab extends StatefulWidget {
@@ -27,12 +27,73 @@ class _IgrejasTabState extends State<_IgrejasTab> {
   static const Duration _benchmarkCacheTtl = Duration(minutes: 4);
   MasterDashboardSummary? _masterSummary;
   Future<MasterDashboardSummary>? _masterSummaryFuture;
+  List<MasterChurchListItem> _churches = const [];
+  bool _churchesLoading = true;
+  String? _churchesLoadError;
+  bool _benchmarkRequested = false;
 
   @override
   void initState() {
     super.initState();
     _searchCtrl = TextEditingController(text: widget.query);
+    unawaited(_loadChurchesList());
     _masterSummaryFuture = _loadMasterSummary();
+  }
+
+  Future<void> _loadChurchesList({bool force = false}) async {
+    if (!mounted) return;
+    final mem = MasterChurchesListService.peekMemory();
+    if (!force && mem != null && mem.isNotEmpty) {
+      setState(() {
+        _churches = mem;
+        _churchesLoading = false;
+        _churchesLoadError = null;
+      });
+    } else {
+      setState(() {
+        _churchesLoading = true;
+        _churchesLoadError = null;
+      });
+    }
+    try {
+      var list = await FirestoreWebGuard.runWithWebRecovery(
+        () => MasterChurchesListService.loadFast(force: force)
+            .timeout(const Duration(seconds: 22)),
+      );
+      if (list.isEmpty && !force) {
+        MasterDashboardSummary? summary = _masterSummary;
+        if (summary == null && _masterSummaryFuture != null) {
+          try {
+            summary = await _masterSummaryFuture;
+          } catch (_) {}
+        }
+        if (summary != null && summary.igrejas > 0) {
+          list = await FirestoreWebGuard.runWithWebRecovery(
+            () => MasterChurchesListService.loadFast(force: true)
+                .timeout(const Duration(seconds: 25)),
+          );
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _churches = list;
+        _churchesLoading = false;
+        _churchesLoadError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      final cached = MasterChurchesListService.peekMemory();
+      setState(() {
+        _churchesLoading = false;
+        if (cached != null && cached.isNotEmpty) {
+          _churches = cached;
+          _churchesLoadError = null;
+        } else {
+          _churchesLoadError =
+              formatFirebaseErrorForUser(e, logToCrashlytics: false);
+        }
+      });
+    }
   }
 
   Future<MasterDashboardSummary> _loadMasterSummary() async {
@@ -67,8 +128,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
     super.dispose();
   }
 
-  bool _passesFilters(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
+  bool _passesFilters(MasterChurchListItem item) {
+    final data = item.data;
+    final docId = item.id;
     final q = widget.query.trim().toLowerCase();
     if (_filterStatus.isNotEmpty) {
       final st = (data['status'] ?? 'ativa').toString();
@@ -97,9 +159,10 @@ class _IgrejasTabState extends State<_IgrejasTab> {
     if (q.isNotEmpty) {
       final nome = '${data['nome'] ?? data['name'] ?? ''}'.toLowerCase();
       final slug = '${data['slug'] ?? data['alias'] ?? ''}'.toLowerCase();
-      final docId = doc.id.toLowerCase();
-      if (!nome.contains(q) && !slug.contains(q) && !docId.contains(q))
+      final idLower = docId.toLowerCase();
+      if (!nome.contains(q) && !slug.contains(q) && !idLower.contains(q)) {
         return false;
+      }
     }
     return true;
   }
@@ -132,16 +195,16 @@ class _IgrejasTabState extends State<_IgrejasTab> {
   }
 
   Future<List<_BenchmarkTenant>> _loadBenchmark(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    List<MasterChurchListItem> items,
   ) async {
     final db = FirebaseFirestore.instance;
     final now = DateTime.now();
     final last30 = Timestamp.fromDate(now.subtract(const Duration(days: 30)));
     final out = <_BenchmarkTenant>[];
-    for (final d in docs.take(12)) {
+    for (final d in items.take(8)) {
       final churchId = d.id;
       final churchName =
-          (d.data()['nome'] ?? d.data()['name'] ?? churchId).toString();
+          (d.data['nome'] ?? d.data['name'] ?? churchId).toString();
       try {
         final membrosCol =
             db.collection('igrejas').doc(churchId).collection('membros');
@@ -588,34 +651,44 @@ class _IgrejasTabState extends State<_IgrejasTab> {
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance
-                .collection('igrejas')
-                .orderBy('createdAt', descending: true)
-                .limit(YahwehPerformanceV4.masterChurchesPageSize)
-                .snapshots(),
-            builder: (context, snap) {
-              if (snap.hasError) {
+          child: Builder(
+            builder: (context) {
+              if (_churchesLoadError != null && _churches.isEmpty) {
                 return Center(
                   child: Padding(
                     padding: const EdgeInsets.all(24),
-                    child: Text('Erro: ${snap.error}',
-                        style: TextStyle(color: ThemeCleanPremium.error)),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Erro ao carregar igrejas: $_churchesLoadError',
+                          style: TextStyle(color: ThemeCleanPremium.error),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        FilledButton.icon(
+                          onPressed: () => _loadChurchesList(force: true),
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Tentar novamente'),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               }
-              if (!snap.hasData) {
+              if (_churchesLoading && _churches.isEmpty) {
                 return const Center(child: CircularProgressIndicator());
               }
-              final allDocs = snap.data!.docs;
+              final allDocs = _churches;
               final docs = allDocs.where(_passesFilters).toList();
               final benchKey = docs.take(20).map((e) => e.id).join('|');
               final benchmarkCacheValid = _benchmarkFetchedAt != null &&
                   DateTime.now().difference(_benchmarkFetchedAt!) <
                       _benchmarkCacheTtl;
-              if (_benchmarkFuture == null ||
-                  _benchmarkKey != benchKey ||
-                  !benchmarkCacheValid) {
+              if (_benchmarkRequested &&
+                  (_benchmarkFuture == null ||
+                      _benchmarkKey != benchKey ||
+                      !benchmarkCacheValid)) {
                 _benchmarkKey = benchKey;
                 _benchmarkFuture = _loadBenchmark(docs);
                 _benchmarkFetchedAt = DateTime.now();
@@ -627,20 +700,20 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                       ? summary.licencasAtivas
                       : allDocs
                           .where((d) =>
-                              (d.data()['status'] ?? 'ativa').toString() ==
+                              (d.data['status'] ?? 'ativa').toString() ==
                               'ativa')
                           .length)
                   : allDocs
                       .where((d) =>
-                          (d.data()['status'] ?? 'ativa').toString() == 'ativa')
+                          (d.data['status'] ?? 'ativa').toString() == 'ativa')
                       .length;
               final inativas = summary?.blockedCount ??
                   allDocs
                       .where((d) =>
-                          (d.data()['status'] ?? '').toString() == 'inativa')
+                          (d.data['status'] ?? '').toString() == 'inativa')
                       .length;
               final novasMes = allDocs.where((d) {
-                final data = d.data()['createdAt'] ?? d.data()['dataCadastro'];
+                final data = d.data['createdAt'] ?? d.data['dataCadastro'];
                 if (data is Timestamp) {
                   final now = DateTime.now();
                   final dt = data.toDate();
@@ -651,7 +724,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
 
               final billing = BillingLicenseService();
               final healthWithoutLogo = allDocs.where((d) {
-                final ig = d.data();
+                final ig = d.data;
                 final logo = (ig['logoUrl'] ??
                         ig['logo_url'] ??
                         ig['logoProcessedUrl'] ??
@@ -661,11 +734,11 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                 return logo.isEmpty;
               }).length;
               final healthWithoutVideo = allDocs.where((d) {
-                final ig = d.data();
+                final ig = d.data;
                 return !_hasInstitutionalVideo(ig);
               }).length;
               final mediaBroken = allDocs.where((d) {
-                final ig = d.data();
+                final ig = d.data;
                 final logo =
                     (ig['logoUrl'] ?? ig['logoProcessedUrl'] ?? '').toString();
                 final video = (ig['institutionalVideoUrl'] ??
@@ -680,7 +753,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                 return brokenLogo || brokenVideo;
               }).length;
               final siteUnavailable = allDocs.where((d) {
-                final ig = d.data();
+                final ig = d.data;
                 final guard = SubscriptionGuard.evaluate(church: ig);
                 final inativa =
                     (ig['status'] ?? 'ativa').toString().toLowerCase() ==
@@ -689,14 +762,14 @@ class _IgrejasTabState extends State<_IgrejasTab> {
               }).length;
               final healthInGrace = allDocs
                   .where((d) =>
-                      SubscriptionGuard.evaluate(church: d.data()).inGrace)
+                      SubscriptionGuard.evaluate(church: d.data).inGrace)
                   .length;
               final healthBlocked = allDocs
                   .where((d) =>
-                      SubscriptionGuard.evaluate(church: d.data()).blocked)
+                      SubscriptionGuard.evaluate(church: d.data).blocked)
                   .length;
               final dueSoon = allDocs.where((d) {
-                final guard = SubscriptionGuard.evaluate(church: d.data());
+                final guard = SubscriptionGuard.evaluate(church: d.data);
                 if (guard.blocked || guard.adminBlocked || guard.isFree) {
                   return false;
                 }
@@ -707,7 +780,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
               }).length;
               final now = DateTime.now();
               final chargeCandidates = allDocs.where((d) {
-                final guard = SubscriptionGuard.evaluate(church: d.data());
+                final guard = SubscriptionGuard.evaluate(church: d.data);
                 if (guard.blocked ||
                     guard.inGrace ||
                     guard.statusAssinatura == 'overdue') return true;
@@ -717,14 +790,17 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                 return days >= 0 && days <= 7;
               }).toList()
                 ..sort((a, b) {
-                  final ga = SubscriptionGuard.evaluate(church: a.data());
-                  final gb = SubscriptionGuard.evaluate(church: b.data());
+                  final ga = SubscriptionGuard.evaluate(church: a.data);
+                  final gb = SubscriptionGuard.evaluate(church: b.data);
                   final da = ga.dataVencimento ?? DateTime(2099);
                   final dbb = gb.dataVencimento ?? DateTime(2099);
                   return da.compareTo(dbb);
                 });
 
-              return CustomScrollView(
+              return RefreshIndicator(
+                onRefresh: _loadChurchesList,
+                child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
                   SliverToBoxAdapter(
                     child: Column(
@@ -846,7 +922,24 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                       fontSize: 15),
                                 ),
                                 const SizedBox(height: 8),
-                                FutureBuilder<List<_BenchmarkTenant>>(
+                                if (!_benchmarkRequested)
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: TextButton.icon(
+                                      onPressed: docs.isEmpty
+                                          ? null
+                                          : () => setState(
+                                                () => _benchmarkRequested =
+                                                    true,
+                                              ),
+                                      icon: const Icon(Icons.insights_rounded),
+                                      label: const Text(
+                                        'Carregar benchmark (opcional)',
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  FutureBuilder<List<_BenchmarkTenant>>(
                                   future: _benchmarkFuture,
                                   builder: (context, benchSnap) {
                                     if (!benchSnap.hasData) {
@@ -926,7 +1019,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                   )
                                 else
                                   ...chargeCandidates.take(6).map((d) {
-                                    final ig = d.data();
+                                    final ig = d.data;
                                     final nome =
                                         (ig['nome'] ?? ig['name'] ?? d.id)
                                             .toString();
@@ -1234,7 +1327,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                       delegate: SliverChildBuilderDelegate(
                         (context, i) {
                           final doc = docs[i];
-                          final ig = doc.data();
+                          final ig = doc.data;
                           final igrejaId = doc.id;
                           final status = (ig['status'] ?? 'ativa').toString();
                           final removed = ig['removedByAdminAt'] != null;
@@ -1538,6 +1631,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                       ),
                     ),
                 ],
+              ),
               );
             },
           ),

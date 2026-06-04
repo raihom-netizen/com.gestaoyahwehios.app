@@ -691,8 +691,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         tenantId: tenantId,
         uid: uid,
       );
-      if (mounted && fallback.docs.isNotEmpty) {
+      if (!mounted) return;
+      if (fallback.docs.isNotEmpty) {
         setState(() => _lastGoodChatThreadsSnap = fallback);
+        unawaited(
+          ChurchChatThreadsListCache.saveFromSnapshot(tenantId, fallback),
+        );
       }
     } catch (_) {}
   }
@@ -762,6 +766,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
     unawaited(_primeConversasListFromFallback(tid));
     unawaited(_reloadLocalConversations());
+    unawaited(
+      ChurchTenantResilientReads.departamentos(tid, limit: 120)
+          .timeout(const Duration(seconds: 16))
+          .catchError((_) => const MergedFirestoreQuerySnapshot([])),
+    );
     unawaited(_syncMemberDepartments(tid));
     unawaited(_silentSyncConversasIndex(tid, force: true));
     if (mounted) {
@@ -1032,18 +1041,20 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
     try {
       if (kIsWeb) {
-        await FirestoreWebGuard.recoverFirestoreWebSession()
-            .timeout(const Duration(seconds: 3))
-            .catchError((_) {});
+        await FirestoreWebGuard.recoverFirestoreWebSession(
+          allowHardReconnect: true,
+        ).timeout(const Duration(seconds: 4)).catchError((_) {});
       }
-      final snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tid)
-          .collection('departamentos')
-          .limit(120)
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 10));
-      final entries = _entriesFromDeptDocs(snap.docs);
+      final snap = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchTenantResilientReads.departamentos(
+          tid,
+          limit: 120,
+        ),
+      ).timeout(const Duration(seconds: 14));
+      var entries = _entriesFromDeptDocs(snap.docs);
+      if (entries.isEmpty) {
+        entries = await _loadDepartmentsFromDeptChatThreads(tid);
+      }
       if (!mounted) return;
       if (entries.isNotEmpty) {
         setState(() => _departments = entries);
@@ -1058,9 +1069,51 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     } catch (e) {
       if (kDebugMode) debugPrint('chat grupos (liderança): $e');
       if (!mounted) return;
-      if (_departments.isEmpty && cached.isEmpty) {
-        setState(() => _departments = const []);
+      if (_departments.isEmpty) {
+        final fromThreads = await _loadDepartmentsFromDeptChatThreads(tid);
+        if (fromThreads.isNotEmpty && mounted) {
+          setState(() => _departments = fromThreads);
+        } else if (cached.isEmpty && mounted) {
+          setState(() => _departments = const []);
+        }
       }
+    }
+  }
+
+  /// Fallback: grupos já existentes em `chats` tipo department.
+  Future<List<_DeptEntry>> _loadDepartmentsFromDeptChatThreads(
+    String tid,
+  ) async {
+    try {
+      final snap = await firebaseDefaultFirestore
+          .collection('igrejas')
+          .doc(tid)
+          .collection('chats')
+          .where('type', isEqualTo: 'department')
+          .limit(80)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 12));
+      final out = <_DeptEntry>[];
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final deptId = (data['departmentId'] ?? '').toString().trim();
+        if (deptId.isEmpty) continue;
+        final name = (data['title'] ?? data['departmentName'] ?? deptId)
+            .toString()
+            .trim();
+        out.add(
+          _DeptEntry(
+            id: deptId,
+            name: name.isEmpty ? deptId : name,
+            deptData: data,
+          ),
+        );
+      }
+      if (out.isEmpty) return [];
+      out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      return out;
+    } catch (_) {
+      return [];
     }
   }
 
@@ -1241,6 +1294,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         final cachedEntries = await _fetchDeptEntriesParallel(tid, uniqueIds);
         if (cachedEntries.isNotEmpty && mounted) {
           setState(() => _departments = cachedEntries);
+        }
+      } else {
+        final allDepts = await ChurchTenantResilientReads.departamentos(
+          tid,
+          limit: 120,
+        ).timeout(const Duration(seconds: 12));
+        final allEntries = _entriesFromDeptDocs(allDepts.docs);
+        if (allEntries.isNotEmpty && mounted) {
+          setState(() => _departments = allEntries);
         }
       }
 
@@ -2072,16 +2134,19 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: threadStream,
           builder: (context, snap) {
-            if (snap.hasData) {
+            if (snap.hasData && snap.data!.docs.isNotEmpty) {
               _lastGoodChatThreadsSnap = snap.data;
-              if (snap.data!.docs.isNotEmpty) {
-                unawaited(
-                  ChurchChatThreadsListCache.saveFromSnapshot(tid, snap.data!),
-                );
-              }
+              unawaited(
+                ChurchChatThreadsListCache.saveFromSnapshot(tid, snap.data!),
+              );
+            } else if (snap.hasError &&
+                _lastGoodChatThreadsSnap != null &&
+                _lastGoodChatThreadsSnap!.docs.isNotEmpty) {
+              unawaited(_primeConversasListFromFallback(tid));
             }
-            final snapForList =
-                snap.hasData ? snap.data! : _lastGoodChatThreadsSnap;
+            final snapForList = snap.hasData && snap.data!.docs.isNotEmpty
+                ? snap.data!
+                : (_lastGoodChatThreadsSnap ?? snap.data);
             final streamError = snap.hasError ? snap.error : null;
 
             final dmDocs = snapForList?.docs ?? [];
@@ -2279,9 +2344,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 final displayed = sel.toList();
                 final displayedIds = displayed.map((d) => d.id).toSet();
                 final localOnly = <ChurchChatLocalConversationEntry>[];
-                final mergeLocalCache = q.isEmpty &&
-                    (_conversasFilter == _HubConversasFilter.all ||
-                        streamError != null);
+                final mergeLocalCache =
+                    q.isEmpty && _conversasFilter == _HubConversasFilter.all;
                 if (mergeLocalCache) {
                   for (final loc in _localConversations) {
                     if (displayedIds.contains(loc.threadId)) continue;

@@ -48,17 +48,35 @@ if is_ci; then
   case "$LATEST" in
     ''|*[!0-9]*) LATEST=0 ;;
   esac
+  FLOOR=0
+  FLOOR_FILE="$FP/ios/asc_build_number_floor.txt"
+  if [ -f "$FLOOR_FILE" ]; then
+    FLOOR="$(tr -d '\r\n[:space:]' < "$FLOOR_FILE" 2>/dev/null || echo 0)"
+    case "$FLOOR" in
+      ''|*[!0-9]*) FLOOR=0 ;;
+    esac
+  fi
+  if [ "$FLOOR" -gt "$LATEST" ]; then
+    LATEST="$FLOOR"
+  fi
   TS="$(date +%s)"
-  # Sempre > último enviado; offset garante unicidade entre builds simultâneos.
+  # Sempre > último enviado; offset (BUILD_NUMBER) sobe a cada build novo na Codemagic.
   BN=$(( LATEST + OFFSET ))
   if [ "$BN" -le "$LATEST" ]; then
     BN=$(( LATEST + 1 ))
   fi
+  if [ "$BN" -le "$FLOOR" ]; then
+    BN=$(( FLOOR + 1 ))
+  fi
   if [ "$BN" -lt "$TS" ]; then
     BN=$(( TS + OFFSET ))
   fi
-  echo "CI: CFBundleVersion=$BN (ASC último=$LATEST + offset Codemagic=$OFFSET; ts mínimo=$TS)"
-  echo "     CM_BUILD_ID=${CM_BUILD_ID:-?} — NÃO usar Retry só em Publishing (90189)."
+  if [ "$BN" -le "$LATEST" ] || [ "$BN" -le "$FLOOR" ]; then
+    BN=$(( (LATEST > FLOOR ? LATEST : FLOOR) + 1 ))
+  fi
+  echo "CI: CFBundleVersion=$BN (ASC/floor último=$LATEST floor_repo=$FLOOR offset=$OFFSET ts=$TS)"
+  echo "     CM_BUILD_ID=${CM_BUILD_ID:-?} CM_BUILD_NUMBER=${CM_BUILD_NUMBER:-?}"
+  echo "     NÃO usar Retry só no passo Publishing — gera o mesmo .ipa e erro 90189."
 else
   BN="${BN_PUB:-1}"
   if [ -n "${CM_BUILD_NUMBER:-}" ]; then

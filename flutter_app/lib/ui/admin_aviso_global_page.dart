@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/global_announcement_overlay.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:intl/intl.dart';
 
 /// Painel Master — Aviso global / manutenção / promoção temporária para todas as igrejas.
@@ -864,10 +865,12 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
             ),
             const SizedBox(height: ThemeCleanPremium.spaceMd),
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _audit
-                  .orderBy('savedAt', descending: true)
-                  .limit(25)
-                  .snapshots(),
+              stream: FirestoreStreamUtils.resilientQuery(
+                _audit
+                    .orderBy('savedAt', descending: true)
+                    .limit(25)
+                    .snapshots(),
+              ),
               builder: (context, snap) {
                 if (snap.hasError) {
                   return MasterPremiumCard(

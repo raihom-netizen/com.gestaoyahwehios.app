@@ -290,13 +290,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (widget.isDepartment &&
         widget.departmentId != null &&
         widget.departmentId!.isNotEmpty) {
-      _deptSub = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('departamentos')
-          .doc(widget.departmentId!)
-          .snapshots()
-          .listen((snap) {
+      _deptSub = FirestoreStreamUtils.documentWatchBootstrap(
+        FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(widget.tenantId)
+            .collection('departamentos')
+            .doc(widget.departmentId!),
+      ).listen((snap) {
         if (!mounted) return;
         setState(() => _departmentData = snap.data());
       });

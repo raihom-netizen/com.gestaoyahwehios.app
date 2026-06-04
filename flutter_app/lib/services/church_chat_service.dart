@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io' show File;
 import 'dart:typed_data';
 
@@ -128,21 +128,20 @@ class ChurchChatService {
     required String threadId,
     int pageSize = defaultMessagePageSize,
   }) {
-    return FirestoreStreamUtils.resilientQuery(
-      recentMessagesQuery(
-        tenantId: tenantId,
-        threadId: threadId,
-        pageSize: pageSize,
-      ).snapshots(),
+    final q = recentMessagesQuery(
+      tenantId: tenantId,
+      threadId: threadId,
+      pageSize: pageSize,
     );
+    return FirestoreStreamUtils.queryWatchBootstrap(q);
   }
 
   static Stream<DocumentSnapshot<Map<String, dynamic>>> threadSnapshots(
     String tenantId,
     String threadId,
   ) {
-    return FirestoreStreamUtils.resilientDocument(
-      threadRef(tenantId, threadId).snapshots(),
+    return FirestoreStreamUtils.documentWatchBootstrap(
+      threadRef(tenantId, threadId),
     );
   }
 
@@ -261,6 +260,18 @@ class ChurchChatService {
     if (mc is num && mc > 0) return true;
     final lm = data['lastMessageAt'];
     if (lm is Timestamp) return true;
+    // Threads DM indexados mas metadados incompletos (legado / web) — manter na lista.
+    if (id.startsWith('dm_') && data['participantUids'] is List) {
+      final peerCount = (data['participantUids'] as List)
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .length;
+      if (peerCount >= 2) {
+        if (data['updatedAt'] is Timestamp || data['createdAt'] is Timestamp) {
+          return true;
+        }
+      }
+    }
     return false;
   }
 
@@ -651,11 +662,58 @@ class ChurchChatService {
     return stream;
   }
 
+  /// Web: lista de conversas só via cache + `.get()` — evita 2× `snapshots()` paralelos.
+  static Stream<QuerySnapshot<Map<String, dynamic>>>
+      _chatThreadsWebCacheFirstStream(
+    String tenantId,
+    String uid,
+  ) {
+    return Stream<QuerySnapshot<Map<String, dynamic>>>.multi((ctrl) {
+      unawaited(() async {
+        try {
+          final cached = await ChurchChatThreadsListCache.loadSnapshot(
+            tenantId,
+            uid: uid,
+          );
+          if (!ctrl.isClosed &&
+              cached != null &&
+              cached.docs.isNotEmpty) {
+            ctrl.add(cached);
+          }
+        } catch (_) {}
+
+        try {
+          final fb = await FirestoreWebGuard.runWithWebRecovery(() async {
+            await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: false);
+            return loadDmThreadsSnapshotFallback(
+              tenantId: tenantId,
+              uid: uid,
+            );
+          });
+          if (ctrl.isClosed) return;
+          ctrl.add(fb);
+          if (fb.docs.isNotEmpty) {
+            unawaited(
+              ChurchChatThreadsListCache.saveFromSnapshot(tenantId, fb),
+            );
+          }
+        } catch (_) {
+          if (!ctrl.isClosed) {
+            ctrl.add(const MergedFirestoreQuerySnapshot([]));
+          }
+        }
+      }());
+    }).asBroadcastStream();
+  }
+
   static Stream<QuerySnapshot<Map<String, dynamic>>>
       _chatThreadsSnapshotsStreamImpl(
     String tenantId,
     String uid,
   ) {
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+      return _chatThreadsWebCacheFirstStream(tenantId, uid);
+    }
     late StreamController<QuerySnapshot<Map<String, dynamic>>> controller;
     StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subIndexed;
     StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subParticipant;
@@ -825,7 +883,21 @@ class ChurchChatService {
       onListen: () {
         wireAttempts = 0;
         fallbackAttempts = 0;
-        unawaited(wire());
+        unawaited(() async {
+          try {
+            final cached =
+                await ChurchChatThreadsListCache.loadSnapshot(tenantId, uid: uid);
+            if (!controller.isClosed &&
+                cached != null &&
+                cached.docs.isNotEmpty) {
+              lastNonEmptyEmitted = cached;
+              controller.add(cached);
+            }
+          } catch (_) {}
+          if (!controller.isClosed) {
+            unawaited(wire());
+          }
+        }());
       },
       onCancel: () {
         if (!controller.hasListener) {

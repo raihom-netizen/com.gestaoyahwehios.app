@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'firestore_stream_utils.dart';
+import 'firestore_stream_utils.dart' show FirestoreStreamUtils, MergedFirestoreQuerySnapshot;
 
 /// Entrada leve em `igrejas/{tid}/_panel_cache/members_directory`.
 class MemberDirectoryEntry {
@@ -179,7 +179,7 @@ class MembersDirectorySnapshotService {
     if (tid.isEmpty) {
       return Stream.value(const MembersDirectorySnapshot());
     }
-    return FirestoreStreamUtils.resilientDocument(cacheRef(tid).snapshots()).map(
+    return FirestoreStreamUtils.documentWatchBootstrap(cacheRef(tid)).map(
       (snap) => MembersDirectorySnapshot.fromMap(snap.data()),
     );
   }
@@ -247,8 +247,11 @@ class MembersDirectorySnapshotService {
         'getChurchMembersDirectory',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 18)),
       );
+      final payload = <String, dynamic>{};
+      final tidArg = (tenantId ?? '').trim();
+      if (tidArg.isNotEmpty) payload['tenantId'] = tidArg;
       final res = await callable
-          .call<Map<String, dynamic>>({})
+          .call<Map<String, dynamic>>(payload)
           .timeout(const Duration(seconds: 20));
       final data = res.data;
       final directory = data['directory'];
@@ -265,4 +268,68 @@ class MembersDirectorySnapshotService {
     } catch (_) {}
     return const MembersDirectorySnapshot();
   }
+
+  /// Converte entradas do cache em snapshot compatível com gráficos / stats do painel.
+  static MergedFirestoreQuerySnapshot toMergedQuerySnapshot(
+    String tenantId,
+    MembersDirectorySnapshot snap,
+  ) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty || !snap.hasEntries) {
+      return const MergedFirestoreQuerySnapshot([]);
+    }
+    final baseRef = firebaseDefaultFirestore.collection('igrejas').doc(tid);
+    final docs = snap.entries.map((e) {
+      final id = e.memberDocId.trim().isNotEmpty ? e.memberDocId.trim() : 'dir_${e.displayName.hashCode}';
+      return _DirectoryMemberQueryDocumentSnapshot(
+        reference: baseRef.collection('membros').doc(id),
+        docId: id,
+        data: e.toMemberDataMap(),
+      );
+    }).toList();
+    return MergedFirestoreQuerySnapshot(docs);
+  }
+}
+
+// ignore: subtype_of_sealed_class — paint instantâneo a partir de `_panel_cache/members_directory`.
+class _DirectoryMemberQueryDocumentSnapshot
+    implements QueryDocumentSnapshot<Map<String, dynamic>> {
+  _DirectoryMemberQueryDocumentSnapshot({
+    required this.reference,
+    required this.docId,
+    required Map<String, dynamic> data,
+  }) : _data = data;
+
+  @override
+  final DocumentReference<Map<String, dynamic>> reference;
+  final String docId;
+  final Map<String, dynamic> _data;
+
+  @override
+  Map<String, dynamic> data() => _data;
+
+  @override
+  dynamic get(Object field) => _data[field];
+
+  @override
+  dynamic operator [](Object field) => _data[field];
+
+  @override
+  bool get exists => true;
+
+  @override
+  String get id => docId;
+
+  @override
+  SnapshotMetadata get metadata => const _DirectorySnapshotMetadata();
+}
+
+class _DirectorySnapshotMetadata implements SnapshotMetadata {
+  const _DirectorySnapshotMetadata();
+
+  @override
+  bool get hasPendingWrites => false;
+
+  @override
+  bool get isFromCache => true;
 }

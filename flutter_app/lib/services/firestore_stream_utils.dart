@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Utilitários para streams Firestore — evita crash «Bad state: Stream has already
 /// been listened to» e reduz ruído em Crashlytics por `permission-denied` transitório.
@@ -59,7 +60,80 @@ class FirestoreStreamUtils {
     return source.asBroadcastStream();
   }
 
-  /// Em `permission-denied`, emite snapshot vazio em vez de derrubar o painel.
+  static void _scheduleWebRecovery(Object error) {
+    if (!FirestoreWebGuard.isInternalAssertionError(error) &&
+        !FirestoreWebGuard.isClientTerminated(error) &&
+        !isTransientNetworkError(error)) {
+      return;
+    }
+    unawaited(
+      FirestoreWebGuard.recoverFirestoreWebSession(
+        allowHardReconnect: FirestoreWebGuard.isInternalAssertionError(error) ||
+            FirestoreWebGuard.isClientTerminated(error),
+      ),
+    );
+  }
+
+  /// Emite **uma vez** via `.get()` — painel/chat web sem `snapshots()`.
+  static Stream<QuerySnapshot<Map<String, dynamic>>> oneShotQueryFromFuture(
+    Future<QuerySnapshot<Map<String, dynamic>>> Function() fetch, {
+    bool broadcast = true,
+  }) async* {
+    try {
+      yield await FirestoreWebGuard.runWithWebRecovery(fetch);
+    } catch (_) {
+      yield const MergedFirestoreQuerySnapshot([]);
+    }
+  }
+
+  /// Query com 1.º snapshot via `.get()` (cache) — evita spinner infinito na web.
+  ///
+  /// Web: **só** `.get()` — dezenas de `snapshots()` paralelos disparam
+  /// `INTERNAL ASSERTION FAILED` no Firestore JS 11.x.
+  static Stream<QuerySnapshot<Map<String, dynamic>>> queryWatchBootstrap(
+    Query<Map<String, dynamic>> query, {
+    bool broadcast = true,
+  }) async* {
+    try {
+      yield await FirestoreWebGuard.runWithWebRecovery(() async {
+        try {
+          return await query
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {
+          return await query.get().timeout(const Duration(seconds: 14));
+        }
+      });
+    } catch (_) {
+      yield const MergedFirestoreQuerySnapshot([]);
+    }
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
+    yield* resilientQuery(query.snapshots(), broadcast: broadcast);
+  }
+
+  /// Documento com 1.º snapshot via `.get()` — pintura instantânea no painel master.
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> documentWatchBootstrap(
+    DocumentReference<Map<String, dynamic>> ref, {
+    bool broadcast = true,
+  }) async* {
+    try {
+      yield await FirestoreWebGuard.runWithWebRecovery(() async {
+        try {
+          return await ref
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {
+          return await ref.get().timeout(const Duration(seconds: 14));
+        }
+      });
+    } catch (_) {
+      yield _emptyDocumentSnapshot;
+    }
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
+    yield* resilientDocument(ref.snapshots(), broadcast: broadcast);
+  }
+
+  /// Em falha transitória, emite snapshot vazio e agenda recuperação Web.
   static Stream<QuerySnapshot<Map<String, dynamic>>> resilientQuery(
     Stream<QuerySnapshot<Map<String, dynamic>>> source, {
     bool broadcast = true,
@@ -71,6 +145,7 @@ class FirestoreStreamUtils {
           if (isPermissionDenied(error) ||
               isStreamAlreadyListened(error) ||
               isTransientNetworkError(error)) {
+            _scheduleWebRecovery(error);
             sink.add(const MergedFirestoreQuerySnapshot([]));
             return;
           }
@@ -93,6 +168,7 @@ class FirestoreStreamUtils {
           if (isPermissionDenied(error) ||
               isStreamAlreadyListened(error) ||
               isTransientNetworkError(error)) {
+            _scheduleWebRecovery(error);
             sink.add(_emptyDocumentSnapshot);
             return;
           }

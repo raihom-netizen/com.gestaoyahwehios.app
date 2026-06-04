@@ -4,6 +4,7 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
@@ -12,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:intl/intl.dart';
 
 /// Ficha Super Premium da igreja (ações, saúde, timeline, notas internas).
@@ -73,6 +75,35 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
     final n = (widget.churchData['masterNotes'] ?? '').toString();
     _notesCtrl.text = n;
     unawaited(_loadTechnicalHealth());
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadAuditTimeline() async {
+    return FirestoreWebGuard.runWithWebRecovery(() async {
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('auditoria')
+            .where('tenantId', isEqualTo: widget.tenantId)
+            .orderBy('data', descending: true)
+            .limit(12)
+            .get();
+        return snap.docs;
+      } catch (_) {
+        final snap = await FirebaseFirestore.instance
+            .collection('auditoria')
+            .limit(80)
+            .get();
+        return snap.docs
+            .where((d) {
+              final data = d.data();
+              final tid = (data['tenantId'] ?? '').toString();
+              final det = (data['details'] ?? '').toString();
+              return tid == widget.tenantId || det.contains(widget.tenantId);
+            })
+            .take(12)
+            .toList();
+      }
+    });
   }
 
   Future<void> _loadTechnicalHealth() async {
@@ -150,8 +181,8 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
         .toString()
         .trim();
     final url = slug.isNotEmpty
-        ? Uri.parse('https://gestaoyahweh-21e23.web.app/igreja/$slug')
-        : Uri.parse('https://gestaoyahweh-21e23.web.app');
+        ? Uri.parse('${AppConstants.effectivePublicWebBaseUrl}/igreja/$slug')
+        : Uri.parse(AppConstants.effectivePublicWebBaseUrl);
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     }
@@ -395,22 +426,19 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
           const SizedBox(height: 8),
           Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('auditoria')
-                  .limit(80)
-                  .snapshots(),
+            child: FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+              future: _loadAuditTimeline(),
               builder: (context, snap) {
-                final docs = (snap.data?.docs ?? [])
-                    .where((d) {
-                      final data = d.data();
-                      final tid = (data['tenantId'] ?? '').toString();
-                      final det = (data['details'] ?? '').toString();
-                      return tid == widget.tenantId ||
-                          det.contains(widget.tenantId);
-                    })
-                    .take(12)
-                    .toList();
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  );
+                }
+                final docs = snap.data ?? const [];
                 if (docs.isEmpty) {
                   return Text(
                     'Sem eventos de auditoria para este tenant.',

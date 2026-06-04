@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import { isPlatformOperatorToken } from "./masterPlatformAuth";
 
 const RECOMPUTE_MIN_INTERVAL_MS = 60_000;
 const STALE_MS = 15 * 60 * 1000;
@@ -7,8 +8,7 @@ const IGREJAS_SCAN = 500;
 const USERS_SAMPLE = 400;
 
 function isMasterCaller(token: Record<string, unknown> | undefined): boolean {
-  const role = String(token?.role ?? token?.ROLE ?? "").toUpperCase();
-  return role === "MASTER" || role === "ADM" || role === "ADMIN";
+  return isPlatformOperatorToken(token);
 }
 
 function parseDate(v: unknown): Date | null {
@@ -133,6 +133,7 @@ export async function recomputeMasterDashboardSummary(): Promise<void> {
 
   let igrejas = 0;
   let usuarios = 0;
+  let membrosTotal = 0;
   let alertas = 0;
   let licencasAtivas = 0;
   let venc7 = 0;
@@ -189,6 +190,28 @@ export async function recomputeMasterDashboardSummary(): Promise<void> {
     if (churchIsFree(data)) freeCount++;
     if (licenseActive(data)) licencasAtivas++;
 
+    try {
+      const dirSnap = await doc.ref
+        .collection("_panel_cache")
+        .doc("members_directory")
+        .get();
+      const dirData = dirSnap.data();
+      const tc =
+        dirData?.totalCount ??
+        (dirData?.summary as Record<string, unknown> | undefined)?.totalCount;
+      if (typeof tc === "number" && tc > 0) {
+        membrosTotal += tc;
+      } else {
+        const mc = await doc.ref.collection("membros").count().get();
+        membrosTotal += mc.data().count;
+      }
+    } catch (_) {
+      try {
+        const mc = await doc.ref.collection("membros").count().get();
+        membrosTotal += mc.data().count;
+      } catch (_) {}
+    }
+
     const dt = vencimentoFromChurch(data);
     if (dt && dt >= now) {
       if (dt <= in7) {
@@ -213,23 +236,36 @@ export async function recomputeMasterDashboardSummary(): Promise<void> {
       if (byMonthIgrejas[key] != null) byMonthIgrejas[key]++;
     }
 
-    try {
-      const cache = await doc.ref
-        .collection("_panel_cache")
-        .doc("dashboard_summary")
-        .get();
-      const updated = cache.data()?.updatedAt as
-        | admin.firestore.Timestamp
-        | undefined;
-      const staleMs = 24 * 60 * 60 * 1000;
-      if (
-        !cache.exists ||
-        !updated ||
-        Date.now() - updated.toMillis() > staleMs
-      ) {
-        panelStale++;
+  }
+
+  const panelStaleSample = igSnap.docs.slice(0, 24);
+  const staleFlags = await Promise.all(
+    panelStaleSample.map(async (doc) => {
+      try {
+        const cache = await doc.ref
+          .collection("_panel_cache")
+          .doc("dashboard_summary")
+          .get();
+        const updated = cache.data()?.updatedAt as
+          | admin.firestore.Timestamp
+          | undefined;
+        const staleMs = 24 * 60 * 60 * 1000;
+        return (
+          !cache.exists ||
+          !updated ||
+          Date.now() - updated.toMillis() > staleMs
+        );
+      } catch {
+        return false;
       }
-    } catch (_) {}
+    }),
+  );
+  panelStale = staleFlags.filter(Boolean).length;
+  if (igSnap.size > panelStaleSample.length && panelStale > 0) {
+    panelStale = Math.max(
+      panelStale,
+      Math.round((panelStale / panelStaleSample.length) * igSnap.size),
+    );
   }
 
   try {
@@ -319,9 +355,10 @@ export async function recomputeMasterDashboardSummary(): Promise<void> {
   await summaryRef.set(
     {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      schemaVersion: 1,
+      schemaVersion: 2,
       igrejas,
       usuarios,
+      membrosTotal,
       receita,
       receitaPix,
       receitaCartao,

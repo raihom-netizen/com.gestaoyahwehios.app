@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
 import 'package:gestao_yahweh/core/church_tenant_list_limits.dart';
@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Leituras Firestore do tenant (padrão Controle Total): cache → retry → último bom.
 ///
@@ -207,9 +208,11 @@ abstract final class ChurchTenantResilientReads {
       TenantStaleWhileRevalidate.loadQuery(
         tenantId: tenantId,
         module: TenantModuleKeys.departamentos,
-        networkFetch: () => FirestoreReadResilience.getQuery(
-          _church(tenantId).collection('departamentos').limit(limit),
-          cacheKey: _key(tenantId, 'departamentos_$limit'),
+        networkFetch: () => FirestoreWebGuard.runWithWebRecovery(
+          () => FirestoreReadResilience.getQuery(
+            _church(tenantId).collection('departamentos').limit(limit),
+            cacheKey: _key(tenantId, 'departamentos_$limit'),
+          ),
         ),
       );
 
@@ -384,11 +387,11 @@ abstract final class ChurchTenantResilientReads {
         cacheKey: _key(tenantId, 'panel_cache_summary'),
       );
 
-  /// Stream do painel / feeds — erros de rede não derrubam o módulo.
+  /// Stream do painel / feeds — cache-first + live só fora da web.
   static Stream<QuerySnapshot<Map<String, dynamic>>> querySnapshotsResilient(
     Query<Map<String, dynamic>> query,
   ) =>
-      FirestoreStreamUtils.resilientQuery(query.snapshots());
+      FirestoreStreamUtils.queryWatchBootstrap(query);
 
   static Future<QuerySnapshot<Map<String, dynamic>>> _orderedQuery(
     String tenantId,

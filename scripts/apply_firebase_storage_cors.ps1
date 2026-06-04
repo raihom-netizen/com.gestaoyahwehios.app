@@ -10,6 +10,7 @@
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $RepoRoot 'scripts\ensure_gestao_yahweh_toolchain_path.ps1')
 $bucket = 'gs://gestaoyahweh-21e23.firebasestorage.app'
 $corsFile = Join-Path $RepoRoot 'cors.json'
 if (-not (Test-Path $corsFile)) {
@@ -19,24 +20,12 @@ if (-not (Test-Path $corsFile)) {
     Write-Error "cors.json nao encontrado na raiz do repo nem em scripts/."
 }
 
-# Garantir PATH nesta sessão (instalação recente do Cloud SDK sem reiniciar o terminal)
-$gcloudBins = @(
-    "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin",
-    "$env:ProgramFiles\Google\Cloud SDK\google-cloud-sdk\bin",
-    "${env:ProgramFiles(x86)}\Google\Cloud SDK\google-cloud-sdk\bin"
-)
-foreach ($b in $gcloudBins) {
-    if (Test-Path $b) {
-        $env:Path = "$b;$env:Path"
-    }
-}
-
 if (-not (Get-Command gsutil -ErrorAction SilentlyContinue)) {
-    Write-Error 'gsutil nao encontrado. Instale Google Cloud SDK (winget install Google.CloudSDK) e reabra o terminal.'
+    Write-Error 'gsutil nao encontrado apos instalacao automatica. Execute: .\scripts\install_google_cloud_sdk.ps1'
 }
 
 if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) {
-    Write-Error 'gcloud nao encontrado. Instale Google Cloud SDK.'
+    Write-Error 'gcloud nao encontrado apos instalacao automatica. Execute: .\scripts\install_google_cloud_sdk.ps1'
 }
 
 $oldEap = $ErrorActionPreference
@@ -61,7 +50,10 @@ if ([string]::IsNullOrWhiteSpace($activeAcct)) {
 Write-Host "Conta gcloud ativa: $activeAcct" -ForegroundColor DarkGray
 
 Write-Host "Aplicando CORS em $bucket ..."
-& gsutil cors set $corsFile $bucket
+$oldEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& gsutil cors set $corsFile $bucket 2>&1 | ForEach-Object { Write-Host $_ }
+$ErrorActionPreference = $oldEap
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host 'CORS atual:'
 & gsutil cors get $bucket

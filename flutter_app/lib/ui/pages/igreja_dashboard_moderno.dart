@@ -1,4 +1,4 @@
-﻿import 'dart:async' show StreamSubscription, unawaited;
+import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -117,6 +117,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_inbox_home_card.dart';
 import 'package:gestao_yahweh/services/church_birthday_parabenizar.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
@@ -199,6 +201,11 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   /// KPIs pré-processados (`_performance_cache/dashboard_current`).
   ChurchDashboardCurrent _dashboardKpis = const ChurchDashboardCurrent();
 
+  /// Cache `_panel_cache/members_directory` — fallback quando stream `membros` falha na web.
+  MembersDirectorySnapshot _membersDirectory = const MembersDirectorySnapshot();
+
+  StreamSubscription<MembersDirectorySnapshot>? _membersDirectorySub;
+
   bool _initialAuthTokenForced = false;
 
   DateTimeRange get _resolvedDashFinanceRange =>
@@ -259,37 +266,73 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     final tidBoot = widget.tenantId.trim();
     if (tidBoot.isNotEmpty) {
       _effectiveTenantId = tidBoot;
+      final memDir = MembersDirectorySnapshotService.peekMemory(tidBoot);
+      if (memDir != null && memDir.hasEntries) {
+        _membersDirectory = memDir;
+      }
       try {
         _attachPanelFeedStreams(tidBoot);
+        _bindMembersDirectoryWatch(tidBoot);
       } catch (_) {}
       unawaited(_paintPanelFromLocalCacheFirst(tidBoot));
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _scheduleHeavyDashboardStreams([tidBoot]);
-      });
+      unawaited(MembersDirectorySnapshotService.warmFromCallableIfStale(tidBoot));
+      unawaited(_hydrateMembersDirectory(tidBoot));
     }
     _loadStreams();
   }
 
-  void _scheduleHeavyDashboardStreams(List<String> allIds) {
-    if (_heavyDashboardStreamsScheduled || !mounted) return;
+  void _attachHeavyDashboardStreamsInline(List<String> allIds) {
+    _heavyDashboardStreamsScheduled = true;
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+      _membersStream = null;
+      _deptStream = _createDepartmentsOneShotStream(allIds);
+      unawaited(_hydrateMembersDirectory(_effectiveTenantId));
+      return;
+    }
+    _membersStream = FirestoreStreamUtils.resilientQuery(
+      _createMembersSnapshotStream(allIds),
+    );
+    _deptStream = FirestoreStreamUtils.resilientQuery(
+      _createDepartmentsSnapshotStream(allIds),
+    );
+  }
+
+  void _scheduleHeavyDashboardStreams(
+    List<String> allIds, {
+    bool force = false,
+  }) {
+    if (!force && _heavyDashboardStreamsScheduled) return;
+    if (!mounted) return;
+    if (force) {
+      setState(() => _attachHeavyDashboardStreamsInline(allIds));
+      return;
+    }
     _heavyDashboardStreamsScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      setState(() {
-        _membersStream = FirestoreStreamUtils.resilientQuery(
-          _createMembersSnapshotStream(allIds),
-        );
-        _deptStream = FirestoreStreamUtils.resilientQuery(
-          _createDepartmentsSnapshotStream(allIds),
-        );
-      });
+      setState(() => _attachHeavyDashboardStreamsInline(allIds));
+    });
+  }
+
+  void _bindMembersDirectoryWatch(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    _membersDirectorySub?.cancel();
+    _membersDirectorySub =
+        MembersDirectorySnapshotService.watch(tid).listen((dir) {
+      if (!mounted || !dir.hasEntries) return;
+      if (_membersDirectory.totalCount == dir.totalCount &&
+          _membersDirectory.hasEntries) {
+        return;
+      }
+      setState(() => _membersDirectory = dir);
     });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _membersDirectorySub?.cancel();
     _engagementCtrl.dispose();
     _panelScroll.dispose();
     if (PanelScrollBridge.scrollToCorpoAdministrativo ==
@@ -329,6 +372,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     if (tid.isEmpty || !mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      unawaited(_hydrateMembersDirectory(tid));
+      _scheduleHeavyDashboardStreams([tid], force: true);
       unawaited(scheduleYahwehPanelImageWarmup(
         context,
         tid,
@@ -353,26 +398,121 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   bool get _panelCanPaintWithoutSkeleton =>
       _effectiveTenantId.trim().isNotEmpty &&
       (_panelCache != null ||
-          _dashboardKpis != null ||
+          _membersDirectory.hasEntries ||
           (_avisosStream != null && _noticiasPainelStream != null));
+
+  int? _effectiveCachedMemberTotal() {
+    final k = _dashboardKpis.totalMembers;
+    if (k > 0) return k;
+    final p = _panelCache.membersTotalCount;
+    if (p > 0) return p;
+    final d = _membersDirectory.totalCount;
+    if (d > 0) return d;
+    return null;
+  }
+
+  /// Slug público da igreja (slug, slugId ou alias).
+  static String _slugFromTenantData(Map<String, dynamic>? data) {
+    if (data == null || data.isEmpty) return '';
+    return (data['slug'] ?? data['slugId'] ?? data['alias'] ?? '')
+        .toString()
+        .trim();
+  }
+
+  MembersDirectorySnapshot? _bestMembersDirectory() {
+    if (_membersDirectory.hasEntries) return _membersDirectory;
+    final peek =
+        MembersDirectorySnapshotService.peekMemory(_effectiveTenantId);
+    if (peek != null && peek.hasEntries) return peek;
+    return null;
+  }
+
+  AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>>
+      _syntheticMembersSnapFromDirectory() {
+    final dir = _bestMembersDirectory();
+    if (dir == null) {
+      return AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>>.waiting();
+    }
+    return AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>>.withData(
+      ConnectionState.done,
+      MembersDirectorySnapshotService.toMergedQuerySnapshot(
+        _effectiveTenantId,
+        dir,
+      ),
+    );
+  }
+
+  Future<void> _hydrateMembersDirectory(String tenantId) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    final peek = MembersDirectorySnapshotService.peekMemory(tid);
+    if (peek != null && peek.hasEntries && mounted) {
+      setState(() => _membersDirectory = peek);
+    }
+    var dir = await MembersDirectorySnapshotService.readOnce(tid);
+    if (!mounted) return;
+    if (dir.hasEntries) {
+      setState(() => _membersDirectory = dir);
+      return;
+    }
+    final knownTotal = _effectiveCachedMemberTotal() ?? 0;
+    if (knownTotal <= 0) return;
+    dir = await MembersDirectorySnapshotService.warmFromCallableIfStale(tid);
+    if (!mounted || !dir.hasEntries) return;
+    setState(() => _membersDirectory = dir);
+  }
+
+  AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> _resolvedMembersAsyncSnap(
+    AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> streamSnap,
+  ) {
+    final dir = _bestMembersDirectory();
+    if (dir != null) {
+      final streamDocs = streamSnap.data?.docs ?? const [];
+      if (streamSnap.hasError ||
+          streamDocs.isEmpty ||
+          (streamSnap.connectionState == ConnectionState.waiting &&
+              !streamSnap.hasData)) {
+        final synthetic = MembersDirectorySnapshotService.toMergedQuerySnapshot(
+          _effectiveTenantId,
+          dir,
+        );
+        return AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>>.withData(
+          ConnectionState.done,
+          synthetic,
+        );
+      }
+    }
+
+    if (streamSnap.hasError) return streamSnap;
+
+    final streamDocs = streamSnap.data?.docs ?? const [];
+    if (streamDocs.isNotEmpty) return streamSnap;
+
+    final synthetic = _syntheticMembersSnapFromDirectory();
+    if (synthetic.hasData) return synthetic;
+
+    return streamSnap;
+  }
 
   void _attachPanelFeedStreams(String resolved) {
     final tenantRef =
         firebaseDefaultFirestore.collection('igrejas').doc(resolved);
-    _avisosStream = FirestoreStreamUtils.resilientQuery(
-      tenantRef
-          .collection(ChurchTenantPostsCollections.avisos)
-          .orderBy('createdAt', descending: true)
-          .limit(10)
-          .snapshots(),
-    );
-    _noticiasPainelStream = FirestoreStreamUtils.resilientQuery(
-      tenantRef
-          .collection(ChurchTenantPostsCollections.eventos)
-          .orderBy('startAt', descending: true)
-          .limit(32)
-          .snapshots(),
-    );
+    final avisosQ = tenantRef
+        .collection(ChurchTenantPostsCollections.avisos)
+        .orderBy('createdAt', descending: true)
+        .limit(10);
+    final eventosQ = tenantRef
+        .collection(ChurchTenantPostsCollections.eventos)
+        .orderBy('startAt', descending: true)
+        .limit(32);
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+      _avisosStream = FirestoreStreamUtils.queryWatchBootstrap(avisosQ);
+      _noticiasPainelStream = FirestoreStreamUtils.queryWatchBootstrap(eventosQ);
+      return;
+    }
+    _avisosStream = FirestoreStreamUtils.resilientQuery(avisosQ.snapshots());
+    _noticiasPainelStream =
+        FirestoreStreamUtils.resilientQuery(eventosQ.snapshots());
   }
 
   /// Cache Firestore local antes do bootstrap — evita skeleton prolongado na web.
@@ -387,6 +527,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       if (!mounted) return;
       final quickPanel = quick[0] as PanelDashboardSnapshot;
       _attachPanelFeedStreams(tid);
+      _bindMembersDirectoryWatch(tid);
       setState(() {
         _effectiveTenantId = tid;
         _panelCache = quickPanel;
@@ -402,11 +543,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
           ),
         );
       }
-      if (quickPanel.isFreshForInstantPanel) {
-        Future<void>.delayed(const Duration(seconds: 3), () {
-          if (!mounted) return;
-          _scheduleHeavyDashboardStreams([tid]);
-        });
+      unawaited(_hydrateMembersDirectory(tid));
+      if (quickPanel.isFreshForInstantPanel ||
+          quickPanel.membersTotalCount > 0) {
+        _scheduleHeavyDashboardStreams([tid], force: true);
       }
     } catch (_) {}
   }
@@ -435,6 +575,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       if (mounted) {
         final quickPanel = quick[0] as PanelDashboardSnapshot;
         _attachPanelFeedStreams(resolved);
+        _bindMembersDirectoryWatch(resolved);
         setState(() {
           _effectiveTenantId = resolved;
           _panelCache = quickPanel;
@@ -477,14 +618,14 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       igSnap = parallel[0] as DocumentSnapshot<Map<String, dynamic>>;
       allIds = List<String>.from(parallel[1] as Iterable<dynamic>);
       final id = igSnap.data() ?? {};
-      churchSlug = (id['slug'] ?? id['slugId'] ?? '').toString().trim();
+      churchSlug = _slugFromTenantData(id);
       churchNome = (id['name'] ?? id['nome'] ?? '').toString();
       _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
     } catch (_) {
       try {
         igSnap = await tenantRef.get();
         final id = igSnap.data() ?? {};
-        churchSlug = (id['slug'] ?? id['slugId'] ?? '').toString().trim();
+        churchSlug = _slugFromTenantData(id);
         churchNome = (id['name'] ?? id['nome'] ?? '').toString();
         _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
         allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(resolved);
@@ -509,22 +650,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       _churchNome = churchNome;
       _panelCache = results[0] as PanelDashboardSnapshot;
       _dashboardKpis = results[1] as ChurchDashboardCurrent;
-      _membersStream = null;
-      _deptStream = null;
-      _avisosStream = FirestoreStreamUtils.resilientQuery(
-        tenantRef
-            .collection(ChurchTenantPostsCollections.avisos)
-            .orderBy('createdAt', descending: true)
-            .limit(10)
-            .snapshots(),
-      );
-      _noticiasPainelStream = FirestoreStreamUtils.resilientQuery(
-        tenantRef
-            .collection(ChurchTenantPostsCollections.eventos)
-            .orderBy('startAt', descending: true)
-            .limit(32)
-            .snapshots(),
-      );
+      _attachHeavyDashboardStreamsInline(allIds);
+      _attachPanelFeedStreams(resolved);
     });
     final panelSnap = results[0] as PanelDashboardSnapshot;
     unawaited(
@@ -548,14 +675,22 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         );
       }
     }());
-    if (panelSnap.isFreshForInstantPanel) {
-      Future<void>.delayed(const Duration(seconds: 3), () {
+    if (panelSnap.membersTotalCount == 0 &&
+        panelSnap.pendingMembersCount == 0) {
+      unawaited(() async {
+        final warmed =
+            await PanelDashboardSnapshotService.warmFromCallableIfStale(
+          resolved,
+        );
         if (!mounted) return;
-        _scheduleHeavyDashboardStreams(allIds);
-      });
-    } else {
-      _scheduleHeavyDashboardStreams(allIds);
+        if (warmed.membersTotalCount > 0 ||
+            warmed.isFreshForInstantPanel) {
+          setState(() => _panelCache = warmed);
+        }
+      }());
     }
+    _bindMembersDirectoryWatch(resolved);
+    unawaited(_hydrateMembersDirectory(resolved));
     _prewarmPanelProgramacao(resolved);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -643,6 +778,28 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     );
   }
 
+  static Stream<QuerySnapshot<Map<String, dynamic>>> _createDepartmentsOneShotStream(
+    List<String> allIds,
+  ) {
+    return FirestoreStreamUtils.oneShotQueryFromFuture(() async {
+      final merged = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      final seen = <String>{};
+      for (final id in allIds) {
+        if (id.trim().isEmpty) continue;
+        try {
+          final snap = await ChurchTenantResilientReads.departamentos(
+            id,
+            limit: _dashboardDepartmentsLimit,
+          );
+          for (final d in snap.docs) {
+            if (seen.add(d.id)) merged.add(d);
+          }
+        } catch (_) {}
+      }
+      return MergedFirestoreQuerySnapshot(merged);
+    });
+  }
+
   /// Mesmo padrão de [membros]: slug/alias pode ter vários docs em `igrejas/` — departamentos devem agregar todos.
   static Stream<QuerySnapshot<Map<String, dynamic>>> _createDepartmentsSnapshotStream(
     List<String> allIds,
@@ -720,14 +877,25 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         ),
       );
     }
-    final membersStream = _membersStream ??
-        Stream<QuerySnapshot<Map<String, dynamic>>>.value(
-          const MergedFirestoreQuerySnapshot([]),
-        );
-    final deptStream = _deptStream ??
-        Stream<QuerySnapshot<Map<String, dynamic>>>.value(
-          const MergedFirestoreQuerySnapshot([]),
-        );
+    final membersStream = _membersStream;
+    if (membersStream == null) {
+      final mergedSnap = _resolvedMembersAsyncSnap(
+        _syntheticMembersSnapFromDirectory(),
+      );
+      return SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isNarrow =
+                constraints.maxWidth < ThemeCleanPremium.breakpointMobile;
+            return _buildDashboardScroll(
+              context: context,
+              isNarrow: isNarrow,
+              mergedSnap: mergedSnap,
+            );
+          },
+        ),
+      );
+    }
     return SafeArea(child: LayoutBuilder(
       builder: (context, constraints) {
         final isNarrow = constraints.maxWidth < ThemeCleanPremium.breakpointMobile;
@@ -743,16 +911,40 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                   membersResult.error ?? Object(),
                   membersResult.stackTrace ?? StackTrace.current,
                 );
-              } else if (!membersResult.hasData) {
-                mergedSnap =
-                    AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>>.waiting();
               } else {
-                mergedSnap = AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>>.withData(
-                  membersResult.connectionState,
-                  membersResult.data!,
+                mergedSnap = _resolvedMembersAsyncSnap(
+                  membersResult.hasData
+                      ? AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>>.withData(
+                          membersResult.connectionState,
+                          membersResult.data!,
+                        )
+                      : AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>>.waiting(),
                 );
               }
-              return SingleChildScrollView(
+              return _buildDashboardScroll(
+                context: context,
+                isNarrow: isNarrow,
+                mergedSnap: mergedSnap,
+              );
+            },
+          ),
+        );
+      },
+    ));
+  }
+
+  Widget _buildDashboardScroll({
+    required BuildContext context,
+    required bool isNarrow,
+    required AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> mergedSnap,
+  }) {
+    final deptStream = _deptStream ??
+        Stream<QuerySnapshot<Map<String, dynamic>>>.value(
+          const MergedFirestoreQuerySnapshot([]),
+        );
+    return RefreshIndicator(
+      onRefresh: _loadStreams,
+      child: SingleChildScrollView(
                     controller: _panelScroll,
                     physics: const AlwaysScrollableScrollPhysics(),
                     child: Padding(
@@ -956,7 +1148,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                           snap: mergedSnap,
                           tenantId: _effectiveTenantId,
                           role: widget.role,
-                          cachedTotalMembers: _dashboardKpis.totalMembers,
+                          cachedTotalMembers: _effectiveCachedMemberTotal(),
                         ),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         _GraficosMembrosPizza(snap: mergedSnap, isNarrow: isNarrow),
@@ -964,7 +1156,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                         _TarefasPendentes(
                             tenantId: _effectiveTenantId,
                             role: widget.role,
-                            permissions: widget.permissions),
+                            permissions: widget.permissions,
+                            initialPanelCache: _panelCache),
                         const SizedBox(height: ThemeCleanPremium.spaceXl),
                         SizedBox(
                           width: isNarrow ? double.infinity : 380,
@@ -1030,12 +1223,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                       ],
                     ),
                   ),
-                );
-                },
-              ),
-        );
-      },
-    ));
+      ),
+    );
   }
 }
 
@@ -2824,6 +3013,13 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
   String? _slug;
   bool _loading = false;
 
+  static String _slugFromData(Map<String, dynamic>? data) {
+    if (data == null || data.isEmpty) return '';
+    return (data['slug'] ?? data['slugId'] ?? data['alias'] ?? '')
+        .toString()
+        .trim();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2836,23 +3032,37 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
     }
   }
 
+  @override
+  void didUpdateWidget(covariant _LinksPublicosStrip oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final seed = widget.initialSlug?.trim();
+    if (seed != null && seed.isNotEmpty && seed != _slug) {
+      setState(() {
+        _slug = seed;
+        _loading = false;
+      });
+    }
+  }
+
   Future<void> _loadSlug() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .get(const GetOptions(source: Source.cache));
-      var slug = (snap.data()?['slug'] ?? snap.data()?['slugId'] ?? '')
-          .toString()
-          .trim();
-      if (slug.isEmpty) {
-        final server = await FirebaseFirestore.instance
+      final snap = await FirestoreWebGuard.runWithWebRecovery(() {
+        return FirebaseFirestore.instance
             .collection('igrejas')
             .doc(widget.tenantId)
-            .get();
-        slug = (server.data()?['slug'] ?? server.data()?['slugId'] ?? '')
-            .toString()
-            .trim();
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 4));
+      });
+      var slug = _slugFromData(snap.data());
+      if (slug.isEmpty) {
+        final server = await FirestoreWebGuard.runWithWebRecovery(() {
+          return FirebaseFirestore.instance
+              .collection('igrejas')
+              .doc(widget.tenantId)
+              .get()
+              .timeout(const Duration(seconds: 8));
+        });
+        slug = _slugFromData(server.data());
       }
       if (mounted) {
         setState(() {
@@ -2861,10 +3071,14 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
         });
       }
     } catch (_) {
-      if (mounted) setState(() {
-        _slug = null;
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _slug = widget.initialSlug?.trim().isNotEmpty == true
+              ? widget.initialSlug!.trim()
+              : null;
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -3974,9 +4188,24 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
             if (panelCache.hasHomeCorpo) {
               return _buildFromCacheCorpo(context);
             }
-            return const Padding(
-              padding: EdgeInsets.all(20),
-              child: Center(child: CircularProgressIndicator()),
+            if (membersSnap.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Center(
+                  child: SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  ),
+                ),
+              );
+            }
+            return Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Nenhum membro com cargo de pastor, secretário ou tesoureiro.',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+              ),
             );
           }
           final deptDocs = deptSnap.hasData ? deptSnap.data!.docs : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
@@ -4205,7 +4434,11 @@ class _StatsCards extends StatelessWidget {
         else if (g == 'F') mulheres++;
       }
     }
-    final total = docs.length;
+    var total = docs.length;
+    if (total == 0) {
+      final cached = cachedTotalMembers;
+      if (cached != null && cached > 0) total = cached;
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -5898,15 +6131,21 @@ class _TarefasPendentes extends StatelessWidget {
   final String tenantId;
   final String role;
   final List<String>? permissions;
-  const _TarefasPendentes(
-      {required this.tenantId, required this.role, this.permissions});
+  final PanelDashboardSnapshot initialPanelCache;
+  const _TarefasPendentes({
+    required this.tenantId,
+    required this.role,
+    this.permissions,
+    this.initialPanelCache = const PanelDashboardSnapshot(),
+  });
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<PanelDashboardSnapshot>(
       stream: PanelDashboardSnapshotService.watch(tenantId),
+      initialData: initialPanelCache,
       builder: (context, cacheSnap) {
-        final summary = cacheSnap.data ?? const PanelDashboardSnapshot();
+        final summary = cacheSnap.data ?? initialPanelCache;
         final cacheReady = cacheSnap.hasData;
         return _CleanCard(
           title: 'Tarefas Pendentes',

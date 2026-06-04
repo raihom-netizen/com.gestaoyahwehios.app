@@ -37,13 +37,13 @@ exports.scheduledRefreshMasterDashboard = exports.warmChurchPanelFromMaster = ex
 exports.recomputeMasterDashboardSummary = recomputeMasterDashboardSummary;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const masterPlatformAuth_1 = require("./masterPlatformAuth");
 const RECOMPUTE_MIN_INTERVAL_MS = 60000;
 const STALE_MS = 15 * 60 * 1000;
 const IGREJAS_SCAN = 500;
 const USERS_SAMPLE = 400;
 function isMasterCaller(token) {
-    const role = String(token?.role ?? token?.ROLE ?? "").toUpperCase();
-    return role === "MASTER" || role === "ADM" || role === "ADMIN";
+    return (0, masterPlatformAuth_1.isPlatformOperatorToken)(token);
 }
 function parseDate(v) {
     if (v == null)
@@ -163,6 +163,7 @@ async function recomputeMasterDashboardSummary() {
     }
     let igrejas = 0;
     let usuarios = 0;
+    let membrosTotal = 0;
     let alertas = 0;
     let licencasAtivas = 0;
     let venc7 = 0;
@@ -214,6 +215,29 @@ async function recomputeMasterDashboardSummary() {
             freeCount++;
         if (licenseActive(data))
             licencasAtivas++;
+        try {
+            const dirSnap = await doc.ref
+                .collection("_panel_cache")
+                .doc("members_directory")
+                .get();
+            const dirData = dirSnap.data();
+            const tc = dirData?.totalCount ??
+                dirData?.summary?.totalCount;
+            if (typeof tc === "number" && tc > 0) {
+                membrosTotal += tc;
+            }
+            else {
+                const mc = await doc.ref.collection("membros").count().get();
+                membrosTotal += mc.data().count;
+            }
+        }
+        catch (_) {
+            try {
+                const mc = await doc.ref.collection("membros").count().get();
+                membrosTotal += mc.data().count;
+            }
+            catch (_) { }
+        }
         const dt = vencimentoFromChurch(data);
         if (dt && dt >= now) {
             if (dt <= in7) {
@@ -236,6 +260,9 @@ async function recomputeMasterDashboardSummary() {
             if (byMonthIgrejas[key] != null)
                 byMonthIgrejas[key]++;
         }
+    }
+    const panelStaleSample = igSnap.docs.slice(0, 24);
+    const staleFlags = await Promise.all(panelStaleSample.map(async (doc) => {
         try {
             const cache = await doc.ref
                 .collection("_panel_cache")
@@ -243,13 +270,17 @@ async function recomputeMasterDashboardSummary() {
                 .get();
             const updated = cache.data()?.updatedAt;
             const staleMs = 24 * 60 * 60 * 1000;
-            if (!cache.exists ||
+            return (!cache.exists ||
                 !updated ||
-                Date.now() - updated.toMillis() > staleMs) {
-                panelStale++;
-            }
+                Date.now() - updated.toMillis() > staleMs);
         }
-        catch (_) { }
+        catch {
+            return false;
+        }
+    }));
+    panelStale = staleFlags.filter(Boolean).length;
+    if (igSnap.size > panelStaleSample.length && panelStale > 0) {
+        panelStale = Math.max(panelStale, Math.round((panelStale / panelStaleSample.length) * igSnap.size));
     }
     try {
         const usersSnap = await db.collection("users").limit(USERS_SAMPLE).get();
@@ -337,9 +368,10 @@ async function recomputeMasterDashboardSummary() {
     }
     await summaryRef.set({
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        schemaVersion: 1,
+        schemaVersion: 2,
         igrejas,
         usuarios,
+        membrosTotal,
         receita,
         receitaPix,
         receitaCartao,

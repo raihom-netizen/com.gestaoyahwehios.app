@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Feature flags globais (`config/featureFlags`) — master SaaS.
 class MasterFeatureFlagsPage extends StatefulWidget {
@@ -37,7 +39,9 @@ class _MasterFeatureFlagsPageState extends State<MasterFeatureFlagsPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final snap = await FirebaseFirestore.instance.doc(_docPath).get();
+      final snap = await FirestoreWebGuard.runWithWebRecovery(
+        () => FirebaseFirestore.instance.doc(_docPath).get(),
+      );
       final data = snap.data();
       if (data != null) {
         for (final k in _flags.keys.toList()) {
@@ -53,11 +57,16 @@ class _MasterFeatureFlagsPageState extends State<MasterFeatureFlagsPage> {
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
-      await FirebaseFirestore.instance.doc(_docPath).set({
-        ..._flags,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'updatedBy': FirebaseAuth.instance.currentUser?.email,
-      }, SetOptions(merge: true));
+      await FirestoreWebGuard.recoverFirestoreWebSession(
+        allowHardReconnect: true,
+      );
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => FirebaseFirestore.instance.doc(_docPath).set({
+          ..._flags,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedBy': FirebaseAuth.instance.currentUser?.email,
+        }, SetOptions(merge: true)),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Feature flags atualizados.'),
@@ -66,7 +75,9 @@ class _MasterFeatureFlagsPageState extends State<MasterFeatureFlagsPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Erro: $e'),
+          ThemeCleanPremium.feedbackSnackBar(
+            formatFirebaseErrorForUser(e, logToCrashlytics: false),
+          ),
         );
       }
     } finally {

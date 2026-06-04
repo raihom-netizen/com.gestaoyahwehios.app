@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/session_restore_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Sessão Firebase persistente (estilo Controle Total).
 ///
@@ -22,12 +23,13 @@ abstract final class AuthService {
     return u != null && !u.isAnonymous;
   }
 
-  /// Web: sessão sobrevive a fechar aba / reiniciar browser.
+  /// Web: sessão sobrevive a fechar aba / reiniciar browser + Firestore online.
   static Future<void> configurePersistentSession() async {
     if (!kIsWeb) return;
     try {
       await firebaseDefaultAuth.setPersistence(Persistence.LOCAL);
     } catch (_) {}
+    await FirestoreWebGuard.ensureWebDatabaseConnected(refreshAuth: true);
   }
 
   /// Rota inicial quando há sessão (mobile nativo).

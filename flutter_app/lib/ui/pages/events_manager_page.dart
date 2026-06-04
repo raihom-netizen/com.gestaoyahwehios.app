@@ -1,4 +1,4 @@
-﻿import 'dart:async' show TimeoutException, unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:convert';
 import 'dart:io' show File;
 import 'dart:math';
@@ -35,6 +35,8 @@ import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/unified_upload_service.dart';
@@ -2452,10 +2454,12 @@ class _FeedTabState extends State<_FeedTab> {
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadEvents() async {
     try {
-      final snap = await ChurchTenantResilientReads.noticiasByStartAt(
-        widget.tenantId,
-        limit: 200,
-      ).timeout(const Duration(seconds: 14));
+      final snap = await FirestoreWebGuard.runWithWebRecovery(() {
+        return ChurchTenantResilientReads.noticiasByStartAt(
+          widget.tenantId,
+          limit: 200,
+        ).timeout(const Duration(seconds: 14));
+      });
       _lastGoodEventsSnap = snap;
       _showingOfflineEvents = false;
       return snap;
@@ -2469,7 +2473,7 @@ class _FeedTabState extends State<_FeedTab> {
         final cacheSnap = await firebaseDefaultFirestore
             .collection('igrejas')
             .doc(widget.tenantId)
-            .collection('noticias')
+            .collection(ChurchTenantPostsCollections.eventos)
             .orderBy('startAt', descending: true)
             .limit(200)
             .get(const GetOptions(source: Source.cache))
@@ -2480,7 +2484,7 @@ class _FeedTabState extends State<_FeedTab> {
           return cacheSnap;
         }
       } catch (_) {}
-      rethrow;
+      return const MergedFirestoreQuerySnapshot([]);
     }
   }
 

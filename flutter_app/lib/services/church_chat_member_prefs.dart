@@ -1,7 +1,8 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Modos de alerta (alinhados a [ChurchChatNotificationPrefs]).
 const Set<String> _kChatAlertModes = {'sound', 'vibrate', 'silent'};
@@ -141,7 +142,7 @@ class ChurchChatMemberPrefs {
     if (uid == null || uid.isEmpty) {
       return;
     }
-    yield* docRef(tenantId, uid).snapshots();
+    yield* FirestoreStreamUtils.documentWatchBootstrap(docRef(tenantId, uid));
   }
 
   static ChurchChatMemberPrefsModel parse(

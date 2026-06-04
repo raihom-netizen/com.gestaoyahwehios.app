@@ -19,7 +19,7 @@ function Get-GcloudAccessTokenSafe {
     if (Test-Path $gcp) {
         . $gcp
         Ensure-GoogleCloudAuth -RepoRoot $repo -Quiet | Out-Null
-        return Get-GoogleCloudAccessToken
+        return Get-GoogleCloudAccessToken -RepoRoot $repo
     }
     if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) { return $null }
     try {
@@ -33,6 +33,17 @@ function Get-LocalFileSha256 {
     param([string] $Path)
     if (-not (Test-Path $Path)) { return $null }
     return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-RulesFileFingerprintBase64 {
+    param([string] $Path)
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes((Get-Content $Path -Raw -Encoding UTF8))
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return [Convert]::ToBase64String($sha.ComputeHash($bytes))
+    } finally {
+        $sha.Dispose()
+    }
 }
 
 function Get-DeployStatePath {
@@ -99,8 +110,14 @@ function Get-RulesReleaseContent {
         $rs = Invoke-RestMethod -Uri "https://firebaserules.googleapis.com/v1/$rulesetName" -Headers $headers -Method Get -TimeoutSec 45
         foreach ($f in $rs.source.files) {
             if ($f.name -match '\.rules$') {
-                $bytes = [Convert]::FromBase64String([string]$f.content)
-                return [Text.Encoding]::UTF8.GetString($bytes)
+                $raw = [string]$f.content
+                if ([string]::IsNullOrWhiteSpace($raw)) { continue }
+                try {
+                    $bytes = [Convert]::FromBase64String($raw)
+                    $decoded = [Text.Encoding]::UTF8.GetString($bytes)
+                    if ($decoded -match 'service |rules_version') { return $decoded }
+                } catch {}
+                return $raw
             }
         }
     } catch {}
@@ -168,7 +185,7 @@ function Invoke-FirebaseRulesPreflight {
 
     $token = Get-GcloudAccessTokenSafe
     if ($null -eq $token) {
-        $result.Message = 'Sem token GCP — execute .\scripts\setup_google_cloud_automatico.ps1'
+        $result.Message = 'Sem token GCP - execute .\scripts\setup_google_cloud_automatico.ps1'
         if ($VerbosePreflight) { Write-Host "   [preflight] $($result.Message)" -ForegroundColor DarkYellow }
         return $result
     }
@@ -215,7 +232,7 @@ function Invoke-FirebaseRulesPreflight {
             -IndexesSha (Get-LocalFileSha256 (Join-Path $RepoRoot 'firestore.indexes.json'))
         $result.Message = 'Remoto = local (REST read-only). Skip firebase deploy /test.'
     } else {
-        $result.Message = 'Alteracoes locais ou remoto diferente — deploy necessario.'
+        $result.Message = 'Alteracoes locais ou remoto diferente - deploy necessario.'
     }
     if ($VerbosePreflight) {
         Write-Host ("   [preflight] storage={0} rules={1} indexes={2} | {3}" -f `
@@ -227,60 +244,41 @@ function Invoke-FirebaseRulesPreflight {
     return $result
 }
 
+function Invoke-FirebaseRulesGcpPublish {
+    param(
+        [string] $RepoRoot,
+        [string] $ProjectId,
+        [string] $Only = 'all',
+        [switch] $Force,
+        [int] $MaxAttempts = 40
+    )
+    $helper = Join-Path $RepoRoot 'scripts\firebase_rules_gcp_publish.cjs'
+    if (-not (Test-Path $helper)) {
+        return @{ Ok = $false; Text = 'firebase_rules_gcp_publish.cjs em falta' }
+    }
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+        return @{ Ok = $false; Text = 'Node.js necessario (cd functions; npm install)' }
+    }
+    $nodeArgs = @($helper, $ProjectId, "--only=$Only")
+    if ($Force) {
+        $nodeArgs += '--force'
+        $nodeArgs += "--max-attempts=$MaxAttempts"
+    }
+    $lines = & node @nodeArgs 2>&1
+    $text = ($lines | ForEach-Object { "$_" }) -join "`n"
+    $okLine = $lines | Where-Object { $_ -match '^YAHWEH_GCP_OK=' } | Select-Object -Last 1
+    $ok = ($LASTEXITCODE -eq 0) -or ($okLine -match '"ok"\s*:\s*true')
+    return @{ Ok = $ok; Text = $text + "`n" }
+}
+
 function Publish-FirestoreRulesViaRest {
     param(
         [string] $RepoRoot,
         [string] $ProjectId,
         [int] $MaxAttempts = 5
     )
-    $token = Get-GcloudAccessTokenSafe
-    if (-not $token) {
-        return @{ Ok = $false; Text = 'Sem token GCP — .\scripts\setup_google_cloud_automatico.ps1' }
-    }
-
-    $rulesPath = Join-Path $RepoRoot 'firestore.rules'
-    if (-not (Test-Path $rulesPath)) { return @{ Ok = $false; Text = 'firestore.rules em falta' } }
-
-    $contentB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-Content $rulesPath -Raw -Encoding UTF8)))
-    $body = @{
-        source = @{
-            files = @(
-                @{ name = 'firestore.rules'; content = $contentB64 }
-            )
-        }
-    } | ConvertTo-Json -Depth 6
-
-    $text = ''
-    for ($a = 1; $a -le $MaxAttempts; $a++) {
-        $token = Get-GcloudAccessTokenSafe
-        if (-not $token) { return @{ Ok = $false; Text = "$text token expirado" } }
-        $headers = @{
-            Authorization  = "Bearer $token"
-            'Content-Type' = 'application/json'
-        }
-        try {
-            $createUri = "https://firebaserules.googleapis.com/v1/projects/$ProjectId/rulesets"
-            $rs = Invoke-RestMethod -Uri $createUri -Headers $headers -Method Post -Body $body -TimeoutSec 120
-            $rulesetName = [string]$rs.name
-            $text += "ruleset: $rulesetName`n"
-            $patchUri = "https://firebaserules.googleapis.com/v1/projects/$ProjectId/releases/cloud.firestore"
-            $patchBody = @{ release = @{ rulesetName = $rulesetName } } | ConvertTo-Json -Depth 4
-            Invoke-RestMethod -Uri $patchUri -Headers $headers -Method Patch -Body $patchBody -TimeoutSec 120 | Out-Null
-            $text += "release cloud.firestore atualizado`n"
-            return @{ Ok = $true; Text = $text }
-        } catch {
-            $msg = $_.Exception.Message
-            $text += "tentativa $a : $msg`n"
-            $transient = $msg -match '503|504|429|unavailable|timeout|timed out'
-            if ($transient -and $a -lt $MaxAttempts) {
-                $wait = 15 * $a + (Get-Random -Maximum 10)
-                Start-Sleep -Seconds $wait
-                continue
-            }
-            return @{ Ok = $false; Text = $text }
-        }
-    }
-    return @{ Ok = $false; Text = $text }
+    return Invoke-FirebaseRulesGcpPublish -RepoRoot $RepoRoot -ProjectId $ProjectId `
+        -Only 'firestore' -Force -MaxAttempts $MaxAttempts
 }
 
 function Start-FirebaseRulesBackgroundRetry {

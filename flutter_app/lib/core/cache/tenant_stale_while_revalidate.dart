@@ -26,7 +26,10 @@ abstract final class TenantStaleWhileRevalidate {
         return MergedFirestoreQuerySnapshot(docs);
       }
     }
-    final snap = await networkFetch();
+    final snap = await networkFetch().timeout(
+      const Duration(seconds: 20),
+      onTimeout: () => const MergedFirestoreQuerySnapshot([]),
+    );
     if (tid.isNotEmpty && snap.docs.isNotEmpty) {
       unawaited(TenantModuleHiveCache.saveFromQuerySnapshot(tid, module, snap));
     }

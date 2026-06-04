@@ -1,4 +1,4 @@
-﻿import 'dart:async' show unawaited;
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';

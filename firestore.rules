@@ -1568,7 +1568,18 @@ service cloud.firestore {
       allow read: if isAdminPanel();
       allow write: if false;
     }
+    match /config/master_churches_index {
+      allow read: if isAdminPanel();
+      allow write: if false;
+    }
+    match /config/featureFlags {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
     match /config/_master_dashboard_lock {
+      allow read, write: if false;
+    }
+    match /config/_master_churches_list_lock {
       allow read, write: if false;
     }
 

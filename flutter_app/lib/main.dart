@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/ui/pages/firebase_bootstrap_recovery_page.dart';
 import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/offline/offline_first_coordinator.dart';
 import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/url_strategy.dart';
@@ -543,6 +544,11 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
   try {
     await AuthService.configurePersistentSession();
   } catch (_) {}
+  if (kIsWeb) {
+    try {
+      await FirestoreWebGuard.bindWebHostingDomainSession();
+    } catch (_) {}
+  }
   if (kIsWeb) {
     try {
       await PublicSiteMediaAuth.ensureWebAnonymousForStorage();

@@ -74,9 +74,19 @@ class PanelFinanceSnapshotService {
   static Stream<PanelFinanceSnapshot> watch(String tenantId) {
     final tid = tenantId.trim();
     if (tid.isEmpty) return Stream.value(const PanelFinanceSnapshot());
-    return FirestoreStreamUtils.resilientDocument(cacheRef(tid).snapshots()).map(
-      (s) => PanelFinanceSnapshot.fromMap(s.data()),
-    );
+    return _watchCacheFirst(tid);
+  }
+
+  static Stream<PanelFinanceSnapshot> _watchCacheFirst(String tenantId) async* {
+    try {
+      yield await readOnce(tenantId);
+    } catch (_) {
+      yield const PanelFinanceSnapshot();
+    }
+    await for (final snap
+        in FirestoreStreamUtils.resilientDocument(cacheRef(tenantId).snapshots())) {
+      yield PanelFinanceSnapshot.fromMap(snap.data());
+    }
   }
 
   static String monthKey(DateTime d) {
@@ -129,6 +139,13 @@ class PanelFinanceSnapshotService {
   static Future<PanelFinanceSnapshot> readOnce(String tenantId) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const PanelFinanceSnapshot();
+    try {
+      final cached = await cacheRef(tid)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
+      final fromCache = PanelFinanceSnapshot.fromMap(cached.data());
+      if (fromCache.hasData) return fromCache;
+    } catch (_) {}
     try {
       final snap = await cacheRef(tid).get();
       return PanelFinanceSnapshot.fromMap(snap.data());

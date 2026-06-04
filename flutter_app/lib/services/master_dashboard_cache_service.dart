@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -51,6 +52,7 @@ class MasterDashboardSummary {
   const MasterDashboardSummary({
     this.igrejas = 0,
     this.usuarios = 0,
+    this.membrosTotal = 0,
     this.receita = 0,
     this.alertas = 0,
     this.licencasAtivas = 0,
@@ -73,6 +75,8 @@ class MasterDashboardSummary {
 
   final int igrejas;
   final int usuarios;
+  /// Soma de `membros` / `_panel_cache/members_directory` — cadastro real nas igrejas.
+  final int membrosTotal;
   final double receita;
   final int alertas;
   final int licencasAtivas;
@@ -91,6 +95,10 @@ class MasterDashboardSummary {
   final List<Map<String, dynamic>> receitaPorMes;
   final List<MasterActionItem> actionQueue;
   final List<Map<String, dynamic>> expiringChurches;
+
+  /// KPI «Usuários» — preferir membros cadastrados quando disponível.
+  int get usuariosExibicao =>
+      membrosTotal > usuarios ? membrosTotal : usuarios;
 
   bool get isFresh {
     if (cacheUpdatedAt != null) {
@@ -126,6 +134,7 @@ class MasterDashboardSummary {
     return MasterDashboardSummary(
       igrejas: i(j['igrejas']),
       usuarios: i(j['usuarios']),
+      membrosTotal: i(j['membrosTotal']),
       receita: n(j['receita']),
       alertas: i(j['alertas']),
       licencasAtivas: i(j['licencasAtivas']),
@@ -154,6 +163,7 @@ class MasterDashboardSummary {
   Map<String, dynamic> toJson() => {
         'igrejas': igrejas,
         'usuarios': usuarios,
+        'membrosTotal': membrosTotal,
         'receita': receita,
         'alertas': alertas,
         'licencasAtivas': licencasAtivas,
@@ -287,17 +297,53 @@ abstract final class MasterDashboardCacheService {
   }
 
   /// Leitura rápida: Firestore → prefs → callable → scan cliente.
+  /// Alinha contagem de igrejas com [MasterChurchesListService] (badge vs KPI).
   static Future<MasterDashboardSummary> refresh({bool force = false}) async {
+    MasterDashboardSummary summary;
     if (!force) {
       final fs = await readFirestore();
       if (fs != null && fs.isFresh) {
         await writeLocal(fs);
-        return fs;
+        summary = fs;
+      } else {
+        final local = await readLocalPrefs();
+        if (local != null) {
+          summary = local;
+        } else {
+          summary = await warmFromCallable(force: force);
+        }
       }
-      final local = await readLocalPrefs();
-      if (local != null) return local;
+    } else {
+      summary = await warmFromCallable(force: force);
     }
-    return warmFromCallable(force: force);
+    final churchCount = MasterChurchesListService.peekCount();
+    if (churchCount > 0 && summary.igrejas != churchCount) {
+      summary = MasterDashboardSummary(
+        igrejas: churchCount,
+        usuarios: summary.usuarios,
+        membrosTotal: summary.membrosTotal,
+        receita: summary.receita,
+        alertas: summary.alertas,
+        licencasAtivas: summary.licencasAtivas,
+        vencimentos7d: summary.vencimentos7d,
+        vencimentos30d: summary.vencimentos30d,
+        blockedCount: summary.blockedCount,
+        freeCount: summary.freeCount,
+        suggestionsPending: summary.suggestionsPending,
+        panelCacheStaleCount: summary.panelCacheStaleCount,
+        receitaPix: summary.receitaPix,
+        receitaCartao: summary.receitaCartao,
+        cachedAtMs: summary.cachedAtMs,
+        cacheUpdatedAt: summary.cacheUpdatedAt,
+        igrejasPorMes: summary.igrejasPorMes,
+        usuariosPorMes: summary.usuariosPorMes,
+        receitaPorMes: summary.receitaPorMes,
+        actionQueue: summary.actionQueue,
+        expiringChurches: summary.expiringChurches,
+      );
+      await writeLocal(summary);
+    }
+    return summary;
   }
 
   /// Fallback quando callable indisponível (scan leve no cliente).
@@ -312,6 +358,7 @@ abstract final class MasterDashboardCacheService {
     final db = FirebaseFirestore.instance;
     var igrejas = 0;
     var usuarios = 0;
+    var membrosTotal = 0;
     var alertas = 0;
     var licencasAtivas = 0;
     var venc7 = 0;
@@ -358,12 +405,36 @@ abstract final class MasterDashboardCacheService {
         DateTime? dt;
         if (dv is Timestamp) dt = dv.toDate();
         if (dt != null && !dt.isBefore(now) && !dt.isAfter(in7)) venc7++;
+
+        try {
+          final dirSnap = await doc.reference
+              .collection('_panel_cache')
+              .doc('members_directory')
+              .get(const GetOptions(source: Source.server));
+          final dirData = dirSnap.data();
+          final tc = dirData?['totalCount'] ??
+              (dirData?['summary'] is Map
+                  ? (dirData!['summary'] as Map)['totalCount']
+                  : null);
+          if (tc is num && tc > 0) {
+            membrosTotal += tc.toInt();
+          } else {
+            final mc = await doc.reference.collection('membros').count().get();
+            membrosTotal += mc.count ?? 0;
+          }
+        } catch (_) {
+          try {
+            final mc = await doc.reference.collection('membros').count().get();
+            membrosTotal += mc.count ?? 0;
+          } catch (_) {}
+        }
       }
     } catch (_) {}
 
     final out = MasterDashboardSummary(
       igrejas: igrejas,
       usuarios: usuarios,
+      membrosTotal: membrosTotal,
       receita: receita,
       alertas: alertas,
       licencasAtivas: licencasAtivas,

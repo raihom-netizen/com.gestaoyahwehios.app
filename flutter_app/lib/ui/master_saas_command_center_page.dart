@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/saas_plan_limits.dart';
+import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
@@ -27,11 +30,53 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
   String _filterCidade = '';
   String _filterSaasTier = _all;
   final Map<String, int> _memberCountCache = {};
+  List<MasterChurchListItem> _churches = const [];
+  bool _churchesLoading = true;
+  String? _churchesError;
 
   @override
   void initState() {
     super.initState();
     _tab = TabController(length: 2, vsync: this);
+    final cached = MasterChurchesListService.peekMemory();
+    if (cached != null && cached.isNotEmpty) {
+      _churches = cached;
+      _churchesLoading = false;
+    }
+    unawaited(_loadChurches());
+  }
+
+  Future<void> _loadChurches({bool force = false}) async {
+    if (!mounted) return;
+    setState(() {
+      if (_churches.isEmpty) _churchesLoading = true;
+      _churchesError = null;
+    });
+    try {
+      var list = await MasterChurchesListService.loadFast(force: force)
+          .timeout(const Duration(seconds: 22));
+      if (list.isEmpty && !force) {
+        list = await MasterChurchesListService.loadFast(force: true)
+            .timeout(const Duration(seconds: 25));
+      }
+      if (!mounted) return;
+      setState(() {
+        _churches = list;
+        _churchesLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      final mem = MasterChurchesListService.peekMemory();
+      setState(() {
+        if (mem != null && mem.isNotEmpty) {
+          _churches = mem;
+          _churchesError = null;
+        } else {
+          _churchesError = e.toString();
+        }
+        _churchesLoading = false;
+      });
+    }
   }
 
   @override
@@ -98,11 +143,11 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
   String _cidadeOf(Map<String, dynamic> m) =>
       (m['cidade'] ?? m['municipio'] ?? m['city'] ?? '').toString().trim();
 
-  bool _passesClientFilters(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  bool _passesClientFiltersMap(
+    String id,
+    Map<String, dynamic> data,
     String q,
   ) {
-    final data = doc.data();
     if (_filterUf != _all && _ufOf(data).toLowerCase() != _filterUf.toLowerCase()) {
       return false;
     }
@@ -117,7 +162,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
     if (q.isNotEmpty) {
       final nome = '${data['nome'] ?? data['name'] ?? ''}'.toLowerCase();
       final slug = '${data['slug'] ?? ''}'.toLowerCase();
-      if (!nome.contains(q) && !slug.contains(q) && !doc.id.toLowerCase().contains(q)) {
+      if (!nome.contains(q) && !slug.contains(q) && !id.toLowerCase().contains(q)) {
         return false;
       }
     }
@@ -485,20 +530,31 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
           ),
         ),
         Expanded(
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance.collection('igrejas').snapshots(),
-            builder: (context, snap) {
-              if (snap.hasError) {
-                return Center(child: Text('Erro: ${snap.error}'));
-              }
-              if (!snap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
+          child: _churchesLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _churchesError != null
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('Erro ao carregar igrejas.'),
+                          const SizedBox(height: 8),
+                          FilledButton(
+                            onPressed: _loadChurches,
+                            child: const Text('Tentar de novo'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Builder(
+                      builder: (context) {
               final q = _searchCtrl.text.trim().toLowerCase();
-              final docs = snap.data!.docs.where((d) => _passesClientFilters(d, q)).toList()
+              final items = _churches
+                  .where((d) => _passesClientFiltersMap(d.id, d.data, q))
+                  .toList()
                 ..sort((a, b) {
-                  final na = '${a.data()['nome'] ?? a.data()['name'] ?? a.id}'.toLowerCase();
-                  final nb = '${b.data()['nome'] ?? b.data()['name'] ?? b.id}'.toLowerCase();
+                  final na = '${a.data['nome'] ?? a.data['name'] ?? a.id}'.toLowerCase();
+                  final nb = '${b.data['nome'] ?? b.data['name'] ?? b.id}'.toLowerCase();
                   return na.compareTo(nb);
                 });
               return ListView.builder(
@@ -508,14 +564,14 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                   ThemeCleanPremium.pagePadding(context).right,
                   24,
                 ),
-                itemCount: docs.length,
+                itemCount: items.length,
                 itemBuilder: (_, i) {
-                  final doc = docs[i];
-                  final data = doc.data();
+                  final docId = items[i].id;
+                  final data = items[i].data;
                   final guard = SubscriptionGuard.evaluate(church: data);
                   final tier = SaasPlanLimits.tierFromChurch(data);
                   final cap = SaasPlanLimits.memberCapForTier(tier);
-                  final nome = (data['nome'] ?? data['name'] ?? doc.id).toString();
+                  final nome = (data['nome'] ?? data['name'] ?? docId).toString();
                   final cidade = _cidadeOf(data);
                   final uf = _ufOf(data);
 
@@ -542,7 +598,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                             children: [
                               Expanded(
                                 child: Text(
-                                  'ID: ${doc.id}',
+                                  'ID: ${docId}',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w800,
@@ -557,7 +613,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                                 icon: Icon(Icons.copy_rounded,
                                     size: 18, color: Colors.grey.shade600),
                                 onPressed: () {
-                                  Clipboard.setData(ClipboardData(text: doc.id));
+                                  Clipboard.setData(ClipboardData(text: docId));
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     ThemeCleanPremium.successSnackBar(
                                         'ID copiado. Notícias, eventos e escalas usam este vínculo.'),
@@ -577,7 +633,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                         Padding(
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                           child: FutureBuilder<int>(
-                            future: _loadMemberCount(doc.id),
+                            future: _loadMemberCount(docId),
                             builder: (context, countSnap) {
                               final n = countSnap.data ?? 0;
                               final pct = cap == null || cap <= 0 ? 0.0 : (n / cap).clamp(0.0, 1.0);
@@ -607,7 +663,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                                         child: _MasterMicroButton(
                                           child: OutlinedButton.icon(
                                             onPressed: () =>
-                                                _openWhiteLabelSheet(doc.id, data),
+                                                _openWhiteLabelSheet(docId, data),
                                             icon: const Icon(Icons.language_rounded,
                                                 size: 18),
                                             label: const Text('Domínios / API'),
@@ -619,7 +675,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                                         child: _MasterMicroButton(
                                           child: OutlinedButton.icon(
                                             onPressed: () =>
-                                                _supportAccessFlow(doc.id, data),
+                                                _supportAccessFlow(docId, data),
                                             icon: const Icon(
                                                 Icons.support_agent_rounded,
                                                 size: 18),
@@ -656,7 +712,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                                       ),
                                     ],
                                     onChanged: (v) {
-                                      if (v != null) _setSaasTier(doc.id, v);
+                                      if (v != null) _setSaasTier(docId, v);
                                     },
                                   ),
                                 ],
@@ -669,8 +725,8 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
                   );
                 },
               );
-            },
-          ),
+                      },
+                    ),
         ),
       ],
     );

@@ -25,8 +25,29 @@ Este repositório usa **regras persistentes** em `.cursor/rules/` e o manual **`
 | Partilha WhatsApp | `yahweh_share_service.dart`, `yahweh_share_button.dart` |
 | Web uploads | `web_safe_media.dart`, `upload_bytes_core.dart` |
 | Regras Firebase | `firestore.rules`, `storage.rules`, `FIREBASE_RULES_SECURITY.txt` |
-| Deploy regras | `scripts/deploy_firebase_rules.ps1` |
+| Deploy regras (GCP, autorizado) | `scripts/regras_gcp_automatico_forcado.ps1` |
+| Deploy regras (detalhe) | `scripts/deploy_firebase_rules.ps1` |
 | Deploy web | `scripts/deploy_web_hosting.ps1` |
+| gcloud (auto) | `scripts/install_google_cloud_sdk.ps1` via `ensure_gestao_yahweh_toolchain_path.ps1` |
+| GCP regras REST | `scripts/firebase_rules_gcp_publish.cjs` |
+
+## Toolchain (antes de deploy)
+
+```powershell
+. .\scripts\ensure_gestao_yahweh_toolchain_path.ps1
+```
+
+Instala **gcloud** automaticamente se faltar (winget / zip). Nao pedir instalacao manual.
+
+## Regras Firebase (autorizado)
+
+```powershell
+.\scripts\regras_gcp_automatico_forcado.ps1
+```
+
+Publica em **firebaserules.googleapis.com** (nao no banco Firestore): preflight + `firebase_rules_gcp_publish.cjs` + `-ForcePublish`. Inclui `ensure_functions_node_for_gcp.ps1` (googleapis para IAM). Sem pedir confirmacao extra se o utilizador autorizou.
+
+**Copiar para outros projetos:** `docs/GCP_TOOLCHAIN_COPIAR_OUTROS_PROJETOS.md` + scripts listados + `.cursor/rules/gcloud-toolchain-automatico.mdc` + `prompt_mestre_cursor.md`.
 
 ## Comando Composer (opcional)
 

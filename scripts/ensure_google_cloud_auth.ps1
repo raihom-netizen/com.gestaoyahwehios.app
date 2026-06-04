@@ -2,6 +2,11 @@
 # Dot-source: . .\scripts\ensure_google_cloud_auth.ps1
 # Ou chamado por ensure_gestao_yahweh_toolchain_path.ps1 / deploy_firebase_rules.ps1
 
+$installGcloudScript = Join-Path $PSScriptRoot 'install_google_cloud_sdk.ps1'
+if (Test-Path $installGcloudScript) {
+    . $installGcloudScript
+}
+
 $script:GoogleCloudProjectId = 'gestaoyahweh-21e23'
 $script:GoogleCloudAuthReady = $false
 $script:GoogleCloudAuthSource = ''
@@ -139,7 +144,10 @@ function Ensure-GoogleCloudAuth {
         [string] $RepoRoot = '',
         [switch] $Quiet
     )
-    if ($script:GoogleCloudAuthReady -and (Get-GoogleCloudAccessToken)) {
+    if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+        $RepoRoot = Split-Path -Parent $PSScriptRoot
+    }
+    if ($script:GoogleCloudAuthReady -and (Get-GoogleCloudAccessToken -RepoRoot $RepoRoot)) {
         return $true
     }
     if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
@@ -148,8 +156,11 @@ function Ensure-GoogleCloudAuth {
             $RepoRoot = (Get-Location).Path
         }
     }
+    if (Get-Command Ensure-GcloudInstalled -ErrorAction SilentlyContinue) {
+        Ensure-GcloudInstalled -RepoRoot $RepoRoot -Quiet:$Quiet | Out-Null
+    }
     Add-GcloudToPath
-    $token = Get-GoogleCloudAccessToken
+    $token = Get-GoogleCloudAccessToken -RepoRoot $RepoRoot
     if (-not $token) {
         if (Ensure-GoogleCloudServiceAccountSession -RepoRoot $RepoRoot) {
             $token = Get-GoogleCloudAccessToken -RepoRoot $RepoRoot
@@ -169,7 +180,7 @@ function Ensure-GoogleCloudAuth {
         return $true
     }
     if (-not $Quiet) {
-        Write-Host '   [GCP] Sem token Google Cloud — preflight/REST limitados.' -ForegroundColor DarkYellow
+        Write-Host '   [GCP] Sem token Google Cloud - preflight/REST limitados.' -ForegroundColor DarkYellow
         Write-Host '   Execute uma vez: .\scripts\setup_google_cloud_automatico.ps1' -ForegroundColor DarkGray
         Write-Host '   (ou: gcloud auth login + gcloud config set project gestaoyahweh-21e23)' -ForegroundColor DarkGray
     }

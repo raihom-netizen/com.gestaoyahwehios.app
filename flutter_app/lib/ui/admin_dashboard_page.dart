@@ -93,7 +93,7 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   }
 
   void _applyFromMasterSummary(MasterDashboardSummary s) {
-    _usuarios = s.usuarios;
+    _usuarios = s.usuariosExibicao;
     _igrejas = s.igrejas;
     _receita = s.receita;
     _alertas = s.alertas;

@@ -34,6 +34,7 @@ import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/immediate_patrimonio_photo_attach.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
@@ -801,6 +802,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   }
 
   void _startPatrimonioRealtimeSync() {
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
     for (final s in _patrimonioRealtimeSubs) {
       unawaited(s.cancel());
     }
@@ -2322,7 +2324,12 @@ class _BensTabState extends State<_BensTab> {
     if (tid.isEmpty) {
       return const MergedFirestoreQuerySnapshot([]);
     }
-    return ChurchTenantResilientReads.patrimonio(tid, limit: _patrimonioFetchLimit);
+    return FirestoreWebGuard.runWithWebRecovery(
+      () => ChurchTenantResilientReads.patrimonio(
+        tid,
+        limit: _patrimonioFetchLimit,
+      ),
+    );
   }
 
   void _loadMorePatrimonio() {
@@ -2335,7 +2342,8 @@ class _BensTabState extends State<_BensTab> {
   /// Cache Firestore + rede com retry; refresh em background.
   Future<QuerySnapshot<Map<String, dynamic>>> _loadBensFirstPaint() async {
     try {
-      final snap = await _loadPatrimonioResilient();
+      final snap = await _loadPatrimonioResilient()
+          .timeout(const Duration(seconds: 18));
       if (snap.docs.isNotEmpty) {
         unawaited(_refreshBensFromServer());
         return snap;
@@ -2344,13 +2352,19 @@ class _BensTabState extends State<_BensTab> {
     try {
       final cached = await widget.col
           .orderBy('nome')
-          .get(const GetOptions(source: Source.cache));
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 4));
       if (cached.docs.isNotEmpty) {
         unawaited(_refreshBensFromServer());
         return cached;
       }
     } catch (_) {}
-    return _loadPatrimonioResilient();
+    try {
+      return await _loadPatrimonioResilient()
+          .timeout(const Duration(seconds: 14));
+    } catch (_) {
+      return const MergedFirestoreQuerySnapshot([]);
+    }
   }
 
   Future<void> _refreshBensFromServer() async {

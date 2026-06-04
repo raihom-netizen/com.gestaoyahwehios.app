@@ -1,4 +1,4 @@
-﻿/// Single source of app version used everywhere.
+/// Single source of app version used everywhere.
 /// 11.2.295+1759: Cartão membro — índice signatários, paginação 40, cache foto PDF.
 /// 11.2.295+1758: Painel master — paginação users/igrejas, storage amostra 100, limites unificados.
 /// 11.2.295+1757: Cadastro público Firestore-first + foto BG; certificados/finance/liderança paginados.
@@ -274,7 +274,8 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-const String appBuildNumber = '1764';
+/// 11.2.295+1774: Painel master — lista igrejas server-first, KPI membros reais, callables auth operador.
+const String appBuildNumber = '1774';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

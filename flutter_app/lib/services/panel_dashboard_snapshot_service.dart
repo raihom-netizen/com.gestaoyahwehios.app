@@ -241,7 +241,7 @@ class PanelDashboardSnapshotService {
     if (tid.isEmpty) {
       return Stream.value(const PanelDashboardSnapshot());
     }
-    return FirestoreStreamUtils.resilientDocument(cacheRef(tid).snapshots()).map(
+    return FirestoreStreamUtils.documentWatchBootstrap(cacheRef(tid)).map(
       (snap) {
         final data = snap.data();
         if (data == null) return const PanelDashboardSnapshot();
@@ -309,8 +309,16 @@ class PanelDashboardSnapshotService {
     try {
       final snap = await cacheRef(tid).get();
       final out = _fromCacheDoc(snap);
+      if (out.isFreshForInstantPanel && out.membersTotalCount > 0) {
+        YahwehFlowLog.dashboardSuccess();
+        return out;
+      }
+    } catch (_) {}
+
+    try {
+      final warmed = await warmFromCallableIfStale(tid);
       YahwehFlowLog.dashboardSuccess();
-      return out;
+      return warmed;
     } catch (_) {
       return const PanelDashboardSnapshot();
     }
@@ -336,20 +344,25 @@ class PanelDashboardSnapshotService {
       final doc = await cacheRef(tid).get();
       final u = doc.data()?['updatedAt'];
       if (u is Timestamp && _isFresh(u)) {
-        return PanelDashboardSnapshot.fromMap(doc.data());
+        return _fromCacheDoc(doc);
       }
     } catch (_) {}
-    return warmFromCallable();
+    return warmFromCallable(tenantId: tid);
   }
 
   /// Aquece o cache no servidor se estiver ausente ou velho.
-  static Future<PanelDashboardSnapshot> warmFromCallable() async {
+  static Future<PanelDashboardSnapshot> warmFromCallable({
+    String? tenantId,
+  }) async {
     try {
       final callable = _functions.httpsCallable(
         'getChurchPanelSnapshot',
         options: HttpsCallableOptions(timeout: const Duration(seconds: 25)),
       );
-      final res = await callable.call<Map<String, dynamic>>({});
+      final payload = <String, dynamic>{};
+      final tid = (tenantId ?? '').trim();
+      if (tid.isNotEmpty) payload['tenantId'] = tid;
+      final res = await callable.call<Map<String, dynamic>>(payload);
       final data = res.data;
       final mp = data['mediaPrefetch'];
       if (mp is Map) {

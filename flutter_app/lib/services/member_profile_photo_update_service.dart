@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/painting.dart';
 import 'package:gestao_yahweh/core/offline/offline_module_sync.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
@@ -28,6 +29,7 @@ import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado de upload de foto de perfil do membro (chat + módulo Membros).
 class MemberProfilePhotoUpdateResult {
@@ -179,15 +181,17 @@ class MemberProfilePhotoUpdateService {
     final db = firebaseDefaultFirestore;
     await Future.wait(
       tenantIds.map(
-        (tid) => MembrosOfflineSync.set(
-          ref: db
-              .collection('igrejas')
-              .doc(tid)
-              .collection('membros')
-              .doc(memberDocId),
-          tenantId: tid,
-          merge: true,
-          data: patch,
+        (tid) => FirestoreWebGuard.runWithWebRecovery(
+          () => MembrosOfflineSync.set(
+            ref: db
+                .collection('igrejas')
+                .doc(tid)
+                .collection('membros')
+                .doc(memberDocId),
+            tenantId: tid,
+            merge: true,
+            data: patch,
+          ),
         ),
       ),
     );
@@ -227,6 +231,11 @@ class MemberProfilePhotoUpdateService {
     bool requireAuth = true,
   }) async {
     await ensureFirebaseCore(requireAuth: requireAuth);
+    if (kIsWeb) {
+      await FirestoreWebGuard.recoverFirestoreWebSession(
+        allowHardReconnect: true,
+      );
+    }
     YahwehFlowLog.uploadStart('member_profile');
     ChurchPublishFlowLog.uploadStart('member_profile');
     final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
@@ -272,15 +281,17 @@ class MemberProfilePhotoUpdateService {
     final db = firebaseDefaultFirestore;
     await Future.wait(
       tenantIds.map(
-        (tid) => MembrosOfflineSync.set(
-          ref: db
-              .collection('igrejas')
-              .doc(tid)
-              .collection('membros')
-              .doc(memberDocId),
-          tenantId: tid,
-          merge: true,
-          data: updates,
+        (tid) => FirestoreWebGuard.runWithWebRecovery(
+          () => MembrosOfflineSync.set(
+            ref: db
+                .collection('igrejas')
+                .doc(tid)
+                .collection('membros')
+                .doc(memberDocId),
+            tenantId: tid,
+            merge: true,
+            data: updates,
+          ),
         ),
       ),
     );

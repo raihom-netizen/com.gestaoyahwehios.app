@@ -119,13 +119,27 @@ if [[ -n "$IPA_BUILD" && -n "${APP_STORE_APPLE_ID:-}" ]]; then
     case "$LATEST_ASC" in
       ''|*[!0-9]*) LATEST_ASC=0 ;;
     esac
+    FLOOR_ASC=0
+    if FLOOR_ASC="$(bash "$ROOT/scripts/codemagic_ios_read_asc_floor.sh" 2>/dev/null)"; then
+      case "$FLOOR_ASC" in
+        ''|*[!0-9]*) FLOOR_ASC=0 ;;
+      esac
+    fi
+    BLOCK=0
     if [[ "$LATEST_ASC" -gt 0 && "$IPA_BUILD" -le "$LATEST_ASC" ]]; then
+      BLOCK=1
+    elif [[ "$FLOOR_ASC" -gt 0 && "$IPA_BUILD" -le "$FLOOR_ASC" ]]; then
+      BLOCK=1
+      LATEST_ASC="$FLOOR_ASC"
+    fi
+    if [[ "$BLOCK" -eq 1 ]]; then
       echo ""
       echo "ERRO 90189 (evitado): o IPA já tem CFBundleVersion=$IPA_BUILD ($IPA_MARKETING),"
-      echo "       mas a App Store Connect já tem build number $LATEST_ASC ou superior."
+      echo "       mas a App Store Connect já tem build number >= $LATEST_ASC."
       echo ""
       echo "       NÃO use «Retry» só no passo Publishing — o binário é o mesmo."
-      echo "       Na Codemagic: Start new build (build completo) para gerar IPA com número novo."
+      echo "       Na Codemagic: Start new build (workflow completo) para novo CFBundleVersion."
+      echo "       Após upload OK, atualize flutter_app/ios/asc_build_number_floor.txt"
       echo ""
       exit 1
     fi
@@ -141,7 +155,19 @@ if [[ -n "$IPA_BUILD" && -n "${APP_STORE_APPLE_ID:-}" ]]; then
     fi
     echo "OK: CFBundleVersion $IPA_BUILD > ASC último $LATEST_ASC (sem risco 90189)."
   else
-    echo "AVISO: não consultou ASC para 90189 — upload segue (API indisponível)."
+    FLOOR_ASC=0
+    if FLOOR_ASC="$(bash "$ROOT/scripts/codemagic_ios_read_asc_floor.sh" 2>/dev/null)"; then
+      case "$FLOOR_ASC" in
+        ''|*[!0-9]*) FLOOR_ASC=0 ;;
+      esac
+    fi
+    if [[ "$FLOOR_ASC" -gt 0 && "$IPA_BUILD" -le "$FLOOR_ASC" ]]; then
+      echo ""
+      echo "ERRO 90189 (evitado sem API ASC): CFBundleVersion=$IPA_BUILD ≤ floor repo ($FLOOR_ASC)."
+      echo "       Start new build — não Retry só em Publishing."
+      exit 1
+    fi
+    echo "AVISO: não consultou ASC para 90189 — upload segue (API indisponível; floor OK)."
   fi
 else
   echo "AVISO: CFBundleVersion ou APP_STORE_APPLE_ID ausente — validação 90189 ignorada."

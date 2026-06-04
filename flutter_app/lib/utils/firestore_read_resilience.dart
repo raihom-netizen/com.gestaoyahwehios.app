@@ -120,7 +120,8 @@ class FirestoreReadResilience {
               await FirestoreWebGuard.recoverFirestoreWebSession(
                 allowHardReconnect: attempt >= 2 &&
                     lastError != null &&
-                    FirestoreWebGuard.isClientTerminated(lastError!),
+                    (FirestoreWebGuard.isClientTerminated(lastError!) ||
+                        FirestoreWebGuard.isInternalAssertionError(lastError!)),
               );
             } catch (_) {}
           }

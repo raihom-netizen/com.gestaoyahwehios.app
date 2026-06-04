@@ -13,11 +13,13 @@ Set-Location $RepoRoot
 Write-Host '=== Gestao YAHWEH — Google Cloud automatico ===' -ForegroundColor Cyan
 Write-Host "Projeto: $($script:GoogleCloudProjectId)" -ForegroundColor DarkGray
 
+. (Join-Path $RepoRoot 'scripts\install_google_cloud_sdk.ps1')
+Ensure-GcloudInstalled -RepoRoot $RepoRoot | Out-Null
+
 $script:GoogleCloudAuthReady = $false
 if (Ensure-GoogleCloudAuth -RepoRoot $RepoRoot) {
     Write-Host ''
-    Write-Host 'Token GCP OK via conta de servico (Node) — pode saltar gcloud login.' -ForegroundColor Green
-    Write-Host 'Para preflight completo no browser, instale opcionalmente: winget install Google.CloudSDK' -ForegroundColor DarkGray
+    Write-Host 'Token GCP OK (gcloud e/ou conta de servico Node).' -ForegroundColor Green
     . (Join-Path $RepoRoot 'scripts\firebase_rules_preflight.ps1')
     $pf = Invoke-FirebaseRulesPreflight -RepoRoot $RepoRoot -VerbosePreflight
     if ($pf.AllOk) {
@@ -31,10 +33,9 @@ if (Ensure-GoogleCloudAuth -RepoRoot $RepoRoot) {
 
 if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) {
     Write-Host ''
-    Write-Host 'Google Cloud SDK nao encontrado e sem token SA. Instale:' -ForegroundColor Yellow
-    Write-Host '  winget install Google.CloudSDK' -ForegroundColor Cyan
-    Write-Host 'Ou coloque ANDROID/*-firebase-adminsdk*.json e npm install em functions/' -ForegroundColor Yellow
-    exit 2
+    Write-Host 'gcloud: instalacao automatica falhou. Verifique rede e execute:' -ForegroundColor Yellow
+    Write-Host '  .\scripts\install_google_cloud_sdk.ps1' -ForegroundColor Cyan
+    if (-not (Ensure-GoogleCloudAuth -RepoRoot $RepoRoot)) { exit 2 }
 }
 
 Write-Host ''

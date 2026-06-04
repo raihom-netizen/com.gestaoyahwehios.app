@@ -8,11 +8,12 @@ Esta base foi validada em produção: web online, AAB Play, push GitHub, correç
 
 ## Antes de cada melhoria ou deploy
 
-1. **Toolchain no PATH** (PowerShell na raiz):
+1. **Toolchain no PATH** (PowerShell na raiz; inclui **gcloud** auto):
    ```powershell
    . .\scripts\ensure_gestao_yahweh_toolchain_path.ps1
    firebase --version
    flutter --version
+   gcloud --version
    ```
 2. **Análise Dart** (ficheiros alterados ou gate global):
    ```powershell

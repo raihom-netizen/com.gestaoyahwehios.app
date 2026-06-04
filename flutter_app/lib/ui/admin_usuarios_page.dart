@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
+import 'package:gestao_yahweh/services/master_churches_list_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/ui/admin_igreja_usuarios_page.dart';
@@ -16,7 +18,7 @@ class AdminUsuariosPage extends StatefulWidget {
 
 class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
   bool _loading = false;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _tenants = [];
+  List<MasterChurchListItem> _tenants = [];
   String _busca = '';
 
   @override
@@ -25,23 +27,30 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool force = false}) async {
     setState(() => _loading = true);
     try {
-      final snap = await FirebaseFirestore.instance.collection('igrejas').get();
-      final list = snap.docs.toList()
-        ..sort((a, b) {
-          final na = (a.data()['name'] ?? a.data()['nome'] ?? a.id).toString().toLowerCase();
-          final nb = (b.data()['name'] ?? b.data()['nome'] ?? b.id).toString().toLowerCase();
-          return na.compareTo(nb);
-        });
+      final list = await FirestoreWebGuard.runWithWebRecovery(
+        () => MasterChurchesListService.loadFast(force: force)
+            .timeout(const Duration(seconds: 22)),
+      );
+      var tenants = list;
+      if (tenants.isEmpty && !force) {
+        tenants = await FirestoreWebGuard.runWithWebRecovery(
+          () => MasterChurchesListService.loadFast(force: true)
+              .timeout(const Duration(seconds: 25)),
+        );
+      }
+      if (!mounted) return;
       setState(() {
-        _tenants = list;
+        _tenants = tenants;
         _loading = false;
       });
     } catch (_) {
+      if (!mounted) return;
+      final mem = MasterChurchesListService.peekMemory();
       setState(() {
-        _tenants = [];
+        _tenants = mem ?? const [];
         _loading = false;
       });
     }
@@ -129,11 +138,11 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
   @override
   Widget build(BuildContext context) {
     final q = _busca.trim().toLowerCase();
-    final filtrados = _tenants.where((d) {
-      final data = d.data();
+    final filtrados = _tenants.where((item) {
+      final data = item.data;
       final nome = (data['name'] ?? data['nome'] ?? '').toString().toLowerCase();
       final gestor = (data['gestorNome'] ?? data['gestorEmail'] ?? '').toString().toLowerCase();
-      final slug = (data['slug'] ?? data['alias'] ?? d.id).toString().toLowerCase();
+      final slug = (data['slug'] ?? data['alias'] ?? item.id).toString().toLowerCase();
       return nome.contains(q) || gestor.contains(q) || slug.contains(q);
     }).toList();
 
@@ -205,9 +214,9 @@ class _AdminUsuariosPageState extends State<AdminUsuariosPage> {
                             ),
                             itemCount: filtrados.length,
                             itemBuilder: (_, i) {
-                              final doc = filtrados[i];
-                              final data = doc.data();
-                              final tenantId = doc.id;
+                              final item = filtrados[i];
+                              final data = item.data;
+                              final tenantId = item.id;
                               final nomeIgreja = (data['name'] ?? data['nome'] ?? tenantId).toString();
                               final gestorNome = (data['gestorNome'] ?? data['gestor_nome'] ?? data['responsavel'] ?? '').toString();
                               final gestorEmail = (data['gestorEmail'] ?? data['gestor_email'] ?? data['email'] ?? '').toString();

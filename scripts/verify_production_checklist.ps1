@@ -113,6 +113,6 @@ if ($failures.Count -gt 0) {
 }
 
 Write-Host "Checklist estatico OK. Valide manualmente nas 3 plataformas:" -ForegroundColor Green
-Write-Host "  Android + iPhone + Web — Modo QA (28 testes) + Central = LIBERADO" -ForegroundColor DarkGray
+Write-Host "  Android + iPhone + Web - Modo QA (28 testes) + Central = LIBERADO" -ForegroundColor DarkGray
 Write-Host "Ver docs/CHECKLIST_PRODUCAO.md e docs/PADRONIZACAO_MULTIPLATAFORMA.md" -ForegroundColor Cyan
 exit 0

@@ -11,6 +11,9 @@ import 'package:gestao_yahweh/core/firestore_app_config.dart';
 class FirestoreWebGuard {
   FirestoreWebGuard._();
 
+  /// Web: evita dezenas de `snapshots()` paralelos (INTERNAL ASSERTION Firestore 11.x).
+  static bool get disableLiveSnapshotsOnWeb => kIsWeb;
+
   static bool isInternalAssertionError(Object e) {
     final msg = e.toString();
     return msg.contains('INTERNAL ASSERTION') ||
@@ -92,22 +95,47 @@ class FirestoreWebGuard {
     }
   }
 
-  /// Executa [fn]; em assert interno ou cliente terminado, recupera **suave** e tenta 1x.
-  static Future<T> runWithWebRecovery<T>(Future<T> Function() fn) async {
-    try {
-      return await fn();
-    } catch (e, st) {
-      final recoverable = kIsWeb &&
-          (isInternalAssertionError(e) || isClientTerminated(e));
-      if (!recoverable) {
-        Error.throwWithStackTrace(e, st);
+  /// Executa [fn]; em assert interno ou cliente terminado, recupera e re-tenta até [maxAttempts].
+  static Future<T> runWithWebRecovery<T>(
+    Future<T> Function() fn, {
+    int maxAttempts = 3,
+  }) async {
+    Object? lastError;
+    StackTrace? lastStack;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        if (attempt > 0) {
+          debugPrint('FirestoreWebGuard: retry $attempt/$maxAttempts…');
+          await recoverFirestoreWebSession(
+            allowHardReconnect: lastError != null &&
+                (isClientTerminated(lastError!) ||
+                    isInternalAssertionError(lastError!)),
+          );
+          await Future<void>.delayed(
+            Duration(milliseconds: 100 + attempt * 160),
+          );
+        }
+        return await fn();
+      } catch (e, st) {
+        lastError = e;
+        lastStack = st;
+        final recoverable = kIsWeb &&
+            (isInternalAssertionError(e) ||
+                isClientTerminated(e) ||
+                e is FirebaseException &&
+                    (e.code == 'unavailable' ||
+                        e.code == 'internal' ||
+                        e.code == 'unknown'));
+        if (!recoverable || attempt >= maxAttempts - 1) {
+          Error.throwWithStackTrace(e, st);
+        }
+        debugPrint('FirestoreWebGuard: recuperação suave Web…');
       }
-      debugPrint('FirestoreWebGuard: recuperação suave Web…');
-      await recoverFirestoreWebSession(
-        allowHardReconnect: isClientTerminated(e),
-      );
-      return await fn();
     }
+    Error.throwWithStackTrace(
+      lastError ?? StateError('web_recovery_failed'),
+      lastStack ?? StackTrace.current,
+    );
   }
 
   static Future<T> runWebGoogleSignInFlow<T>(Future<T> Function() fn) async {
@@ -116,9 +144,31 @@ class FirestoreWebGuard {
     try {
       return await runWithWebRecovery(fn);
     } finally {
-      try {
-        await firebaseDefaultFirestore.enableNetwork();
-      } catch (_) {}
+      await ensureWebDatabaseConnected(refreshAuth: true);
     }
+  }
+
+  /// Garante persistência + rede activa (web e mobile) — gravar e manter sessão no Firestore.
+  static Future<void> ensureWebDatabaseConnected({bool refreshAuth = false}) async {
+    if (!kIsWeb) return;
+    applyWebFirestoreSettings();
+    try {
+      await firebaseDefaultFirestore.enableNetwork();
+    } catch (_) {}
+    if (refreshAuth) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null && !user.isAnonymous) {
+        try {
+          await user.getIdToken(false);
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// Arranque / resume web — conexão estável em qualquer domínio oficial.
+  static Future<void> bindWebHostingDomainSession() async {
+    if (!kIsWeb) return;
+    applyWebFirestoreSettings();
+    await ensureWebDatabaseConnected(refreshAuth: true);
   }
 }

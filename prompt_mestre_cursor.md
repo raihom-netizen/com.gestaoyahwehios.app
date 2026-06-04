@@ -161,32 +161,74 @@ Evitar:
 
 ### 6.2 Como publicar (recomendado)
 
-**Uma vez por máquina** — alinhar Google Cloud ao projeto (token para preflight/REST; evita «Sem gcloud token»):
+**Toolchain (cada deploy / PC novo)** — `gcloud` instalado **automaticamente** (sem winget manual):
 
 ```powershell
-.\scripts\setup_google_cloud_automatico.ps1
+. .\scripts\ensure_gestao_yahweh_toolchain_path.ps1
+# ou so gcloud:
+.\scripts\install_google_cloud_sdk.ps1
 ```
 
-Usa `gestaoyahweh-21e23`, `gcloud auth login`, ADC e, se existir localmente, chave em `ANDROID/*-firebase-adminsdk*.json` ou `secrets/`.
+Ordem: winget `Google.CloudSDK` → zip em `C:\dev\gestao-yahweh-toolchain\google-cloud-sdk` → installer silencioso. Projeto `gestaoyahweh-21e23` + conta de servico `ANDROID/*-firebase-adminsdk*.json`.
 
-Na raiz do repositório (PowerShell):
+**Nota:** Regras **não** vão para o «banco» Firestore — publicam em **Google Cloud** (`firebaserules.googleapis.com`). O `gcloud` serve para APIs, CORS (`gsutil`) e IAM (Owner).
+
+**Comando único (autorizado / forçar — prompt mestre):**
 
 ```powershell
-.\scripts\deploy_firebase_rules.ps1
+.\scripts\regras_gcp_automatico_forcado.ps1
+```
+
+**Setup + publicação manual (passo a passo):**
+
+```powershell
+.\scripts\setup_gcp_firebase_rules_permanent.ps1
+.\scripts\setup_google_cloud_automatico.ps1
+.\scripts\deploy_firebase_rules.ps1 -ForcePublish
 ```
 
 Isto publica **Firestore + índices + Storage** com:
 
-1. **GCP auth** — `ensure_google_cloud_auth.ps1` (PATH gcloud + token utilizador/ADC/conta de serviço).
-2. **Preflight** — compara local vs remoto (REST read-only); se igual, **não chama** `firebaserules.googleapis.com/test` (evita 503).
-3. **Fallback REST** — se CLI `/test` falhar com 503, publica `firestore.rules` via API Rules (retry 503).
-4. **Retry background** — `deploy_firebase_rules_background.ps1` (log em `.deploy-state/firebase-rules-background.log`).
+1. **GCP auth** — `ensure_google_cloud_auth.ps1` (conta de serviço `ANDROID/*-firebase-adminsdk*.json` + Node).
+2. **Preflight** — compara local vs remoto (REST read-only); se igual, **não chama** API `/test`.
+3. **Publicação permanente (padrão)** — `firebase_rules_gcp_publish.cjs` publica **Firestore + Storage** directo no Google Cloud (`firebaserules.googleapis.com`), **sem** `firebase deploy /test`.
+4. **503 Google** — `firebase_rules_gcp_watchdog.ps1` re-tenta em background; estado em `.deploy-state/firebase-sync.json`.
+5. **Setup IAM/APIs (uma vez)** — `.\scripts\setup_gcp_firebase_rules_permanent.ps1` (inclui `npm ci` em `functions/` + `grant_gcp_firebase_rules_iam.cjs` via **googleapis**).
+6. **CLI só se necessário** — `.\scripts\deploy_firebase_rules.ps1 -UseCliRules` (índices continuam via CLI quando preciso).
+
+**IAM automático:** `scripts/ensure_functions_node_for_gcp.ps1` garante `googleapis` em `functions/node_modules` antes do grant. O `grant_gcp_firebase_rules_iam.cjs` também executa `npm ci` se faltar o módulo.
+
+### 6.4 Copiar para outros projetos
+
+Copie o kit documentado em **`docs/GCP_TOOLCHAIN_COPIAR_OUTROS_PROJETOS.md`**:
+
+| Essencial | |
+|-----------|--|
+| Scripts | `install_google_cloud_sdk.ps1`, `ensure_gestao_yahweh_toolchain_path.ps1`, `regras_gcp_automatico_forcado.ps1`, `firebase_rules_gcp_publish.cjs`, `deploy_firebase_rules.ps1`, `grant_gcp_firebase_rules_iam.cjs`, `ensure_functions_node_for_gcp.ps1`, … |
+| Cursor | `.cursor/rules/gcloud-toolchain-automatico.mdc`, `deploy-firebase-regras-automatico.mdc` |
+| Manual | `prompt_mestre_cursor.md` (este ficheiro) + `AGENTS.md` |
+
+No projeto novo: ajustar **Project ID** Firebase e pasta da chave SA (`*-firebase-adminsdk*.json`). Comando: `.\scripts\regras_gcp_automatico_forcado.ps1`.
 
 ```powershell
+.\scripts\producao_alinhamento_rapido.ps1
+# ou passo a passo:
+.\scripts\setup_gcp_firebase_rules_permanent.ps1
 .\scripts\deploy_firebase_rules.ps1 -ForcePublish
-# Deploy completo (web+AAB+iOS continuam se regras falharem):
+# Deploy completo (web+AAB+iOS):
 .\scripts\deploy_completo.ps1
 ```
+
+**Venda / igreja piloto (Brasil para Cristo):** tenant `brasilparacristo_sistema` — apos login gestor, usar «Garantir acesso» no AuthGate se necessario; functions `ensureBrasilParaCristoAccess` no alinhamento rapido.
+
+### 6.2.1 Codemagic iOS — erro 90189 (Redundant Binary Upload)
+
+- **Causa:** o `.ipa` já foi enviado com o mesmo `CFBundleVersion` (ex. `1780456532` para marketing `11.2.295`). **Retry só no passo Publishing** reenvia o **mesmo** binário.
+- **Correção:** na Codemagic → **Start new build** (workflow `ios-release` completo). **Não** «Retry» apenas em Publishing.
+- **CI:** `scripts/codemagic_ios_sync_version_from_app_version_dart.sh` — `CFBundleVersion` = máximo(último na ASC, `flutter_app/ios/asc_build_number_floor.txt`) + `BUILD_NUMBER`.
+- **Validação:** `codemagic_ios_validate_ipa_before_upload.sh` falha antes do upload se o número já existir na ASC.
+- **Após upload OK:** gravar o `CFBundleVersion` enviado em `flutter_app/ios/asc_build_number_floor.txt` (uma linha, só dígitos).
+- Ver também: `IOS/CODEMAGIC_90189.md`, `codemagic.yaml` (raiz).
 
 Colar manualmente no console só se não tiver CLI — copie **o ficheiro inteiro** (`Ctrl+A` no VS Code/Cursor).
 

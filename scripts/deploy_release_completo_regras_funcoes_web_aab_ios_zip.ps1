@@ -107,7 +107,12 @@ $rulesArgs = @{ MaxAttempts = $rulesMaxAttempts; ForcePublish = $true }
 if (-not $ForceFirestoreRules) {
     Write-Host "   (regras: preflight + ForcePublish, max $rulesMaxAttempts tentativas)" -ForegroundColor DarkGray
 }
-& (Join-Path $RepoRoot "scripts\deploy_firebase_rules.ps1") @rulesArgs
+$forcedGcp = Join-Path $RepoRoot "scripts\regras_gcp_automatico_forcado.ps1"
+if (Test-Path $forcedGcp) {
+    & $forcedGcp -SkipCors
+} else {
+    & (Join-Path $RepoRoot "scripts\deploy_firebase_rules.ps1") @rulesArgs
+}
 $rulesExit = $LASTEXITCODE
 if ($rulesExit -ne 0) {
     if ($ContinueOnRulesFailure) {
@@ -164,16 +169,24 @@ else {
     Write-Host "`n=== [2/6] Cloud Functions (build + deploy todas) - projeto $Project ===" -ForegroundColor Cyan
     $FunctionsDir = Join-Path $RepoRoot "functions"
     Push-Location $FunctionsDir
-    if (Test-Path (Join-Path $FunctionsDir "package-lock.json")) {
-        npm ci
-    } else {
-        npm install
+    # npm/node escrevem avisos em stderr; com $ErrorActionPreference Stop isso aborta sem exit != 0.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        if (Test-Path (Join-Path $FunctionsDir "package-lock.json")) {
+            npm ci 2>&1 | Out-Host
+        } else {
+            npm install 2>&1 | Out-Host
+        }
+        if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
+        npm run build 2>&1 | Out-Host
+        if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
     }
-    if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
-    npm run build
-    if ($LASTEXITCODE -ne 0) { Pop-Location; exit $LASTEXITCODE }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
     $env:FUNCTIONS_DISCOVERY_TIMEOUT = "120"
-    firebase deploy --only functions --project $Project --force
+    firebase deploy --only functions --project $Project --force 2>&1 | Out-Host
     $funcExit = $LASTEXITCODE
     Pop-Location
     if ($funcExit -ne 0) { exit $funcExit }

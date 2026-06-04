@@ -23,7 +23,8 @@ function Write-Log([string]$msg) {
     Add-Content -Path $log -Value $line -Encoding UTF8
 }
 
-Write-Log 'Inicio retry background (ForcePublish, max 25).'
+Write-Log 'Inicio retry background GCP REST (watchdog + deploy).'
+& (Join-Path $RepoRoot 'scripts\firebase_rules_gcp_watchdog.ps1') -StartBackground
 & (Join-Path $RepoRoot 'scripts\deploy_firebase_rules.ps1') -ForcePublish -MaxAttempts 25 *>&1 | ForEach-Object {
     Write-Log $_
     Write-Host $_

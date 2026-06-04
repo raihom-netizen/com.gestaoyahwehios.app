@@ -44,6 +44,7 @@ import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -432,6 +433,7 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   Future<void> _startFeedLiveSync() async {
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
     try {
       await _ensureMuralFirebaseReady();
     } catch (e) {
@@ -512,15 +514,20 @@ class InstagramMuralState extends State<InstagramMural> {
       }
       QuerySnapshot<Map<String, dynamic>> snap;
       if (reset && _feedLastCursor == null) {
-        snap = await ChurchTenantResilientReads.avisosFeed(
-          widget.tenantId,
-          limit: _feedPageSize,
-        ).timeout(const Duration(seconds: 12));
+        snap = await FirestoreWebGuard.runWithWebRecovery(() {
+          return ChurchTenantResilientReads.avisosFeed(
+            widget.tenantId,
+            limit: _feedPageSize,
+          ).timeout(const Duration(seconds: 12));
+        });
       } else {
-        snap = await FirestoreReadResilience.getQuery(
-          q,
-          cacheKey: 'mural_avisos_${widget.tenantId}_${_feedLastCursor?.id ?? 'head'}',
-        ).timeout(const Duration(seconds: 14));
+        snap = await FirestoreWebGuard.runWithWebRecovery(() {
+          return FirestoreReadResilience.getQuery(
+            q,
+            cacheKey:
+                'mural_avisos_${widget.tenantId}_${_feedLastCursor?.id ?? 'head'}',
+          ).timeout(const Duration(seconds: 14));
+        });
       }
       if (!mounted || requestEpoch != _feedRequestEpoch) return;
 

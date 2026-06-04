@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/firebase_options.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/crashlytics_benign_errors.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 
@@ -314,6 +315,7 @@ abstract final class FirebaseBootstrapService {
         if (kIsWeb) {
           try {
             configureFirestoreForOfflineAndSpeed();
+            unawaited(FirestoreWebGuard.ensureWebDatabaseConnected());
           } catch (_) {}
           final health = _optimisticWebHealth();
           _lastHealth = health;
