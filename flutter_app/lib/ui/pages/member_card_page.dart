@@ -4497,12 +4497,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final merged = _mergeChurchLogoIntoCardConfig(cfg, tenant);
 
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(igrejaDocId)
-          .collection('config')
-          .doc('carteira')
-          .get();
+      final snap = await ChurchTenantResilientReads.configDoc(
+        igrejaDocId,
+        'carteira',
+      );
       if (snap.exists && snap.data() != null) {
         final d = snap.data()!;
         final def = (d['defaultSignatoryMemberId'] ?? '').toString().trim();

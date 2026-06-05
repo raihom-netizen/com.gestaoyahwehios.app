@@ -3,6 +3,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Índices do menu em [IgrejaCleanShell] para navegação a partir da busca.
@@ -161,7 +163,7 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
   }
 
   Future<void> _loadCaches() async {
-    final tid = widget.tenantId.trim();
+    var tid = widget.tenantId.trim();
     if (tid.isEmpty) {
       if (mounted) {
         setState(() {
@@ -171,6 +173,11 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
       }
       return;
     }
+
+    try {
+      final op = await TenantResolverService.resolveOperationalChurchDocId(tid);
+      if (op.trim().isNotEmpty) tid = op.trim();
+    } catch (_) {}
 
     final db = FirebaseFirestore.instance;
     final base = db.collection('igrejas').doc(tid);

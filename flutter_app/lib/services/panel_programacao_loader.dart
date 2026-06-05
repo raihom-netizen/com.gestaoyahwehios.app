@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
@@ -127,8 +128,8 @@ abstract final class PanelProgramacaoLoader {
     final staleDisk = staleRam == null ? await readDisk(tid, rangeDays) : null;
 
     try {
-      await ChurchTenantResilientReads.preparePanelRead();
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
+      await ensureFirebaseReadyForPanelRead().catchError((_) {});
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded().catchError((_) {});
       try {
         await FirebaseFirestore.instance.enableNetwork();
       } catch (_) {}

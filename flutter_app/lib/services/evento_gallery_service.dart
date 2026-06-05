@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_service.dart';
 import 'media_upload_service.dart';
@@ -35,13 +36,24 @@ class EventoGalleryService {
   static const int _photoMaxWidth = 1920;
   static const int _photoMaxHeight = 1080;
 
-  /// Adiciona mídia a um evento da coleção [eventos] (por eventoId).
+  /// Adiciona mídia a um evento em `igrejas/{tenantId}/eventos/{eventoId}`.
   /// Vídeo: MP4/M4V ≤26 MB envia direto; senão comprime 720p HD, thumb, upload e salva URL + thumb.
   /// Foto: upload em alta resolução e salva URL (getDownloadURL).
-  Future<void> adicionarMidiaAoEvento(String eventoId, File arquivo, bool isVideo) async {
+  Future<void> adicionarMidiaAoEvento(
+    String tenantId,
+    String eventoId,
+    File arquivo,
+    bool isVideo,
+  ) async {
     final db = await _firestore();
-    final eventoRef = db.collection('eventos').doc(eventoId);
-    final storagePrefix = 'eventos/$eventoId';
+    final tid = tenantId.trim();
+    final eventoRef = db
+        .collection('igrejas')
+        .doc(tid)
+        .collection('eventos')
+        .doc(eventoId);
+    final storagePrefix =
+        '${ChurchStorageLayout.churchRoot(tid)}/${ChurchStorageLayout.kSegEventos}/$eventoId';
     await adicionarMidiaAoEventoRef(
       eventoRef,
       storagePrefix,

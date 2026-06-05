@@ -148,6 +148,16 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     final u = FirebaseAuth.instance.currentUser;
     _nomeCtrl.text = u?.displayName ?? '';
     _emailCtrl.text = u?.email ?? '';
+    final seed = widget.tenantId.trim();
+    if (seed.isNotEmpty) {
+      _operationalTenantId = seed;
+      final ram = _DonationMpContasCache.peek(seed);
+      if (ram != null && ram.isNotEmpty) {
+        _contas = ram;
+        _contaId = ram.first.id;
+        _loadingContas = false;
+      }
+    }
     unawaited(_bootstrapDonationsPage());
   }
 
@@ -158,41 +168,31 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       return;
     }
 
-    final ram = _DonationMpContasCache.peek(seed);
-    if (ram != null && ram.isNotEmpty && mounted) {
+    if (_contas.isEmpty && mounted) {
       setState(() {
-        _contas = ram;
-        _contaId = ram.first.id;
-        _loadingContas = false;
+        _loadingContas = true;
+        _erro = null;
       });
     }
 
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    unawaited(_loadContas(refreshNetwork: true));
+    unawaited(_bindMemberForDonation());
+    unawaited(_loadPaymentReceiving());
+
     try {
-      _operationalTenantId = await TenantResolverService
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final resolved = await TenantResolverService
           .resolveOperationalChurchDocId(seed, userUid: uid)
-          .timeout(const Duration(seconds: 8), onTimeout: () => seed);
-    } catch (_) {
-      _operationalTenantId = seed;
-    }
-
-    final tid = _effectiveTenantId;
-    if (tid != seed) {
-      final ramOp = _DonationMpContasCache.peek(tid);
-      if (ramOp != null && ramOp.isNotEmpty && mounted) {
-        setState(() {
-          _contas = ramOp;
-          _contaId = ramOp.first.id;
-          _loadingContas = false;
-        });
+          .timeout(const Duration(seconds: 12), onTimeout: () => seed);
+      if (!mounted) return;
+      final next = resolved.trim().isEmpty ? seed : resolved.trim();
+      if (next != _operationalTenantId) {
+        setState(() => _operationalTenantId = next);
+        unawaited(_loadContas(refreshNetwork: true));
+        unawaited(_bindMemberForDonation());
+        unawaited(_loadPaymentReceiving());
       }
-    }
-
-    await Future.wait<void>([
-      _loadContas(refreshNetwork: _contas.isEmpty),
-      _bindMemberForDonation(),
-      _loadPaymentReceiving(),
-    ]);
+    } catch (_) {}
   }
 
   Future<void> _loadPaymentReceiving() async {
@@ -206,25 +206,12 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     final tid = _effectiveTenantId;
     if (tid.isEmpty) return;
     try {
-      final q = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('membros')
-          .where('authUid', isEqualTo: uid)
-          .limit(1)
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 8));
-      if (q.docs.isEmpty) return;
-      final doc = q.docs.first;
-      final data = doc.data();
-      final nome = (data['NOME_COMPLETO'] ?? data['NOME'] ?? data['nome'] ?? '')
-          .toString()
-          .trim();
-      if (!mounted) return;
-      if (nome.isNotEmpty && _nomeCtrl.text.trim().isEmpty) {
-        setState(() => _nomeCtrl.text = nome);
+      final hit = await ChurchTenantResilientReads.memberByAuthUid(tid, uid);
+      if (hit == null || !mounted) return;
+      if (hit.nome.isNotEmpty && _nomeCtrl.text.trim().isEmpty) {
+        setState(() => _nomeCtrl.text = hit.nome);
       }
-      setState(() => _memberDocIdForDonation = doc.id);
+      setState(() => _memberDocIdForDonation = hit.docId);
     } catch (_) {}
   }
 
@@ -237,6 +224,18 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       _parcelas = 1;
       _pixMode = true;
     });
+  }
+
+  String _donationLoadErrorMessage(Object e) {
+    final raw = e.toString();
+    if (e is TimeoutException || raw.contains('TimeoutException')) {
+      return 'A conexão demorou demais ao carregar as contas Mercado Pago. '
+          'Verifique a internet e toque em recarregar, ou confira Financeiro → Contas.';
+    }
+    if (raw.contains('permission-denied')) {
+      return 'Sem permissão para ler contas da igreja. Confirme o vínculo do seu login.';
+    }
+    return raw;
   }
 
   Future<void> _loadContas({bool refreshNetwork = true}) async {
@@ -252,8 +251,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
         if (mounted) setState(() => _loadingContas = false);
         return;
       }
-      final snap = await ChurchTenantResilientReads.contas(tid)
-          .timeout(const Duration(seconds: 16));
+      final snap = await ChurchTenantResilientReads.contasDonation(tid);
       final list = _filterMercadoPagoContas(snap);
       _DonationMpContasCache.put(tid, list);
       _DonationMpContasCache.put(widget.tenantId.trim(), list);
@@ -266,6 +264,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
                 !list.any((e) => e.id == _contaId)) {
               _contaId = list.first.id;
             }
+            _erro = null;
           } else {
             _contaId = null;
           }
@@ -276,7 +275,9 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       if (mounted) {
         setState(() {
           _loadingContas = false;
-          if (_contas.isEmpty) _erro = '$e';
+          if (_contas.isEmpty) {
+            _erro = _donationLoadErrorMessage(e);
+          }
         });
       }
     }
@@ -654,10 +655,9 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     if (url == null || url.isEmpty) return;
     final primary = ThemeCleanPremium.primary;
 
-    // Apple Guideline 3.1.1 / 3.2.1(viii): em iOS native, NAO abrir
-    // checkout Mercado Pago em WebView embedded. Coleta de pagamento
-    // (mesmo doacao admin de igreja) deve ocorrer no Safari externo.
-    if (IosPaymentsGate.isIosNative) {
+    // iOS (Apple 3.1.1) e Android 15/16+: checkout MP no navegador externo —
+    // WebView embutido (PlatformView) provoca crash JNI fatal no engine Flutter.
+    if (IosPaymentsGate.preferExternalMercadoPagoCheckout) {
       try {
         final uri = Uri.parse(url);
         await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -1029,9 +1029,23 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.red.shade200),
                 ),
-                child: SelectableText(
-                  _erro!,
-                  style: TextStyle(color: Colors.red.shade900, fontSize: 12.5),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SelectableText(
+                      _erro!,
+                      style:
+                          TextStyle(color: Colors.red.shade900, fontSize: 12.5),
+                    ),
+                    const SizedBox(height: 10),
+                    TextButton.icon(
+                      onPressed: _loadingContas
+                          ? null
+                          : () => unawaited(_loadContas(refreshNetwork: true)),
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Recarregar contas Mercado Pago'),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -1208,6 +1222,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
           ],
         ),
               _DonationHistoryTab(
+                key: ValueKey<String>('donation_hist_$_effectiveTenantId'),
                 tenantId: _effectiveTenantId.isEmpty
                     ? widget.tenantId
                     : _effectiveTenantId,
@@ -1232,6 +1247,7 @@ class _DonationHistoryTab extends StatefulWidget {
   final bool seeAll;
 
   const _DonationHistoryTab({
+    super.key,
     required this.tenantId,
     this.cpf,
     required this.seeAll,

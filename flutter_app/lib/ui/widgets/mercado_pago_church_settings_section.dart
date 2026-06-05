@@ -1,8 +1,15 @@
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/firebase_options.dart';
+import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
@@ -28,7 +35,14 @@ class _MercadoPagoChurchSettingsSectionState
   bool _loading = true;
   bool _saving = false;
   bool _seeding = false;
+  bool _openingDonationLink = false;
   Map<String, dynamic>? _cfg;
+  String? _operationalTenantId;
+
+  String get _effectiveTenantId {
+    final op = (_operationalTenantId ?? widget.tenantId).trim();
+    return op.isEmpty ? widget.tenantId.trim() : op;
+  }
 
   static String _defaultWebhookUrl() {
     final pid = DefaultFirebaseOptions.currentPlatform.projectId;
@@ -45,12 +59,17 @@ class _MercadoPagoChurchSettingsSectionState
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final d = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('config')
-          .doc('mercado_pago')
-          .get();
+      final seed = widget.tenantId.trim();
+      if (seed.isNotEmpty) {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        _operationalTenantId = await TenantResolverService
+            .resolveOperationalChurchDocId(seed, userUid: uid)
+            .timeout(const Duration(seconds: 10), onTimeout: () => seed);
+      }
+      final d = await ChurchTenantResilientReads.configDoc(
+        _effectiveTenantId,
+        'mercado_pago',
+      );
       _cfg = d.data();
       _publicKeyCtrl.text = (_cfg?['publicKey'] ?? '').toString();
       _clientIdCtrl.text = (_cfg?['clientId'] ?? '').toString();
@@ -103,7 +122,7 @@ class _MercadoPagoChurchSettingsSectionState
       final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('saveChurchMercadoPagoCredentials');
       await callable.call(<String, dynamic>{
-        'tenantId': widget.tenantId,
+        'tenantId': _effectiveTenantId,
         'accessToken': tok,
         'publicKey': _publicKeyCtrl.text.trim(),
         'clientId': _clientIdCtrl.text.trim(),
@@ -134,13 +153,189 @@ class _MercadoPagoChurchSettingsSectionState
     }
   }
 
+  bool get _mpIntegrationReady =>
+      _cfg?['enabled'] == true ||
+      _cfg?['hasClientSecret'] == true ||
+      (_cfg?['publicKey'] ?? '').toString().trim().isNotEmpty;
+
+  bool get _isIosNative =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  Future<void> _openDonationModuleInShell() {
+    ChurchPanelNavigationBridge.instance
+        .requestNavigateToShellIndex(ChurchShellIndices.doacao);
+    if (!mounted) return Future.value();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Módulo Doação aberto — gere PIX ou cartão (Android e web).',
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    return Future.value();
+  }
+
+  Future<void> _openIosDonationOnSite() async {
+    if (_openingDonationLink) return;
+    setState(() => _openingDonationLink = true);
+    try {
+      Map<String, dynamic> churchData = {};
+      var slug = _effectiveTenantId;
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(_effectiveTenantId)
+            .get(const GetOptions(source: Source.serverAndCache));
+        churchData = snap.data() ?? {};
+        final fromDoc = (churchData['slug'] ?? churchData['slugId'] ?? '')
+            .toString()
+            .trim();
+        if (fromDoc.isNotEmpty) slug = fromDoc;
+      } catch (_) {}
+      await IosPaymentsGate.openChurchDonationsExternally(
+        churchSlug: slug,
+        churchData: churchData.isEmpty ? null : churchData,
+      );
+    } finally {
+      if (mounted) setState(() => _openingDonationLink = false);
+    }
+  }
+
+  Future<void> _openChurchSiteInApp() async {
+    var slug = _effectiveTenantId;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(_effectiveTenantId)
+          .get(const GetOptions(source: Source.serverAndCache));
+      final d = snap.data() ?? {};
+      final fromDoc =
+          (d['slug'] ?? d['slugId'] ?? '').toString().trim();
+      if (fromDoc.isNotEmpty) slug = fromDoc;
+    } catch (_) {}
+    if (!mounted || slug.isEmpty) return;
+    PublicMemberSignupNavigation.openChurchPublicSite(context, slug: slug);
+  }
+
+  Widget _buildDonationQuickActionsCard(BuildContext context) {
+    if (!_mpIntegrationReady) {
+      return _Card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Gerar doação (PIX e cartão)',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Salve a integração Mercado Pago acima e crie a conta tesouraria MP '
+              'para liberar PIX e cartão no painel.',
+              style: TextStyle(
+                fontSize: 12.5,
+                color: Colors.grey.shade700,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_isIosNative) {
+      return _Card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Doações no iPhone',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Pela App Store, dízimos e ofertas são feitos no site da igreja '
+              '(PIX ou cartão no Safari) — não há checkout embutido no app iOS.',
+              style: TextStyle(
+                fontSize: 12.5,
+                color: Colors.grey.shade700,
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: _openingDonationLink ? null : _openIosDonationOnSite,
+              icon: _openingDonationLink
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.open_in_browser_rounded),
+              label: Text(
+                _openingDonationLink
+                    ? 'Abrindo…'
+                    : 'Abrir doações no site (Safari)',
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.primary,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _openChurchSiteInApp,
+              icon: const Icon(Icons.public_rounded),
+              label: const Text('Ver site da igreja no app'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Gerar doação (PIX e cartão)',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Com a integração ativa, use o módulo Doação do menu lateral: '
+            'PIX com QR no painel; cartão abre no navegador (Chrome) com Mercado Pago.',
+            style: TextStyle(
+              fontSize: 12.5,
+              color: Colors.grey.shade700,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: _openDonationModuleInShell,
+            icon: const Icon(Icons.volunteer_activism_rounded),
+            label: const Text('Abrir módulo Doação — PIX / cartão'),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.primary,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _seedContas() async {
     setState(() => _seeding = true);
     try {
       final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('ensureChurchTreasuryAccountPresets');
       final res =
-          await callable.call(<String, dynamic>{'tenantId': widget.tenantId});
+          await callable.call(<String, dynamic>{'tenantId': _effectiveTenantId});
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
       final c = data['created'];
       if (mounted) {
@@ -357,6 +552,8 @@ class _MercadoPagoChurchSettingsSectionState
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        _buildDonationQuickActionsCard(context),
         const SizedBox(height: 24),
       ],
     );

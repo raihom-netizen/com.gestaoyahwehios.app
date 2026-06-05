@@ -125,8 +125,10 @@ abstract final class ChurchTenantResilientReads {
         tenantId: tenantId,
         module: TenantModuleKeys.avisos,
         firestoreCacheKey: _key(tenantId, 'avisos_feed_$limit'),
-        networkFetch: () =>
-            _avisosFeedQueryResilient(tenantId, limit: limit),
+        networkFetch: () => _queryWithSiblingFallback(
+          tenantId,
+          (tid) => _avisosFeedQueryResilient(tid, limit: limit),
+        ),
       );
 
   static DateTime? _avisoCreatedAt(Map<String, dynamic> data) {
@@ -183,8 +185,10 @@ abstract final class ChurchTenantResilientReads {
         tenantId: tenantId,
         module: TenantModuleKeys.eventos,
         firestoreCacheKey: _key(tenantId, 'noticias_start_$limit'),
-        networkFetch: () =>
-            _noticiasByStartAtQueryResilient(tenantId, limit: limit),
+        networkFetch: () => _queryWithSiblingFallback(
+          tenantId,
+          (tid) => _noticiasByStartAtQueryResilient(tid, limit: limit),
+        ),
       );
 
   static DateTime? _noticiaStartAt(Map<String, dynamic> data) {
@@ -733,6 +737,134 @@ abstract final class ChurchTenantResilientReads {
       } catch (_) {}
     }
     return loadFor(primary);
+  }
+
+  /// Doc em `igrejas/{tid}/config/{docId}` — tenant + docs irmãos (MP, payment_receiving).
+  static Future<DocumentSnapshot<Map<String, dynamic>>> configDoc(
+    String tenantId,
+    String docId,
+  ) async {
+    Future<DocumentSnapshot<Map<String, dynamic>>> loadFor(String tid) =>
+        FirestoreReadResilience.getDocument(
+          _church(tid).collection('config').doc(docId),
+          cacheKey: _key(tid, 'config_${docId.trim()}'),
+        );
+    final primary = tenantId.trim();
+    if (primary.isEmpty) return loadFor(primary);
+    try {
+      final snap = await loadFor(primary);
+      if (snap.exists && (snap.data() ?? {}).isNotEmpty) return snap;
+    } catch (_) {}
+    List<String> siblings;
+    try {
+      siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(primary);
+    } catch (_) {
+      siblings = const [];
+    }
+    for (final sid in siblings) {
+      if (sid == primary) continue;
+      try {
+        final alt = await loadFor(sid);
+        if (alt.exists && (alt.data() ?? {}).isNotEmpty) return alt;
+      } catch (_) {}
+    }
+    return loadFor(primary);
+  }
+
+  /// Contas tesouraria — sem [preparePanelRead]; doc operacional + irmãos.
+  static Future<QuerySnapshot<Map<String, dynamic>>> _contasQueryResilient(
+    String tenantId, {
+    int limit = 80,
+  }) =>
+      FirestoreWebGuard.runWithWebRecovery(() async {
+        final church = _church(tenantId);
+        try {
+          return await FirestoreReadResilience.getQuery(
+            church.collection('contas').orderBy('nome').limit(limit),
+            cacheKey: _key(tenantId, 'contas_resilient_$limit'),
+            maxAttempts: 4,
+            attemptTimeout: kIsWeb
+                ? const Duration(seconds: 12)
+                : const Duration(seconds: 18),
+          );
+        } catch (_) {
+          return FirestoreReadResilience.getQuery(
+            church.collection('contas').limit(limit),
+            cacheKey: _key(tenantId, 'contas_resilient_plain_$limit'),
+            maxAttempts: 3,
+            attemptTimeout: kIsWeb
+                ? const Duration(seconds: 10)
+                : const Duration(seconds: 15),
+          );
+        }
+      });
+
+  /// Doação / Financeiro — mesma coleção `contas`, leitura rápida (evita timeout 16s).
+  static Future<QuerySnapshot<Map<String, dynamic>>> contasDonation(
+    String tenantId, {
+    int limit = 80,
+  }) =>
+      TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tenantId,
+        module: TenantModuleKeys.financeiro,
+        firestoreCacheKey: _key(tenantId, 'contas_donation_$limit'),
+        networkFetch: () => _queryWithSiblingFallback(
+          tenantId,
+          (tid) => _contasQueryResilient(tid, limit: limit),
+        ),
+      );
+
+  /// Membro vinculado ao login — tenant + irmãos.
+  static Future<({String docId, String nome})?> memberByAuthUid(
+    String tenantId,
+    String authUid,
+  ) async {
+    final uid = authUid.trim();
+    if (uid.isEmpty) return null;
+    Future<({String docId, String nome})?> loadFor(String tid) async {
+      final q = await FirestoreReadResilience.getQuery(
+        _church(tid)
+            .collection('membros')
+            .where('authUid', isEqualTo: uid)
+            .limit(1),
+        cacheKey: _key(tid, 'membro_auth_$uid'),
+        maxAttempts: 3,
+        attemptTimeout: kIsWeb
+            ? const Duration(seconds: 10)
+            : const Duration(seconds: 15),
+      );
+      if (q.docs.isEmpty) return null;
+      final doc = q.docs.first;
+      final data = doc.data();
+      final nome = (data['NOME_COMPLETO'] ??
+              data['NOME'] ??
+              data['nome'] ??
+              '')
+          .toString()
+          .trim();
+      return (docId: doc.id, nome: nome);
+    }
+
+    final primary = tenantId.trim();
+    if (primary.isEmpty) return loadFor(primary);
+    try {
+      final hit = await loadFor(primary);
+      if (hit != null) return hit;
+    } catch (_) {}
+    List<String> siblings;
+    try {
+      siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(primary);
+    } catch (_) {
+      siblings = const [];
+    }
+    for (final sid in siblings) {
+      if (sid == primary) continue;
+      try {
+        final hit = await loadFor(sid);
+        if (hit != null) return hit;
+      } catch (_) {}
+    }
+    return null;
   }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> contas(

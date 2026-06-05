@@ -16,11 +16,12 @@ import 'package:gestao_yahweh/services/church_chat_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 
 /// Fila por igreja: `igrejas/{tenantId}/pending_uploads/{id}`.
-/// Espelho global (Master / painel): `pendingUploads/{tenantId}__{id}`.
+/// A coleção raiz `pendingUploads` está descontinuada (legado — migrar/apagar).
 abstract final class PendingUploadsFirestoreService {
   PendingUploadsFirestoreService._();
 
-  static const String globalCollectionId = 'pendingUploads';
+  /// Legado — só para UI/migração; não escrever novos docs na raiz.
+  static const String legacyRootCollectionId = 'pendingUploads';
 
   static Future<void> _ensureReady() async {
     await ensureFirebaseReadyForMediaUpload();
@@ -32,42 +33,13 @@ abstract final class PendingUploadsFirestoreService {
           .doc(tenantId)
           .collection('pending_uploads');
 
-  static CollectionReference<Map<String, dynamic>> get _globalCol =>
-      firebaseDefaultFirestore.collection(globalCollectionId);
-
-  static String _globalDocId(String tenantId, String uploadId) =>
-      '${tenantId.trim()}__$uploadId';
-
   static String? tenantFromStoragePath(String storagePath) =>
       FeedTenantStorageMap.tenantIdFromStoragePath(storagePath);
 
   static YahwehUploadModule moduleFromStoragePath(String storagePath) =>
       YahwehMediaUploadPipeline.moduleFromStoragePath(storagePath);
 
-  static Future<void> _mirrorGlobal(
-    String tenantId,
-    String uploadId,
-    Map<String, dynamic> data, {
-    bool delete = false,
-  }) async {
-    try {
-      final ref = _globalCol.doc(_globalDocId(tenantId, uploadId));
-      if (delete) {
-        await ref.delete();
-        return;
-      }
-      await ref.set(
-        {
-          ...data,
-          'tenantUploadId': uploadId,
-          'globalKey': _globalDocId(tenantId, uploadId),
-        },
-        SetOptions(merge: true),
-      );
-    } catch (_) {}
-  }
-
-  /// Regista job pendente (Firestore tenant + global + disco local no mobile).
+  /// Regista job pendente (Firestore tenant + disco local no mobile).
   static Future<String> enqueue({
     required String tenantId,
     required String module,
@@ -115,7 +87,6 @@ abstract final class PendingUploadsFirestoreService {
       if (meta != null) ...meta,
     };
     await _col(tenantId).doc(id).set(data);
-    unawaited(_mirrorGlobal(tenantId, id, data));
     if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
       unawaited(
         StorageUploadPersistenceService.enqueueFileJob(
@@ -201,14 +172,12 @@ abstract final class PendingUploadsFirestoreService {
     };
     try {
       await _col(tenantId).doc(uploadId).set(patch, SetOptions(merge: true));
-      unawaited(_mirrorGlobal(tenantId, uploadId, patch));
     } catch (_) {}
   }
 
   static Future<void> markCompleted(String tenantId, String uploadId) async {
     try {
       await _col(tenantId).doc(uploadId).delete();
-      unawaited(_mirrorGlobal(tenantId, uploadId, {}, delete: true));
     } catch (_) {}
   }
 
@@ -216,7 +185,6 @@ abstract final class PendingUploadsFirestoreService {
     if (tenantId.isEmpty || uploadId.isEmpty) return;
     try {
       await _col(tenantId).doc(uploadId).delete();
-      unawaited(_mirrorGlobal(tenantId, uploadId, {}, delete: true));
     } catch (_) {}
   }
 
@@ -232,7 +200,6 @@ abstract final class PendingUploadsFirestoreService {
     };
     try {
       await _col(tenantId).doc(uploadId).set(patch, SetOptions(merge: true));
-      unawaited(_mirrorGlobal(tenantId, uploadId, patch));
     } catch (_) {}
     unawaited(
       CrashlyticsService.record(error, StackTrace.current, reason: 'pending_upload'),
@@ -304,7 +271,6 @@ abstract final class PendingUploadsFirestoreService {
           batch = firebaseDefaultFirestore.batch();
           ops = 0;
         }
-        unawaited(_mirrorGlobal(tenantId, doc.id, {}, delete: true));
       }
       if (ops > 0) await batch.commit();
       if (snap.docs.length < 100) break;
@@ -312,21 +278,30 @@ abstract final class PendingUploadsFirestoreService {
     return total;
   }
 
-  /// Índice global — operador Master vê todos; utilizador só os seus.
-  static Stream<QuerySnapshot<Map<String, dynamic>>> watchGlobalIndex({
+  /// Todas as igrejas — collection group `pending_uploads` (Master vê tudo).
+  static Stream<QuerySnapshot<Map<String, dynamic>>> watchAllTenantsPendingIndex({
     bool masterSeeAll = false,
     int limit = 40,
   }) {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return const Stream.empty();
+    final group =
+        firebaseDefaultFirestore.collectionGroup('pending_uploads');
     if (masterSeeAll) {
-      return _globalCol.limit(limit).snapshots();
+      return group.limit(limit).snapshots();
     }
-    return _globalCol
-        .where('ownerUid', isEqualTo: uid)
-        .limit(limit)
-        .snapshots();
+    return group.where('ownerUid', isEqualTo: uid).limit(limit).snapshots();
   }
+
+  /// @deprecated Use [watchAllTenantsPendingIndex].
+  static Stream<QuerySnapshot<Map<String, dynamic>>> watchGlobalIndex({
+    bool masterSeeAll = false,
+    int limit = 40,
+  }) =>
+      watchAllTenantsPendingIndex(
+        masterSeeAll: masterSeeAll,
+        limit: limit,
+      );
 
   static Future<void> resumeAllForTenant(String tenantId) async {
     if (tenantId.isEmpty) return;
@@ -511,7 +486,6 @@ abstract final class PendingUploadsFirestoreService {
         batch = firebaseDefaultFirestore.batch();
         ops = 0;
       }
-      unawaited(_mirrorGlobal(tenantId, doc.id, {}, delete: true));
     }
     if (ops > 0) await batch.commit();
     return deleted;
@@ -566,7 +540,6 @@ abstract final class PendingUploadsFirestoreService {
         batch = firebaseDefaultFirestore.batch();
         ops = 0;
       }
-      unawaited(_mirrorGlobal(tenantId, doc.id, {}, delete: true));
     }
     if (ops > 0) await batch.commit();
     return removed;

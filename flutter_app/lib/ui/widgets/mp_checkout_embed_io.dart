@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -30,14 +31,8 @@ class _MpCheckoutEmbedState extends State<MpCheckoutEmbed> {
 
   static bool _supportsEmbeddedWebView(BuildContext context) {
     if (kIsWeb) return false;
-    switch (Theme.of(context).platform) {
-      case TargetPlatform.android:
-      case TargetPlatform.iOS:
-      case TargetPlatform.macOS:
-        return true;
-      default:
-        return false;
-    }
+    if (IosPaymentsGate.preferExternalMercadoPagoCheckout) return false;
+    return Theme.of(context).platform == TargetPlatform.macOS;
   }
 
   bool _isReturnOrAppUrl(String url) {
@@ -108,6 +103,12 @@ class _MpCheckoutEmbedState extends State<MpCheckoutEmbed> {
     });
   }
 
+  @override
+  void dispose() {
+    _controller = null;
+    super.dispose();
+  }
+
   Future<void> _openExternal() async {
     final u = Uri.tryParse(widget.checkoutUrl);
     if (u == null) return;
@@ -176,7 +177,7 @@ class _ExternalCheckoutPrompt extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Nesta plataforma o pagamento abre no navegador. Depois de concluir, volte ao app — a licença atualiza automaticamente.',
+                    'Nesta plataforma o pagamento abre no navegador (Chrome/Safari). Depois de concluir, volte ao app — a licença ou doação atualiza automaticamente.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 14,

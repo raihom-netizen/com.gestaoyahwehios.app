@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 
 /// Formas de recebimento configuradas pelo gestor/pastor (`config/payment_receiving`).
 class ChurchPaymentReceivingConfig {
@@ -76,7 +77,10 @@ abstract final class ChurchPaymentReceivingService {
 
   static Future<ChurchPaymentReceivingConfig> read(String tenantId) async {
     try {
-      final snap = await _ref(tenantId).get();
+      final snap = await ChurchTenantResilientReads.configDoc(
+        tenantId,
+        'payment_receiving',
+      );
       return ChurchPaymentReceivingConfig.fromMap(snap.data());
     } catch (_) {
       return const ChurchPaymentReceivingConfig();

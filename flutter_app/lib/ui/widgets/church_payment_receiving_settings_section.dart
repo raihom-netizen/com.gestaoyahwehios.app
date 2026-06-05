@@ -1,7 +1,9 @@
 import 'dart:async' show unawaited;
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/mercado_pago_church_settings_section.dart';
 
@@ -31,6 +33,12 @@ class _ChurchPaymentReceivingSettingsSectionState
   bool _saving = false;
   bool _mpEnabled = true;
   bool _initPayEnabled = false;
+  String? _operationalTenantId;
+
+  String get _effectiveTenantId {
+    final op = (_operationalTenantId ?? widget.tenantId).trim();
+    return op.isEmpty ? widget.tenantId.trim() : op;
+  }
 
   @override
   void initState() {
@@ -38,9 +46,21 @@ class _ChurchPaymentReceivingSettingsSectionState
     unawaited(_load());
   }
 
+  Future<void> _resolveOperationalTenant() async {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    _operationalTenantId = await TenantResolverService
+        .resolveOperationalChurchDocId(seed, userUid: uid)
+        .timeout(const Duration(seconds: 10), onTimeout: () => seed);
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
-    final cfg = await ChurchPaymentReceivingService.read(widget.tenantId);
+    try {
+      await _resolveOperationalTenant();
+    } catch (_) {}
+    final cfg = await ChurchPaymentReceivingService.read(_effectiveTenantId);
     if (!mounted) return;
     _mpEnabled = cfg.mercadoPagoEnabled;
     _initPayEnabled = cfg.initPayEnabled;
@@ -64,7 +84,7 @@ class _ChurchPaymentReceivingSettingsSectionState
     setState(() => _saving = true);
     try {
       await ChurchPaymentReceivingService.save(
-        widget.tenantId,
+        _effectiveTenantId,
         ChurchPaymentReceivingConfig(
           mercadoPagoEnabled: _mpEnabled,
           initPayEnabled: _initPayEnabled,
@@ -109,8 +129,9 @@ class _ChurchPaymentReceivingSettingsSectionState
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
-            'Configure como a igreja recebe dízimos e ofertas. No Android o app gera PIX e cartão (Mercado Pago). '
-            'No iPhone e na web o membro abre o link de pagamento — simples e rápido.',
+            'Configure como a igreja recebe dízimos e ofertas. '
+            'Android e web: PIX e cartão no módulo Doação (cartão abre no Chrome). '
+            'iPhone: apenas link para o site da igreja (App Store).',
             style: TextStyle(
               fontSize: 12.5,
               color: Colors.grey.shade700,
@@ -125,11 +146,11 @@ class _ChurchPaymentReceivingSettingsSectionState
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text(
-                  'Mercado Pago (PIX e cartão no Android)',
+                  'Mercado Pago (PIX e cartão)',
                   style: TextStyle(fontWeight: FontWeight.w700),
                 ),
                 subtitle: const Text(
-                  'Lançamentos entram no Financeiro na conta tesouraria MP.',
+                  'Android/web: módulo Doação. iPhone: site da igreja.',
                   style: TextStyle(fontSize: 12),
                 ),
                 value: _mpEnabled,

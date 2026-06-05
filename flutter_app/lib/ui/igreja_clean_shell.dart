@@ -724,7 +724,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (!_canAccessItem(index)) return;
     if (_shellPrefetchDone.contains(index)) return;
     _shellPrefetchDone.add(index);
-    final tid = widget.tenantId.trim();
+    final tid = _moduleTenantId.trim();
     if (tid.isEmpty) {
       _shellPrefetchDone.remove(index);
       return;

@@ -74,6 +74,22 @@ class IosPaymentsGate {
     }
   }
 
+  /// `true` quando o dispositivo eh Android nativo (nao web).
+  static bool get isAndroidNative {
+    if (kIsWeb) return false;
+    try {
+      return Platform.isAndroid;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Checkout Mercado Pago em WebView embutido (PlatformView) provoca crash JNI
+  /// fatal em Android 15/16 (`platform_view_android_jni_impl`). No iOS, Safari
+  /// externo ja e obrigatorio (Apple 3.1.1 / 3.2.2).
+  static bool get preferExternalMercadoPagoCheckout =>
+      isIosNative || isAndroidNative;
+
   /// `true` se o app pode exibir UI de checkout / cobranca / planos com preco.
   /// Sempre `true` fora do iOS. Em iOS depende do Remote Config.
   static bool get paymentsAllowed {

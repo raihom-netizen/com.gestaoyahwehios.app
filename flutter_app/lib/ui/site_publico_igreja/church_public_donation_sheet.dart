@@ -397,7 +397,7 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
 
     // Apple Guideline 3.2.1(viii): em iOS native, doacoes nao podem ser
     // coletadas dentro do binario do app — abre o checkout em Safari.
-    if (IosPaymentsGate.isIosNative) {
+    if (IosPaymentsGate.preferExternalMercadoPagoCheckout) {
       try {
         await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
       } catch (_) {

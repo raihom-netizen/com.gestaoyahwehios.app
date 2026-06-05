@@ -256,6 +256,8 @@ class InstagramMuralState extends State<InstagramMural> {
   Timer? _feedSearchDebounce;
   final _feedSearchCtrl = TextEditingController();
   String _lastFeedMediaWarmupKey = '';
+  String? _firestoreTenantId;
+  String get _tid => (_firestoreTenantId ?? widget.tenantId).trim();
 
   User? get _user {
     try {
@@ -291,13 +293,13 @@ class InstagramMuralState extends State<InstagramMural> {
   CollectionReference<Map<String, dynamic>> get _noticias =>
       firebaseDefaultFirestore
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection(ChurchTenantPostsCollections.eventos);
 
   CollectionReference<Map<String, dynamic>> get _avisos =>
       firebaseDefaultFirestore
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection(ChurchTenantPostsCollections.avisos);
 
   String get _nomeIgreja =>
@@ -317,11 +319,11 @@ class InstagramMuralState extends State<InstagramMural> {
       }
     });
     unawaited(_primeFeedFromPersistedCache());
-    unawaited(_bootstrapMural());
+    unawaited(_bootstrapFirestoreTenant());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (_canManageAll) {
-        NoticiaExpiredMediaCleanupService.runOnceForTenant(widget.tenantId);
+        NoticiaExpiredMediaCleanupService.runOnceForTenant(_tid);
       }
       final resumeId = widget.initialOpenAvisoDocId?.trim() ?? '';
       if (resumeId.isNotEmpty) {
@@ -344,25 +346,47 @@ class InstagramMuralState extends State<InstagramMural> {
   void didUpdateWidget(covariant InstagramMural oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
+      _firestoreTenantId = null;
       _feedLiveSub?.cancel();
       _feedRawDocs.clear();
       _feedLastCursor = null;
       _hasMoreFeedPages = true;
       _isFeedInitialLoading = true;
       _feedLoadError = null;
+      unawaited(_bootstrapFirestoreTenant());
+    }
+  }
+
+  Future<void> _bootstrapFirestoreTenant() async {
+    final uid = firebaseDefaultAuth.currentUser?.uid;
+    try {
+      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+        widget.tenantId,
+        userUid: uid,
+      ).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => _firestoreTenantId ?? widget.tenantId,
+      );
+      if (!mounted) return;
+      final changed = tid.isNotEmpty && tid != _tid;
+      if (changed) {
+        setState(() => _firestoreTenantId = tid);
+      }
+      unawaited(_bootstrapMural(reloadFeed: changed));
+    } catch (_) {
       unawaited(_bootstrapMural());
     }
   }
 
   Future<void> _ensureMuralFirebaseReady() async {
     try {
-      await ChurchTenantResilientReads.preparePanelRead();
+      await ensureFirebaseReadyForPanelRead().catchError((_) {});
     } catch (e) {
       if (isFirebaseNoAppError(e)) {
         await FirebaseBootstrapService.ensureAlwaysOn(
           refreshAuthToken: false,
         );
-        await ChurchTenantResilientReads.preparePanelRead(refreshToken: false);
+        await ensureFirebaseReadyForPanelRead().catchError((_) {});
         return;
       }
       rethrow;
@@ -370,7 +394,7 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   Future<void> _primeFeedFromPersistedCache() async {
-    final tid = widget.tenantId.trim();
+    final tid = _tid.trim();
     if (tid.isEmpty) return;
 
     void applyDocs(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
@@ -424,19 +448,21 @@ class InstagramMuralState extends State<InstagramMural> {
     } catch (_) {}
   }
 
-  Future<void> _bootstrapMural() async {
+  Future<void> _bootstrapMural({bool reloadFeed = true}) async {
     if (widget.initialTenantData != null && mounted) {
       setState(() => _tenantData = widget.initialTenantData);
     }
-    unawaited(_loadFeedPage(reset: true));
-    unawaited(_startFeedLiveSync());
+    if (reloadFeed) {
+      unawaited(_loadFeedPage(reset: true));
+      unawaited(_startFeedLiveSync());
+    }
     unawaited(_loadTenant());
   }
 
   Future<void> _loadTenant() async {
     try {
       await _ensureMuralFirebaseReady();
-      final snap = await ChurchTenantResilientReads.churchDocument(widget.tenantId);
+      final snap = await ChurchTenantResilientReads.churchDocument(_tid);
       if (mounted) setState(() => _tenantData = snap.data());
     } catch (_) {}
   }
@@ -610,7 +636,7 @@ class InstagramMuralState extends State<InstagramMural> {
       if (reset && _feedLastCursor == null) {
         snap = await FirestoreWebGuard.runWithWebRecovery(() {
           return ChurchTenantResilientReads.avisosFeed(
-            widget.tenantId,
+            _tid,
             limit: _feedPageSize,
           ).timeout(const Duration(seconds: 8));
         });
@@ -619,7 +645,7 @@ class InstagramMuralState extends State<InstagramMural> {
           return FirestoreReadResilience.getQuery(
             q,
             cacheKey:
-                'mural_avisos_${widget.tenantId}_${_feedLastCursor?.id ?? 'head'}',
+                'mural_avisos_${_tid}_${_feedLastCursor?.id ?? 'head'}',
           ).timeout(const Duration(seconds: 14));
         });
       }

@@ -6869,8 +6869,6 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   if (tid.isEmpty) tid = tenantId.trim();
   if (tid.isEmpty) return const [];
 
-  await ChurchTenantResilientReads.preparePanelRead();
-
   final churchRef = FirebaseFirestore.instance.collection('igrejas').doc(tid);
   final noticiasRef = churchRef.collection('eventos');
   final templatesRef = churchRef.collection('event_templates');

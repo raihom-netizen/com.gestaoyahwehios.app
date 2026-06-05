@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'busca_global_widget.dart';
 import 'grafico_ultra_moderno.dart';
 import 'igreja_menu_lateral_dinamico.dart';
@@ -27,6 +28,7 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
   int _menuIndex = 0;
   bool _loading = false;
   bool _menuCollapsed = false;
+  String? _tenantId;
   int _membros = 0, _homens = 0, _mulheres = 0, _criancas = 0, _departamentos = 0;
   double _totalOfertas = 0, _totalDespesas = 0;
   List<Map<String, dynamic>> _aniversariantes = [];
@@ -57,7 +59,12 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
   }
 
   void _abrirBuscaGlobal() {
-    showDialog(context: context, builder: (_) => const BuscaGlobalWidget());
+    final tid = _tenantId?.trim() ?? '';
+    if (tid.isEmpty) return;
+    showDialog(
+      context: context,
+      builder: (_) => BuscaGlobalWidget(tenantId: tid),
+    );
   }
 
   static String _nomeMembro(Map<String, dynamic> m) =>
@@ -109,7 +116,7 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
     String? tenantId;
     String role = 'user';
     try {
-      final token = await user.getIdTokenResult(true);
+      final token = await user.getIdTokenResult(false);
       tenantId = (token.claims?['igrejaId'] ?? token.claims?['tenantId'] ?? '').toString().trim();
       role = (token.claims?['role'] ?? 'user').toString().toLowerCase();
     } catch (_) {}
@@ -165,7 +172,7 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
     try {
       final u = FirebaseAuth.instance.currentUser;
       if (u != null) {
-        final t = await u.getIdTokenResult(true);
+        final t = await u.getIdTokenResult(false);
         tenantId = (t.claims?['igrejaId'] ?? t.claims?['tenantId'] ?? '').toString().trim();
       }
     } catch (_) {}
@@ -175,11 +182,22 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
       return;
     }
 
+    _tenantId = tenantId;
+
+    try {
+      final op = await TenantResolverService.resolveOperationalChurchDocId(
+        tenantId!,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
+      if (op.trim().isNotEmpty) tenantId = op.trim();
+      _tenantId = tenantId;
+    } catch (_) {}
+
     final base = FirebaseFirestore.instance.collection('igrejas').doc(tenantId);
     try {
       final snaps = await Future.wait([
-        base.collection('membros').get(),
-        base.collection('departamentos').get(),
+        base.collection('membros').limit(500).get(),
+        base.collection('departamentos').limit(120).get(),
         base.collection('finance').limit(500).get(),
       ]);
 

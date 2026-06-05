@@ -744,7 +744,7 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
           ),
         const SizedBox(height: 8),
         Text(
-          'Coleção global: ${PendingUploadsFirestoreService.globalCollectionId}',
+          'Caminho canónico: igrejas/{tenantId}/pending_uploads',
           style: TextStyle(color: ThemeCleanPremium.onSurfaceVariant, fontSize: 12),
         ),
         const SizedBox(height: 12),
@@ -754,10 +754,11 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
           label: const Text('Reenviar uploads pendentes (tenant)'),
         ),
         const SizedBox(height: 16),
-        const Text('Índice global', style: TextStyle(fontWeight: FontWeight.w800)),
+        const Text('Todas as igrejas (collection group)',
+            style: TextStyle(fontWeight: FontWeight.w800)),
         const SizedBox(height: 8),
         StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: PendingUploadsFirestoreService.watchGlobalIndex(
+          stream: PendingUploadsFirestoreService.watchAllTenantsPendingIndex(
             masterSeeAll: true,
             limit: 30,
           ),
@@ -767,7 +768,7 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
             }
             final docs = snap.data?.docs ?? const [];
             if (docs.isEmpty) {
-              return const Text('Nenhum upload pendente no índice global.');
+              return const Text('Nenhum upload pendente nas igrejas.');
             }
             return Column(
               children: docs.map((d) {
@@ -786,7 +787,10 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
                       overflow: TextOverflow.ellipsis,
                     ),
                     trailing: Text(
-                      (data['tenantId'] ?? '').toString(),
+                      (data['tenantId'] ??
+                              d.reference.parent.parent?.id ??
+                              '')
+                          .toString(),
                       style: const TextStyle(fontSize: 11),
                     ),
                   ),

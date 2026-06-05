@@ -23,6 +23,7 @@ import '../../widgets/ios_payment_unavailable_view.dart';
 import '../../widgets/mp_checkout_embed.dart';
 import '../../widgets/primary_button.dart';
 import 'package:gestao_yahweh/utils/mp_web_checkout_redirect.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 String _money(double v) =>
     'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
@@ -876,6 +877,16 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     if (kIsWeb && mpWebCheckoutPrefersSameTabRedirect) {
       setState(() => _loading = false);
       mpWebRedirectSameTab(session.initPoint);
+      return;
+    }
+    if (IosPaymentsGate.preferExternalMercadoPagoCheckout) {
+      setState(() => _loading = false);
+      final uri = Uri.tryParse(session.initPoint);
+      if (uri == null) throw 'Link do Mercado Pago inválido.';
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) {
+        throw 'Não foi possível abrir o navegador. Tente novamente.';
+      }
       return;
     }
     setState(() => _checkoutSession = session);

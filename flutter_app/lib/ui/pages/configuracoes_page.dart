@@ -713,13 +713,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                   _SectionTitle(icon: Icons.fingerprint_rounded, title: 'Acesso ao app'),
                   _buildBiometricCard(),
                   if (!kIsWeb) ...[
-                    const SizedBox(height: 24),
-                    _SectionTitle(
-                      icon: Icons.apple_rounded,
-                      title: 'Atualizar no iPhone (TestFlight)',
-                    ),
-                    _buildTestFlightUpdateCard(context),
-                    const SizedBox(height: 24),
+                    ..._buildNativeAppStoreUpdateSection(context),
                     _SectionTitle(
                         icon: Icons.speed_rounded, title: 'Desempenho do app'),
                     _Card(
@@ -825,6 +819,83 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         ),
       ),
     ];
+  }
+
+  List<Widget> _buildNativeAppStoreUpdateSection(BuildContext context) {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return [
+        const SizedBox(height: 24),
+        const _SectionTitle(
+          icon: Icons.shop_2_outlined,
+          title: 'Atualizar na Google Play',
+        ),
+        _buildPlayStoreUpdateCard(context),
+        const SizedBox(height: 24),
+      ];
+    }
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return [
+        const SizedBox(height: 24),
+        const _SectionTitle(
+          icon: Icons.apple_rounded,
+          title: 'Atualizar no iPhone (TestFlight)',
+        ),
+        _buildTestFlightUpdateCard(context),
+        const SizedBox(height: 24),
+      ];
+    }
+    return const [];
+  }
+
+  Widget _buildPlayStoreUpdateCard(BuildContext context) {
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Versão instalada: v$appVersion+$appBuildNumber',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Android: abra a Google Play para instalar ou atualizar o app oficial '
+            'Gestão Yahweh - Igrejas.',
+            style: TextStyle(
+              fontSize: 12.5,
+              color: Colors.grey.shade600,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: () async {
+              final uri = Uri.parse(AppConstants.gestaoYahwehPlayStoreUrl);
+              if (!await canLaunchUrl(uri)) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Não foi possível abrir a Google Play.'),
+                  ),
+                );
+                return;
+              }
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            },
+            icon: const Icon(Icons.open_in_new_rounded, size: 20),
+            label: const Text('Abrir na Google Play'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF01875F),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildTestFlightUpdateCard(BuildContext context) {
