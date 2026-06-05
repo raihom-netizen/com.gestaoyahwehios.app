@@ -747,6 +747,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     AppSessionStability.bindGlobal(this);
+    AppSessionStability.bindSessionKeepalive();
     if (kIsWeb) {
       registerWebResumeRepaint(_repaintAfterWebResume);
     }

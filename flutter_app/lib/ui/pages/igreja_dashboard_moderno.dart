@@ -382,9 +382,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     });
   }
 
-  /// Resolve o ID do tenant + prefere o vínculo em `users` (mesmo critério que AuthGate / Mural / Eventos).
+  /// Resolve o ID operacional do tenant (vínculo users + doc com departamentos).
   Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+      TenantResolverService.resolveOperationalChurchDocId(
         widget.tenantId,
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );
@@ -553,6 +553,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   Future<void> _loadStreams() async {
     var resolved = widget.tenantId.trim();
+    try {
+      final op = await _resolveEffectiveTenantId()
+          .timeout(const Duration(seconds: 10));
+      if (op.trim().isNotEmpty) resolved = op.trim();
+    } catch (_) {}
+
     if (resolved.isNotEmpty) {
       unawaited(_paintPanelFromLocalCacheFirst(resolved));
     }
@@ -565,8 +571,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       }),
     );
     if (!mounted) return;
-
-    resolved = widget.tenantId.trim();
     if (resolved.isNotEmpty && !_panelCanPaintWithoutSkeleton) {
       final quick = await Future.wait([
         PanelDashboardSnapshotService.readOnce(resolved),
@@ -602,7 +606,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     final forceToken = !_initialAuthTokenForced;
     if (forceToken) _initialAuthTokenForced = true;
     unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: forceToken));
-    resolved = await _resolveEffectiveTenantId();
     if (!mounted) return;
     final tenantRef = firebaseDefaultFirestore.collection('igrejas').doc(resolved);
     var churchSlug = '';
@@ -619,6 +622,13 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       allIds = List<String>.from(parallel[1] as Iterable<dynamic>);
       final id = igSnap.data() ?? {};
       churchSlug = _slugFromTenantData(id);
+      if (churchSlug.isEmpty) {
+        try {
+          churchSlug = await TenantResolverService.resolveChurchPublicSlug(
+            resolved,
+          );
+        } catch (_) {}
+      }
       churchNome = (id['name'] ?? id['nome'] ?? '').toString();
       _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
     } catch (_) {
@@ -626,6 +636,13 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         igSnap = await tenantRef.get();
         final id = igSnap.data() ?? {};
         churchSlug = _slugFromTenantData(id);
+        if (churchSlug.isEmpty) {
+          try {
+            churchSlug = await TenantResolverService.resolveChurchPublicSlug(
+              resolved,
+            );
+          } catch (_) {}
+        }
         churchNome = (id['name'] ?? id['nome'] ?? '').toString();
         _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
         allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(resolved);
@@ -3046,19 +3063,28 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
 
   Future<void> _loadSlug() async {
     try {
-      final snap = await FirestoreWebGuard.runWithWebRecovery(() {
-        return FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(widget.tenantId)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 4));
-      });
-      var slug = _slugFromData(snap.data());
+      final operational =
+          await TenantResolverService.resolveOperationalChurchDocId(
+        widget.tenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      ).timeout(const Duration(seconds: 10));
+      var slug = await TenantResolverService.resolveChurchPublicSlug(operational)
+          .timeout(const Duration(seconds: 8));
+      if (slug.isEmpty) {
+        final snap = await FirestoreWebGuard.runWithWebRecovery(() {
+          return FirebaseFirestore.instance
+              .collection('igrejas')
+              .doc(operational)
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 4));
+        });
+        slug = _slugFromData(snap.data());
+      }
       if (slug.isEmpty) {
         final server = await FirestoreWebGuard.runWithWebRecovery(() {
           return FirebaseFirestore.instance
               .collection('igrejas')
-              .doc(widget.tenantId)
+              .doc(operational)
               .get()
               .timeout(const Duration(seconds: 8));
         });
@@ -6835,7 +6861,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
 }) async {
   var tid = tenantId.trim();
   try {
-    tid = await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+    tid = await TenantResolverService.resolveOperationalChurchDocId(
       tenantId,
       userUid: FirebaseAuth.instance.currentUser?.uid,
     );
@@ -6944,10 +6970,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   QuerySnapshot<Map<String, dynamic>> templatesSnap =
       const MergedFirestoreQuerySnapshot([]);
   try {
-    templatesSnap = await PanelProgramacaoLoader.queryCacheFirst(
-      templatesRef.where('active', isEqualTo: true),
-      cacheKey: 'panel_${tid}_event_templates_active',
-    );
+    templatesSnap = await ChurchTenantResilientReads.eventTemplates(tid);
   } catch (_) {
     try {
       templatesSnap = await PanelProgramacaoLoader.queryCacheFirst(
@@ -7248,11 +7271,17 @@ class _EventosSemanalCard extends StatefulWidget {
 
 class _EventosSemanalCardState extends State<_EventosSemanalCard> {
   bool _expanded = false;
+  late Future<PanelProgramacaoLoadOutcome> _outcomeFuture;
 
   @override
   void initState() {
     super.initState();
     unawaited(PanelProgramacaoLoader.hydrateRamFromDisk(widget.tenantId, 7));
+    _outcomeFuture = _loadOutcome();
+  }
+
+  void _reloadSemanal() {
+    setState(() => _outcomeFuture = _loadOutcome());
   }
 
   Future<PanelProgramacaoLoadOutcome> _loadOutcome() {
@@ -7278,7 +7307,7 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
       title: 'Eventos',
       icon: Icons.date_range_rounded,
       child: FutureBuilder<PanelProgramacaoLoadOutcome>(
-        future: _loadOutcome(),
+        future: _outcomeFuture,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done || !snap.hasData) {
             final warm = PanelProgramacaoLoader.peekRam(widget.tenantId, 7);
@@ -7286,7 +7315,7 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
               return _buildEventosSemanalList(
                 warm,
                 staleHint: true,
-                onRetry: () => setState(() {}),
+                onRetry: _reloadSemanal,
               );
             }
             return const SizedBox(
@@ -7299,7 +7328,7 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
             return ChurchPanelErrorBody(
               title: 'Não foi possível carregar a programação da semana',
               error: outcome.error,
-              onRetry: () => setState(() {}),
+              onRetry: _reloadSemanal,
             );
           }
           final items = outcome.items;
@@ -7312,7 +7341,7 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
           return _buildEventosSemanalList(
             items,
             staleHint: outcome.showSoftStaleHint,
-            onRetry: () => setState(() {}),
+            onRetry: _reloadSemanal,
           );
         },
       ),
@@ -7810,11 +7839,26 @@ class _ProgramacaoDiasCard extends StatefulWidget {
 class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
   bool _expanded = false;
   int _selectedDays = 7;
+  late Future<PanelProgramacaoLoadOutcome> _outcomeFuture;
 
   @override
   void initState() {
     super.initState();
     unawaited(PanelProgramacaoLoader.hydrateRamFromDisk(widget.tenantId, 7));
+    _outcomeFuture = _loadOutcome();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProgramacaoDiasCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      unawaited(PanelProgramacaoLoader.hydrateRamFromDisk(widget.tenantId, _selectedDays));
+      _outcomeFuture = _loadOutcome();
+    }
+  }
+
+  void _reloadProgramacao() {
+    setState(() => _outcomeFuture = _loadOutcome());
   }
 
   Future<PanelProgramacaoLoadOutcome> _loadOutcome() {
@@ -7840,7 +7884,7 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
       title: 'Próximos dias (agenda + cultos)',
       icon: Icons.calendar_month_rounded,
       child: FutureBuilder<PanelProgramacaoLoadOutcome>(
-        future: _loadOutcome(),
+        future: _outcomeFuture,
         builder: (context, snap) {
           if (snap.connectionState != ConnectionState.done || !snap.hasData) {
             final warm =
@@ -7849,7 +7893,7 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
               return _buildProgramacaoDiasBody(
                 warm,
                 staleHint: true,
-                onRetry: () => setState(() {}),
+                onRetry: _reloadProgramacao,
               );
             }
             return const SizedBox(
@@ -7862,7 +7906,7 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
             return ChurchPanelErrorBody(
               title: 'Não foi possível carregar a programação',
               error: outcome.error,
-              onRetry: () => setState(() {}),
+              onRetry: _reloadProgramacao,
             );
           }
           final items = outcome.items;
@@ -7885,7 +7929,10 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
                             days,
                           ),
                         );
-                        setState(() => _selectedDays = days);
+                        setState(() {
+                          _selectedDays = days;
+                          _outcomeFuture = _loadOutcome();
+                        });
                       },
                     );
                   }).toList(),
@@ -7900,7 +7947,7 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
           return _buildProgramacaoDiasBody(
             items,
             staleHint: outcome.showSoftStaleHint,
-            onRetry: () => setState(() {}),
+            onRetry: _reloadProgramacao,
           );
         },
       ),
@@ -7935,7 +7982,10 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
                       days,
                     ),
                   );
-                  setState(() => _selectedDays = days);
+                  setState(() {
+                    _selectedDays = days;
+                    _outcomeFuture = _loadOutcome();
+                  });
                 },
               );
             }).toList(),

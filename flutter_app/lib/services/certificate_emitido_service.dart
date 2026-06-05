@@ -27,6 +27,7 @@ class CertificateEmitidoService {
   static Future<String> registerEmissao({
     required String tenantId,
     required Map<String, dynamic> snapshot,
+    String? certificadoId,
   }) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) {
@@ -36,12 +37,14 @@ class CertificateEmitidoService {
     if (uid.isEmpty) {
       throw StateError('Utilizador não autenticado');
     }
-    final certificadoId = generateCertificateProtocolId();
+    final id = (certificadoId ?? '').trim();
+    final certificadoIdResolved =
+        id.isNotEmpty ? id : generateCertificateProtocolId();
     final email = FirebaseAuth.instance.currentUser?.email ?? '';
 
     final payload = <String, dynamic>{
       ...snapshot,
-      'certificadoId': certificadoId,
+      'certificadoId': certificadoIdResolved,
       'tenantId': tid,
       'emitidoPorUid': uid,
       'emitidoPorEmail': email,
@@ -49,18 +52,19 @@ class CertificateEmitidoService {
     };
 
     final batch = _fs.batch();
-    batch.set(_emitidosCol(tid).doc(certificadoId), payload);
-    batch.set(_protocolIndexDoc(tid, certificadoId), {
+    batch.set(_emitidosCol(tid).doc(certificadoIdResolved), payload);
+    batch.set(_protocolIndexDoc(tid, certificadoIdResolved), {
       'createdAt': FieldValue.serverTimestamp(),
     });
     await batch.commit();
-    return certificadoId;
+    return certificadoIdResolved;
   }
 
   /// Várias emissões num único batch (ex.: PDF único em lote).
   static Future<List<String>> registerEmissaoBatch({
     required String tenantId,
     required List<Map<String, dynamic>> snapshots,
+    List<String>? certificadoIds,
   }) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) throw ArgumentError('tenantId vazio');
@@ -79,7 +83,11 @@ class CertificateEmitidoService {
       final batch = _fs.batch();
       for (var i = offset; i < end; i++) {
         final snapshot = snapshots[i];
-        final certificadoId = generateCertificateProtocolId();
+        final preset = certificadoIds != null && i < certificadoIds.length
+            ? certificadoIds[i].trim()
+            : '';
+        final certificadoId =
+            preset.isNotEmpty ? preset : generateCertificateProtocolId();
         ids.add(certificadoId);
         final payload = <String, dynamic>{
           ...snapshot,

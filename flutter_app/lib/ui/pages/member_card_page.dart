@@ -52,6 +52,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
 import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/certificado_digital_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
@@ -278,6 +279,38 @@ class _MemberItem {
       : data = data ?? const {};
 }
 
+/// Cache RAM — lista de membros instantânea ao reabrir Cartão do membro.
+abstract final class _MemberCardListRamCache {
+  _MemberCardListRamCache._();
+
+  static final Map<
+      String,
+      ({
+        List<_MemberItem> items,
+        DateTime at,
+      })> _byTenant = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static List<_MemberItem>? peek(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return null;
+    final hit = _byTenant[tid];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byTenant.remove(tid);
+      return null;
+    }
+    return hit.items;
+  }
+
+  static void put(String tenantId, List<_MemberItem> items) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty || items.isEmpty) return;
+    _byTenant[tid] = (items: List.from(items), at: DateTime.now());
+  }
+}
+
 class _MemberCardPageState extends State<MemberCardPage> {
   /// Tamanho físico CR80 — export único legível (evita folha A4 com cartão “gigante”).
   static final PdfPageFormat _kPdfCr80Export = PdfPageFormat(
@@ -292,6 +325,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   String _memberSearch = '';
   late Future<List<_MemberItem>> _membersListFuture;
+  List<_MemberItem> _seedMemberItems = [];
   int _membersListLimit = YahwehPerformanceV4.memberCardListPageSize;
   bool _membersListLoadingMore = false;
   bool _membersListHasMore = true;
@@ -370,15 +404,41 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<String> _effectiveIgrejaDocId() async {
     final hit = _cachedIgrejaDocId;
     if (hit != null && hit.isNotEmpty) return hit;
-    final r = (await TenantResolverService
-            .resolveEffectiveTenantIdPreferringUserBinding(
+    await _resolveOperationalTenantOnce();
+    final resolved = (_cachedIgrejaDocId ?? '').trim();
+    if (resolved.isNotEmpty) return resolved;
+    return widget.tenantId.trim();
+  }
+
+  Future<void> _bootstrapOperationalTenant() async {
+    await _resolveOperationalTenantOnce();
+    if (!mounted) return;
+    final tid = _cachedIgrejaDocId ?? '';
+    if (tid.isEmpty) return;
+    setState(() {
+      if (!_isRestrictedMember) {
+        _reloadMembersList();
+      }
+      if (_isRestrictedMember || _hasExplicitMemberTarget) {
+        _loadFuture = _bootstrapAndLoadCard();
+      }
+    });
+  }
+
+  Future<void> _resolveOperationalTenantOnce() async {
+    final hint = widget.tenantId.trim();
+    final resolved =
+        (await TenantResolverService.resolveOperationalChurchDocId(
           widget.tenantId,
           userUid: FirebaseAuth.instance.currentUser?.uid,
         ))
-        .trim();
-    final id = r.isNotEmpty ? r : widget.tenantId.trim();
-    _cachedIgrejaDocId = id;
-    return id;
+            .trim();
+    _cachedIgrejaDocId = resolved.isNotEmpty ? resolved : hint;
+  }
+
+  Future<_CardData?> _bootstrapAndLoadCard() async {
+    await _resolveOperationalTenantOnce();
+    return _load();
   }
 
   @override
@@ -386,14 +446,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
       _cachedIgrejaDocId = null;
+      unawaited(_bootstrapOperationalTenant());
     }
     if (oldWidget.memberId != widget.memberId || oldWidget.cpf != widget.cpf) {
       setState(() {
         if (_isRestrictedMember) {
-          _loadFuture = _load();
+          _loadFuture = _bootstrapAndLoadCard();
         } else {
-          _loadFuture =
-              _hasExplicitMemberTarget ? _load() : Future.value(null);
+          _loadFuture = _hasExplicitMemberTarget
+              ? _bootstrapAndLoadCard()
+              : Future.value(null);
         }
       });
     }
@@ -402,11 +464,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<List<({String id, String name})>> _loadDepartmentsForCarteira() async {
     try {
       final tid = await _effectiveIgrejaDocId();
-      final col = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('departamentos');
-      final snap = await col.get();
+      final snap = await ChurchTenantResilientReads.departamentos(tid);
       final list = snap.docs
           .map((d) => (
                 id: d.id,
@@ -428,7 +486,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       tenantId: tid,
       limit: lim,
     );
-    return entries
+    final list = entries
         .map((e) => _MemberItem(
               id: e.id,
               name: e.name,
@@ -436,21 +494,46 @@ class _MemberCardPageState extends State<MemberCardPage> {
               data: e.data,
             ))
         .toList();
+    if (tid.isNotEmpty) _MemberCardListRamCache.put(tid, list);
+    return list;
+  }
+
+  Future<void> _openMemberCardFast() async {
+    final seed = (_cachedIgrejaDocId ?? widget.tenantId).trim();
+    if (seed.isEmpty) return;
+
+    if (_seedMemberItems.isEmpty) {
+      try {
+        final list = await _loadMemberItemsForPicker(limit: _membersListLimit);
+        if (!mounted) return;
+        setState(() {
+          _seedMemberItems = list;
+          _membersListFuture = Future.value(list);
+          _membersListHasMore = list.length >= _membersListLimit;
+        });
+      } catch (_) {}
+    }
   }
 
   Future<List<_MemberItem>> _loadMembersList() =>
       _loadMemberItemsForPicker(limit: _membersListLimit);
 
   Future<void> _reloadMembersList() async {
+    final prev = _seedMemberItems;
     setState(() {
       _membersListLimit = YahwehPerformanceV4.memberCardListPageSize;
       _membersListHasMore = true;
-      _membersListFuture = _loadMembersList();
+      _membersListFuture =
+          prev.isNotEmpty ? Future.value(prev) : _loadMembersList();
     });
     try {
-      final list = await _membersListFuture;
+      final list = await _loadMembersList();
       if (mounted) {
-        setState(() => _membersListHasMore = list.length >= _membersListLimit);
+        setState(() {
+          _seedMemberItems = list;
+          _membersListFuture = Future.value(list);
+          _membersListHasMore = list.length >= _membersListLimit;
+        });
       }
     } catch (_) {}
   }
@@ -463,6 +546,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final list = await _loadMemberItemsForPicker(limit: _membersListLimit);
       if (!mounted) return;
       setState(() {
+        _seedMemberItems = list;
         _membersListFuture = Future.value(list);
         _membersListHasMore = list.length >= _membersListLimit;
         _membersListLoadingMore = false;
@@ -639,16 +723,26 @@ class _MemberCardPageState extends State<MemberCardPage> {
       unawaited(PublicSiteMediaAuth.ensureWebAnonymousForStorage());
     }
     _memberSearchController = TextEditingController();
+    unawaited(_bootstrapOperationalTenant());
     if (_isRestrictedMember) {
       _membersListFuture = Future.value([]);
-      _loadFuture = _load();
+      _loadFuture = _bootstrapAndLoadCard();
     } else {
-      _reloadMembersList();
+      final hint = widget.tenantId.trim();
+      final ram = hint.isNotEmpty ? _MemberCardListRamCache.peek(hint) : null;
+      if (ram != null && ram.isNotEmpty) {
+        _seedMemberItems = List.from(ram);
+        _membersListFuture = Future.value(_seedMemberItems);
+        _membersListHasMore = ram.length >= _membersListLimit;
+      } else {
+        _membersListFuture = Future.value(const <_MemberItem>[]);
+      }
+      unawaited(_openMemberCardFast());
       _loadDepartmentsForCarteira().then((list) {
         if (mounted) setState(() => _deptFilterItems = list);
       });
       _loadFuture =
-          _hasExplicitMemberTarget ? _load() : Future.value(null);
+          _hasExplicitMemberTarget ? _bootstrapAndLoadCard() : Future.value(null);
     }
   }
 
@@ -743,8 +837,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
     Map<String, dynamic> tenant = {};
 
     try {
-      final tenantSnap =
-          await db.collection('igrejas').doc(igrejaDocId).get();
+      final tenantSnap = await FirestoreReadResilience.getDocument(
+        db.collection('igrejas').doc(igrejaDocId),
+        cacheKey: 'igrejas/$igrejaDocId',
+      );
       tenant = Map<String, dynamic>.from(tenantSnap.data() ?? {})
         ..['id'] = igrejaDocId;
     } catch (_) {}
@@ -2999,6 +3095,212 @@ class _MemberCardPageState extends State<MemberCardPage> {
     );
   }
 
+  Widget _buildMemberListLoadingSkeleton() {
+    Widget row() => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2E8F0),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 14,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8EDF3),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      height: 11,
+                      width: 120,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
+        children: [row(), row(), row(), row()],
+      ),
+    );
+  }
+
+  Widget _buildCarteiraFilterChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return FilterChip(
+      label: Text(label),
+      selected: selected,
+      showCheckmark: false,
+      visualDensity: VisualDensity.compact,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      labelStyle: TextStyle(
+        fontSize: 12,
+        fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        color: selected ? ThemeCleanPremium.primary : ThemeCleanPremium.onSurface,
+      ),
+      selectedColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+      side: BorderSide(
+        color: selected
+            ? ThemeCleanPremium.primary.withValues(alpha: 0.45)
+            : const Color(0xFFE2E8F0),
+      ),
+      onSelected: (_) => onTap(),
+    );
+  }
+
+  Widget _buildCarteiraFiltersCompact() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        border: Border.all(color: const Color(0xFFE8EDF3)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.tune_rounded,
+                  size: 18,
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.85)),
+              const SizedBox(width: 6),
+              const Text(
+                'Filtros rápidos',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              IconButton(
+                tooltip: 'Atualizar lista',
+                visualDensity: VisualDensity.compact,
+                onPressed: () => unawaited(_reloadMembersList()),
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+              ),
+              TextButton(
+                onPressed: () => setState(() {
+                  _filtroGeneroCarteira = 'todos';
+                  _filtroFaixaCarteira = 'todas';
+                  _filtroDepartamentoCarteira = 'todos';
+                  _filtroAssinaturaCarteira =
+                      _CarteiraListaFiltroAssinatura.todos;
+                }),
+                child: const Text('Limpar'),
+              ),
+            ],
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildCarteiraFilterChip(
+                  label: 'Todos',
+                  selected: _filtroGeneroCarteira == 'todos',
+                  onTap: () => setState(() => _filtroGeneroCarteira = 'todos'),
+                ),
+                const SizedBox(width: 6),
+                _buildCarteiraFilterChip(
+                  label: 'Homens',
+                  selected: _filtroGeneroCarteira == 'masculino',
+                  onTap: () =>
+                      setState(() => _filtroGeneroCarteira = 'masculino'),
+                ),
+                const SizedBox(width: 6),
+                _buildCarteiraFilterChip(
+                  label: 'Mulheres',
+                  selected: _filtroGeneroCarteira == 'feminino',
+                  onTap: () =>
+                      setState(() => _filtroGeneroCarteira = 'feminino'),
+                ),
+                const SizedBox(width: 12),
+                _buildCarteiraFilterChip(
+                  label: 'Todas idades',
+                  selected: _filtroFaixaCarteira == 'todas',
+                  onTap: () => setState(() => _filtroFaixaCarteira = 'todas'),
+                ),
+                const SizedBox(width: 6),
+                _buildCarteiraFilterChip(
+                  label: 'Crianças',
+                  selected: _filtroFaixaCarteira == 'criancas',
+                  onTap: () =>
+                      setState(() => _filtroFaixaCarteira = 'criancas'),
+                ),
+                const SizedBox(width: 6),
+                _buildCarteiraFilterChip(
+                  label: 'Adolescentes',
+                  selected: _filtroFaixaCarteira == 'adolescentes',
+                  onTap: () =>
+                      setState(() => _filtroFaixaCarteira = 'adolescentes'),
+                ),
+                const SizedBox(width: 6),
+                _buildCarteiraFilterChip(
+                  label: 'Adultos',
+                  selected: _filtroFaixaCarteira == 'adultos',
+                  onTap: () => setState(() => _filtroFaixaCarteira = 'adultos'),
+                ),
+                const SizedBox(width: 6),
+                _buildCarteiraFilterChip(
+                  label: 'Idosos',
+                  selected: _filtroFaixaCarteira == 'idosos',
+                  onTap: () => setState(() => _filtroFaixaCarteira = 'idosos'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: _filtroDepartamentoCarteira,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Departamento',
+              isDense: true,
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+              border: OutlineInputBorder(
+                borderRadius:
+                    BorderRadius.circular(ThemeCleanPremium.radiusSm),
+              ),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            ),
+            items: [
+              const DropdownMenuItem(value: 'todos', child: Text('Todos')),
+              ..._deptFilterItems.map((d) => DropdownMenuItem(
+                    value: d.id,
+                    child:
+                        Text(d.name, overflow: TextOverflow.ellipsis),
+                  )),
+            ],
+            onChanged: (v) =>
+                setState(() => _filtroDepartamentoCarteira = v ?? 'todos'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildGestorPainelAcoesRapidas(
     BuildContext context, {
     required List<_MemberItem> allMembers,
@@ -3976,22 +4278,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
       await _prefetchSharedPdfBrandingForLote(list, signatoryAssinaturaUrl: sigUrl);
       prog.value = 0.24;
 
-      // Só fotos por membro (logo já está em cache).
-      const preloadBatch = 30;
-      for (var i = 0; i < list.length; i += preloadBatch) {
-        final end = min(i + preloadBatch, list.length);
-        final chunk = list.sublist(i, end);
-        await Future.wait(
-          chunk.map(
-            (card) => preLoadImages(
-              card,
-              signatoryAssinaturaUrl: sigUrl,
-            ),
-          ),
-        );
-        if (kIsWeb) await Future<void>.delayed(Duration.zero);
-        prog.value = 0.2 + 0.72 * (end / list.length);
-      }
+      await _prefetchPdfPhotosForLote(
+        list,
+        signatoryAssinaturaUrl: sigUrl,
+        onProgress: (p) => prog.value = 0.2 + 0.72 * p,
+      );
       prog.value = 0.94;
 
       final lay = _pdfManyLayoutParams(pdfLayoutLote);
@@ -4299,6 +4590,53 @@ class _MemberCardPageState extends State<MemberCardPage> {
       {String? signatoryAssinaturaUrl}) async {
     await _prefetchPdfAssetsForCard(data,
         signatoryAssinaturaUrl: signatoryAssinaturaUrl);
+  }
+
+  /// Pré-carrega fotos do lote em paralelo (URLs + bytes) — mais rápido que [preLoadImages] sequencial.
+  Future<void> _prefetchPdfPhotosForLote(
+    List<_CardData> list, {
+    String? signatoryAssinaturaUrl,
+    void Function(double progress)? onProgress,
+  }) async {
+    if (list.isEmpty) return;
+    final sig = (signatoryAssinaturaUrl ?? '').trim();
+    if (sig.isNotEmpty) {
+      await _pdfSignatureImageProviderFromUrlCached(sig);
+    }
+    await MemberCardPhotoCache.warmUrls(
+      resolvers: list
+          .where((c) => _cardConfigForPdf(c).showPhoto)
+          .map(
+            (c) => () => _resolvedMemberPhotoUrlForPdf(
+              c.memberId,
+              c.member,
+              igrejaDocId: c.igrejaDocId,
+            ),
+          ),
+    );
+    const chunk = YahwehPerformanceV4.memberCardPdfPhotoParallel;
+    for (var i = 0; i < list.length; i += chunk) {
+      final end = min(i + chunk, list.length);
+      await Future.wait(
+        list.sublist(i, end).map((card) async {
+          final cfg = _cardConfigForPdf(card);
+          if (!cfg.showPhoto) return;
+          final tid = card.igrejaDocId.trim();
+          final mid = card.memberId.trim();
+          var u = MemberCardPhotoCache.get(tid, mid) ?? '';
+          if (u.isEmpty) {
+            u = await _resolvedMemberPhotoUrlForPdf(
+              card.memberId,
+              card.member,
+              igrejaDocId: card.igrejaDocId,
+            );
+          }
+          if (u.isNotEmpty) await _pdfImageProviderFromUrlCached(u);
+        }),
+      );
+      if (kIsWeb) await Future<void>.delayed(Duration.zero);
+      onProgress?.call(end / list.length);
+    }
   }
 
   /// Pré-carrega o logo assim que existe contexto de template — corre em paralelo a [Future.wait] dos membros.
@@ -6726,14 +7064,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
           gsUrl: MemberImageFields.gsPhotoUrl(member),
           imageUrl: mapHttps.isNotEmpty ? mapHttps : null,
         )
-        .timeout(const Duration(seconds: 18), onTimeout: () => null);
+        .timeout(const Duration(seconds: 8), onTimeout: () => null);
     var primary = (fromService != null && fromService.isNotEmpty)
         ? sanitizeImageUrl(fromService)
         : '';
     if (primary.isNotEmpty && isValidImageUrl(primary)) {
       if (isFirebaseStorageHttpUrl(primary)) {
         final fresh = await refreshFirebaseStorageDownloadUrl(primary)
-            .timeout(const Duration(seconds: 4), onTimeout: () => primary);
+            .timeout(const Duration(seconds: 3), onTimeout: () => primary);
         primary = sanitizeImageUrl(fresh ?? primary);
       }
       if (isValidImageUrl(primary)) {
@@ -6757,7 +7095,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       authUid: authPdf.isEmpty ? null : authPdf,
       nomeCompleto: nomePdf,
       memberFirestoreHint: member,
-    ).timeout(const Duration(seconds: 14), onTimeout: () => null);
+    ).timeout(const Duration(seconds: 8), onTimeout: () => null);
     final url =
         (fromStorage != null && fromStorage.isNotEmpty) ? fromStorage : '';
     if (url.isNotEmpty) MemberCardPhotoCache.put(tid, mid, url);
@@ -7376,138 +7714,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         },
                       ),
                       const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                          border: Border.all(color: const Color(0xFFE8EDF3)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
-                              children: [
-                                Icon(Icons.filter_list_rounded,
-                                    size: 20,
-                                    color: ThemeCleanPremium.primary
-                                        .withValues(alpha: 0.85)),
-                                const SizedBox(width: 8),
-                                Text('Filtros',
-                                    style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w700,
-                                        color: ThemeCleanPremium.onSurface)),
-                                const Spacer(),
-                                TextButton(
-                                  onPressed: () => setState(() {
-                                    _filtroGeneroCarteira = 'todos';
-                                    _filtroFaixaCarteira = 'todas';
-                                    _filtroDepartamentoCarteira = 'todos';
-                                    _filtroAssinaturaCarteira =
-                                        _CarteiraListaFiltroAssinatura.todos;
-                                  }),
-                                  child: const Text('Limpar filtros'),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: DropdownButtonFormField<String>(
-                                    value: _filtroGeneroCarteira,
-                                    isExpanded: true,
-                                    decoration: InputDecoration(
-                                      labelText: 'Gênero',
-                                      border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                              ThemeCleanPremium.radiusSm)),
-                                      isDense: true,
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                              horizontal: 12, vertical: 10),
-                                    ),
-                                    items: const [
-                                      DropdownMenuItem(
-                                          value: 'todos', child: Text('Todos')),
-                                      DropdownMenuItem(
-                                          value: 'masculino',
-                                          child: Text('Homens')),
-                                      DropdownMenuItem(
-                                          value: 'feminino',
-                                          child: Text('Mulheres')),
-                                    ],
-                                    onChanged: (v) => setState(() =>
-                                        _filtroGeneroCarteira = v ?? 'todos'),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: DropdownButtonFormField<String>(
-                                    value: _filtroFaixaCarteira,
-                                    isExpanded: true,
-                                    decoration: InputDecoration(
-                                      labelText: 'Faixa etária',
-                                      border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                              ThemeCleanPremium.radiusSm)),
-                                      isDense: true,
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                              horizontal: 12, vertical: 10),
-                                    ),
-                                    items: const [
-                                      DropdownMenuItem(
-                                          value: 'todas', child: Text('Todas')),
-                                      DropdownMenuItem(
-                                          value: 'criancas',
-                                          child: Text('Crianças')),
-                                      DropdownMenuItem(
-                                          value: 'adolescentes',
-                                          child: Text('Adolescentes')),
-                                      DropdownMenuItem(
-                                          value: 'adultos',
-                                          child: Text('Adultos')),
-                                      DropdownMenuItem(
-                                          value: 'idosos',
-                                          child: Text('Idosos')),
-                                    ],
-                                    onChanged: (v) => setState(() =>
-                                        _filtroFaixaCarteira = v ?? 'todas'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            DropdownButtonFormField<String>(
-                              value: _filtroDepartamentoCarteira,
-                              isExpanded: true,
-                              decoration: InputDecoration(
-                                labelText: 'Departamento',
-                                border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        ThemeCleanPremium.radiusSm)),
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 10),
-                              ),
-                              items: [
-                                const DropdownMenuItem(
-                                    value: 'todos', child: Text('Todos')),
-                                ..._deptFilterItems.map((d) => DropdownMenuItem(
-                                    value: d.id,
-                                    child: Text(d.name,
-                                        overflow: TextOverflow.ellipsis))),
-                              ],
-                              onChanged: (v) => setState(() =>
-                                  _filtroDepartamentoCarteira = v ?? 'todos'),
-                            ),
-                          ],
-                        ),
-                      ),
+                      _buildCarteiraFiltersCompact(),
                       const SizedBox(height: 12),
                       FutureBuilder<List<_MemberItem>>(
                         future: _membersListFuture,
@@ -7535,13 +7742,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             );
                           }
                           if (snap.connectionState == ConnectionState.waiting &&
-                              !snap.hasData) {
-                            return const Padding(
-                                padding: EdgeInsets.all(24),
-                                child:
-                                    Center(child: CircularProgressIndicator()));
+                              !snap.hasData &&
+                              _seedMemberItems.isEmpty) {
+                            return _buildMemberListLoadingSkeleton();
                           }
-                          final all = snap.data ?? [];
+                          final all = snap.data ?? _seedMemberItems;
                           final filtered =
                               all.where(_memberMatchesCarteiraFilters).toList();
                           final preloadUrls = filtered

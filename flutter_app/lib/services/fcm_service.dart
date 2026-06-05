@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -12,7 +13,7 @@ class FcmService {
 
   bool _configured = false;
 
-  /// Alinhado a Cloud Functions [topicPushNovo] (`gypush_{tenant}_{aviso|evento|escala|chat|fornecedor_agenda}`).
+  /// Alinhado a Cloud Functions [topicPushNovo] (`gypush_{tenant}_{aviso|evento|escala|gestores|financeiro|…}`).
   static String fcmTenantSafe(String tenantId) =>
       tenantId.replaceAll(RegExp(r'[^a-zA-Z0-9\-_.~%]'), '_');
 
@@ -104,20 +105,35 @@ class FcmService {
     }
 
     final roleNorm = role.trim().toLowerCase();
-    final isAdmin = roleNorm == 'adm' ||
-        roleNorm == 'admin' ||
-        roleNorm == 'administrador' ||
-        roleNorm == 'gestor' ||
-        roleNorm == 'master' ||
-        roleNorm == 'lider' ||
-        roleNorm == 'pastor' ||
+    final isGestoresStaff = _isGestoresStaffRole(roleNorm);
+    final isFinanceStaff = _isFinanceStaffRole(roleNorm);
+    final isFornecedorStaff = isFinanceStaff ||
         roleNorm == 'secretario' ||
-        roleNorm == 'tesoureiro';
-    if (isAdmin) {
-      await messaging.subscribeToTopic('admin');
-      await messaging.subscribeToTopic(topicPushNovo(tid, 'fornecedor_agenda'));
+        roleNorm == 'secretaria';
+
+    try {
+      await messaging.unsubscribeFromTopic('admin');
+    } catch (_) {}
+
+    if (isGestoresStaff) {
+      await messaging.subscribeToTopic(topicPushNovo(tid, 'gestores'));
     } else {
       try {
+        await messaging.unsubscribeFromTopic(topicPushNovo(tid, 'gestores'));
+      } catch (_) {}
+    }
+
+    if (isFinanceStaff) {
+      await messaging.subscribeToTopic(topicPushNovo(tid, 'financeiro'));
+      await messaging.subscribeToTopic(topicPushNovo(tid, 'fornecedor_agenda'));
+    } else if (isFornecedorStaff) {
+      await messaging.subscribeToTopic(topicPushNovo(tid, 'fornecedor_agenda'));
+      try {
+        await messaging.unsubscribeFromTopic(topicPushNovo(tid, 'financeiro'));
+      } catch (_) {}
+    } else {
+      try {
+        await messaging.unsubscribeFromTopic(topicPushNovo(tid, 'financeiro'));
         await messaging.unsubscribeFromTopic(topicPushNovo(tid, 'fornecedor_agenda'));
       } catch (_) {}
     }
@@ -202,6 +218,30 @@ class FcmService {
     } catch (_) {}
   }
 
+  static bool _isGestoresStaffRole(String roleNorm) {
+    return roleNorm == 'adm' ||
+        roleNorm == 'admin' ||
+        roleNorm == 'administrador' ||
+        roleNorm == 'gestor' ||
+        roleNorm == 'master' ||
+        roleNorm == 'pastor' ||
+        roleNorm == 'pastora' ||
+        roleNorm == 'secretario' ||
+        roleNorm == 'secretaria';
+  }
+
+  static bool _isFinanceStaffRole(String roleNorm) {
+    return roleNorm == 'adm' ||
+        roleNorm == 'admin' ||
+        roleNorm == 'administrador' ||
+        roleNorm == 'gestor' ||
+        roleNorm == 'master' ||
+        roleNorm == 'pastor' ||
+        roleNorm == 'pastora' ||
+        roleNorm == 'tesoureiro' ||
+        roleNorm == 'tesoureira';
+  }
+
   void _routeEscalaNotificationIfAny(RemoteMessage message) {
     final raw = message.data['type'];
     final type = raw is String ? raw : raw?.toString();
@@ -217,6 +257,31 @@ class FcmService {
         );
         return;
       }
+    }
+
+    if (t == 'new_member') {
+      final publicRaw = (message.data['publicSignup'] ?? '').toString().trim();
+      if (publicRaw == '1') {
+        ChurchPanelNavigationBridge.instance
+            .requestNavigateToShellIndex(kChurchShellIndexAprovacoes);
+      } else {
+        ChurchPanelNavigationBridge.instance
+            .requestNavigateToShellIndex(kChurchShellIndexMembers);
+      }
+      return;
+    }
+
+    if (t == 'birthday_daily') {
+      ChurchPanelNavigationBridge.instance
+          .requestNavigateToShellIndex(kChurchShellIndexPainel);
+      return;
+    }
+
+    if (t == 'financeiro_vencimento_digest' ||
+        t == 'financeiro_vencimento_24h') {
+      ChurchPanelNavigationBridge.instance
+          .requestNavigateToShellIndex(kChurchShellIndexFinanceiro);
+      return;
     }
 
     final idx = ChurchPanelNavigationBridge.shellIndexForNotificationType(type);

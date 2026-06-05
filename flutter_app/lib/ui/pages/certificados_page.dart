@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/pdf/cert_pdf_worker.dart'
         CertPdfGalaBatchMemberSlice,
         CertPdfPipelineParams,
         CertPdfPipelineSignatory,
+        CertPdfResolvedShared,
         resolveCertificatePdfShared,
         runCertificateGalaLuxoBatchPdfPipeline,
         runCertificatePdfPipeline,
@@ -29,9 +30,10 @@ import 'package:gestao_yahweh/certificates/certificate_visual_template.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/core/certificate_protocol_id.dart';
 import 'package:gestao_yahweh/core/certificado_consulta_url.dart';
 import 'package:gestao_yahweh/services/certificate_emitido_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:gestao_yahweh/utils/carteirinha_zip_export.dart';
@@ -336,8 +338,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
   final Map<String, String> _batchTemplateIdByMember = {};
   Map<String, dynamic>? _tenantData;
   Map<String, dynamic>? _certConfig;
-  bool _tenantLoaded = false;
   late Future<QuerySnapshot<Map<String, dynamic>>> _membersFuture;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _seedMemberDocs = [];
   int _membersQueryLimit = YahwehPerformanceV4.defaultPageSize;
   bool _membersLoadingMore = false;
 
@@ -348,18 +350,56 @@ class _CertificadosPageState extends State<CertificadosPage> {
           .collection('config')
           .doc('certificados');
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadMembers() async {
-    var tid = widget.tenantId;
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _fetchMemberDocs({required int limit}) async {
+    final tid = widget.tenantId.trim();
+    if (tid.isEmpty) return const [];
+
     try {
-      tid = await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
-        widget.tenantId,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      );
+      final dir = await MembersDirectorySnapshotService.readOnce(tid);
+      if (dir.hasEntries) {
+        final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        for (final e in dir.entries) {
+          if (out.length >= limit) break;
+          out.add(_CertCachedMemberQueryDoc(
+            id: e.memberDocId,
+            data: e.toMemberDataMap(),
+          ));
+        }
+        if (out.isNotEmpty) {
+          unawaited(
+              MembersDirectorySnapshotService.warmFromCallableIfStale(tid));
+          return out;
+        }
+      }
     } catch (_) {}
-    return ChurchTenantResilientReads.membrosRecent(
-      tid,
-      limit: _membersQueryLimit,
-    );
+
+    final snap =
+        await ChurchTenantResilientReads.membrosRecent(tid, limit: limit);
+    return snap.docs;
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadMembers() async {
+    final docs = await _fetchMemberDocs(limit: _membersQueryLimit);
+    final tid = widget.tenantId.trim();
+    if (tid.isNotEmpty && docs.isNotEmpty) {
+      _CertificadosMembersRamCache.put(tid, docs);
+    }
+    return _CertMembersListSnapshot(docs);
+  }
+
+  Future<void> _openCertificadosFast() async {
+    final tid = widget.tenantId.trim();
+    if (tid.isEmpty) return;
+    try {
+      final docs = await _fetchMemberDocs(limit: _membersQueryLimit);
+      if (!mounted || docs.isEmpty) return;
+      _CertificadosMembersRamCache.put(tid, docs);
+      setState(() {
+        _seedMemberDocs = docs;
+        _membersFuture = Future.value(_CertMembersListSnapshot(docs));
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadMoreMembers() async {
@@ -370,24 +410,54 @@ class _CertificadosPageState extends State<CertificadosPage> {
       _membersFuture = _loadMembers();
     });
     try {
-      await _membersFuture;
+      final snap = await _membersFuture;
+      if (mounted) {
+        setState(() {
+          _seedMemberDocs = snap.docs;
+          _membersFuture = Future.value(_CertMembersListSnapshot(_seedMemberDocs));
+          _membersLoadingMore = false;
+        });
+      }
     } finally {
       if (mounted) setState(() => _membersLoadingMore = false);
     }
   }
 
   void _refreshMembers() {
+    final prev = _seedMemberDocs;
     setState(() {
       _membersQueryLimit = YahwehPerformanceV4.defaultPageSize;
-      _membersFuture = _loadMembers();
+      _membersFuture = prev.isNotEmpty
+          ? Future.value(_CertMembersListSnapshot(prev))
+          : _loadMembers();
     });
+    unawaited(() async {
+      try {
+        final snap = await _loadMembers();
+        if (!mounted) return;
+        final docs = snap.docs;
+        setState(() {
+          _seedMemberDocs = docs;
+          _membersFuture = Future.value(_CertMembersListSnapshot(docs));
+        });
+      } catch (_) {}
+    }());
   }
 
   @override
   void initState() {
     super.initState();
-    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
-    _membersFuture = _loadMembers();
+    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded());
+    final hint = widget.tenantId.trim();
+    final ram =
+        hint.isNotEmpty ? _CertificadosMembersRamCache.peek(hint) : null;
+    if (ram != null && ram.isNotEmpty) {
+      _seedMemberDocs = List.from(ram);
+      _membersFuture = Future.value(_CertMembersListSnapshot(_seedMemberDocs));
+    } else {
+      _membersFuture = Future.value(_CertMembersListSnapshot(const []));
+    }
+    unawaited(_openCertificadosFast());
     _loadTenant();
     _loadCertConfig();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -397,7 +467,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
   Future<void> _loadCertConfig() async {
     try {
-      final snap = await _certConfigDoc.get();
+      final snap = await _certConfigDoc
+          .get(const GetOptions(source: Source.serverAndCache));
       if (mounted) {
         final cfg = snap.data();
         setState(() {
@@ -416,15 +487,11 @@ class _CertificadosPageState extends State<CertificadosPage> {
       final snap = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(widget.tenantId)
-          .get();
-      if (mounted)
-        setState(() {
-          _tenantData = snap.data();
-          _tenantLoaded = true;
-        });
-    } catch (_) {
-      if (mounted) setState(() => _tenantLoaded = true);
-    }
+          .get(const GetOptions(source: Source.serverAndCache));
+      if (mounted) {
+        setState(() => _tenantData = snap.data());
+      }
+    } catch (_) {}
   }
 
   String get _nomeIgreja =>
@@ -707,8 +774,6 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_tenantLoaded) return const ChurchPanelLoadingBody();
-
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: _membersFuture,
       builder: (context, snap) {
@@ -722,10 +787,12 @@ class _CertificadosPageState extends State<CertificadosPage> {
             ),
           );
         }
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData &&
+            _seedMemberDocs.isEmpty) {
           return const ChurchPanelLoadingBody();
         }
-        final allDocs = snap.data?.docs ?? [];
+        final allDocs = snap.data?.docs ?? _seedMemberDocs;
         if (allDocs.isEmpty) {
           return Center(
             child: Column(
@@ -2387,10 +2454,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
         cur.value = total;
         titleNv.value = 'PDF único — $total página(s)';
         prog01.value = 0.08;
-        phase.value = 'A registar protocolos (${snapshots.length})…';
-        final protocolIds = await CertificateEmitidoService.registerEmissaoBatch(
-          tenantId: widget.tenantId,
-          snapshots: snapshots,
+        final protocolIds = List<String>.generate(
+          sliceRows.length,
+          (_) => generateCertificateProtocolId(),
         );
         final slices = <CertPdfGalaBatchMemberSlice>[
           for (var i = 0; i < sliceRows.length; i++)
@@ -2409,8 +2475,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
               fontStyleId: _fontStyleForTemplate(tpl(selectedDocs[i].id)),
             ),
         ];
-        phase.value = 'A gerar PDF único (${slices.length} páginas)…';
-        prog01.value = 0.12;
+        phase.value =
+            'A registar protocolos e gerar PDF (${slices.length} páginas)…';
         final first = selectedDocs.first.data();
         final firstNome =
             (first['NOME_COMPLETO'] ?? first['nome'] ?? '').toString();
@@ -2427,46 +2493,54 @@ class _CertificadosPageState extends State<CertificadosPage> {
             ),
         ];
         final firstT = tpl(selectedDocs.first.id);
-        final pdfBytes = await runCertificateGalaLuxoBatchPdfPipeline(
-          shared: CertPdfPipelineParams(
-            tenantId: widget.tenantId,
-            logoFetchCandidates: _logoCertCandidateUrls,
-            logoUrlFallback: _logoCert,
-            titulo: _tituloForTemplate(firstT),
-            subtitulo: _subtituloForTemplate(firstT),
-            texto: slices.first.texto,
-            textoAdicional: '',
-            visualTemplateId: visualLote,
-            includeInstitutionalPastorSignature:
-                includeInstitutionalPastorSignature,
-            institutionalPastorNome: fallbackNome,
-            institutionalPastorCargo: fallbackCargo,
-            nomeMembro: firstNome,
-            cpfFormatado: _formatCpf(firstCpf),
-            nomeIgreja: _nomeIgreja,
-            local: localTxt,
-            issuedDate: dataHoje,
-            layoutId: layoutLote,
-            fontStyleId: _fontStyleForTemplate(firstT),
-            colorPrimaryArgb: _corForTemplate(firstT).toARGB32(),
-            colorTextArgb: _corTextoForTemplate(firstT).toARGB32(),
-            pastorManual: fallbackNome,
-            cargoManual: fallbackCargo,
-            useDigitalSignature: useDigital,
-            digitalSignatureDadosLine:
-                formatCertificadoDigitalDadosLinha(DateTime.now()),
-            qrValidationUrl: slices.first.qrValidationUrl,
-            signatoriesForPdf: signatoriesForPdf,
-          ),
-          members: slices,
-          onProgress: (m, p) {
-            phase.value = m;
-            prog01.value = p.clamp(0.0, 1.0);
-            cur.value = (p * total).ceil().clamp(1, total);
-            titleNv.value = 'PDF único — ${cur.value}/$total';
-          },
+        final sharedPdfParams = CertPdfPipelineParams(
+          tenantId: widget.tenantId,
+          logoFetchCandidates: _logoCertCandidateUrls,
+          logoUrlFallback: _logoCert,
+          titulo: _tituloForTemplate(firstT),
+          subtitulo: _subtituloForTemplate(firstT),
+          texto: slices.first.texto,
+          textoAdicional: '',
+          visualTemplateId: visualLote,
+          includeInstitutionalPastorSignature:
+              includeInstitutionalPastorSignature,
+          institutionalPastorNome: fallbackNome,
+          institutionalPastorCargo: fallbackCargo,
+          nomeMembro: firstNome,
+          cpfFormatado: _formatCpf(firstCpf),
+          nomeIgreja: _nomeIgreja,
+          local: localTxt,
+          issuedDate: dataHoje,
+          layoutId: layoutLote,
+          fontStyleId: _fontStyleForTemplate(firstT),
+          colorPrimaryArgb: _corForTemplate(firstT).toARGB32(),
+          colorTextArgb: _corTextoForTemplate(firstT).toARGB32(),
+          pastorManual: fallbackNome,
+          cargoManual: fallbackCargo,
+          useDigitalSignature: useDigital,
+          digitalSignatureDadosLine:
+              formatCertificadoDigitalDadosLinha(DateTime.now()),
+          qrValidationUrl: slices.first.qrValidationUrl,
+          signatoriesForPdf: signatoriesForPdf,
         );
-        phase.value = 'A preparar partilha…';
+        final batchResults = await Future.wait<dynamic>([
+          CertificateEmitidoService.registerEmissaoBatch(
+            tenantId: widget.tenantId,
+            snapshots: snapshots,
+            certificadoIds: protocolIds,
+          ),
+          runCertificateGalaLuxoBatchPdfPipeline(
+            shared: sharedPdfParams,
+            members: slices,
+            onProgress: (m, p) {
+              phase.value = m;
+              prog01.value = p.clamp(0.0, 1.0);
+              cur.value = (p * total).ceil().clamp(1, total);
+              titleNv.value = 'PDF único — ${cur.value}/$total';
+            },
+          ),
+        ]);
+        final pdfBytes = batchResults[1] as Uint8List;
         prog01.value = 0.98;
         final pdfFname =
             'certificados_lote_${selectedDocs.length}_${DateTime.now().millisecondsSinceEpoch}.pdf';
@@ -2576,12 +2650,10 @@ class _CertificadosPageState extends State<CertificadosPage> {
       }
 
       titleNv.value = 'Certificado 1/$total';
-      phase.value = 'A registar protocolos (${zipSnapshots.length})…';
       prog01.value = 0.06;
-      final protocolIdsZip =
-          await CertificateEmitidoService.registerEmissaoBatch(
-        tenantId: widget.tenantId,
-        snapshots: zipSnapshots,
+      final protocolIdsZip = List<String>.generate(
+        zipSnapshots.length,
+        (_) => generateCertificateProtocolId(),
       );
 
       final signatoriesForZip = [
@@ -2599,46 +2671,54 @@ class _CertificadosPageState extends State<CertificadosPage> {
       final firstRow = zipRows.first;
       final firstTplZip = tpl(firstRow.docId);
       phase.value =
-          'A preparar imagens e fontes (uma vez para $total certificados)…';
-      final sharedZipResolved = await resolveCertificatePdfShared(
-        CertPdfPipelineParams(
+          'A registar protocolos e preparar imagens ($total certificados)…';
+      final zipPrepResults = await Future.wait<dynamic>([
+        CertificateEmitidoService.registerEmissaoBatch(
           tenantId: widget.tenantId,
-          logoFetchCandidates: _logoCertCandidateUrls,
-          logoUrlFallback: _logoCert,
-          titulo: _tituloForTemplate(firstTplZip),
-          subtitulo: _subtituloForTemplate(firstTplZip),
-          texto: firstRow.textoFinal,
-          textoAdicional: '',
-          visualTemplateId: visualLoteZip,
-          includeInstitutionalPastorSignature:
-              includeInstitutionalPastorSignature,
-          institutionalPastorNome: fallbackNome,
-          institutionalPastorCargo: fallbackCargo,
-          nomeMembro: firstRow.nome,
-          cpfFormatado: _formatCpf(firstRow.cpf),
-          nomeIgreja: _nomeIgreja,
-          local: localTxtZip,
-          issuedDate: dataHojeZip,
-          layoutId: layoutLoteZip,
-          fontStyleId: _fontStyleForTemplate(firstTplZip),
-          colorPrimaryArgb: _corForTemplate(firstTplZip).toARGB32(),
-          colorTextArgb: _corTextoForTemplate(firstTplZip).toARGB32(),
-          pastorManual: fallbackNome,
-          cargoManual: fallbackCargo,
-          useDigitalSignature: useDigital,
-          digitalSignatureDadosLine:
-              formatCertificadoDigitalDadosLinha(DateTime.now()),
-          qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(
-              protocolIdsZip.first),
-          signatoriesForPdf: signatoriesForZip,
+          snapshots: zipSnapshots,
+          certificadoIds: protocolIdsZip,
         ),
-        onProgress: (m, p) {
-          phase.value = m;
-          prog01.value = 0.05 + p * 0.40;
-        },
-        currentIndex: 1,
-        totalCount: total,
-      );
+        resolveCertificatePdfShared(
+          CertPdfPipelineParams(
+            tenantId: widget.tenantId,
+            logoFetchCandidates: _logoCertCandidateUrls,
+            logoUrlFallback: _logoCert,
+            titulo: _tituloForTemplate(firstTplZip),
+            subtitulo: _subtituloForTemplate(firstTplZip),
+            texto: firstRow.textoFinal,
+            textoAdicional: '',
+            visualTemplateId: visualLoteZip,
+            includeInstitutionalPastorSignature:
+                includeInstitutionalPastorSignature,
+            institutionalPastorNome: fallbackNome,
+            institutionalPastorCargo: fallbackCargo,
+            nomeMembro: firstRow.nome,
+            cpfFormatado: _formatCpf(firstRow.cpf),
+            nomeIgreja: _nomeIgreja,
+            local: localTxtZip,
+            issuedDate: dataHojeZip,
+            layoutId: layoutLoteZip,
+            fontStyleId: _fontStyleForTemplate(firstTplZip),
+            colorPrimaryArgb: _corForTemplate(firstTplZip).toARGB32(),
+            colorTextArgb: _corTextoForTemplate(firstTplZip).toARGB32(),
+            pastorManual: fallbackNome,
+            cargoManual: fallbackCargo,
+            useDigitalSignature: useDigital,
+            digitalSignatureDadosLine:
+                formatCertificadoDigitalDadosLinha(DateTime.now()),
+            qrValidationUrl: CertificadoConsultaUrl.protocolValidationUrl(
+                protocolIdsZip.first),
+            signatoriesForPdf: signatoriesForZip,
+          ),
+          onProgress: (m, p) {
+            phase.value = m;
+            prog01.value = 0.05 + p * 0.40;
+          },
+          currentIndex: 1,
+          totalCount: total,
+        ),
+      ]);
+      final sharedZipResolved = zipPrepResults[1] as CertPdfResolvedShared;
 
       for (var i = 0; i < zipRows.length; i++) {
         final row = zipRows[i];
@@ -5964,9 +6044,8 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       institutionalCargo = widget.cargoCtrl.text.trim();
     }
     final digitalDadosLinha = formatCertificadoDigitalDadosLinha(DateTime.now());
-    final protocolId = await CertificateEmitidoService.registerEmissao(
-      tenantId: widget.tenantId,
-      snapshot: <String, dynamic>{
+    final protocolId = generateCertificateProtocolId();
+    final snapshot = <String, dynamic>{
         'memberId': _isCasamento
             ? (_casamentoPorMembros && _casamentoNoivoId != null
                 ? _casamentoNoivoId!
@@ -6006,53 +6085,60 @@ class _CertEditorPageState extends State<_CertEditorPage> {
               'cpfDigits': s.cpfRaw,
             },
         ],
-      },
-    );
+      };
     final qrUrl =
         CertificadoConsultaUrl.protocolValidationUrl(protocolId);
-    final bytes = await runCertificatePdfPipeline(
-      CertPdfPipelineParams(
+    final results = await Future.wait<dynamic>([
+      CertificateEmitidoService.registerEmissao(
         tenantId: widget.tenantId,
-        logoFetchCandidates: widget.logoFetchCandidates,
-        logoUrlFallback: widget.logoUrl,
-        titulo: widget.tituloCtrl.text,
-        subtitulo: widget.subtituloCtrl.text.trim(),
-        texto: textoBase,
-        textoAdicional: widget.textoAdicionalCtrl.text.trim(),
-        visualTemplateId: _visualTemplateId,
-        includeInstitutionalPastorSignature:
-            _includeInstitutionalPastorSignature,
-        institutionalPastorNome: institutionalNome,
-        institutionalPastorCargo: institutionalCargo,
-        nomeMembro: noivo,
-        nomeMembroLinha2: _isCasamento ? noiva : '',
-        cpfFormatado: _isCasamento ? '' : widget.cpfFormatado,
-        nomeIgreja: widget.nomeIgreja,
-        local: widget.localCtrl.text,
-        issuedDate: issuedDate,
-        layoutId: _certPdfLayoutId,
-        fontStyleId: _fontStyleId,
-        colorPrimaryArgb: _cor.toARGB32(),
-        colorTextArgb: _corTexto.toARGB32(),
-        pastorManual: widget.pastorCtrl.text,
-        cargoManual: widget.cargoCtrl.text,
-        useDigitalSignature: useDigitalSignature,
-        digitalSignatureDadosLine: digitalDadosLinha,
-        qrValidationUrl: qrUrl,
-        signatoriesForPdf: [
-          for (final s in selectedForPdf)
-            CertPdfPipelineSignatory(
-              memberId: s.memberId,
-              nome: s.nome,
-              cargo: s.cargo,
-              cpfDigits: s.cpfRaw,
-              assinaturaUrlHint:
-                  s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
-            ),
-        ],
+        snapshot: snapshot,
+        certificadoId: protocolId,
       ),
-      onProgress: onProgress,
-    );
+      runCertificatePdfPipeline(
+        CertPdfPipelineParams(
+          tenantId: widget.tenantId,
+          logoFetchCandidates: widget.logoFetchCandidates,
+          logoUrlFallback: widget.logoUrl,
+          titulo: widget.tituloCtrl.text,
+          subtitulo: widget.subtituloCtrl.text.trim(),
+          texto: textoBase,
+          textoAdicional: widget.textoAdicionalCtrl.text.trim(),
+          visualTemplateId: _visualTemplateId,
+          includeInstitutionalPastorSignature:
+              _includeInstitutionalPastorSignature,
+          institutionalPastorNome: institutionalNome,
+          institutionalPastorCargo: institutionalCargo,
+          nomeMembro: noivo,
+          nomeMembroLinha2: _isCasamento ? noiva : '',
+          cpfFormatado: _isCasamento ? '' : widget.cpfFormatado,
+          nomeIgreja: widget.nomeIgreja,
+          local: widget.localCtrl.text,
+          issuedDate: issuedDate,
+          layoutId: _certPdfLayoutId,
+          fontStyleId: _fontStyleId,
+          colorPrimaryArgb: _cor.toARGB32(),
+          colorTextArgb: _corTexto.toARGB32(),
+          pastorManual: widget.pastorCtrl.text,
+          cargoManual: widget.cargoCtrl.text,
+          useDigitalSignature: useDigitalSignature,
+          digitalSignatureDadosLine: digitalDadosLinha,
+          qrValidationUrl: qrUrl,
+          signatoriesForPdf: [
+            for (final s in selectedForPdf)
+              CertPdfPipelineSignatory(
+                memberId: s.memberId,
+                nome: s.nome,
+                cargo: s.cargo,
+                cpfDigits: s.cpfRaw,
+                assinaturaUrlHint:
+                    s.assinaturaUrl.isNotEmpty ? s.assinaturaUrl : null,
+              ),
+          ],
+        ),
+        onProgress: onProgress,
+      ),
+    ]);
+    final bytes = results[1] as Uint8List;
     return (bytes: bytes.toList(), protocolId: protocolId);
   }
 }
@@ -7488,4 +7574,96 @@ class _SignatoryOption {
     this.cpfRaw = '',
     this.assinaturaUrl = '',
   });
+}
+
+/// Cache RAM — lista de membros instantânea ao reabrir Certificados.
+abstract final class _CertificadosMembersRamCache {
+  _CertificadosMembersRamCache._();
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _byTenant = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(
+      String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return null;
+    final hit = _byTenant[tid];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byTenant.remove(tid);
+      return null;
+    }
+    return hit.docs;
+  }
+
+  static void put(
+    String tenantId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty || docs.isEmpty) return;
+    _byTenant[tid] = (docs: List.from(docs), at: DateTime.now());
+  }
+}
+
+class _CertMembersListSnapshot implements QuerySnapshot<Map<String, dynamic>> {
+  _CertMembersListSnapshot(this.docs);
+
+  @override
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
+
+  @override
+  List<DocumentChange<Map<String, dynamic>>> get docChanges => const [];
+
+  @override
+  SnapshotMetadata get metadata => const _CertMembersSnapshotMetadata();
+
+  @override
+  int get size => docs.length;
+}
+
+class _CertMembersSnapshotMetadata implements SnapshotMetadata {
+  const _CertMembersSnapshotMetadata();
+
+  @override
+  bool get hasPendingWrites => false;
+
+  @override
+  bool get isFromCache => true;
+}
+
+// ignore: subtype_of_sealed_class
+class _CertCachedMemberQueryDoc
+    implements QueryDocumentSnapshot<Map<String, dynamic>> {
+  _CertCachedMemberQueryDoc({required this.id, required Map<String, dynamic> data})
+      : _data = data;
+
+  @override
+  final String id;
+  final Map<String, dynamic> _data;
+
+  @override
+  Map<String, dynamic> data() => Map<String, dynamic>.from(_data);
+
+  @override
+  dynamic get(Object field) => _data[field];
+
+  @override
+  dynamic operator [](Object field) => _data[field];
+
+  @override
+  bool get exists => true;
+
+  @override
+  SnapshotMetadata get metadata => const _CertMembersSnapshotMetadata();
+
+  @override
+  DocumentReference<Map<String, dynamic>> get reference =>
+      throw UnsupportedError('cached member doc has no reference');
 }

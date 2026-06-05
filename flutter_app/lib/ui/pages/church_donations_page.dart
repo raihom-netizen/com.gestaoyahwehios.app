@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/ui/widgets/donation_kind_selector_grid.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
 import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
 /// Dízimos, ofertas e contribuições via PIX ou cartão (Checkout Pro Mercado Pago da igreja).
 /// Só contas tesouraria **Mercado Pago** (323) entram na conciliação desta tela.
@@ -39,6 +40,45 @@ bool _isMercadoPagoTreasuryAccount(Map<String, dynamic> data) {
   final nome = (data['nome'] ?? '').toString().toLowerCase();
   if (nome.contains('mercado pago')) return true;
   return false;
+}
+
+/// Cache RAM — dropdown Mercado Pago instantâneo ao reabrir Doação.
+abstract final class _DonationMpContasCache {
+  _DonationMpContasCache._();
+
+  static final Map<String, ({List<({String id, String nome})> contas, DateTime at})>
+      _byTenant = {};
+
+  static const Duration _ttl = Duration(minutes: 25);
+
+  static List<({String id, String nome})>? peek(String tenantId) {
+    final key = tenantId.trim();
+    if (key.isEmpty) return null;
+    final hit = _byTenant[key];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byTenant.remove(key);
+      return null;
+    }
+    return hit.contas;
+  }
+
+  static void put(String tenantId, List<({String id, String nome})> contas) {
+    final key = tenantId.trim();
+    if (key.isEmpty || contas.isEmpty) return;
+    _byTenant[key] = (contas: contas, at: DateTime.now());
+  }
+}
+
+List<({String id, String nome})> _filterMercadoPagoContas(
+  QuerySnapshot<Map<String, dynamic>> snap,
+) {
+  return snap.docs
+      .where((d) => d.data()['ativo'] != false)
+      .where((d) => _isMercadoPagoTreasuryAccount(d.data()))
+      .map((d) => (id: d.id, nome: (d.data()['nome'] ?? '').toString()))
+      .where((e) => e.nome.isNotEmpty)
+      .toList();
 }
 
 /// URL de retorno após pagamento no Checkout Pro (Mercado Pago exige `https`).
@@ -84,6 +124,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   String? _contaId;
   bool _loadingContas = true;
   List<({String id, String nome})> _contas = [];
+  String? _operationalTenantId;
   bool _gerando = false;
   bool _pixMode = true;
   int _parcelas = 1;
@@ -97,6 +138,9 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   ChurchPaymentReceivingConfig _paymentCfg =
       const ChurchPaymentReceivingConfig();
 
+  String get _effectiveTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
+
   @override
   void initState() {
     super.initState();
@@ -104,27 +148,72 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     final u = FirebaseAuth.instance.currentUser;
     _nomeCtrl.text = u?.displayName ?? '';
     _emailCtrl.text = u?.email ?? '';
-    _loadContas();
-    unawaited(_bindMemberForDonation());
-    unawaited(_loadPaymentReceiving());
+    unawaited(_bootstrapDonationsPage());
+  }
+
+  Future<void> _bootstrapDonationsPage() async {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) {
+      if (mounted) setState(() => _loadingContas = false);
+      return;
+    }
+
+    final ram = _DonationMpContasCache.peek(seed);
+    if (ram != null && ram.isNotEmpty && mounted) {
+      setState(() {
+        _contas = ram;
+        _contaId = ram.first.id;
+        _loadingContas = false;
+      });
+    }
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    try {
+      _operationalTenantId = await TenantResolverService
+          .resolveOperationalChurchDocId(seed, userUid: uid)
+          .timeout(const Duration(seconds: 8), onTimeout: () => seed);
+    } catch (_) {
+      _operationalTenantId = seed;
+    }
+
+    final tid = _effectiveTenantId;
+    if (tid != seed) {
+      final ramOp = _DonationMpContasCache.peek(tid);
+      if (ramOp != null && ramOp.isNotEmpty && mounted) {
+        setState(() {
+          _contas = ramOp;
+          _contaId = ramOp.first.id;
+          _loadingContas = false;
+        });
+      }
+    }
+
+    await Future.wait<void>([
+      _loadContas(refreshNetwork: _contas.isEmpty),
+      _bindMemberForDonation(),
+      _loadPaymentReceiving(),
+    ]);
   }
 
   Future<void> _loadPaymentReceiving() async {
-    final cfg = await ChurchPaymentReceivingService.read(widget.tenantId);
+    final cfg = await ChurchPaymentReceivingService.read(_effectiveTenantId);
     if (mounted) setState(() => _paymentCfg = cfg);
   }
 
   Future<void> _bindMemberForDonation() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+    final tid = _effectiveTenantId;
+    if (tid.isEmpty) return;
     try {
       final q = await FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(tid)
           .collection('membros')
           .where('authUid', isEqualTo: uid)
           .limit(1)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 8));
       if (q.docs.isEmpty) return;
       final doc = q.docs.first;
       final data = doc.data();
@@ -150,24 +239,36 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     });
   }
 
-  Future<void> _loadContas() async {
-    setState(() {
-      _loadingContas = true;
-      _erro = null;
-    });
+  Future<void> _loadContas({bool refreshNetwork = true}) async {
+    if (refreshNetwork && _contas.isEmpty && mounted) {
+      setState(() {
+        _loadingContas = true;
+        _erro = null;
+      });
+    }
     try {
-      await ChurchTenantResilientReads.preparePanelRead();
-      final snap = await ChurchTenantResilientReads.contas(widget.tenantId);
-      final list = snap.docs
-          .where((d) => d.data()['ativo'] != false)
-          .where((d) => _isMercadoPagoTreasuryAccount(d.data()))
-          .map((d) => (id: d.id, nome: (d.data()['nome'] ?? '').toString()))
-          .where((e) => e.nome.isNotEmpty)
-          .toList();
+      final tid = _effectiveTenantId;
+      if (tid.isEmpty) {
+        if (mounted) setState(() => _loadingContas = false);
+        return;
+      }
+      final snap = await ChurchTenantResilientReads.contas(tid)
+          .timeout(const Duration(seconds: 16));
+      final list = _filterMercadoPagoContas(snap);
+      _DonationMpContasCache.put(tid, list);
+      _DonationMpContasCache.put(widget.tenantId.trim(), list);
       if (mounted) {
         setState(() {
           _contas = list;
-          _contaId = list.isNotEmpty ? list.first.id : null;
+          if (list.isNotEmpty) {
+            _contaId ??= list.first.id;
+            if (_contaId != null &&
+                !list.any((e) => e.id == _contaId)) {
+              _contaId = list.first.id;
+            }
+          } else {
+            _contaId = null;
+          }
           _loadingContas = false;
         });
       }
@@ -175,7 +276,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       if (mounted) {
         setState(() {
           _loadingContas = false;
-          _erro = '$e';
+          if (_contas.isEmpty) _erro = '$e';
         });
       }
     }
@@ -249,8 +350,9 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     try {
       final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('createChurchDonationPix');
-      final res = await callable.call(<String, dynamic>{
-        'tenantId': widget.tenantId,
+      final res = await callable
+          .call(<String, dynamic>{
+        'tenantId': _effectiveTenantId,
         'amount': v,
         'donorName': nome,
         'payerEmail': _emailCtrl.text.trim(),
@@ -258,7 +360,13 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
         'memberId': _memberDocIdForDonation ?? '',
         'memberCpf': _onlyDigits(widget.cpf),
         'donationKind': _donationKind,
-      });
+      })
+          .timeout(
+        const Duration(seconds: 50),
+        onTimeout: () => throw TimeoutException(
+          'O Mercado Pago demorou demais. Verifique a conexão e tente de novo.',
+        ),
+      );
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
       final qr = (data['qr_code'] ?? '').toString();
       if (mounted) {
@@ -317,8 +425,9 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     try {
       final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('createChurchDonationPreference');
-      final res = await callable.call(<String, dynamic>{
-        'tenantId': widget.tenantId,
+      final res = await callable
+          .call(<String, dynamic>{
+        'tenantId': _effectiveTenantId,
         'amount': v,
         'donorName': nome,
         'payerEmail': _emailCtrl.text.trim(),
@@ -328,7 +437,13 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
         'returnUrl': _churchPanelDonationReturnUrl(),
         'maxInstallments': _parcelas,
         'donationKind': _donationKind,
-      });
+      })
+          .timeout(
+        const Duration(seconds: 50),
+        onTimeout: () => throw TimeoutException(
+          'O Mercado Pago demorou demais. Verifique a conexão e tente de novo.',
+        ),
+      );
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
       final url = (data['init_point'] ?? '').toString().trim();
       if (url.isEmpty) {
@@ -619,7 +734,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     // Apple 3.2.2(iv): sem coleta de doação no binário iOS — só Safari → site.
     if (IosPaymentsGate.isIosNative) {
       return IosDonationReaderView(
-        tenantId: widget.tenantId,
+        tenantId: _effectiveTenantId.isEmpty ? widget.tenantId : _effectiveTenantId,
         embeddedInShell: widget.embeddedInShell,
       );
     }
@@ -1093,7 +1208,9 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
           ],
         ),
               _DonationHistoryTab(
-                tenantId: widget.tenantId,
+                tenantId: _effectiveTenantId.isEmpty
+                    ? widget.tenantId
+                    : _effectiveTenantId,
                 cpf: widget.cpf,
                 seeAll: _seeAllDonationHistory(),
               ),

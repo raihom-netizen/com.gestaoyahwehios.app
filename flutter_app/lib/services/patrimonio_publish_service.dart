@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
@@ -91,9 +92,12 @@ abstract final class PatrimonioPublishService {
   }) async {
     YahwehFlowLog.patrimonioStart();
     try {
-      await itemRef.set(
-        {photoUploadStateField: stateUploading},
-        SetOptions(merge: true),
+      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => itemRef.set(
+          {photoUploadStateField: stateUploading},
+          SetOptions(merge: true),
+        ),
       );
     } catch (e, st) {
       YahwehFlowLog.error('PATRIMONIO', e, st);
@@ -152,7 +156,9 @@ abstract final class PatrimonioPublishService {
     payload['photoUploadError'] = FieldValue.delete();
     payload['imageVariants'] = FieldValue.delete();
     payload['fotoVariants'] = FieldValue.delete();
-    await itemRef.set(payload, SetOptions(merge: true));
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => itemRef.set(payload, SetOptions(merge: true)),
+    );
 
     YahwehFlowLog.patrimonioUploadOk();
     FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(

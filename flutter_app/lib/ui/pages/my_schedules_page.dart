@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/schedule_swap_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
@@ -668,6 +671,45 @@ class _EscalaPreviewSection extends StatelessWidget {
   }
 }
 
+/// Cache RAM — escalas do membro instantâneas ao reabrir Minha Escala.
+abstract final class _MySchedulesRamCache {
+  _MySchedulesRamCache._();
+
+  static String _key(String tenantId, String cpfDigits) =>
+      '${tenantId.trim()}|${cpfDigits.trim()}';
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _byKey = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(
+    String tenantId,
+    String cpfDigits,
+  ) {
+    final hit = _byKey[_key(tenantId, cpfDigits)];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byKey.remove(_key(tenantId, cpfDigits));
+      return null;
+    }
+    return hit.docs;
+  }
+
+  static void put(
+    String tenantId,
+    String cpfDigits,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    if (docs.isEmpty) return;
+    _byKey[_key(tenantId, cpfDigits)] = (docs: List.from(docs), at: DateTime.now());
+  }
+}
+
 class MySchedulesPage extends StatefulWidget {
   final String tenantId;
   final String cpf;
@@ -697,7 +739,7 @@ const _periodFilterKeys = [
 class _MySchedulesPageState extends State<MySchedulesPage> {
   /// Pode ser preenchido a partir da ficha em `membros` se o perfil vier sem CPF.
   String _cpfDigits = '';
-  late Future<String> _effectiveTidFuture;
+  String _effectiveTenantId = '';
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _allDocs = [];
   bool _loading = true;
   /// `month` = lista só no mês de [_monthCursor] (setas anterior/próximo).
@@ -717,12 +759,57 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   void initState() {
     super.initState();
     _cpfDigits = widget.cpf.replaceAll(RegExp(r'[^0-9]'), '');
-    _effectiveTidFuture = TenantResolverService
-        .resolveEffectiveTenantIdPreferringUserBinding(
-      widget.tenantId,
-      userUid: FirebaseAuth.instance.currentUser?.uid,
-    );
-    _bootstrap();
+    _effectiveTenantId = widget.tenantId.trim();
+    unawaited(_openMySchedulesFast());
+    unawaited(_bootstrap());
+  }
+
+  Future<void> _openMySchedulesFast() async {
+    final seed = _effectiveTenantId.isNotEmpty
+        ? _effectiveTenantId
+        : widget.tenantId.trim();
+    if (seed.isEmpty) return;
+
+    final ram = _MySchedulesRamCache.peek(seed, _cpfDigits);
+    if (ram != null && ram.isNotEmpty && mounted) {
+      setState(() {
+        _allDocs = ram;
+        _loading = false;
+      });
+    }
+
+    try {
+      final snap = await ChurchTenantResilientReads.escalasRecent(
+        seed,
+        limit: 200,
+      ).timeout(const Duration(milliseconds: 1800));
+      if (!mounted) return;
+      final docs = await _filterAndSortSchedulesForUser(
+        seed,
+        snap.docs,
+      );
+      if (docs.isEmpty) return;
+      _MySchedulesRamCache.put(seed, _cpfDigits, docs);
+      setState(() {
+        _allDocs = docs;
+        _loading = false;
+      });
+    } catch (_) {}
+  }
+
+  Future<String> _tenantIdForOperations() async {
+    if (_effectiveTenantId.isNotEmpty) return _effectiveTenantId;
+    final hint = widget.tenantId.trim();
+    try {
+      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+        widget.tenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      ).timeout(const Duration(seconds: 8), onTimeout: () => hint);
+      if (mounted) setState(() => _effectiveTenantId = tid);
+      return tid;
+    } catch (_) {
+      return hint;
+    }
   }
 
   /// Extrai 11 dígitos do documento de membro (campos CPF/cpf ou ID = CPF).
@@ -744,13 +831,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     if (_cpfDigits.length == 11) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    late final String tid;
-    try {
-      tid = await _effectiveTidFuture;
-    } catch (_) {
-      return;
-    }
-    if (!mounted) return;
+    final tid = _effectiveTenantId.isNotEmpty
+        ? _effectiveTenantId
+        : widget.tenantId.trim();
+    if (tid.isEmpty) return;
     final col = FirebaseFirestore.instance
         .collection('igrejas')
         .doc(tid)
@@ -799,7 +883,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   }
 
   Future<void> _bootstrap() async {
-    await _hydrateCpfFromMemberRecord();
+    unawaited(_hydrateCpfFromMemberRecord());
     if (mounted) await _load();
   }
 
@@ -808,42 +892,98 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
-    try {
-      final tid = await _effectiveTidFuture;
-      final schedules = FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('escalas');
-      final members = FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('membros');
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _filterAndSortSchedulesForUser(
+    String tid,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> source,
+  ) async {
+    if (_isAdmin) {
+      final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(source);
+      docs.sort((a, b) {
+        final da = (a.data()['date'] as Timestamp?)?.toDate();
+        final db = (b.data()['date'] as Timestamp?)?.toDate();
+        if (da == null || db == null) return 0;
+        return da.compareTo(db);
+      });
+      return docs;
+    }
 
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
-      if (_isAdmin) {
-        final snap = await schedules.orderBy('date').limit(200).get();
-        docs = snap.docs;
-      } else {
-        final deptIds = await _loadMemberDepartments(members);
-        final byMember = _cpfDigits.isNotEmpty
-            ? (await schedules.where('memberCpfs', arrayContains: _cpfDigits).get()).docs
-            : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-        final byDept = deptIds.isNotEmpty && deptIds.length <= 10
-            ? (await schedules.where('departmentId', whereIn: deptIds).get()).docs
-            : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-        final map = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-        for (final d in byMember) {
-          map[d.id] = d;
+    final members = FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(tid)
+        .collection('membros');
+    final deptIds = await _loadMemberDepartments(members);
+    final map = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    if (_cpfDigits.isNotEmpty) {
+      for (final d in source) {
+        final raw = d.data()['memberCpfs'];
+        if (raw is! List) continue;
+        for (final e in raw) {
+          final c = e.toString().replaceAll(RegExp(r'[^0-9]'), '');
+          if (c == _cpfDigits) {
+            map[d.id] = d;
+            break;
+          }
         }
-        for (final d in byDept) {
+      }
+    }
+    if (deptIds.isNotEmpty) {
+      final deptSet = deptIds.toSet();
+      for (final d in source) {
+        final dep = (d.data()['departmentId'] ?? '').toString();
+        if (dep.isNotEmpty && deptSet.contains(dep)) {
           map.putIfAbsent(d.id, () => d);
         }
-        docs = map.values.toList()..sort((a, b) {
-          final da = (a.data()['date'] as Timestamp?)?.toDate();
-          final db = (b.data()['date'] as Timestamp?)?.toDate();
-          if (da == null || db == null) return 0;
-          return da.compareTo(db);
+      }
+    }
+    final docs = map.values.toList()
+      ..sort((a, b) {
+        final da = (a.data()['date'] as Timestamp?)?.toDate();
+        final db = (b.data()['date'] as Timestamp?)?.toDate();
+        if (da == null || db == null) return 0;
+        return da.compareTo(db);
+      });
+    return docs;
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent || _allDocs.isEmpty) {
+      if (mounted && _allDocs.isEmpty) setState(() => _loading = true);
+    }
+    try {
+      final hint = widget.tenantId.trim();
+      var tid = _effectiveTenantId.isNotEmpty ? _effectiveTenantId : hint;
+      try {
+        tid = await TenantResolverService.resolveOperationalChurchDocId(
+          widget.tenantId,
+          userUid: FirebaseAuth.instance.currentUser?.uid,
+        ).timeout(const Duration(seconds: 8), onTimeout: () => tid);
+      } catch (_) {}
+      if (mounted && tid != _effectiveTenantId) {
+        setState(() => _effectiveTenantId = tid);
+      }
+
+      if (_cpfDigits.length != 11) {
+        unawaited(_hydrateCpfFromMemberRecord());
+      }
+
+      QuerySnapshot<Map<String, dynamic>> snap;
+      if (_isAdmin) {
+        snap = await ChurchTenantResilientReads.escalasRecent(tid, limit: 200);
+      } else {
+        snap = await ChurchTenantResilientReads.escalasRecent(tid, limit: 200);
+      }
+      final docs = await _filterAndSortSchedulesForUser(tid, snap.docs);
+      _MySchedulesRamCache.put(tid, _cpfDigits, docs);
+      if (mounted) {
+        setState(() {
+          _allDocs = docs;
+          _loading = false;
         });
       }
-      _allDocs = docs;
-    } catch (_) {}
-    if (mounted) setState(() => _loading = false);
+    } catch (_) {
+      if (mounted && _allDocs.isEmpty) setState(() => _loading = false);
+    }
   }
 
   /// Documentos filtrados pelo período selecionado (sem widget de calendário em grelha).
@@ -960,7 +1100,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       for (final c in memberCpfs) c.replaceAll(RegExp(r'[^0-9]'), ''),
     };
 
-    final tid = await _effectiveTidFuture;
+    final tid = await _tenantIdForOperations();
     if (!context.mounted) return;
 
     String solicitanteNome = '';
@@ -1131,12 +1271,11 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   Widget _buildIncomingSwapInvites() {
     if (_cpfDigits.length != 11) return const SizedBox.shrink();
-    return FutureBuilder<String>(
-      future: _effectiveTidFuture,
-      builder: (context, snap) {
-        if (!snap.hasData) return const SizedBox.shrink();
-        final tid = snap.data!;
-        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+    final tid = _effectiveTenantId.isNotEmpty
+        ? _effectiveTenantId
+        : widget.tenantId.trim();
+    if (tid.isEmpty) return const SizedBox.shrink();
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: FirebaseFirestore.instance
               .collection('igrejas')
               .doc(tid)
@@ -1246,8 +1385,6 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
             );
           },
         );
-      },
-    );
   }
 
   Future<String?> _resolveMemberDocId(String tid) async {
@@ -1275,7 +1412,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       );
       return;
     }
-    final tid = await _effectiveTidFuture;
+    final tid = await _tenantIdForOperations();
     if (!mounted) return;
     final mid = await _resolveMemberDocId(tid);
     if (!mounted) return;

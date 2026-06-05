@@ -1,7 +1,7 @@
-﻿// ignore_for_file: unused_element
+// ignore_for_file: unused_element
 // (Funções legadas do bloco gestor/meta mantidas até remoção total.)
 
-import 'dart:async' show unawaited;
+import 'dart:async' show StreamSubscription, unawaited;
 import 'dart:convert';
 import 'dart:math' show min;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart'
     show openHttpsUrlInBrowser;
@@ -213,7 +214,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   /// Evita múltiplas resoluções Storage→URL para o mesmo tenant na mesma sessão.
   String? _logoStorageHydrationTenantId;
-  late Future<String> _resolvedIdFuture;
+  String? _operationalTenantId;
+  Map<String, dynamic> _tenantLiveData = {};
+  bool _cadastroBootstrapDone = false;
+  String? _cadastroBootstrapError;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _igrejaLiveSub;
+  int _hydratedProfileScore = 0;
 
   /// Ficha completa do gestor (espelha cadastro de Membros — função administrador).
   final _gFiliacaoMaeCtrl = TextEditingController();
@@ -284,12 +290,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
   }
 
-  Future<String> _resolveTenantIdForCadastro() =>
-      TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
-        widget.tenantId,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      );
-
   /// Nome legível quando o doc antigo não tem `nome`/`name` (só id tipo `igreja_o_brasil_…`).
   static String _displayNameFromDocId(String docId) {
     var s = docId.trim();
@@ -308,54 +308,180 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         .join(' ');
   }
 
-  Future<void> _primeChurchDocFromFirestore() async {
+  void _applyInstantCadastroContext(
+    String resolvedId,
+    Map<String, dynamic> profile,
+  ) {
+    final resolved = resolvedId.trim();
+    if (resolved.isEmpty) return;
+    _operationalTenantId = resolved;
+    if (profile.isNotEmpty) {
+      _hydrateFormFromFirestoreDoc(resolved, profile);
+    } else if (!_formHydrated) {
+      _nameCtrl.text = _displayNameFromDocId(resolved);
+      _slugCtrl.text = _slugFromChurchName(_nameCtrl.text);
+    }
+    _bindIgrejaLiveWatch(resolved);
+    if (mounted) {
+      setState(() {
+        _cadastroBootstrapDone = true;
+        _cadastroBootstrapError = null;
+      });
+    }
+  }
+
+  Future<void> _bootstrapCadastro({bool forceRefresh = false}) async {
+    final seed = widget.tenantId.trim();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    if (!forceRefresh) {
+      final peek = TenantResolverService.peekRegistrationContext(
+        seed,
+        userUid: uid,
+      );
+      if (peek != null && peek.operationalId.trim().isNotEmpty) {
+        _applyInstantCadastroContext(peek.operationalId, peek.profile);
+        unawaited(_finishCadastroBootstrap(forceRefresh: false));
+        return;
+      }
+    }
+
+    if (!forceRefresh && seed.isNotEmpty) {
+      try {
+        final quick =
+            await TenantResolverService.loadChurchRegistrationContextFast(
+          seed,
+          userUid: uid,
+        ).timeout(const Duration(milliseconds: 1400));
+        if (!mounted) return;
+        if (quick.operationalId.trim().isNotEmpty) {
+          _applyInstantCadastroContext(quick.operationalId, quick.profile);
+          unawaited(_finishCadastroBootstrap(forceRefresh: false));
+          return;
+        }
+      } catch (_) {}
+    }
+
+    if (seed.isNotEmpty) {
+      _applyInstantCadastroContext(seed, const {});
+    }
+    unawaited(_finishCadastroBootstrap(forceRefresh: forceRefresh));
+  }
+
+  /// Rede em background — enrich cluster sem bloquear o 1.º frame.
+  Future<void> _finishCadastroBootstrap({bool forceRefresh = false}) async {
     try {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
-      final resolved = await _resolveTenantIdForCadastro();
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final ctx = await TenantResolverService.loadChurchRegistrationContext(
+        widget.tenantId,
+        userUid: uid,
+        forceRefresh: forceRefresh,
+      ).timeout(const Duration(seconds: 20));
       if (!mounted) return;
-      final snap = await FirebaseFirestore.instance
+      final resolved = ctx.operationalId.trim();
+      if (resolved.isEmpty) {
+        if (!_cadastroBootstrapDone) {
+          setState(() {
+            _cadastroBootstrapDone = true;
+            _cadastroBootstrapError = 'Igreja não identificada';
+          });
+        }
+        return;
+      }
+      _operationalTenantId = resolved;
+      if (ctx.profile.isNotEmpty) {
+        _hydrateFormFromFirestoreDoc(resolved, ctx.profile);
+      }
+      if (_igrejaLiveSub == null) {
+        _bindIgrejaLiveWatch(resolved);
+      } else if (!mounted) {
+        return;
+      } else if (!_cadastroBootstrapDone) {
+        setState(() {
+          _cadastroBootstrapDone = true;
+          _cadastroBootstrapError = null;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      if (!_cadastroBootstrapDone) {
+        setState(() {
+          _cadastroBootstrapDone = true;
+          _cadastroBootstrapError = e.toString();
+        });
+      }
+    }
+  }
+
+  void _bindIgrejaLiveWatch(String resolvedId) {
+    _igrejaLiveSub?.cancel();
+    _igrejaLiveSub = FirestoreStreamUtils.resilientDocument(
+      FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(resolved)
-          .get(const GetOptions(source: Source.serverAndCache));
-      if (!mounted || !snap.exists) return;
-      final data = snap.data();
-      if (data == null) return;
-      _hydrateFormFromFirestoreDoc(resolved, data);
-    } catch (_) {}
+          .doc(resolvedId)
+          .snapshots(),
+    ).listen(
+      (doc) {
+        if (!mounted) return;
+        final live = doc.data();
+        if (live == null || !doc.exists) return;
+        final score =
+            TenantResolverService.churchProfileRichnessScore(live);
+        if (!_formHydrated ||
+            _nameCtrl.text.trim().isEmpty ||
+            score > _hydratedProfileScore + 2) {
+          _hydrateFormFromFirestoreDoc(resolvedId, live);
+          return;
+        }
+        if (_uploadingLogo || _logoStagedNotUploaded || _saving) return;
+        final serverLogo = churchTenantLogoUrl(live);
+        final nu = serverLogo.isEmpty ? null : serverLogo;
+        if (nu != null && nu != _logoUrl) {
+          setState(() {
+            _logoUrl = nu;
+            _logoBytes = null;
+          });
+        }
+      },
+      onError: (_) {},
+    );
+  }
+
+  void _resetCadastroLoadState() {
+    _igrejaLiveSub?.cancel();
+    _igrejaLiveSub = null;
+    _formHydrated = false;
+    _hydratedTenantId = null;
+    _hydratedProfileScore = 0;
+    _notedNonexistentIgrejaDoc = false;
+    _logoTokenRefreshAttempted = false;
+    _logoStorageHydrationTenantId = null;
+    _operationalTenantId = null;
+    _tenantLiveData = {};
+    _cadastroBootstrapDone = false;
+    _cadastroBootstrapError = null;
   }
 
   @override
   void initState() {
     super.initState();
     _nameCtrl.addListener(_onNameChanged);
-    _resolvedIdFuture = _resolveTenantIdForCadastro();
-    unawaited(_primeChurchDocFromFirestore());
+    unawaited(_bootstrapCadastro());
   }
 
   @override
   void didUpdateWidget(IgrejaCadastroPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId.trim() != widget.tenantId.trim()) {
-      _formHydrated = false;
-      _hydratedTenantId = null;
-      _notedNonexistentIgrejaDoc = false;
-      _logoTokenRefreshAttempted = false;
-      _logoStorageHydrationTenantId = null;
-      _resolvedIdFuture = _resolveTenantIdForCadastro();
-      unawaited(_primeChurchDocFromFirestore());
+      _resetCadastroLoadState();
+      unawaited(_bootstrapCadastro(forceRefresh: true));
     }
   }
 
   void _retryResolveTenant() {
-    setState(() {
-      _formHydrated = false;
-      _hydratedTenantId = null;
-      _notedNonexistentIgrejaDoc = false;
-      _logoTokenRefreshAttempted = false;
-      _logoStorageHydrationTenantId = null;
-      _resolvedIdFuture = _resolveTenantIdForCadastro();
-    });
-    unawaited(_primeChurchDocFromFirestore());
+    _resetCadastroLoadState();
+    setState(() {});
+    unawaited(_bootstrapCadastro(forceRefresh: true));
   }
 
   void _copyAndSnack(BuildContext context, String text) {
@@ -398,6 +524,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _metaMinisterialTituloCtrl.dispose();
     _metaMinisterialValorCtrl.dispose();
     _metaMinisterialAcumuladoCtrl.dispose();
+    unawaited(_igrejaLiveSub?.cancel());
+    _igrejaLiveSub = null;
     super.dispose();
   }
 
@@ -1712,8 +1840,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     } catch (_) {}
   }
 
-  Future<String> get _resolvedTenantId =>
-      TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+  Future<String> _resolveTenantIdForSave() async {
+    final cached = (_operationalTenantId ?? '').trim();
+    if (cached.isNotEmpty) return cached;
+    return TenantResolverService.resolveOperationalChurchDocId(
+      widget.tenantId,
+      userUid: FirebaseAuth.instance.currentUser?.uid,
+    );
+  }
 
   Future<void> _save() async {
     if (!_canEdit) return;
@@ -1722,7 +1856,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     setState(() => _saving = true);
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken();
-      final resolvedId = await _resolvedTenantId;
+      final resolvedId = await _resolveTenantIdForSave();
       if (_canEdit &&
           _logoStagedNotUploaded &&
           _logoBytes != null &&
@@ -1886,10 +2020,16 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
       data['sitePrimaryHex'] = FieldValue.delete();
 
-      await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(resolvedId)
-          .set(data, SetOptions(merge: true));
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(resolvedId)
+            .set(data, SetOptions(merge: true)),
+      );
+      TenantResolverService.invalidateRegistrationContextCache(
+        seedId: widget.tenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
       if (!mounted) return;
       try {
         await GestorMembroStubService.ensurePreCadastroGestor(
@@ -2144,14 +2284,19 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     String resolvedId,
     Map<String, dynamic> live,
   ) {
+    final incomingScore =
+        TenantResolverService.churchProfileRichnessScore(live);
     if (_hydratedTenantId == resolvedId &&
         _formHydrated &&
-        _nameCtrl.text.trim().isNotEmpty) {
+        _nameCtrl.text.trim().isNotEmpty &&
+        incomingScore <= _hydratedProfileScore) {
       return;
     }
     _applyData(live, docIdFallback: resolvedId);
+    _tenantLiveData = Map<String, dynamic>.from(live);
     _formHydrated = true;
     _hydratedTenantId = resolvedId;
+    _hydratedProfileScore = incomingScore;
     _notedNonexistentIgrejaDoc = false;
     if (mounted) setState(() {});
     unawaited(_afterFormHydrated(resolvedId, live));
@@ -2169,8 +2314,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       });
     }
     if (_canEdit) {
-      await FirebaseStorageService.ensureChurchConfigFolderPlaceholderIfAbsent(
-        resolvedId,
+      unawaited(
+        FirebaseStorageService.ensureChurchConfigFolderPlaceholderIfAbsent(
+          resolvedId,
+        ),
       );
     }
     if (!mounted) return;
@@ -2463,119 +2610,50 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<String>(
-      future: _resolvedIdFuture,
-      builder: (context, idSnap) {
-        if (idSnap.connectionState != ConnectionState.done) {
-          return Scaffold(
-            backgroundColor: ThemeCleanPremium.surface,
-            appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
-            body: const Center(child: CircularProgressIndicator()),
-          );
-        }
-        if (idSnap.hasError) {
-          return Scaffold(
-            backgroundColor: ThemeCleanPremium.surface,
-            appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('Não foi possível identificar a igreja.',
-                        style: TextStyle(
-                            color: Colors.grey.shade800,
-                            fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: _retryResolveTenant,
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('Tentar novamente'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }
-        final rid = (idSnap.data ?? widget.tenantId).toString().trim();
-        final resolvedId = rid.isEmpty ? widget.tenantId : rid;
-
-        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          key: ValueKey<String>('igreja_doc_$resolvedId'),
-          stream: FirestoreStreamUtils.resilientDocument(
-            FirebaseFirestore.instance
-                .collection('igrejas')
-                .doc(resolvedId)
-                .snapshots(),
-          ),
-          builder: (context, docSnap) {
-            if (!docSnap.hasData &&
-                docSnap.connectionState == ConnectionState.waiting &&
-                !_formHydrated) {
-              return Scaffold(
-                backgroundColor: ThemeCleanPremium.surface,
-                appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
-                body: const Center(child: CircularProgressIndicator()),
-              );
-            }
-            if (docSnap.hasError) {
-              return Scaffold(
-                backgroundColor: ThemeCleanPremium.surface,
-                appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
-                body: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text('Erro ao carregar dados da igreja.',
-                            style: TextStyle(color: Colors.red.shade800)),
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: _retryResolveTenant,
-                          icon: const Icon(Icons.refresh_rounded),
-                          label: const Text('Tentar novamente'),
-                        ),
-                      ],
-                    ),
+    if (!_cadastroBootstrapDone) {
+      return Scaffold(
+        backgroundColor: ThemeCleanPremium.surface,
+        appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_cadastroBootstrapError != null &&
+        (_operationalTenantId ?? '').trim().isEmpty) {
+      return Scaffold(
+        backgroundColor: ThemeCleanPremium.surface,
+        appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Não foi possível carregar o cadastro da igreja.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey.shade800,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              );
-            }
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _retryResolveTenant,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Tentar novamente'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
-            final doc = docSnap.data;
-            final live = doc?.data();
-            if (live != null && doc != null && doc.exists) {
-              if (_hydratedTenantId != resolvedId || !_formHydrated) {
-                _hydrateFormFromFirestoreDoc(resolvedId, live);
-              } else if (!_uploadingLogo && !_logoStagedNotUploaded) {
-                final serverLogo = churchTenantLogoUrl(live);
-                final nu = serverLogo.isEmpty ? null : serverLogo;
-                if (nu != null && nu != _logoUrl) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted || _uploadingLogo || _logoStagedNotUploaded) {
-                      return;
-                    }
-                    setState(() {
-                      _logoUrl = nu;
-                      _logoBytes = null;
-                    });
-                  });
-                }
-              }
-            } else if (doc != null && !doc.exists) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                if (!_notedNonexistentIgrejaDoc) {
-                  _notedNonexistentIgrejaDoc = true;
-                  setState(() {});
-                }
-              });
-            }
+    final resolvedId = (_operationalTenantId ?? widget.tenantId).trim().isEmpty
+        ? widget.tenantId.trim()
+        : (_operationalTenantId ?? widget.tenantId).trim();
 
-            final padding = ThemeCleanPremium.pagePadding(context);
+    final padding = ThemeCleanPremium.pagePadding(context);
             final fullWidth = MediaQuery.sizeOf(context).width;
             final viewPadding = MediaQuery.viewPaddingOf(context);
             final viewInsets = MediaQuery.viewInsetsOf(context);
@@ -2907,7 +2985,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                                                 tenantId:
                                                                     resolvedId,
                                                                 tenantData:
-                                                                    live,
+                                                                    _tenantLiveData,
                                                                 width: previewW,
                                                                 height: boxH,
                                                                 fit: BoxFit
@@ -3488,10 +3566,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                 ),
               ),
             );
-          },
-        );
-      },
-    );
   }
 }
 

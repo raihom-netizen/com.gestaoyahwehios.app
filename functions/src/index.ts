@@ -5,6 +5,7 @@ import { getFirestore, type DocumentReference, type DocumentData } from "firebas
 import { ensureChurchWelcomeSeed } from "./churchWelcomeSeed";
 import { trySendPublicSignupConfirmationEmail } from "./publicSignupEmail";
 import { topicPushNovo } from "./pushNovoConteudo";
+import { notifyGestoresNewMember } from "./memberRegistrationNotify";
 import { buildGyTopicMessage } from "./notificationBranding";
 import { gerarReceitasRecorrentesPendentesForTenant } from "./receitasRecorrentesScheduled";
 import { fetchPaymentForWebhook, tryHandleChurchDonationPayment } from "./churchMercadoPago";
@@ -6830,20 +6831,12 @@ export const onNewMember = functions
     const membroId = String(context.params.membroId || "").trim();
 
     try {
-      await admin.messaging().send(
-        buildGyTopicMessage({
-          topic: "admin",
-          title: "⚡ Novo cadastro",
-          body: `${nome} acabou de se cadastrar pelo site público.`,
-          data: {
-            type: "new_member",
-            tenantId,
-            memberId: membroId,
-            click_action: "FLUTTER_NOTIFICATION_CLICK",
-          },
-          module: "generico",
-        })
-      );
+      await notifyGestoresNewMember({
+        tenantId,
+        membroId,
+        nome,
+        data,
+      });
     } catch (err) {
       functions.logger.error("onNewMember notify error", {
         tenantId,
@@ -6903,20 +6896,12 @@ export const onNewMemberLegacy = functions
     const tenantId = String(context.params.tenantId || "").trim();
     const membroId = String(context.params.membroId || "").trim();
     try {
-      await admin.messaging().send(
-        buildGyTopicMessage({
-          topic: "admin",
-          title: "⚡ Novo cadastro",
-          body: `${nome} acabou de se cadastrar pelo site público.`,
-          data: {
-            type: "new_member",
-            tenantId,
-            memberId: membroId,
-            click_action: "FLUTTER_NOTIFICATION_CLICK",
-          },
-          module: "generico",
-        })
-      );
+      await notifyGestoresNewMember({
+        tenantId,
+        membroId,
+        nome,
+        data,
+      });
     } catch (err) {
       functions.logger.error("onNewMemberLegacy notify error", {
         tenantId,
@@ -7041,6 +7026,10 @@ export {
   onNovoEventoNoticiaPublishedPush,
 } from "./pushNovoConteudo";
 export { scheduledFornecedorAgendaReminders } from "./fornecedorAgendaReminders";
+export {
+  scheduledFinanceDailyDigest,
+  scheduledFinanceVencimento24h,
+} from "./financeVencimentoReminders";
 
 export {
   saveChurchMercadoPagoCredentials,

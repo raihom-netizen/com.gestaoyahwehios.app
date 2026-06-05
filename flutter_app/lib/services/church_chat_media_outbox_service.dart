@@ -13,6 +13,8 @@ import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
 import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Reenvio de mídia do chat interrompida (app fechado, rede, etc.) + `chat_uploads` Firestore.
 abstract final class ChurchChatMediaOutboxService {
@@ -262,6 +264,38 @@ abstract final class ChurchChatMediaOutboxService {
   static Future<void> resumeRecoverableNow() async {
     await pruneUnrecoverableJobs();
     await _resumeAll();
+  }
+
+  /// Reenvia jobs locais desta conversa (abrir thread / voltar do fundo).
+  static Future<void> resumeForThread({
+    required String tenantId,
+    required String threadId,
+  }) async {
+    final tid = tenantId.trim();
+    final th = threadId.trim();
+    if (tid.isEmpty || th.isEmpty) return;
+    await runFirebaseBackgroundTask<void>(
+      () async {
+        await ensureFirebaseReadyForChatSend();
+        await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+        final prefs = await SharedPreferences.getInstance();
+        final raw = prefs.getString(_prefsKey);
+        if (raw == null || raw.isEmpty) return;
+        final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+        final jobs = list
+            .where(
+              (e) =>
+                  (e['tenantId'] ?? '').toString() == tid &&
+                  (e['threadId'] ?? '').toString() == th,
+            )
+            .take(_maxJobsPerResumeWave)
+            .toList();
+        for (final m in jobs) {
+          await _retryFromJson(m);
+        }
+      },
+      debugLabel: 'chat_outbox_thread_resume',
+    ).catchError((_) {});
   }
 
   static void resumePendingOnAppStart() {

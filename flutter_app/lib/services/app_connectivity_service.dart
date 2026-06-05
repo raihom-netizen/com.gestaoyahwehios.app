@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/app_session_stability.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/core/offline/sync_engine.dart';
@@ -58,11 +60,15 @@ class AppConnectivityService {
     }
     if (online && wasOffline) {
       YahwehFlowLog.sync('NETWORK', 'resume_queues');
+      AppSessionStability.onConnectivityRestored();
       unawaited(
         firebaseDefaultFirestore.enableNetwork().catchError((Object e, StackTrace s) {
           YahwehFlowLog.error('NETWORK', e, s);
         }),
       );
+      if (kIsWeb) {
+        unawaited(FirestoreWebGuard.recoverFirestoreWebSession(allowHardReconnect: true));
+      }
       unawaited(SyncEngine.flushAll(reason: 'connectivity_online'));
       if (FirebaseUploadPolicy.firestorePendingQueueEnabled) {
         unawaited(PendingUploadsFirestoreService.resumeForCurrentUserTenant());

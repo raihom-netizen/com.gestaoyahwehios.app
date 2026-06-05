@@ -32,6 +32,9 @@ import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
+import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
@@ -198,8 +201,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   String _messageSearchQuery = '';
 
   /// Streams estáveis — não recriar em cada [setState] (evita re-subscribe / jank).
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _messagesStream;
-  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _threadStream;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _messagesStream;
+  Stream<DocumentSnapshot<Map<String, dynamic>>>? _threadStream;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _messagesSub;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _threadSub;
   Map<String, String> _titlesByUid = const {};
@@ -216,6 +219,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   int? _lastPeerReadSyncMs;
   late final VoidCallback _photoSyncListener;
   final List<ChurchChatOutboundPending> _pendingOutbound = [];
+  String? _effectiveTenantId;
+
+  String get _tid => (_effectiveTenantId ?? widget.tenantId).trim();
+
+  double _chatBubbleMaxWidth(BuildContext context) {
+    final w = MediaQuery.sizeOf(context).width;
+    final effective = kIsWeb ? w.clamp(0.0, 900.0) : w;
+    return effective * 0.78;
+  }
 
   @override
   void initState() {
@@ -223,7 +235,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     logYahwehModuleScreen('chat_thread');
     unawaited(
       AppResumeStateService.saveChatThread(
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         threadId: widget.threadId,
       ),
     );
@@ -247,53 +259,41 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     _scroll.addListener(_onScrollPagination);
     _ctrl.addListener(_onComposeTyping);
-    _messagesStream = ChurchChatService.recentMessagesStream(
-      tenantId: widget.tenantId,
-      threadId: widget.threadId,
-    );
-    _threadStream = ChurchChatService.threadSnapshots(
-      widget.tenantId,
-      widget.threadId,
-    );
-    _messagesSub = _messagesStream.listen(
-      _onMessagesStreamEvent,
-      onError: (_, __) {
-        if (mounted && _latestRecentDocs.isEmpty) {
-          setState(() => _messagesStreamReady = true);
-        }
-      },
-    );
-    _threadSub = _threadStream.listen(_onThreadStreamEvent);
-    _prefsSub =
-        ChurchChatMemberPrefs.watch(widget.tenantId).listen((snap) {
-      if (!mounted) return;
-      setState(() => _prefs = ChurchChatMemberPrefs.parse(snap));
-    });
     _msgSearchCtrl.addListener(_onMessageSearchChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(
-        ChurchChatService.markThreadLastSeen(
-          tenantId: widget.tenantId,
-          threadId: widget.threadId,
-        ),
-      );
-    });
-    unawaited(_loadInitialSenderProfiles());
+    _bindChatFirestoreStreams(_tid);
     unawaited(_primeRecentMessagesFromCacheOrServer());
-    _messagesPrimeFallbackTimer = Timer(const Duration(seconds: 5), () {
+    unawaited(_initChatThreadTenantAndStreams());
+    _messagesPrimeFallbackTimer = Timer(const Duration(seconds: 3), () {
       if (!mounted) return;
       if (_latestRecentDocs.isEmpty) {
         unawaited(_primeRecentMessagesFromCacheOrServer());
       }
     });
     _startPeerPresencePoll();
+  }
+
+  Future<void> _initChatThreadTenantAndStreams() async {
+    try {
+      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+        widget.tenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
+      if (!mounted || tid.trim().isEmpty) return;
+      if (tid != _tid) {
+        setState(() => _effectiveTenantId = tid);
+        _bindChatFirestoreStreams(tid);
+        unawaited(_primeRecentMessagesFromCacheOrServer());
+      }
+    } catch (_) {}
+    if (!mounted) return;
     if (widget.isDepartment &&
         widget.departmentId != null &&
         widget.departmentId!.isNotEmpty) {
+      _deptSub?.cancel();
       _deptSub = FirestoreStreamUtils.documentWatchBootstrap(
         FirebaseFirestore.instance
             .collection('igrejas')
-            .doc(widget.tenantId)
+            .doc(_tid)
             .collection('departamentos')
             .doc(widget.departmentId!),
       ).listen((snap) {
@@ -301,6 +301,63 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         setState(() => _departmentData = snap.data());
       });
     }
+    unawaited(_loadInitialSenderProfiles());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(
+        ChurchChatService.markThreadLastSeen(
+          tenantId: _tid,
+          threadId: widget.threadId,
+        ),
+      );
+      unawaited(_bootstrapThreadUploads());
+    });
+  }
+
+  void _bindChatFirestoreStreams(String tid) {
+    final tenantId = tid.trim();
+    if (tenantId.isEmpty) return;
+    _messagesSub?.cancel();
+    _threadSub?.cancel();
+    _prefsSub?.cancel();
+    _messagesStream = ChurchChatService.recentMessagesStream(
+      tenantId: tenantId,
+      threadId: widget.threadId,
+    );
+    _threadStream = ChurchChatService.threadSnapshots(
+      tenantId,
+      widget.threadId,
+    );
+    _messagesSub = _messagesStream!.listen(
+      _onMessagesStreamEvent,
+      onError: (_, __) {
+        if (mounted && _latestRecentDocs.isEmpty) {
+          setState(() => _messagesStreamReady = true);
+        }
+      },
+    );
+    _threadSub = _threadStream!.listen(_onThreadStreamEvent);
+    _prefsSub = ChurchChatMemberPrefs.watch(tenantId).listen((snap) {
+      if (!mounted) return;
+      setState(() => _prefs = ChurchChatMemberPrefs.parse(snap));
+    });
+  }
+
+  Future<void> _bootstrapThreadUploads() async {
+    try {
+      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+      await ChurchChatMediaOutboxService.resumeForThread(
+        tenantId: _tid,
+        threadId: widget.threadId,
+      );
+      final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+      if (uid.isNotEmpty) {
+        await ChurchChatAutoRecoveryService.recoverStuckForThread(
+          tenantId: _tid,
+          threadId: widget.threadId,
+          uid: uid,
+        );
+      }
+    } catch (_) {}
   }
 
   @override
@@ -315,7 +372,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _msgSearchCtrl.removeListener(_onMessageSearchChanged);
     unawaited(
       ChurchChatService.clearTypingForMe(
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         threadId: widget.threadId,
       ),
     );
@@ -339,11 +396,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       unawaited(AppFinalizeBootstrap.onAppResume());
       unawaited(
         ChurchChatService.markThreadLastSeen(
-          tenantId: widget.tenantId,
+          tenantId: _tid,
           threadId: widget.threadId,
         ),
       );
       unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
+      unawaited(_bootstrapThreadUploads());
     }
   }
 
@@ -357,7 +415,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         try {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: round > 0);
           final docs = await ChurchChatService.fetchRecentMessagesPage(
-            tenantId: widget.tenantId,
+            tenantId: _tid,
             threadId: widget.threadId,
           );
           if (!mounted) return;
@@ -442,7 +500,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     setState(() => _loadingMoreHistory = true);
     try {
       final page = await ChurchChatService.loadOlderMessagesPage(
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         threadId: widget.threadId,
         startAfterDoc: oldest,
       );
@@ -469,7 +527,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     unawaited(
       ChurchChatForwardSheet.show(
         context,
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         sourceThreadId: widget.threadId,
         messageId: messageId,
         messageData: m,
@@ -554,7 +612,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       _typingIdleTimer?.cancel();
       unawaited(
         ChurchChatService.clearTypingForMe(
-          tenantId: widget.tenantId,
+          tenantId: _tid,
           threadId: widget.threadId,
         ),
       );
@@ -565,7 +623,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       final label = ChurchChatService.senderDisplayNameForNewMessage();
       unawaited(
         ChurchChatService.setTypingActive(
-          tenantId: widget.tenantId,
+          tenantId: _tid,
           threadId: widget.threadId,
           active: true,
           displayLabel: label,
@@ -575,7 +633,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       _typingIdleTimer = Timer(const Duration(seconds: 4), () {
         unawaited(
           ChurchChatService.clearTypingForMe(
-            tenantId: widget.tenantId,
+            tenantId: _tid,
             threadId: widget.threadId,
           ),
         );
@@ -585,7 +643,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Widget _buildTypingStrip(String myUid) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: ChurchChatService.typingCol(widget.tenantId, widget.threadId)
+      stream: ChurchChatService.typingCol(_tid, widget.threadId)
           .snapshots(),
       builder: (context, snap) {
         if (!snap.hasData) return const SizedBox.shrink();
@@ -805,7 +863,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
     ));
     final replyPayload = _replyDraft?.toReplyPayload();
@@ -833,7 +891,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _enqueuePending(pending);
     _setPendingProgress(localId, 0.12);
     ChurchChatInstantSendService.enqueueText(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
       text: t,
       replyTo: replyPayload,
@@ -877,7 +935,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _setPendingProgress(p.localId, 0.12);
     if (mounted) setState(() {});
     ChurchChatInstantSendService.enqueueText(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
       text: t,
       replyTo: p.replyToData,
@@ -906,7 +964,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (_voiceRecording) return;
     await showChurchChatExpressionSheet(
       context: context,
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       textEditingController: _ctrl,
       initialTabIndex: 0,
       onStickerChosen: (pick) async {
@@ -919,14 +977,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
     ));
     final replyPayload = _replyDraft?.toReplyPayload();
     final sp = pick.storagePath?.trim();
     if (mounted) setState(() => _replyDraft = null);
     ChurchChatInstantSendService.enqueueSticker(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
       downloadUrl: pick.mediaUrl,
       storagePath: (sp != null && sp.isNotEmpty) ? sp : null,
@@ -937,7 +995,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         if (!ok || !mounted) return;
         unawaited(
           ChurchChatExpressionPrefs.rememberStickerSent(
-            tenantId: widget.tenantId,
+            tenantId: _tid,
             mediaUrl: pick.mediaUrl,
             storagePath: pick.storagePath,
             stickerSource: pick.stickerSource,
@@ -997,7 +1055,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           }
                           final ok =
                               await ChurchChatService.setMyReactionOnMessage(
-                            tenantId: widget.tenantId,
+                            tenantId: _tid,
                             threadId: widget.threadId,
                             messageId: messageId,
                             emoji: next,
@@ -1032,7 +1090,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final deptId = widget.departmentId?.trim() ?? '';
     if (!widget.isDepartment || deptId.isEmpty) return;
     final docs = await ChurchChatService.fetchActiveDepartmentMembers(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       departmentId: deptId,
     );
     if (!mounted) return;
@@ -1237,7 +1295,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 final starred =
                     _prefs.isMessageStarred(widget.threadId, messageId);
                 final ok = await ChurchChatMemberPrefs.setMessageStarred(
-                  tenantId: widget.tenantId,
+                  tenantId: _tid,
                   threadId: widget.threadId,
                   messageId: messageId,
                   value: !starred,
@@ -1342,7 +1400,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
     if (ok != true || !mounted) return;
     final done = await ChurchChatService.hideMessageForMe(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
       messageId: messageId,
     );
@@ -1378,7 +1436,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
     if (ok != true || !mounted) return;
     final done = await ChurchChatService.deleteMessage(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
       messageId: messageId,
     );
@@ -1428,7 +1486,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (!mounted) return;
     if (choice == 'me') {
       final done = await ChurchChatService.hideMessageForMe(
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         threadId: widget.threadId,
         messageId: messageId,
       );
@@ -1444,7 +1502,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     if (choice == 'all') {
       final done = await ChurchChatService.deleteMessage(
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         threadId: widget.threadId,
         messageId: messageId,
       );
@@ -1622,6 +1680,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   void _warmChatFirebaseForPicker() {
+    unawaited(FirestoreWebGuard.prepareForChatWrite().catchError((_) {}));
     unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
     unawaited(
       FastMediaPublishBootstrap.warmForChatSend()
@@ -1986,12 +2045,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Future<void> _refreshSenderProfilesForAuthUids(Set<String> authUids) async {
     if (authUids.isEmpty) return;
     final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       authUids: authUids,
       refetchAuthUids: authUids,
     );
     if (!mounted || loaded.isEmpty) return;
-    ChurchGalleryPhotoWarmup.warmBytesForChatRefs(widget.tenantId, loaded.values);
+    ChurchGalleryPhotoWarmup.warmBytesForChatRefs(_tid, loaded.values);
     setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
   }
 
@@ -2003,11 +2062,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (me != null && me.isNotEmpty) uids.add(me);
     if (uids.isEmpty) return;
     final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       authUids: uids,
     );
     if (!mounted || loaded.isEmpty) return;
-    ChurchGalleryPhotoWarmup.warmBytesForChatRefs(widget.tenantId, loaded.values);
+    ChurchGalleryPhotoWarmup.warmBytesForChatRefs(_tid, loaded.values);
     setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
   }
 
@@ -2024,12 +2083,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (missing.isEmpty) return;
     try {
       final loaded = await ChurchChatPeerProfileService.loadMemberRefsForAuthUids(
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         authUids: missing,
       );
       if (!mounted || loaded.isEmpty) return;
       ChurchGalleryPhotoWarmup.warmBytesForChatRefs(
-        widget.tenantId,
+        _tid,
         loaded.values,
       );
       setState(() => _senderMemberByUid = {..._senderMemberByUid, ...loaded});
@@ -2052,7 +2111,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (peer.isEmpty || widget.isDepartment) return;
     Future<void> poll() async {
       final map = await ChurchChatService.fetchPresenceOnlineMap(
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         authUids: [peer],
       );
       if (!mounted) return;
@@ -2121,7 +2180,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _lastPeerReadSyncMs = ms;
     unawaited(
       ChurchChatService.markOutboundMessagesReadUpTo(
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         threadId: widget.threadId,
         peerSeenAt: peerSeenAt.toDate(),
       ),
@@ -2156,7 +2215,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if ((pending.firestoreMessageId ?? '').trim().isNotEmpty) return;
     await ensureFirebaseReadyForChatSend();
     final begun = await ChurchChatService.beginMediaUploadMessage(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
       kind: pending.kind,
       fileName: pending.kind == 'document' ? pending.fileName : null,
@@ -2171,7 +2230,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _setPendingProgress(pending.localId, 0);
     unawaited(
       ChurchChatService.patchMediaUploadProgress(
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         threadId: widget.threadId,
         messageId: begun.messageId,
         progress: 0,
@@ -2179,7 +2238,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       ),
     );
     unawaited(ChurchChatMediaOutboxService.updateStub(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
       localId: pending.localId,
       firestoreMessageId: begun.messageId,
@@ -2195,7 +2254,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }) async {
     await OptimisticChatMediaUpload.flush(
       pending: pending,
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
       bytes: bytes,
       localPath: localPath,
@@ -2203,7 +2262,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       onProgress: (p) => _setPendingProgress(pending.localId, p),
       onSuccess: () {
         unawaited(ChurchChatMediaOutboxService.clearJob(
-          tenantId: widget.tenantId,
+          tenantId: _tid,
           threadId: widget.threadId,
           localId: pending.localId,
         ));
@@ -2236,10 +2295,27 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required String? localPath,
   }) async {
     if (bytes != null && bytes.isNotEmpty) {
-      return bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+      final u8 = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+      pending.previewBytes ??= u8;
+      return u8;
+    }
+    if (pending.previewBytes != null && pending.previewBytes!.isNotEmpty) {
+      return pending.previewBytes;
+    }
+    if (kIsWeb) {
+      final cached = await ChurchChatPendingMediaCache.get(
+        tenantId: _tid,
+        threadId: widget.threadId,
+        localId: pending.localId,
+      );
+      if (cached != null && cached.isNotEmpty) {
+        pending.previewBytes = cached;
+        return cached;
+      }
+      return null;
     }
     final path = localPath?.trim() ?? pending.localPath?.trim() ?? '';
-    if (!kIsWeb && path.isNotEmpty) {
+    if (path.isNotEmpty) {
       pending.localPath ??= path;
       // Mobile: Storage por [putFile] — não ler vídeo/PDF inteiro na RAM.
       if (pending.kind == 'image') {
@@ -2253,7 +2329,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       }
       return null;
     }
-    if (path.isEmpty || kIsWeb) return null;
+    if (path.isEmpty) return null;
     final raw = await churchChatReadFileBytes(path);
     if (raw == null || raw.isEmpty) return null;
     final u8 = raw is Uint8List ? raw : Uint8List.fromList(raw);
@@ -2263,7 +2339,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (u8.length <= 48 * 1024 * 1024) {
       unawaited(
         ChurchChatPendingMediaCache.put(
-          tenantId: widget.tenantId,
+          tenantId: _tid,
           threadId: widget.threadId,
           localId: pending.localId,
           bytes: u8,
@@ -2293,6 +2369,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }) async {
     _enqueuePending(pending);
     _setPendingProgress(pending.localId, 0.02);
+    if (bytes != null && bytes.isNotEmpty) {
+      final u8 = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
+      pending.previewBytes ??= u8;
+      unawaited(
+        ChurchChatMediaOutboxService.registerJob(
+          tenantId: _tid,
+          threadId: widget.threadId,
+          localId: pending.localId,
+          kind: pending.kind,
+          fileName: pending.fileName,
+          mime: pending.mime,
+          localPath: localPath,
+          bytes: u8,
+        ),
+      );
+    }
     unawaited(
       runChatMediaUploadTask(() async {
         final bytesFuture = _bytesForPendingUpload(
@@ -2300,11 +2392,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           bytes: bytes,
           localPath: localPath,
         );
-        try {
-          await _startPendingFirestoreStub(pending);
-        } catch (e, st) {
-          YahwehFlowLog.error('CHAT', e, st);
-        }
+        await Future.wait<Object?>([
+          _startPendingFirestoreStub(pending).catchError((Object e, StackTrace st) {
+            YahwehFlowLog.error('CHAT', e, st);
+          }),
+          bytesFuture,
+        ], eagerError: false);
         final uploadBytes = await bytesFuture;
         await _flushPendingUpload(
           pending: pending,
@@ -2353,7 +2446,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
     ));
     // Enfileira imediatamente (estilo WhatsApp): evita bloquear envio lendo bytes antes.
@@ -2465,7 +2558,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       threadId: widget.threadId,
     ));
     final preview = kind == 'image'
@@ -2493,7 +2586,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     ChurchChatOutboundPending p,
     String myUid,
   ) {
-    final maxBubbleW = MediaQuery.sizeOf(context).width * 0.78;
+    final maxBubbleW = _chatBubbleMaxWidth(context);
     Widget body;
     if (p.kind == 'text') {
       final t = (p.textBody ?? '').trim();
@@ -2652,8 +2745,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         margin: const EdgeInsets.only(bottom: 4, left: 56, right: 4),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: ChurchChatSenderPalette.outgoingBubbleBackground
-              .withValues(alpha: p.failed ? 0.55 : 0.92),
+          gradient: p.failed
+              ? null
+              : ChurchChatSenderPalette.outgoingBubbleGradient,
+          color: p.failed
+              ? ChurchChatSenderPalette.outgoingBubbleBackground
+                  .withValues(alpha: 0.55)
+              : null,
           borderRadius: ChurchChatSenderPalette.bubbleBorderRadius(mine: true),
           border: Border.all(
             color: p.failed
@@ -2739,7 +2837,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     List<ChurchChatOutboundPending> group,
     String myUid,
   ) {
-    final maxBubbleW = MediaQuery.sizeOf(context).width * 0.78;
+    final maxBubbleW = _chatBubbleMaxWidth(context);
     final cells = <ChurchChatAlbumCell>[
       for (final p in group)
         ChurchChatAlbumCell(
@@ -2879,7 +2977,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     });
     unawaited(
       ChurchChatService.setTypingActive(
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         threadId: widget.threadId,
         active: true,
         displayLabel: ChurchChatService.typingLabelRecording,
@@ -2904,7 +3002,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _voiceTicker = null;
     unawaited(
       ChurchChatService.clearTypingForMe(
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         threadId: widget.threadId,
       ),
     );
@@ -2992,8 +3090,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         widget.peerUid != null &&
         widget.peerUid!.isNotEmpty &&
         _prefs.isBlockedPeer(widget.peerUid!);
-    return Scaffold(
-      backgroundColor: Colors.white,
+    final webCompact =
+        kIsWeb && MediaQuery.sizeOf(context).width >= 720;
+    final scaffold = Scaffold(
+      backgroundColor: const Color(0xFFE0F2FE),
       appBar: AppBar(
         toolbarHeight: 48,
         elevation: 0,
@@ -3055,7 +3155,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 );
                 if (confirm != true || !context.mounted) return;
                 final r = await ChurchChatStuckCleanupService.purgeAllForTenant(
-                  widget.tenantId,
+                  _tid,
                 );
                 if (!context.mounted) return;
                 final n = r.messages + r.queueDocs;
@@ -3070,7 +3170,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 );
               } else if (v == 'fav') {
                 final ok = await ChurchChatMemberPrefs.setFavorite(
-                  tenantId: widget.tenantId,
+                  tenantId: _tid,
                   threadId: widget.threadId,
                   value: !_prefs.isFavorite(widget.threadId),
                 );
@@ -3091,7 +3191,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 if (!context.mounted) return;
                 await ChurchChatStarredMessagesSheet.show(
                   context,
-                  tenantId: widget.tenantId,
+                  tenantId: _tid,
                   threadId: widget.threadId,
                   messageIds: ids,
                   onOpenMessage: (_) {
@@ -3107,7 +3207,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 );
               } else if (v == 'mute') {
                 await ChurchChatMemberPrefs.setMutedThread(
-                  tenantId: widget.tenantId,
+                  tenantId: _tid,
                   threadId: widget.threadId,
                   value: !_prefs.isMutedThread(widget.threadId),
                 );
@@ -3137,7 +3237,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 );
                 if (confirm != true || !context.mounted) return;
                 final ok = await ChurchChatMemberPrefs.setHiddenDmThread(
-                  tenantId: widget.tenantId,
+                  tenantId: _tid,
                   threadId: widget.threadId,
                   hide: true,
                 );
@@ -3162,7 +3262,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               } else if (v == 'my_photo') {
                 await showChurchChatProfilePhotoSheet(
                   context,
-                  tenantId: widget.tenantId,
+                  tenantId: _tid,
                   cpfDigits: widget.memberCpfDigits,
                 );
                 final me = uid;
@@ -3179,7 +3279,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   backgroundColor: Colors.transparent,
                   builder: (ctx) => ChurchDepartmentChatMembersSheet(
                     navigatorContext: context,
-                    tenantId: widget.tenantId,
+                    tenantId: _tid,
                     currentUid: uid,
                     departmentId: widget.departmentId!,
                     departmentName: widget.title,
@@ -3192,7 +3292,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   widget.peerUid != null &&
                   widget.peerUid!.isNotEmpty) {
                 await ChurchChatMemberPrefs.setBlockedPeer(
-                  tenantId: widget.tenantId,
+                  tenantId: _tid,
                   peerUid: widget.peerUid!,
                   value: !_prefs.isBlockedPeer(widget.peerUid!),
                 );
@@ -3202,7 +3302,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 final next = !cur;
                 await ChurchChatNotificationPrefs.setChatPushEnabled(
                   enabled: next,
-                  tenantId: widget.tenantId,
+                  tenantId: _tid,
                 );
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -3217,7 +3317,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               } else if (v == 'alert_thread') {
                 await showChurchChatThreadForegroundNotifSheet(
                   context: context,
-                  tenantId: widget.tenantId,
+                  tenantId: _tid,
                   threadId: widget.threadId,
                   title: widget.title,
                 );
@@ -3446,7 +3546,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             else if (widget.peerUid != null &&
                 widget.peerUid!.isNotEmpty)
               ChurchChatPeerAvatar(
-                tenantId: widget.tenantId,
+                tenantId: _tid,
                 peerAuthUid: widget.peerUid!,
                 memberRef: _senderMemberByUid[widget.peerUid!],
                 radius: 19,
@@ -3504,14 +3604,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           ChurchChatPendingStatusBanner(
-            tenantId: widget.tenantId,
+            tenantId: _tid,
             compact: true,
             alwaysOfferClear: true,
             role: widget.memberRole,
           ),
           Expanded(
-            child: ColoredBox(
-        color: const Color(0xFFF4F6F8),
+            child: DecoratedBox(
+        decoration: churchChatThreadBackgroundDecoration,
         child: Column(
           children: [
             if (_searchingMessages)
@@ -3620,7 +3720,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           if (age > const Duration(minutes: 12)) {
                             unawaited(
                               ChurchChatService.abandonMediaUploadMessage(
-                                tenantId: widget.tenantId,
+                                tenantId: _tid,
                                 threadId: widget.threadId,
                                 messageId: d.id,
                               ),
@@ -3764,12 +3864,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             ? ChurchChatSenderPalette
                                 .nameColorForUid(senderUid)
                             : null;
-                        final maxBubbleW =
-                            MediaQuery.sizeOf(context).width * 0.78;
+                        final maxBubbleW = _chatBubbleMaxWidth(context);
                         final bubbleDecoration = mine
                             ? BoxDecoration(
-                                color: ChurchChatSenderPalette
-                                    .outgoingBubbleBackground,
+                                gradient: ChurchChatSenderPalette
+                                    .outgoingBubbleGradient,
                                 borderRadius:
                                     ChurchChatSenderPalette.bubbleBorderRadius(
                                   mine: true,
@@ -3898,7 +3997,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             }
                             unawaited(
                               ChurchChatService.setMyReactionOnMessage(
-                                tenantId: widget.tenantId,
+                                tenantId: _tid,
                                 threadId: widget.threadId,
                                 messageId: messageId,
                                 emoji: '❤️',
@@ -3925,7 +4024,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                             CrossAxisAlignment.end,
                                         children: [
                                           ChurchChatPeerAvatar(
-                                            tenantId: widget.tenantId,
+                                            tenantId: _tid,
                                             peerAuthUid: senderUid,
                                             memberRef:
                                                 _senderMemberByUid[senderUid],
@@ -4167,6 +4266,24 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         ],
       ),
     );
+    if (webCompact) {
+      return DecoratedBox(
+        decoration: const BoxDecoration(color: Color(0xFF111B21)),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 900, maxHeight: 960),
+            child: Material(
+              elevation: 10,
+              shadowColor: Colors.black45,
+              borderRadius: BorderRadius.circular(8),
+              clipBehavior: Clip.antiAlias,
+              child: scaffold,
+            ),
+          ),
+        ),
+      );
+    }
+    return scaffold;
   }
 }
 

@@ -70,7 +70,10 @@ abstract final class ChurchChatInstantSendService {
       onComplete?.call(true);
     } catch (e, st) {
       YahwehFlowLog.error('CHAT', e, st);
-      onError?.call(ChurchChatService.formatInstantSendError(e));
+      onComplete?.call(false);
+      onError?.call(
+        ChurchChatService.formatInstantSendError(e),
+      );
     }
   }
 

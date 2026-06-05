@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
+import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -164,7 +165,12 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     }
     unawaited(_loadMasterRbac());
     unawaited(MasterChurchesListService.loadFast());
-    unawaited(MasterDashboardCacheService.refresh());
+    unawaited(() async {
+      final instant = await MasterDashboardCacheService.readCachedInstant();
+      if (instant == null || !instant.isFresh) {
+        await MasterDashboardCacheService.refresh();
+      }
+    }());
     _touchActivity();
     AppSessionStability.registerResumeListener(_onGlobalResume);
   }
@@ -1456,12 +1462,23 @@ class _AdminStatsCard extends StatefulWidget {
 
 class _AdminStatsCardState extends State<_AdminStatsCard> {
   int _igrejas = MasterChurchesListService.peekCount();
-  double _receita = 0;
+  double _receita = MasterDashboardCacheService.peekMemory()?.receita ?? 0;
 
   @override
   void initState() {
     super.initState();
+    unawaited(_hydrateInstant());
     unawaited(_refresh());
+  }
+
+  Future<void> _hydrateInstant() async {
+    final instant = await MasterDashboardCacheService.readCachedInstant();
+    if (instant == null || !mounted) return;
+    setState(() {
+      final churches = MasterChurchesListService.peekCount();
+      _igrejas = churches > 0 ? churches : instant.igrejas;
+      _receita = instant.receita;
+    });
   }
 
   Future<void> _refresh() async {

@@ -32,6 +32,9 @@ abstract final class ChurchShellIndices {
 }
 
 /// Compatibilidade com código que importava constantes soltas.
+const int kChurchShellIndexPainel = ChurchShellIndices.painel;
+const int kChurchShellIndexAprovacoes = ChurchShellIndices.aprovacoesRapidas;
+const int kChurchShellIndexFinanceiro = ChurchShellIndices.financeiro;
 const int kChurchShellIndexMembers = ChurchShellIndices.membros;
 const int kChurchShellIndexMural = ChurchShellIndices.muralAvisos;
 const int kChurchShellIndexEvents = ChurchShellIndices.muralEventos;

@@ -97,15 +97,18 @@ class _IgrejasTabState extends State<_IgrejasTab> {
   }
 
   Future<MasterDashboardSummary> _loadMasterSummary() async {
-    final local = await MasterDashboardCacheService.readLocalPrefs();
-    if (local != null) {
-      _masterSummary = local;
-      return local;
-    }
-    final fs = await MasterDashboardCacheService.readFirestore();
-    if (fs != null) {
-      _masterSummary = fs;
-      return fs;
+    final instant = await MasterDashboardCacheService.readCachedInstant();
+    if (instant != null) {
+      _masterSummary = instant;
+      if (!instant.isFresh) {
+        MasterDashboardCacheService.revalidateInBackground(
+          onUpdated: (s) {
+            if (!mounted) return;
+            setState(() => _masterSummary = s);
+          },
+        );
+      }
+      return instant;
     }
     final warmed = await MasterDashboardCacheService.warmFromCallable();
     _masterSummary = warmed;
@@ -329,13 +332,12 @@ class _IgrejasTabState extends State<_IgrejasTab> {
     final adminBlocked =
         ig['adminBlocked'] == true || lic['adminBlocked'] == true;
     final isFree = lic['isFree'] == true ||
+        ig['isFree'] == true ||
         (ig['plano'] ?? ig['planId'] ?? '').toString().toLowerCase() == 'free';
     String planoSel = (ig['planId'] ?? ig['plano'] ?? 'essencial').toString();
     if (!planosOficiais.any((p) => p.id == planoSel))
       planoSel = planosOficiais.first.id;
-    DateTime? venc = ig['licenseExpiresAt'] is Timestamp
-        ? (ig['licenseExpiresAt'] as Timestamp).toDate()
-        : null;
+    DateTime? venc = LicenseAccessPolicy.churchAccessEnd(ig);
     String ciclo = (ig['billingCycle'] ?? 'monthly').toString();
     if (ciclo != 'annual') ciclo = 'monthly';
 

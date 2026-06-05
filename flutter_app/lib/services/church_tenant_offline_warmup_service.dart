@@ -69,10 +69,10 @@ class ChurchTenantOfflineWarmupService {
 
       String tenantId = tenantIdRaw;
       try {
-        final r = await TenantResolverService
-            .resolveEffectiveTenantIdPreferringUserBinding(
+        final uid = firebaseDefaultAuth.currentUser?.uid;
+        final r = await TenantResolverService.resolveOperationalChurchDocId(
           tenantIdRaw,
-          userUid: firebaseDefaultAuth.currentUser?.uid,
+          userUid: uid,
         );
         if (r.trim().isNotEmpty) tenantId = r.trim();
       } catch (_) {}
@@ -128,6 +128,8 @@ class ChurchTenantOfflineWarmupService {
           safe('pedidos_oracao', () => ChurchTenantResilientReads.pedidosOracao(tenantId)),
           safe('event_categories', () => ChurchTenantResilientReads.eventCategories(tenantId)),
           safe('finance', () => ChurchTenantResilientReads.financeRecent(tenantId)),
+          safe('contas', () => ChurchTenantResilientReads.contas(tenantId)),
+          safe('despesas_fixas', () => ChurchTenantResilientReads.despesasFixas(tenantId)),
           safe('patrimonio', () => ChurchTenantResilientReads.patrimonio(tenantId)),
           safe('fornecedores', () => ChurchTenantResilientReads.fornecedores(tenantId)),
           safe('cargos', () => ChurchTenantResilientReads.cargos(tenantId)),

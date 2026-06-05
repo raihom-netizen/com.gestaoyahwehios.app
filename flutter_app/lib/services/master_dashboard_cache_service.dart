@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:convert';
 
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -201,17 +202,38 @@ abstract final class MasterDashboardCacheService {
   static final _functions =
       FirebaseFunctions.instanceFor(region: 'us-central1');
 
+  static MasterDashboardSummary? _memSummary;
+  static DateTime? _memSummaryAt;
+  static const Duration _memTtl = Duration(minutes: 8);
+
+  /// KPIs em RAM — instantâneo ao abrir qualquer tela master (sem await).
+  static MasterDashboardSummary? peekMemory() => _memSummary;
+
+  static void _storeMem(MasterDashboardSummary s) {
+    _memSummary = s;
+    _memSummaryAt = DateTime.now();
+  }
+
+  static bool _memFresh() {
+    if (_memSummary == null || _memSummaryAt == null) return false;
+    return DateTime.now().difference(_memSummaryAt!) < _memTtl;
+  }
+
   static DocumentReference<Map<String, dynamic>> get _firestoreRef =>
       FirebaseFirestore.instance
           .collection('config')
           .doc('master_dashboard_summary');
 
-  static Future<MasterDashboardSummary?> readFirestore() async {
+  static Future<MasterDashboardSummary?> readFirestore({
+    Source source = Source.serverAndCache,
+  }) async {
     try {
-      final snap = await _firestoreRef.get();
+      final snap = await _firestoreRef.get(GetOptions(source: source));
       final data = snap.data();
       if (data == null || data.isEmpty) return null;
-      return MasterDashboardSummary.fromJson(data);
+      final out = MasterDashboardSummary.fromJson(data);
+      _storeMem(out);
+      return out;
     } catch (_) {
       return null;
     }
@@ -223,11 +245,14 @@ abstract final class MasterDashboardCacheService {
       if (data == null || data.isEmpty) {
         return const MasterDashboardSummary();
       }
-      return MasterDashboardSummary.fromJson(data);
+      final out = MasterDashboardSummary.fromJson(data);
+      _storeMem(out);
+      return out;
     });
   }
 
-  static Future<MasterDashboardSummary?> readLocalPrefs() async {
+  /// Prefs locais — aceita cache stale (SWR / arranque instantâneo).
+  static Future<MasterDashboardSummary?> readAnyLocal() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_prefsKey);
@@ -237,17 +262,84 @@ abstract final class MasterDashboardCacheService {
       final s = MasterDashboardSummary.fromJson(
         Map<String, dynamic>.from(j),
       );
-      return s.isFresh ? s : null;
+      _storeMem(s);
+      return s;
     } catch (_) {
       return null;
     }
   }
 
+  static Future<MasterDashboardSummary?> readLocalPrefs() async {
+    final s = await readAnyLocal();
+    if (s == null) return null;
+    return s.isFresh ? s : null;
+  }
+
   static Future<void> writeLocal(MasterDashboardSummary s) async {
+    _storeMem(s);
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsKey, jsonEncode(s.toJson()));
     } catch (_) {}
+  }
+
+  static MasterDashboardSummary _alignChurchCount(MasterDashboardSummary summary) {
+    final churchCount = MasterChurchesListService.peekCount();
+    if (churchCount > 0 && summary.igrejas != churchCount) {
+      return MasterDashboardSummary(
+        igrejas: churchCount,
+        usuarios: summary.usuarios,
+        membrosTotal: summary.membrosTotal,
+        receita: summary.receita,
+        alertas: summary.alertas,
+        licencasAtivas: summary.licencasAtivas,
+        vencimentos7d: summary.vencimentos7d,
+        vencimentos30d: summary.vencimentos30d,
+        blockedCount: summary.blockedCount,
+        freeCount: summary.freeCount,
+        suggestionsPending: summary.suggestionsPending,
+        panelCacheStaleCount: summary.panelCacheStaleCount,
+        receitaPix: summary.receitaPix,
+        receitaCartao: summary.receitaCartao,
+        cachedAtMs: summary.cachedAtMs,
+        cacheUpdatedAt: summary.cacheUpdatedAt,
+        igrejasPorMes: summary.igrejasPorMes,
+        usuariosPorMes: summary.usuariosPorMes,
+        receitaPorMes: summary.receitaPorMes,
+        actionQueue: summary.actionQueue,
+        expiringChurches: summary.expiringChurches,
+      );
+    }
+    return summary;
+  }
+
+  /// RAM → prefs (stale ok) → Firestore cache → null. Sem rede.
+  static Future<MasterDashboardSummary?> readCachedInstant() async {
+    if (_memFresh() && _memSummary != null) {
+      return _alignChurchCount(_memSummary!);
+    }
+    final local = await readAnyLocal();
+    if (local != null) return _alignChurchCount(local);
+    final fs = await readFirestore(source: Source.cache);
+    if (fs != null) return _alignChurchCount(fs);
+    return null;
+  }
+
+  /// Atualiza em background (callable → fallback cliente) sem bloquear UI.
+  static void revalidateInBackground({
+    void Function(MasterDashboardSummary summary)? onUpdated,
+  }) {
+    unawaited(() async {
+      try {
+        final fresh = await warmFromCallable(force: true);
+        onUpdated?.call(fresh);
+      } catch (_) {
+        try {
+          final fb = await refreshClientFallback(force: true);
+          onUpdated?.call(fb);
+        } catch (_) {}
+      }
+    }());
   }
 
   static Future<MasterDashboardSummary> warmFromCallable({
@@ -265,7 +357,7 @@ abstract final class MasterDashboardCacheService {
     try {
       final callable = _functions.httpsCallable(
         'getMasterDashboardSnapshot',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 90)),
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 28)),
       );
       final res = await callable.call<Map<String, dynamic>>({});
       final data = res.data;
@@ -296,9 +388,22 @@ abstract final class MasterDashboardCacheService {
     ).call({'tenantId': tid});
   }
 
-  /// Leitura rápida: Firestore → prefs → callable → scan cliente.
+  /// Leitura rápida: cache instantâneo → Firestore fresco → callable → scan cliente.
   /// Alinha contagem de igrejas com [MasterChurchesListService] (badge vs KPI).
   static Future<MasterDashboardSummary> refresh({bool force = false}) async {
+    if (!force) {
+      if (_memFresh() && _memSummary != null) {
+        return _alignChurchCount(_memSummary!);
+      }
+      final instant = await readCachedInstant();
+      if (instant != null && (instant.isFresh || instant.igrejas > 0)) {
+        if (!instant.isFresh) {
+          revalidateInBackground();
+        }
+        return instant;
+      }
+    }
+
     MasterDashboardSummary summary;
     if (!force) {
       final fs = await readFirestore();
@@ -309,6 +414,7 @@ abstract final class MasterDashboardCacheService {
         final local = await readLocalPrefs();
         if (local != null) {
           summary = local;
+          revalidateInBackground();
         } else {
           summary = await warmFromCallable(force: force);
         }
@@ -316,33 +422,8 @@ abstract final class MasterDashboardCacheService {
     } else {
       summary = await warmFromCallable(force: force);
     }
-    final churchCount = MasterChurchesListService.peekCount();
-    if (churchCount > 0 && summary.igrejas != churchCount) {
-      summary = MasterDashboardSummary(
-        igrejas: churchCount,
-        usuarios: summary.usuarios,
-        membrosTotal: summary.membrosTotal,
-        receita: summary.receita,
-        alertas: summary.alertas,
-        licencasAtivas: summary.licencasAtivas,
-        vencimentos7d: summary.vencimentos7d,
-        vencimentos30d: summary.vencimentos30d,
-        blockedCount: summary.blockedCount,
-        freeCount: summary.freeCount,
-        suggestionsPending: summary.suggestionsPending,
-        panelCacheStaleCount: summary.panelCacheStaleCount,
-        receitaPix: summary.receitaPix,
-        receitaCartao: summary.receitaCartao,
-        cachedAtMs: summary.cachedAtMs,
-        cacheUpdatedAt: summary.cacheUpdatedAt,
-        igrejasPorMes: summary.igrejasPorMes,
-        usuariosPorMes: summary.usuariosPorMes,
-        receitaPorMes: summary.receitaPorMes,
-        actionQueue: summary.actionQueue,
-        expiringChurches: summary.expiringChurches,
-      );
-      await writeLocal(summary);
-    }
+    summary = _alignChurchCount(summary);
+    await writeLocal(summary);
     return summary;
   }
 

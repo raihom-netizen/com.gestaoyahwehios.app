@@ -364,14 +364,38 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     AppSessionStability.rememberUser(FirebaseAuth.instance.currentUser);
     if (kIsWeb) {
-      _webSessionCapTimer = Timer(const Duration(milliseconds: 2000), () {
-        if (!mounted) return;
-        final u = FirebaseAuth.instance.currentUser;
-        if (u == null || u.isAnonymous) {
-          setState(() => _webSessionCapHit = true);
-        }
-      });
+      _scheduleWebSessionCap();
     }
+  }
+
+  /// Web: só redireciona ao login após restaurar sessão persistida (padrão Controle Total).
+  void _scheduleWebSessionCap() {
+    if (!kIsWeb) return;
+    _webSessionCapTimer?.cancel();
+    final delay = AppSessionStability.hasReturningSessionHints()
+        ? const Duration(seconds: 12)
+        : const Duration(seconds: 5);
+    _webSessionCapTimer = Timer(delay, () async {
+      if (!mounted) return;
+      final sync = FirebaseAuth.instance.currentUser;
+      if (sync != null && !sync.isAnonymous) {
+        AppSessionStability.rememberUser(sync);
+        return;
+      }
+      final restored =
+          await PersistentAuthSessionService.currentPersistedUser();
+      if (!mounted) return;
+      if (restored != null) {
+        AppSessionStability.rememberUser(restored);
+        setState(() {});
+        return;
+      }
+      if (AppSessionStability.hasReturningSessionHints()) {
+        _scheduleWebSessionCap();
+        return;
+      }
+      setState(() => _webSessionCapHit = true);
+    });
   }
 
   @override
@@ -386,6 +410,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       AppSessionStability.onGlobalResume();
+      _kickSessionRestore();
       if (mounted) setState(() {});
     }
   }
@@ -410,9 +435,15 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
 
   void _scheduleSignOutIfStillLoggedOut() {
     _signOutConfirmTimer?.cancel();
-    _signOutConfirmTimer = Timer(
-      kIsWeb ? const Duration(milliseconds: 450) : const Duration(milliseconds: 900),
-      () async {
+    final hasHints = AppSessionStability.hasReturningSessionHints();
+    final delay = hasHints
+        ? (kIsWeb
+            ? const Duration(milliseconds: 3200)
+            : const Duration(milliseconds: 1800))
+        : (kIsWeb
+            ? const Duration(milliseconds: 900)
+            : const Duration(milliseconds: 900));
+    _signOutConfirmTimer = Timer(delay, () async {
       if (!mounted) return;
       final current = FirebaseAuth.instance.currentUser;
       if (current != null && !current.isAnonymous) {
@@ -421,7 +452,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         if (mounted) setState(() {});
         return;
       }
-      if (!kIsWeb && AppSessionStability.hasReturningSessionHints()) {
+      if (hasHints || AppSessionStability.hasReturningSessionHints()) {
         final restored =
             await PersistentAuthSessionService.currentPersistedUser();
         if (restored != null && mounted) {
@@ -1026,19 +1057,18 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
             return _authGateWaitingScaffold(message: 'A ir para o login…');
           }
 
-          final webAuthWaiting = kIsWeb &&
-              snap.connectionState == ConnectionState.waiting &&
-              !_webSessionCapHit;
-          final mobileSessionRestore = !kIsWeb &&
+          final sessionRestorePending =
+              !_webSessionCapHit &&
               (snap.connectionState == ConnectionState.waiting ||
                   AppSessionStability.hasReturningSessionHints());
-          if (webAuthWaiting || mobileSessionRestore) {
+          if (sessionRestorePending) {
             _kickSessionRestore();
             final sticky = AppSessionStability.effectiveAuthUser(
               snap.data,
               connectionState: snap.connectionState,
             );
             if (sticky != null) {
+              _webSessionCapTimer?.cancel();
               return _AuthGateProfileLoader(
                 user: sticky,
                 loadProfile: () => _loadProfile(sticky),
@@ -1047,7 +1077,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
               );
             }
             return _authGateWaitingScaffold(
-              message: kIsWeb ? 'A carregar…' : 'A restaurar a sua sessão…',
+              message: kIsWeb ? 'A restaurar a sua sessão…' : 'A restaurar a sua sessão…',
             );
           }
 
@@ -1062,6 +1092,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         }
 
         _signOutConfirmTimer?.cancel();
+        _webSessionCapTimer?.cancel();
         _scheduledLoginRedirect = false;
         return _AuthGateProfileLoader(
           user: user,

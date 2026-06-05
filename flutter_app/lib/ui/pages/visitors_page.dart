@@ -7,7 +7,10 @@ import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -182,6 +185,41 @@ Future<void> openChurchVisitorFichaFromDashboard(
   }
 }
 
+/// Cache RAM — lista de visitantes instantânea ao reabrir o módulo.
+abstract final class _VisitorsRamCache {
+  _VisitorsRamCache._();
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _byTenant = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(String tenantId) {
+    final key = tenantId.trim();
+    if (key.isEmpty) return null;
+    final hit = _byTenant[key];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byTenant.remove(key);
+      return null;
+    }
+    return hit.docs;
+  }
+
+  static void put(
+    String tenantId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final key = tenantId.trim();
+    if (key.isEmpty || docs.isEmpty) return;
+    _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
+  }
+}
+
 class _VisitorsPageState extends State<VisitorsPage> {
   _TabVisitante _tab = _TabVisitante.doDia;
   String _searchNome = '';
@@ -208,6 +246,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
   int? _filtroAno;
   late Future<QuerySnapshot<Map<String, dynamic>>> _visitantesFuture;
 
+  /// Doc operacional (slug/alias) — resolve em background sem bloquear a lista.
+  String _effectiveTenantId = '';
+
   /// Painel: lista filtrada ao tocar em Este mês / Novos / Acompanhamento / Convertidos.
   _VisitorKpiDrill _kpiDrill = _VisitorKpiDrill.none;
 
@@ -218,31 +259,152 @@ class _VisitorsPageState extends State<VisitorsPage> {
 
   bool get _canManage => churchVisitorManagementRole(widget.role);
 
+  String get _tid =>
+      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
+
   CollectionReference<Map<String, dynamic>> get _visitantesRef =>
       FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('visitantes');
 
   CollectionReference<Map<String, dynamic>> get _membersRef =>
       FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('membros');
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadVisitantes() =>
-      ChurchTenantResilientReads.visitantes(widget.tenantId);
+  static String _visitantesMemKey(String tenantId) =>
+      '${tenantId.trim()}_visitantes_400';
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadVisitantes({
+    bool forceServer = false,
+  }) async {
+    final tid = _tid.trim();
+    if (tid.isEmpty) {
+      return _visitantesRef.limit(1).get();
+    }
+    if (forceServer) {
+      final snap = await FirestoreReadResilience.getQuery(
+        FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(tid)
+            .collection('visitantes')
+            .limit(400),
+        cacheKey: _visitantesMemKey(tid),
+      );
+      if (snap.docs.isNotEmpty) {
+        _VisitorsRamCache.put(tid, snap.docs);
+      }
+      return snap;
+    }
+    return ChurchTenantResilientReads.visitantes(tid);
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadVisitantes() {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return _loadVisitantes();
+
+    final ram = _VisitorsRamCache.peek(seed);
+    if (ram != null && ram.isNotEmpty) {
+      return Future.value(MergedFirestoreQuerySnapshot(ram));
+    }
+
+    final mem = FirestoreReadResilience.peekLastGoodQuery(_visitantesMemKey(seed));
+    if (mem != null && mem.docs.isNotEmpty) {
+      return Future.value(mem);
+    }
+
+    return _loadVisitantes();
+  }
+
+  /// 1.º frame: RAM / memória; tenant operacional + rede em background.
+  Future<void> _openVisitantesFast() async {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return;
+
+    try {
+      final snap = await ChurchTenantResilientReads.visitantes(seed).timeout(
+        const Duration(milliseconds: 1800),
+      );
+      if (!mounted || snap.docs.isEmpty) {
+        // continua para resolver tenant
+      } else {
+        _VisitorsRamCache.put(seed, snap.docs);
+        setState(() {
+          _visitantesFuture = Future.value(snap);
+        });
+      }
+    } catch (_) {}
+
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final op = await TenantResolverService.resolveOperationalChurchDocId(
+        seed,
+        userUid: uid,
+      ).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => _effectiveTenantId.isNotEmpty
+            ? _effectiveTenantId
+            : seed,
+      );
+      if (!mounted) return;
+      if (op.isNotEmpty && op != _effectiveTenantId) {
+        _effectiveTenantId = op;
+      }
+      final tid = _tid.trim();
+      if (tid.isEmpty || tid == seed) {
+        unawaited(_refreshVisitantesBackground());
+        return;
+      }
+      final alt = await ChurchTenantResilientReads.visitantes(tid).timeout(
+        const Duration(seconds: 12),
+      );
+      if (!mounted) return;
+      if (alt.docs.isNotEmpty) {
+        _VisitorsRamCache.put(tid, alt.docs);
+        setState(() {
+          _visitantesFuture = Future.value(alt);
+        });
+      }
+    } catch (_) {}
+
+    unawaited(_refreshVisitantesBackground());
+  }
+
+  Future<void> _refreshVisitantesBackground() async {
+    try {
+      final snap = await _loadVisitantes();
+      if (!mounted || snap.docs.isEmpty) return;
+      _VisitorsRamCache.put(_tid, snap.docs);
+      setState(() {
+        _visitantesFuture = Future.value(snap);
+      });
+    } catch (_) {}
+  }
 
   void _refresh() {
     setState(() {
-      _visitantesFuture = _loadVisitantes();
+      _visitantesFuture = _loadVisitantes(forceServer: true);
     });
   }
 
   @override
   void initState() {
     super.initState();
-    _visitantesFuture = _loadVisitantes();
+    _effectiveTenantId = widget.tenantId;
+    _visitantesFuture = _seedOrLoadVisitantes();
+    unawaited(_openVisitantesFast());
+  }
+
+  @override
+  void didUpdateWidget(covariant VisitorsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _effectiveTenantId = widget.tenantId;
+      _visitantesFuture = _seedOrLoadVisitantes();
+      unawaited(_openVisitantesFast());
+    }
   }
 
   @override

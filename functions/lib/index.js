@@ -34,8 +34,8 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.seedPublicCpfIndex = exports.reportSecurityEvent = exports.bootstrapAdmin = exports.getAdminCheck = exports.getUserProfile = exports.seedFrotaMasterHttp = exports.seedFrotaMaster = exports.migrateFrotaToFrotasveiculo = exports.corrigirBancoFrota = exports.cleanFrotaFromDefault = exports.ensureBrasilParaCristoAccess = exports.getMemberEmailForReset = exports.bulkEnsureMembersAuth = exports.setMemberApproved = exports.masterRelinkMembroAuthUid = exports.purgeMemberFirebaseLogin = exports.setMemberPassword = exports.recreateMemberAuthForNewEmail = exports.alignMemberDocToAuthUid = exports.createMemberLoginFromPublic = exports.createMemberAuthAccountForGestor = exports.syncGestorBrasilParaCristo = exports.seedGestorBrasilParaCristo = exports.createChurchForOnboardingGestor = exports.registerGestorProfile = exports.createChurchAndGestorWithGoogle = exports.consumeUserSignupInvite = exports.getUserSignupInviteInfo = exports.createUserSignupInvite = exports.upsertTenantUser = exports.setUserActive = exports.setUserRole = exports.resolveCpfToEmail = exports.syncMemberRoleClaims = exports.repairMyChurchBinding = exports.resolveEmailToChurchPublic = exports.mpWebhook = exports.mercadoPagoWebhook = exports.createMpPixPayment = exports.createMpPreapproval = exports.backupDailyToGcs = exports.testDriveWriteForChurch = exports.getChurchStorageUsage = exports.archiveChurchMediaNow = exports.archiveChurchMediaToDrive = exports.backupDailyToDrive = exports.ensureGlobalDownloads = exports.ensureDriveFolders = exports.onTenantCreate = exports.resolveCpfToChurchPublic = void 0;
-exports.purgeChurchChatMessagesAdmin = exports.pruneExpiredChurchChatMessages = exports.pruneContribuicoesDizimoHistorico = exports.createChurchDonationPreference = exports.createChurchDonationPix = exports.ensureChurchTreasuryAccountPresets = exports.saveChurchMercadoPagoCredentials = exports.scheduledFornecedorAgendaReminders = exports.onNovoEventoNoticiaPublishedPush = exports.onNovoEventoNoticiaPush = exports.onNovoAvisoMuralPublishedPush = exports.onNovoAvisoMuralPush = exports.onIgrejaChatMessageDeleteCleanupStorage = exports.onIgrejaPatrimonioDeleteCleanupStorage = exports.onIgrejaNoticiaDeleteCleanupStorage = exports.onIgrejaMembroDeleteCleanupStorage = exports.hourlyDevotionalBroadcast = exports.rollingScaleRemindersConfirmed = exports.dayBeforeScaleReminder = exports.dailyBirthdayTopicPush = exports.onEscalaTrocaInviteTarget = exports.respondScheduleSwap = exports.onEscalaImpedimentoNotifyLeaders = exports.notifySchedulePublished = exports.deleteDevotionalEnvio = exports.resendDevotionalEnvio = exports.resendPastoralMessage = exports.updatePastoralMessage = exports.archivePastoralMessage = exports.sendSegmentedPush = exports.processarCertificadosLote = exports.gerarCertificadosEmLote = exports.shareEvento = exports.recordDomainDailyHit = exports.generateThumbnail = exports.onNewMemberLegacy = exports.onNewMember = exports.validateCarteirinhaPublic = exports.refreshCarteiraSignatoriesIndex = exports.carteirinhaValidarHttp = exports.migrateAllIgrejasMembersToMembros = exports.scheduledGerarReceitasRecorrentesPendentes = exports.scheduledMigrateIgrejaMembersToMembros = exports.ensureMigrateMembersToMembros = exports.migrateMembersFull = exports.syncMembersFromUsers = exports.autoGenerateEvents = exports.onScheduleCreate = exports.resolveCpfToChurchPublicFinal = exports.resolveCpfToChurchPublicHttp = void 0;
-exports.scheduledPurgeStalePendingUploads = exports.backfillMemberCodigos = exports.resolveStorageDisplayUrls = exports.getChurchMembersDirectory = exports.scheduledRefreshMasterChurchesList = exports.getMasterChurchesList = exports.scheduledRefreshMasterDashboard = exports.warmChurchPanelFromMaster = exports.getMasterDashboardSnapshot = exports.scheduledRefreshPanelCaches = exports.warmChurchTenantCaches = exports.getChurchPanelSnapshot = exports.onChurchPedidoOracaoWritePanelDashboard = exports.onChurchVisitanteWritePanelDashboard = exports.onChurchDepartamentoWritePanelDashboard = exports.onChurchNoticiaWritePanelDashboard = exports.onChurchAvisoWritePanelDashboard = exports.onChurchMembroWritePanelDashboard = exports.onChurchMembroWriteSyncBirthIndex = exports.recomputePublicSiteMediaPrefetch = exports.warmPublicSiteFeedCache = exports.warmChurchPublicFeedCache = exports.refreshPublicFeedCacheOnNoticiaWrite = exports.refreshPublicFeedCacheOnAvisoWrite = exports.generatePublicFeedCache = exports.generateBirthdayCache = exports.compressVideo = exports.optimizeImage = exports.migrateAllTenantsFirestoreCollections = exports.migrateTenantFirestoreCollections = exports.onChurchFinanceWritePanelSummary = exports.repairChurchChatDmThreads = exports.backfillChurchChatDmThreads = exports.onChurchChatMessageIndexThread = exports.onChurchChatDmThreadWrite = exports.scheduledSyncMembroSessions = exports.onMembroWriteSyncSession = exports.onIgrejaMembroWriteChatPeerProfile = exports.onChurchChatMessageCreated = void 0;
+exports.pruneContribuicoesDizimoHistorico = exports.createChurchDonationPreference = exports.createChurchDonationPix = exports.ensureChurchTreasuryAccountPresets = exports.saveChurchMercadoPagoCredentials = exports.scheduledFinanceVencimento24h = exports.scheduledFinanceDailyDigest = exports.scheduledFornecedorAgendaReminders = exports.onNovoEventoNoticiaPublishedPush = exports.onNovoEventoNoticiaPush = exports.onNovoAvisoMuralPublishedPush = exports.onNovoAvisoMuralPush = exports.onIgrejaChatMessageDeleteCleanupStorage = exports.onIgrejaPatrimonioDeleteCleanupStorage = exports.onIgrejaNoticiaDeleteCleanupStorage = exports.onIgrejaMembroDeleteCleanupStorage = exports.hourlyDevotionalBroadcast = exports.rollingScaleRemindersConfirmed = exports.dayBeforeScaleReminder = exports.dailyBirthdayTopicPush = exports.onEscalaTrocaInviteTarget = exports.respondScheduleSwap = exports.onEscalaImpedimentoNotifyLeaders = exports.notifySchedulePublished = exports.deleteDevotionalEnvio = exports.resendDevotionalEnvio = exports.resendPastoralMessage = exports.updatePastoralMessage = exports.archivePastoralMessage = exports.sendSegmentedPush = exports.processarCertificadosLote = exports.gerarCertificadosEmLote = exports.shareEvento = exports.recordDomainDailyHit = exports.generateThumbnail = exports.onNewMemberLegacy = exports.onNewMember = exports.validateCarteirinhaPublic = exports.refreshCarteiraSignatoriesIndex = exports.carteirinhaValidarHttp = exports.migrateAllIgrejasMembersToMembros = exports.scheduledGerarReceitasRecorrentesPendentes = exports.scheduledMigrateIgrejaMembersToMembros = exports.ensureMigrateMembersToMembros = exports.migrateMembersFull = exports.syncMembersFromUsers = exports.autoGenerateEvents = exports.onScheduleCreate = exports.resolveCpfToChurchPublicFinal = exports.resolveCpfToChurchPublicHttp = void 0;
+exports.scheduledPurgeStalePendingUploads = exports.backfillMemberCodigos = exports.resolveStorageDisplayUrls = exports.getChurchMembersDirectory = exports.scheduledRefreshMasterChurchesList = exports.getMasterChurchesList = exports.scheduledRefreshMasterDashboard = exports.warmChurchPanelFromMaster = exports.getMasterDashboardSnapshot = exports.scheduledRefreshPanelCaches = exports.warmChurchTenantCaches = exports.getChurchPanelSnapshot = exports.onChurchPedidoOracaoWritePanelDashboard = exports.onChurchVisitanteWritePanelDashboard = exports.onChurchDepartamentoWritePanelDashboard = exports.onChurchNoticiaWritePanelDashboard = exports.onChurchAvisoWritePanelDashboard = exports.onChurchMembroWritePanelDashboard = exports.onChurchMembroWriteSyncBirthIndex = exports.recomputePublicSiteMediaPrefetch = exports.warmPublicSiteFeedCache = exports.warmChurchPublicFeedCache = exports.refreshPublicFeedCacheOnNoticiaWrite = exports.refreshPublicFeedCacheOnAvisoWrite = exports.generatePublicFeedCache = exports.generateBirthdayCache = exports.compressVideo = exports.optimizeImage = exports.migrateAllTenantsFirestoreCollections = exports.migrateTenantFirestoreCollections = exports.onChurchFinanceWritePanelSummary = exports.repairChurchChatDmThreads = exports.backfillChurchChatDmThreads = exports.onChurchChatMessageIndexThread = exports.onChurchChatDmThreadWrite = exports.scheduledSyncMembroSessions = exports.onMembroWriteSyncSession = exports.onIgrejaMembroWriteChatPeerProfile = exports.onChurchChatMessageCreated = exports.purgeChurchChatMessagesAdmin = exports.pruneExpiredChurchChatMessages = void 0;
 const functions = __importStar(require("firebase-functions/v1"));
 const params_1 = require("firebase-functions/params");
 const admin = __importStar(require("firebase-admin"));
@@ -43,6 +43,7 @@ const firestore_1 = require("firebase-admin/firestore");
 const churchWelcomeSeed_1 = require("./churchWelcomeSeed");
 const publicSignupEmail_1 = require("./publicSignupEmail");
 const pushNovoConteudo_1 = require("./pushNovoConteudo");
+const memberRegistrationNotify_1 = require("./memberRegistrationNotify");
 const notificationBranding_1 = require("./notificationBranding");
 const receitasRecorrentesScheduled_1 = require("./receitasRecorrentesScheduled");
 const churchMercadoPago_1 = require("./churchMercadoPago");
@@ -5890,18 +5891,12 @@ exports.onNewMember = functions
     const tenantId = String(context.params.tenantId || "").trim();
     const membroId = String(context.params.membroId || "").trim();
     try {
-        await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
-            topic: "admin",
-            title: "⚡ Novo cadastro",
-            body: `${nome} acabou de se cadastrar pelo site público.`,
-            data: {
-                type: "new_member",
-                tenantId,
-                memberId: membroId,
-                click_action: "FLUTTER_NOTIFICATION_CLICK",
-            },
-            module: "generico",
-        }));
+        await (0, memberRegistrationNotify_1.notifyGestoresNewMember)({
+            tenantId,
+            membroId,
+            nome,
+            data,
+        });
     }
     catch (err) {
         functions.logger.error("onNewMember notify error", {
@@ -5956,18 +5951,12 @@ exports.onNewMemberLegacy = functions
     const tenantId = String(context.params.tenantId || "").trim();
     const membroId = String(context.params.membroId || "").trim();
     try {
-        await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
-            topic: "admin",
-            title: "⚡ Novo cadastro",
-            body: `${nome} acabou de se cadastrar pelo site público.`,
-            data: {
-                type: "new_member",
-                tenantId,
-                memberId: membroId,
-                click_action: "FLUTTER_NOTIFICATION_CLICK",
-            },
-            module: "generico",
-        }));
+        await (0, memberRegistrationNotify_1.notifyGestoresNewMember)({
+            tenantId,
+            membroId,
+            nome,
+            data,
+        });
     }
     catch (err) {
         functions.logger.error("onNewMemberLegacy notify error", {
@@ -6081,6 +6070,9 @@ Object.defineProperty(exports, "onNovoEventoNoticiaPush", { enumerable: true, ge
 Object.defineProperty(exports, "onNovoEventoNoticiaPublishedPush", { enumerable: true, get: function () { return pushNovoConteudo_2.onNovoEventoNoticiaPublishedPush; } });
 var fornecedorAgendaReminders_1 = require("./fornecedorAgendaReminders");
 Object.defineProperty(exports, "scheduledFornecedorAgendaReminders", { enumerable: true, get: function () { return fornecedorAgendaReminders_1.scheduledFornecedorAgendaReminders; } });
+var financeVencimentoReminders_1 = require("./financeVencimentoReminders");
+Object.defineProperty(exports, "scheduledFinanceDailyDigest", { enumerable: true, get: function () { return financeVencimentoReminders_1.scheduledFinanceDailyDigest; } });
+Object.defineProperty(exports, "scheduledFinanceVencimento24h", { enumerable: true, get: function () { return financeVencimentoReminders_1.scheduledFinanceVencimento24h; } });
 var churchMercadoPago_2 = require("./churchMercadoPago");
 Object.defineProperty(exports, "saveChurchMercadoPagoCredentials", { enumerable: true, get: function () { return churchMercadoPago_2.saveChurchMercadoPagoCredentials; } });
 Object.defineProperty(exports, "ensureChurchTreasuryAccountPresets", { enumerable: true, get: function () { return churchMercadoPago_2.ensureChurchTreasuryAccountPresets; } });

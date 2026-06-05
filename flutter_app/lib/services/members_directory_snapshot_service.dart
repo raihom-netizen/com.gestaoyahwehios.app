@@ -115,17 +115,59 @@ class MemberDirectoryEntry {
   }
 }
 
+/// Totais agregados — válidos mesmo quando `entries` ainda está a sincronizar.
+class MembersDirectorySummary {
+  const MembersDirectorySummary({
+    this.total = 0,
+    this.ativos = 0,
+    this.inativos = 0,
+    this.pendentes = 0,
+    this.homens = 0,
+    this.mulheres = 0,
+    this.sexoNi = 0,
+  });
+
+  final int total;
+  final int ativos;
+  final int inativos;
+  final int pendentes;
+  final int homens;
+  final int mulheres;
+  final int sexoNi;
+
+  factory MembersDirectorySummary.fromMap(Map<String, dynamic>? raw) {
+    if (raw == null || raw.isEmpty) return const MembersDirectorySummary();
+    int n(dynamic v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
+    return MembersDirectorySummary(
+      total: n(raw['total']),
+      ativos: n(raw['ativos']),
+      inativos: n(raw['inativos']),
+      pendentes: n(raw['pendentes']),
+      homens: n(raw['homens']),
+      mulheres: n(raw['mulheres']),
+      sexoNi: n(raw['sexoNi']),
+    );
+  }
+
+  bool get hasCounts => total > 0 || ativos > 0 || homens > 0 || mulheres > 0;
+}
+
 /// Cache `_panel_cache/members_directory` — lista instantânea no módulo Membros.
 class MembersDirectorySnapshot {
   final int totalCount;
   final List<MemberDirectoryEntry> entries;
+  final MembersDirectorySummary? summary;
 
   const MembersDirectorySnapshot({
     this.totalCount = 0,
     this.entries = const [],
+    this.summary,
   });
 
   bool get hasEntries => entries.isNotEmpty;
+
+  bool get isCompleteForStats =>
+      totalCount > 0 && entries.length >= totalCount;
 
   factory MembersDirectorySnapshot.fromMap(Map<String, dynamic>? raw) {
     if (raw == null || raw.isEmpty) return const MembersDirectorySnapshot();
@@ -139,9 +181,16 @@ class MembersDirectorySnapshot {
                 ))
             .toList()
         : <MemberDirectoryEntry>[];
+    final summaryRaw = raw['summary'];
+    final summary = summaryRaw is Map
+        ? MembersDirectorySummary.fromMap(
+            Map<String, dynamic>.from(summaryRaw),
+          )
+        : null;
     return MembersDirectorySnapshot(
       totalCount: n(raw['totalCount']),
       entries: entries,
+      summary: summary?.hasCounts == true ? summary : null,
     );
   }
 }
@@ -215,25 +264,30 @@ class MembersDirectorySnapshotService {
 
   static const Duration _staleAfter = Duration(minutes: 8);
 
+  static bool _snapshotComplete(MembersDirectorySnapshot snap) {
+    if (!snap.hasEntries) return false;
+    if (snap.totalCount <= 0) return true;
+    return snap.entries.length >= snap.totalCount;
+  }
+
   static Future<MembersDirectorySnapshot> warmFromCallableIfStale(
     String tenantId,
   ) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const MembersDirectorySnapshot();
     final mem = peekMemory(tid);
-    if (mem != null) return mem;
+    if (mem != null && _snapshotComplete(mem)) return mem;
     try {
       final doc = await cacheRef(tid)
           .get(const GetOptions(source: Source.cache))
           .timeout(const Duration(seconds: 3));
       final u = doc.data()?['updatedAt'];
-      if (u is Timestamp &&
+      final cached = MembersDirectorySnapshot.fromMap(doc.data());
+      if (_snapshotComplete(cached) &&
+          u is Timestamp &&
           DateTime.now().difference(u.toDate()) < _staleAfter) {
-        final fresh = MembersDirectorySnapshot.fromMap(doc.data());
-        if (fresh.hasEntries) {
-          rememberInMemory(tid, fresh);
-          return fresh;
-        }
+        rememberInMemory(tid, cached);
+        return cached;
       }
     } catch (_) {}
     return warmFromCallable(tenantId: tid);

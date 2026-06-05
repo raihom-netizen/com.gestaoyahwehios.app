@@ -34,6 +34,7 @@ import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 
 
@@ -454,11 +455,23 @@ abstract final class OptimisticChatMediaUpload {
 
   }) async {
 
+    if (kIsWeb) {
+      unawaited(FirestoreWebGuard.prepareForChatWrite().catchError((_) {}));
+    } else {
+      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+    }
+
     var messageId = pending.firestoreMessageId;
 
     var storagePath = pending.storagePath;
 
     var activeUploadId = uploadDocId ?? '';
+
+    if ((bytes == null || bytes.isEmpty) &&
+        pending.previewBytes != null &&
+        pending.previewBytes!.isNotEmpty) {
+      bytes = pending.previewBytes;
+    }
 
 
 

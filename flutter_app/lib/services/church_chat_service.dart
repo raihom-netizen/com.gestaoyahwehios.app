@@ -27,6 +27,7 @@ import 'church_chat_threads_list_cache.dart';
 import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'analytics_service.dart';
 import 'media_upload_service.dart';
@@ -344,18 +345,20 @@ class ChurchChatService {
     String? peerUid,
     String? peerDisplayName,
   }) async {
-    final batch = _db.batch();
-    batch.set(msgRef, messageData);
-    batch.set(
-      threadRef(tenantId, threadId),
-      threadLastMessageIndexPatch(
-        preview: preview,
-        senderUid: senderUid,
-        messageType: messageType,
-      ),
-      SetOptions(merge: true),
-    );
-    await batch.commit();
+    await FirestoreWebGuard.runChatWriteWithRecovery(() async {
+      final batch = _db.batch();
+      batch.set(msgRef, messageData);
+      batch.set(
+        threadRef(tenantId, threadId),
+        threadLastMessageIndexPatch(
+          preview: preview,
+          senderUid: senderUid,
+          messageType: messageType,
+        ),
+        SetOptions(merge: true),
+      );
+      await batch.commit();
+    });
     unawaited(mergeDmThreadIndexIfNeeded(tenantId, threadId));
     unawaited(
       ChurchChatLocalConversations.recordFromOutbound(
@@ -530,12 +533,13 @@ class ChurchChatService {
   }) async {
     final peerUids = <String>{};
     try {
-      final profiles = await _db
-          .collection('igrejas')
-          .doc(tenantId)
-          .collection('chat_peer_profiles')
-          .limit(YahwehPerformanceV4.chatThreadsFallbackLimit)
-          .get();
+      final profiles = await firestoreQueryGetReliable(
+        _db
+            .collection('igrejas')
+            .doc(tenantId)
+            .collection('chat_peer_profiles')
+            .limit(YahwehPerformanceV4.chatThreadsFallbackLimit),
+      );
       for (final p in profiles.docs) {
         final id = p.id.trim();
         if (id.isNotEmpty && id != uid) peerUids.add(id);
@@ -544,16 +548,19 @@ class ChurchChatService {
 
     // Queries válidas nas regras (participant + indexada).
     try {
-      for (final doc in (await chatThreadsParticipantQuery(tenantId, uid).get())
-          .docs) {
+      for (final doc
+          in (await firestoreQueryGetReliable(
+            chatThreadsParticipantQuery(tenantId, uid),
+          )).docs) {
         if (!doc.id.startsWith('dm_')) continue;
         final peer = otherUidInDmThread(doc.id, uid);
         if (peer != null && peer.isNotEmpty) peerUids.add(peer);
       }
     } catch (_) {}
     try {
-      for (final doc
-          in (await chatThreadsQueryForUser(tenantId, uid).get()).docs) {
+      for (final doc in (await firestoreQueryGetReliable(
+        chatThreadsQueryForUser(tenantId, uid),
+      )).docs) {
         if (!doc.id.startsWith('dm_')) continue;
         final peer = otherUidInDmThread(doc.id, uid);
         if (peer != null && peer.isNotEmpty) peerUids.add(peer);
@@ -569,8 +576,9 @@ class ChurchChatService {
     final col = _db.collection('igrejas').doc(tenantId).collection('chats');
     for (final id in threadIds) {
       try {
-        final snap =
-            await col.where(FieldPath.documentId, isEqualTo: id).limit(1).get();
+        final snap = await firestoreQueryGetReliable(
+          col.where(FieldPath.documentId, isEqualTo: id).limit(1),
+        );
         for (final doc in snap.docs) {
           if (_docIsDmForUserList(doc, uid)) docs.add(doc);
         }
@@ -683,6 +691,7 @@ class ChurchChatService {
         } catch (_) {}
 
         try {
+          await FirestoreWebGuard.prepareForCriticalWrite();
           final fb = await FirestoreWebGuard.runWithWebRecovery(() async {
             await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: false);
             return loadDmThreadsSnapshotFallback(
@@ -1403,6 +1412,41 @@ class ChurchChatService {
     }
   }
 
+  /// Mensagens recebidas (não enviadas por [myUid]) desde a última leitura — badge estilo WhatsApp.
+  static Future<int> threadUnreadInboundCount({
+    required String tenantId,
+    required String threadId,
+    required String myUid,
+    Timestamp? myLastSeenInThread,
+    int scanLimit = 60,
+  }) async {
+    final tid = tenantId.trim();
+    final th = threadId.trim();
+    if (tid.isEmpty || th.isEmpty || myUid.isEmpty) return 0;
+    try {
+      final snap = await messagesCol(tid, th)
+          .orderBy('createdAt', descending: true)
+          .limit(scanLimit)
+          .get();
+      var n = 0;
+      for (final doc in snap.docs) {
+        final d = doc.data();
+        if ((d['senderUid'] ?? '').toString() == myUid) continue;
+        if (messageHiddenForMe(d, myUid)) continue;
+        final created = d['createdAt'];
+        if (created is! Timestamp) continue;
+        if (myLastSeenInThread != null &&
+            !created.toDate().isAfter(myLastSeenInThread.toDate())) {
+          break;
+        }
+        n++;
+      }
+      return n;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   static Future<void> markThreadLastSeen({
     required String tenantId,
     required String threadId,
@@ -1412,10 +1456,12 @@ class ChurchChatService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
     try {
-      await threadRef(tid, threadId).update({
-        'lastSeenAtByUid.$uid': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await FirestoreWebGuard.runChatWriteWithRecovery(
+        () => threadRef(tid, threadId).update({
+          'lastSeenAtByUid.$uid': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }),
+      );
       unawaited(
         markInboundMessagesDelivered(
           tenantId: tid,
@@ -1639,33 +1685,39 @@ class ChurchChatService {
     final outboundStatus = AppConnectivityService.instance.isOnline
         ? deliverySent
         : deliveryLocal;
-    try {
-      await _commitMessageAndThreadIndex(
-        tenantId: tenantId,
-        threadId: threadId,
-        msgRef: msgRef,
-        messageData: {
-          'senderUid': uid,
-          'senderId': uid,
-          'type': 'text',
-          'text': text,
-          'deliveryStatus': outboundStatus,
-          'status': outboundStatus,
-          'createdAt': FieldValue.serverTimestamp(),
-          'expiresAt': expiresAt,
-          if (nr != null) 'replyTo': nr,
-          if (nf != null) 'forwardedFrom': nf,
-          if (label.isNotEmpty) ...{
-            'senderDisplayName':
-                label.length > 100 ? label.substring(0, 100) : label,
-            'senderName':
-                label.length > 100 ? label.substring(0, 100) : label,
+
+    Future<void> commitOnce() => _commitMessageAndThreadIndex(
+          tenantId: tenantId,
+          threadId: threadId,
+          msgRef: msgRef,
+          messageData: {
+            'senderUid': uid,
+            'senderId': uid,
+            'type': 'text',
+            'text': text,
+            'deliveryStatus': outboundStatus,
+            'status': outboundStatus,
+            'createdAt': FieldValue.serverTimestamp(),
+            'expiresAt': expiresAt,
+            if (nr != null) 'replyTo': nr,
+            if (nf != null) 'forwardedFrom': nf,
+            if (label.isNotEmpty) ...{
+              'senderDisplayName':
+                  label.length > 100 ? label.substring(0, 100) : label,
+              'senderName':
+                  label.length > 100 ? label.substring(0, 100) : label,
+            },
+            if (mentions.isNotEmpty) 'mentionedUids': mentions,
           },
-          if (mentions.isNotEmpty) 'mentionedUids': mentions,
-        },
-        preview: preview,
-        senderUid: uid,
-        messageType: 'text',
+          preview: preview,
+          senderUid: uid,
+          messageType: 'text',
+        );
+
+    try {
+      await commitOnce();
+      unawaited(
+        markThreadLastSeen(tenantId: tenantId, threadId: threadId),
       );
       ChurchPublishFlowLog.chatMessageCreated();
       ChurchPublishFlowLog.chatSuccess();
@@ -2222,7 +2274,7 @@ class ChurchChatService {
     }
     final ref = messagesCol(tenantId, threadId).doc(messageId);
     try {
-      await ref.update(patch);
+      await FirestoreWebGuard.runChatWriteWithRecovery(() => ref.update(patch));
     } on FirebaseException catch (e) {
       if (thumbUrl != null &&
           patch.containsKey('thumbUrl') &&

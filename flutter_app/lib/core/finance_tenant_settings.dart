@@ -20,7 +20,9 @@ class FinanceTenantSettings {
 
   static Future<FinanceTenantSettings> load(String tenantId) async {
     try {
-      final d = await docRef(tenantId).get();
+      final d = await docRef(tenantId).get(
+        const GetOptions(source: Source.serverAndCache),
+      );
       if (!d.exists) return const FinanceTenantSettings();
       final m = d.data() ?? {};
       final lim = m['limiteAprovacaoDespesa'];

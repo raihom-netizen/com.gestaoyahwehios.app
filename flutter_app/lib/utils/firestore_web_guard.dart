@@ -171,4 +171,82 @@ class FirestoreWebGuard {
     applyWebFirestoreSettings();
     await ensureWebDatabaseConnected(refreshAuth: true);
   }
+
+  /// Antes de publicar aviso/evento/chat — reduz INTERNAL ASSERTION (SDK 11.x).
+  static Future<void> prepareForCriticalWrite() async {
+    if (!kIsWeb) return;
+    applyWebFirestoreSettings();
+    await recoverFirestoreWebSession(allowHardReconnect: true);
+    await ensureWebDatabaseConnected(refreshAuth: true);
+    await Future<void>.delayed(const Duration(milliseconds: 160));
+  }
+
+  /// Chat (texto/mídia): **não** desliga a rede — listeners do thread ficam activos.
+  static Future<void> prepareForChatWrite() async {
+    if (!kIsWeb) return;
+    applyWebFirestoreSettings();
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && !user.isAnonymous) {
+      try {
+        await user.getIdToken(false);
+      } catch (_) {}
+    }
+    try {
+      await firebaseDefaultFirestore.enableNetwork();
+    } catch (_) {}
+  }
+
+  /// Recuperação progressiva após falha no envio do chat.
+  static Future<void> recoverForChatWrite({required int attempt}) async {
+    if (!kIsWeb) return;
+    if (attempt >= 3) {
+      await recoverFirestoreWebSession(allowHardReconnect: true);
+      await ensureWebDatabaseConnected(refreshAuth: true);
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      return;
+    }
+    await prepareForChatWrite();
+    await Future<void>.delayed(Duration(milliseconds: 70 + attempt * 90));
+  }
+
+  /// Gravação Firestore no chat — retry leve (estilo WhatsApp), rede só em falha grave.
+  static Future<T> runChatWriteWithRecovery<T>(
+    Future<T> Function() fn, {
+    int maxAttempts = 5,
+  }) async {
+    Object? lastError;
+    StackTrace? lastStack;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        if (attempt == 0) {
+          await prepareForChatWrite();
+        } else {
+          debugPrint(
+            'FirestoreWebGuard: chat write retry $attempt/$maxAttempts…',
+          );
+          await recoverForChatWrite(attempt: attempt);
+        }
+        return await fn();
+      } catch (e, st) {
+        lastError = e;
+        lastStack = st;
+        final recoverable = kIsWeb &&
+            (isInternalAssertionError(e) ||
+                isClientTerminated(e) ||
+                e.toString().toLowerCase().contains('client is offline') ||
+                e is FirebaseException &&
+                    (e.code == 'unavailable' ||
+                        e.code == 'internal' ||
+                        e.code == 'unknown' ||
+                        e.code == 'resource-exhausted'));
+        if (!recoverable || attempt >= maxAttempts - 1) {
+          Error.throwWithStackTrace(e, st);
+        }
+      }
+    }
+    Error.throwWithStackTrace(
+      lastError ?? StateError('chat_write_failed'),
+      lastStack ?? StackTrace.current,
+    );
+  }
 }

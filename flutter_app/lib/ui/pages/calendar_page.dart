@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -18,6 +18,8 @@ import 'package:gestao_yahweh/ui/widgets/holiday_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_date_range_picker_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
@@ -55,6 +57,51 @@ class CalendarPage extends StatefulWidget {
   State<CalendarPage> createState() => _CalendarPageState();
 }
 
+/// Cache RAM — eventos da grade instantâneos ao reabrir o mês.
+abstract final class _AgendaRamCache {
+  _AgendaRamCache._();
+
+  static final Map<
+      String,
+      ({
+        Map<String, List<_CalendarEvent>> legacy,
+        Set<String> escalaDayKeys,
+        DateTime at,
+      })> _byKey = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static ({
+    Map<String, List<_CalendarEvent>> legacy,
+    Set<String> escalaDayKeys,
+  })? peek(String key) {
+    final hit = _byKey[key];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byKey.remove(key);
+      return null;
+    }
+    return (legacy: hit.legacy, escalaDayKeys: hit.escalaDayKeys);
+  }
+
+  static void put(
+    String key,
+    Map<String, List<_CalendarEvent>> legacy,
+    Set<String> escalaDayKeys,
+  ) {
+    if (key.trim().isEmpty || legacy.isEmpty) return;
+    final copied = <String, List<_CalendarEvent>>{};
+    for (final e in legacy.entries) {
+      copied[e.key] = List<_CalendarEvent>.from(e.value);
+    }
+    _byKey[key] = (
+      legacy: copied,
+      escalaDayKeys: Set<String>.from(escalaDayKeys),
+      at: DateTime.now(),
+    );
+  }
+}
+
 enum _AgendaViewKind { month, week, list }
 
 class _CalendarPageState extends State<CalendarPage>
@@ -77,6 +124,7 @@ class _CalendarPageState extends State<CalendarPage>
   Set<String> _escalaDayKeys = {};
   bool _loading = false;
   String? _loadError;
+  String _effectiveTenantId = '';
   late final AnimationController _slideCtrl;
   String _listFilter = 'mes_atual';
   DateTime? _periodStart;
@@ -719,41 +767,78 @@ class _CalendarPageState extends State<CalendarPage>
         permissions: widget.permissions,
       );
 
+  String get _tid =>
+      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
+
+  String _agendaCacheKey() {
+    final (rangeStart, rangeEnd) = _computeLoadRange();
+    return '${_tid.trim()}_${_dayKey(rangeStart)}_${_dayKey(rangeEnd)}';
+  }
+
+  void _hydrateAgendaFromRam() {
+    final hit = _AgendaRamCache.peek(_agendaCacheKey());
+    if (hit == null) return;
+    _legacyEventsByDay = hit.legacy;
+    _escalaDayKeys = hit.escalaDayKeys;
+    _loading = false;
+    _loadError = null;
+    _rebuildMerged();
+  }
+
+  Future<void> _bootstrapAgendaTenant() async {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return;
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final op = await TenantResolverService.resolveOperationalChurchDocId(
+        seed,
+        userUid: uid,
+      ).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => _effectiveTenantId.isNotEmpty ? _effectiveTenantId : seed,
+      );
+      if (!mounted || op.isEmpty || op == _tid) return;
+      setState(() => _effectiveTenantId = op);
+      _restartAgendaSubscription();
+      unawaited(_loadEvents());
+    } catch (_) {}
+  }
+
   CollectionReference<Map<String, dynamic>> get _agenda =>
       FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('agenda');
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
       FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('eventos');
 
   CollectionReference<Map<String, dynamic>> get _cultos =>
       FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('cultos');
 
   /// Fallback para igrejas que usam collection igrejas (ex.: O Brasil para Cristo)
   CollectionReference<Map<String, dynamic>> get _noticiasIgrejas =>
       FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('eventos');
   CollectionReference<Map<String, dynamic>> get _cultosIgrejas =>
       FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('cultos');
 
   /// Modelos de evento fixo (pré-cadastro ao escolher o dia).
   CollectionReference<Map<String, dynamic>> get _eventTemplates =>
       FirebaseFirestore.instance
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('event_templates');
 
   static const _keyCustomTipos = 'agenda_tipos_custom';
@@ -767,11 +852,8 @@ class _CalendarPageState extends State<CalendarPage>
 
   Future<void> _loadEventCategories() async {
     try {
-      final q = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('event_categories')
-          .get();
+      final q = await ChurchTenantResilientReads.eventCategories(_tid)
+          .timeout(const Duration(seconds: 6));
       final list = q.docs.toList()
         ..sort((a, b) => (a.data()['nome'] ?? '')
             .toString()
@@ -793,8 +875,7 @@ class _CalendarPageState extends State<CalendarPage>
   @override
   void initState() {
     super.initState();
-    // Evita forçar refresh do token a cada abertura (latência extra no 1.º carregamento).
-    FirebaseAuth.instance.currentUser?.getIdToken();
+    _effectiveTenantId = widget.tenantId;
     _loadCustomTipos();
     unawaited(_loadEventCategories());
     final now = DateTime.now();
@@ -805,8 +886,25 @@ class _CalendarPageState extends State<CalendarPage>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    _loadEvents();
+    _hydrateAgendaFromRam();
+    unawaited(_loadEvents());
     _restartAgendaSubscription();
+    unawaited(_bootstrapAgendaTenant());
+  }
+
+  @override
+  void didUpdateWidget(covariant CalendarPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _effectiveTenantId = widget.tenantId;
+      _legacyEventsByDay = {};
+      _eventsByDay = {};
+      _agendaDocs = [];
+      _hydrateAgendaFromRam();
+      unawaited(_loadEvents());
+      _restartAgendaSubscription();
+      unawaited(_bootstrapAgendaTenant());
+    }
   }
 
   @override
@@ -903,6 +1001,7 @@ class _CalendarPageState extends State<CalendarPage>
 
   void _restartAgendaSubscription() {
     final (rangeStart, rangeEnd) = _computeLoadRange();
+    unawaited(_primeAgendaDocsFromCache(rangeStart, rangeEnd));
     _agendaSub?.cancel();
     _agendaSub = _agenda
         .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
@@ -913,6 +1012,23 @@ class _CalendarPageState extends State<CalendarPage>
       setState(() => _agendaDocs = snap.docs);
       _rebuildMerged();
     });
+  }
+
+  Future<void> _primeAgendaDocsFromCache(
+    DateTime rangeStart,
+    DateTime rangeEnd,
+  ) async {
+    try {
+      final snap = await _agenda
+          .where('startTime',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
+          .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 2));
+      if (!mounted || snap.docs.isEmpty) return;
+      setState(() => _agendaDocs = snap.docs);
+      _rebuildMerged();
+    } catch (_) {}
   }
 
   void _clearAgendaBulkUi() {
@@ -1699,7 +1815,22 @@ class _CalendarPageState extends State<CalendarPage>
 
   Future<void> _loadEvents() async {
     if (!mounted) return;
-    setState(() { _loading = true; _loadError = null; });
+    final cacheKey = _agendaCacheKey();
+    final ram = _AgendaRamCache.peek(cacheKey);
+    if (ram != null) {
+      setState(() {
+        _legacyEventsByDay = ram.legacy;
+        _escalaDayKeys = ram.escalaDayKeys;
+        _loading = false;
+        _loadError = null;
+      });
+      _rebuildMerged();
+    } else if (_legacyEventsByDay.isEmpty) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
     final (rangeStart, rangeEnd) = _computeLoadRange();
     final start = Timestamp.fromDate(rangeStart);
     final end = Timestamp.fromDate(rangeEnd);
@@ -1707,6 +1838,9 @@ class _CalendarPageState extends State<CalendarPage>
     final map = <String, List<_CalendarEvent>>{};
     final seenNoticiaIds = <String>{};
     String? err;
+
+    const getOpts = GetOptions(source: Source.serverAndCache);
+    const timeoutDuration = Duration(seconds: 8);
 
     void addNoticias(QuerySnapshot<Map<String, dynamic>> snap,
         {bool allowStartAtFallback = false}) {
@@ -1786,14 +1920,12 @@ class _CalendarPageState extends State<CalendarPage>
       }
     }
 
-    const timeoutDuration = Duration(seconds: 12);
-
     Future<QuerySnapshot<Map<String, dynamic>>> loadNoticiasPorData() async {
       try {
         return await _noticias
             .where('dataEvento', isGreaterThanOrEqualTo: start)
             .where('dataEvento', isLessThanOrEqualTo: end)
-            .get()
+            .get(getOpts)
             .timeout(timeoutDuration);
       } catch (e) {
         err ??= e is TimeoutException
@@ -1803,7 +1935,7 @@ class _CalendarPageState extends State<CalendarPage>
           final snap = await _noticiasIgrejas
               .where('dataEvento', isGreaterThanOrEqualTo: start)
               .where('dataEvento', isLessThanOrEqualTo: end)
-              .get()
+              .get(getOpts)
               .timeout(timeoutDuration);
           err = null;
           return snap;
@@ -1818,7 +1950,7 @@ class _CalendarPageState extends State<CalendarPage>
         return await _cultos
             .where('data', isGreaterThanOrEqualTo: start)
             .where('data', isLessThanOrEqualTo: end)
-            .get()
+            .get(getOpts)
             .timeout(timeoutDuration);
       } catch (e) {
         err ??= e is TimeoutException
@@ -1828,7 +1960,7 @@ class _CalendarPageState extends State<CalendarPage>
           final snap = await _cultosIgrejas
               .where('data', isGreaterThanOrEqualTo: start)
               .where('data', isLessThanOrEqualTo: end)
-              .get()
+              .get(getOpts)
               .timeout(timeoutDuration);
           err = null;
           return snap;
@@ -1844,7 +1976,7 @@ class _CalendarPageState extends State<CalendarPage>
             .where('type', isEqualTo: 'evento')
             .where('startAt', isGreaterThanOrEqualTo: start)
             .where('startAt', isLessThanOrEqualTo: end)
-            .get()
+            .get(getOpts)
             .timeout(timeoutDuration);
       } catch (_) {
         return null;
@@ -1855,11 +1987,11 @@ class _CalendarPageState extends State<CalendarPage>
       try {
         return await FirebaseFirestore.instance
             .collection('igrejas')
-            .doc(widget.tenantId)
+            .doc(_tid)
             .collection('escalas')
             .where('date', isGreaterThanOrEqualTo: start)
             .where('date', isLessThanOrEqualTo: end)
-            .get()
+            .get(getOpts)
             .timeout(timeoutDuration);
       } catch (_) {
         return null;
@@ -1896,8 +2028,8 @@ class _CalendarPageState extends State<CalendarPage>
     }
 
     try {
-      final tplSnap =
-          await _eventTemplates.where('active', isEqualTo: true).get();
+      final tplSnap = await ChurchTenantResilientReads.eventTemplates(_tid)
+          .timeout(const Duration(seconds: 8));
       final dedupe = <String>{};
       for (final list in map.values) {
         for (final ev in list) {
@@ -1906,6 +2038,7 @@ class _CalendarPageState extends State<CalendarPage>
       }
       for (final doc in tplSnap.docs) {
         final m = doc.data();
+        if (m['active'] == false) continue;
         if (!eventTemplateIncludeInAgenda(m)) continue;
         final title = (m['title'] ?? 'Culto').toString().trim();
         if (title.isEmpty) continue;
@@ -1958,6 +2091,9 @@ class _CalendarPageState extends State<CalendarPage>
         _loading = false;
         _loadError = err;
       });
+      if (map.isNotEmpty) {
+        _AgendaRamCache.put(cacheKey, map, escalaKeys);
+      }
       _rebuildMerged();
     }
   }

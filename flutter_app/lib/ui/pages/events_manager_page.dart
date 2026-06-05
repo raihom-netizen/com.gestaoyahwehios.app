@@ -160,6 +160,82 @@ class EventsManagerPage extends StatefulWidget {
   State<EventsManagerPage> createState() => _EventsManagerPageState();
 }
 
+/// Cache RAM — eventos/notícias instantâneo ao reabrir Feed/Galeria/Dashboard.
+abstract final class _EventosNoticiasRamCache {
+  _EventosNoticiasRamCache._();
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _byTenant = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(String tenantId) {
+    final key = tenantId.trim();
+    if (key.isEmpty) return null;
+    final hit = _byTenant[key];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byTenant.remove(key);
+      return null;
+    }
+    return hit.docs;
+  }
+
+  static void put(
+    String tenantId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final key = tenantId.trim();
+    if (key.isEmpty || docs.isEmpty) return;
+    _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
+  }
+}
+
+String _eventosNoticiasMemKey(String tenantId, int limit) =>
+    '${tenantId.trim()}_noticias_start_$limit';
+
+/// Cache RAM — modelos de culto fixo.
+abstract final class _EventTemplatesRamCache {
+  _EventTemplatesRamCache._();
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _byTenant = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(String tenantId) {
+    final key = tenantId.trim();
+    if (key.isEmpty) return null;
+    final hit = _byTenant[key];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byTenant.remove(key);
+      return null;
+    }
+    return hit.docs;
+  }
+
+  static void put(
+    String tenantId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final key = tenantId.trim();
+    if (key.isEmpty || docs.isEmpty) return;
+    _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
+  }
+}
+
+String _eventTemplatesMemKey(String tenantId) =>
+    '${tenantId.trim()}_event_templates_all';
+
 class _EventsManagerPageState extends State<EventsManagerPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
@@ -204,6 +280,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   void initState() {
     super.initState();
     logYahwehModuleScreen('eventos');
+    _firestoreTenantId = widget.tenantId;
     _tab = TabController(length: _canWrite ? 4 : 2, vsync: this);
     final startIndex =
         widget.initialTabIndex.clamp(0, (_tab.length - 1).clamp(0, 99)) as int;
@@ -252,33 +329,35 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 
   Future<void> _bootstrapFirestoreTenant() async {
-    await ensureFirebaseReadyForPublishUpload().catchError((_) {});
-    await PerformanceService.track('load_events', () async {
-      final uid = firebaseDefaultAuth.currentUser?.uid;
-      try {
-        final tid = await TenantResolverService
-            .resolveEffectiveTenantIdPreferringUserBinding(
-          widget.tenantId,
-          userUid: uid,
-        );
-        if (!mounted) return;
+    unawaited(ensureFirebaseReadyForPublishUpload().catchError((_) {}));
+    final uid = firebaseDefaultAuth.currentUser?.uid;
+    try {
+      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+        widget.tenantId,
+        userUid: uid,
+      ).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => _firestoreTenantId ?? widget.tenantId,
+      );
+      if (!mounted) return;
+      if (tid.isNotEmpty && tid != _tid) {
         setState(() => _firestoreTenantId = tid);
-        await _loadTenantDoc();
-      } catch (_) {
-        if (!mounted) return;
-        setState(() => _firestoreTenantId = widget.tenantId);
-        await _loadTenantDoc();
+        _fixosTabKey.currentState?._refresh();
+        _feedTabKey.currentState?._refresh();
       }
-    });
+      unawaited(_loadTenantDoc());
+    } catch (_) {
+      unawaited(_loadTenantDoc());
+    }
   }
 
   Future<void> _loadTenantDoc() async {
     try {
-      await ensureFirebaseReadyForPublishUpload();
       final snap = await firebaseDefaultFirestore
           .collection('igrejas')
           .doc(_tid)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 8));
       if (mounted) setState(() => _tenantData = snap.data());
     } catch (_) {}
   }
@@ -1255,6 +1334,7 @@ class _GalleryArchiveTab extends StatefulWidget {
 
 class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+  QuerySnapshot<Map<String, dynamic>>? _lastGoodGallerySnap;
   final TextEditingController _searchCtrl = TextEditingController();
   String _order = 'recent_first';
   String _period = 'all';
@@ -1267,7 +1347,47 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   @override
   void initState() {
     super.initState();
-    _future = _load();
+    _future = _seedOrLoadGallery();
+    unawaited(_openGalleryFast());
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadGallery() {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return _load();
+
+    final ram = _EventosNoticiasRamCache.peek(seed);
+    if (ram != null && ram.isNotEmpty) {
+      final snap = MergedFirestoreQuerySnapshot(ram);
+      _lastGoodGallerySnap = snap;
+      return Future.value(snap);
+    }
+
+    final mem = FirestoreReadResilience.peekLastGoodQuery(
+      _eventosNoticiasMemKey(seed, 250),
+    );
+    if (mem != null && mem.docs.isNotEmpty) {
+      _lastGoodGallerySnap = mem;
+      return Future.value(mem);
+    }
+
+    return _load();
+  }
+
+  Future<void> _openGalleryFast() async {
+    final tid = widget.tenantId.trim();
+    if (tid.isEmpty) return;
+    try {
+      final snap = await ChurchTenantResilientReads.noticiasByStartAt(
+        tid,
+        limit: 250,
+      ).timeout(const Duration(milliseconds: 1800));
+      if (!mounted || snap.docs.isEmpty) return;
+      _EventosNoticiasRamCache.put(tid, snap.docs);
+      setState(() {
+        _lastGoodGallerySnap = snap;
+        _future = Future.value(snap);
+      });
+    } catch (_) {}
   }
 
   @override
@@ -1276,8 +1396,17 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     super.dispose();
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _load() =>
-      ChurchTenantResilientReads.noticiasByStartAt(widget.tenantId, limit: 250);
+  Future<QuerySnapshot<Map<String, dynamic>>> _load() async {
+    final snap = await ChurchTenantResilientReads.noticiasByStartAt(
+      widget.tenantId,
+      limit: 250,
+    );
+    if (snap.docs.isNotEmpty) {
+      _EventosNoticiasRamCache.put(widget.tenantId, snap.docs);
+      _lastGoodGallerySnap = snap;
+    }
+    return snap;
+  }
 
   Future<void> _refresh() async {
     setState(() => _future = _load());
@@ -1435,10 +1564,24 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
           );
         }
         if (snap.connectionState != ConnectionState.done || !snap.hasData) {
+          final fallback = _lastGoodGallerySnap;
+          if (fallback != null && fallback.docs.isNotEmpty) {
+            return _buildGalleryBody(fallback, now: DateTime.now());
+          }
           return const _FeedSkeleton();
         }
+        _lastGoodGallerySnap = snap.data;
         final now = DateTime.now();
-        var docs = snap.data!.docs
+        return _buildGalleryBody(snap.data!, now: now);
+      },
+    );
+  }
+
+  Widget _buildGalleryBody(
+    QuerySnapshot<Map<String, dynamic>> snap, {
+    required DateTime now,
+  }) {
+        var docs = snap.docs
             .where((d) =>
                 noticiaDocEhEventoSpecialFeed(d) &&
                 noticiaEventoEspecialCaiuDoFeedParaGaleria(d.data(), now))
@@ -1537,7 +1680,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
           }
         });
         final categories = <String>{
-          for (final d in snap.data!.docs)
+          for (final d in snap.docs)
             (d.data()['eventCategoryId'] ?? '').toString().trim()
         }.where((c) => c.isNotEmpty).toList()
           ..sort();
@@ -1968,8 +2111,6 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
             ],
           ),
         );
-      },
-    );
   }
 
   Widget _miniChip(IconData icon, String label) {
@@ -2181,24 +2322,65 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
   final _nome = TextEditingController();
   Color _selectedColor = _palette[0];
   bool _saving = false;
+  bool _loadingList = true;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = [];
 
-  CollectionReference<Map<String, dynamic>> get _col => FirebaseFirestore
-      .instance
-      .collection('igrejas')
-      .doc(widget.tenantId)
-      .collection('event_categories');
+  Future<String> _operationalTenantId() =>
+      TenantResolverService.resolveOperationalChurchDocId(
+        widget.tenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
+
+  CollectionReference<Map<String, dynamic>> _colFor(String tid) =>
+      firebaseDefaultFirestore
+          .collection('igrejas')
+          .doc(tid)
+          .collection('event_categories');
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_reloadList());
+  }
+
+  Future<void> _reloadList() async {
+    if (mounted) setState(() => _loadingList = true);
+    try {
+      final q = await ChurchTenantResilientReads.eventCategories(
+        widget.tenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
+      final list = q.docs.toList()
+        ..sort((a, b) => (a.data()['nome'] ?? '')
+            .toString()
+            .toLowerCase()
+            .compareTo((b.data()['nome'] ?? '').toString().toLowerCase()));
+      if (mounted) {
+        setState(() {
+          _docs = list;
+          _loadingList = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingList = false);
+    }
+  }
 
   Future<void> _add() async {
     final nome = _nome.text.trim();
     if (nome.isEmpty) return;
     setState(() => _saving = true);
     try {
-      await _col.add({
-        'nome': nome,
-        'cor': _selectedColor.value,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      final tid = await _operationalTenantId();
+      await FirestoreWebGuard.runChatWriteWithRecovery(
+        () => _colFor(tid).add({
+          'nome': nome,
+          'cor': _selectedColor.value,
+          'createdAt': FieldValue.serverTimestamp(),
+        }),
+      );
       _nome.clear();
+      await _reloadList();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Categoria adicionada.'),
@@ -2207,7 +2389,7 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Erro: $e'),
+          content: Text(formatUploadErrorForUser(e)),
           backgroundColor: ThemeCleanPremium.error,
         ));
       }
@@ -2237,7 +2419,10 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
     );
     if (ok != true) return;
     try {
-      await doc.reference.delete();
+      await FirestoreWebGuard.runChatWriteWithRecovery(
+        () => doc.reference.delete(),
+      );
+      await _reloadList();
       if (mounted) setState(() {});
     } catch (e) {
       if (mounted) {
@@ -2339,53 +2524,41 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
                 label: Text(_saving ? 'Salvando…' : 'Adicionar'),
               ),
               const SizedBox(height: 16),
-              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: _col.snapshots(),
-                builder: (context, snap) {
-                  if (!snap.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final docs = snap.data!.docs.toList()
-                    ..sort((a, b) => (a.data()['nome'] ?? '')
-                        .toString()
-                        .toLowerCase()
-                        .compareTo(
-                            (b.data()['nome'] ?? '').toString().toLowerCase()));
-                  if (docs.isEmpty) {
-                    return Text(
-                      'Nenhuma categoria ainda.',
-                      style: TextStyle(color: Colors.grey.shade600),
-                    );
-                  }
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text('Cadastradas',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: Colors.grey.shade800)),
-                      const SizedBox(height: 8),
-                      ...docs.map((d) {
-                        final nome = (d.data()['nome'] ?? d.id).toString();
-                        final cor = d.data()['cor'];
-                        final color = cor is int ? Color(cor) : Colors.grey;
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: CircleAvatar(
-                            backgroundColor: color,
-                            radius: 12,
-                          ),
-                          title: Text(nome),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline_rounded),
-                            onPressed: () => _delete(d),
-                          ),
-                        );
-                      }),
-                    ],
-                  );
-                },
-              ),
+              if (_loadingList)
+                const Center(child: CircularProgressIndicator())
+              else if (_docs.isEmpty)
+                Text(
+                  'Nenhuma categoria ainda.',
+                  style: TextStyle(color: Colors.grey.shade600),
+                )
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('Cadastradas',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey.shade800)),
+                    const SizedBox(height: 8),
+                    ..._docs.map((d) {
+                      final nome = (d.data()['nome'] ?? d.id).toString();
+                      final cor = d.data()['cor'];
+                      final color = cor is int ? Color(cor) : Colors.grey;
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: CircleAvatar(
+                          backgroundColor: color,
+                          radius: 12,
+                        ),
+                        title: Text(nome),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded),
+                          onPressed: () => _delete(d),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
             ],
           ),
         ),
@@ -2427,6 +2600,8 @@ class _FeedTab extends StatefulWidget {
 }
 
 class _FeedTabState extends State<_FeedTab> {
+  static const int _feedEventsLimit = 60;
+
   late Future<QuerySnapshot<Map<String, dynamic>>> _eventsFuture;
   QuerySnapshot<Map<String, dynamic>>? _lastGoodEventsSnap;
   bool _showingOfflineEvents = false;
@@ -2443,7 +2618,77 @@ class _FeedTabState extends State<_FeedTab> {
         widget.initialFeedSearchQuery!.trim().isNotEmpty) {
       _searchCtrl.text = widget.initialFeedSearchQuery!.trim();
     }
-    _eventsFuture = _loadEvents();
+    _eventsFuture = _seedOrLoadEvents();
+    unawaited(_primeEventsFromCache());
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadEvents() {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return _loadEvents();
+
+    final ram = _EventosNoticiasRamCache.peek(seed);
+    if (ram != null && ram.isNotEmpty) {
+      final docs = ram.length > _feedEventsLimit
+          ? ram.sublist(0, _feedEventsLimit)
+          : ram;
+      final snap = MergedFirestoreQuerySnapshot(docs);
+      _lastGoodEventsSnap = snap;
+      return Future.value(snap);
+    }
+
+    final mem = FirestoreReadResilience.peekLastGoodQuery(
+      _eventosNoticiasMemKey(seed, _feedEventsLimit),
+    );
+    if (mem != null && mem.docs.isNotEmpty) {
+      _lastGoodEventsSnap = mem;
+      return Future.value(mem);
+    }
+
+    return _loadEvents();
+  }
+
+  Future<void> _primeEventsFromCache() async {
+    final tid = widget.tenantId.trim();
+    if (tid.isEmpty) return;
+
+    void applySnap(QuerySnapshot<Map<String, dynamic>> snap) {
+      if (!mounted || snap.docs.isEmpty) return;
+      setState(() {
+        _lastGoodEventsSnap = snap;
+        _eventsFuture = Future.value(snap);
+      });
+    }
+
+    try {
+      final snap = await ChurchTenantResilientReads.noticiasByStartAt(
+        tid,
+        limit: _feedEventsLimit,
+      ).timeout(const Duration(milliseconds: 1800));
+      if (snap.docs.isNotEmpty) {
+        _EventosNoticiasRamCache.put(tid, snap.docs);
+        applySnap(snap);
+        return;
+      }
+    } catch (_) {}
+
+    if (_lastGoodEventsSnap != null && _lastGoodEventsSnap!.docs.isNotEmpty) {
+      return;
+    }
+
+    try {
+      final cacheSnap = await firebaseDefaultFirestore
+          .collection('igrejas')
+          .doc(tid)
+          .collection(ChurchTenantPostsCollections.eventos)
+          .orderBy('startAt', descending: true)
+          .limit(_feedEventsLimit)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
+      if (cacheSnap.docs.isNotEmpty) {
+        _EventosNoticiasRamCache.put(tid, cacheSnap.docs);
+        applySnap(cacheSnap);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -2457,11 +2702,14 @@ class _FeedTabState extends State<_FeedTab> {
       final snap = await FirestoreWebGuard.runWithWebRecovery(() {
         return ChurchTenantResilientReads.noticiasByStartAt(
           widget.tenantId,
-          limit: 200,
-        ).timeout(const Duration(seconds: 14));
+          limit: _feedEventsLimit,
+        ).timeout(const Duration(seconds: 10));
       });
       _lastGoodEventsSnap = snap;
       _showingOfflineEvents = false;
+      if (snap.docs.isNotEmpty) {
+        _EventosNoticiasRamCache.put(widget.tenantId, snap.docs);
+      }
       return snap;
     } catch (_) {
       final mem = _lastGoodEventsSnap;
@@ -2475,7 +2723,7 @@ class _FeedTabState extends State<_FeedTab> {
             .doc(widget.tenantId)
             .collection(ChurchTenantPostsCollections.eventos)
             .orderBy('startAt', descending: true)
-            .limit(200)
+            .limit(_feedEventsLimit)
             .get(const GetOptions(source: Source.cache))
             .timeout(const Duration(seconds: 4));
         if (cacheSnap.docs.isNotEmpty) {
@@ -5591,14 +5839,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         await ImmediateFeedPhotoAttach.ensureDraftPost(
           docRef: _eventDocRef,
           isNewDoc: true,
-          tenantId: widget.tenantId,
+          tenantId: _editorTenantId,
           postType: 'evento',
           title: _title.text,
         );
         _eventDraftEnsured = true;
       }
       final url = await ImmediateFeedPhotoAttach.uploadSingleSlot(
-        tenantId: widget.tenantId,
+        tenantId: _editorTenantId,
         postType: 'evento',
         postId: _eventDocRef.id,
         slotIndex: slot,
@@ -5694,6 +5942,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   /// null = a comprimir / a preparar; 0–1 = progresso real do upload ao Storage.
   double? _videoUploadFraction;
   bool _buscandoCep = false;
+  bool _loadingChurchAddress = false;
+  String? _operationalTenantId;
+
+  String get _editorTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
 
   /// Novo evento: mesmo id desde o init, para vídeos ficarem em paths estáveis `…/eventos/videos/{id}_v0.mp4`.
   late final DocumentReference<Map<String, dynamic>> _eventDocRef;
@@ -5711,21 +5964,57 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final endereco = (data['endereco'] ?? '').toString().trim();
     if (endereco.isNotEmpty) return endereco;
     final rua = (data['rua'] ?? data['address'] ?? '').toString().trim();
+    final numero = (data['numero'] ?? '').toString().trim();
+    final quadra = (data['quadraLoteNumero'] ??
+            data['quadraLote'] ??
+            data['quadra_lote'] ??
+            '')
+        .toString()
+        .trim();
     final bairro = (data['bairro'] ?? '').toString().trim();
     final cidade =
         (data['cidade'] ?? data['localidade'] ?? '').toString().trim();
     final estado = (data['estado'] ?? data['uf'] ?? '').toString().trim();
-    final cep = (data['cep'] ?? '').toString().trim();
+    final cep = _onlyDigits((data['cep'] ?? '').toString());
     final parts = <String>[];
-    if (rua.isNotEmpty) parts.add(rua);
+    if (rua.isNotEmpty) {
+      parts.add(numero.isNotEmpty ? '$rua, Nº $numero' : rua);
+    } else if (numero.isNotEmpty) {
+      parts.add('Nº $numero');
+    }
+    if (quadra.isNotEmpty) parts.add('Qd/Lt $quadra');
     if (bairro.isNotEmpty) parts.add(bairro);
-    if (cidade.isNotEmpty && estado.isNotEmpty)
+    if (cidade.isNotEmpty && estado.isNotEmpty) {
       parts.add('$cidade - $estado');
-    else if (cidade.isNotEmpty)
+    } else if (cidade.isNotEmpty) {
       parts.add(cidade);
-    else if (estado.isNotEmpty) parts.add(estado);
-    if (cep.isNotEmpty) parts.add('CEP $cep');
+    } else if (estado.isNotEmpty) {
+      parts.add(estado);
+    }
+    if (cep.length == 8) parts.add('CEP ${_formatCepDisplay(cep)}');
     return parts.join(', ');
+  }
+
+  void _fillManualFieldsFromTenant(Map<String, dynamic> data) {
+    final cepDigits = _onlyDigits((data['cep'] ?? '').toString());
+    if (cepDigits.length == 8) {
+      _cep.text = _formatCepDisplay(cepDigits);
+    }
+    _logradouro.text =
+        (data['rua'] ?? data['address'] ?? data['endereco'] ?? '')
+            .toString()
+            .trim();
+    _numero.text = (data['numero'] ?? '').toString().trim();
+    _bairro.text = (data['bairro'] ?? '').toString().trim();
+    _cidade.text =
+        (data['cidade'] ?? data['localidade'] ?? '').toString().trim();
+    _uf.text = (data['estado'] ?? data['uf'] ?? '').toString().trim();
+    _quadraLote.text = (data['quadraLoteNumero'] ??
+            data['quadraLote'] ??
+            data['quadra_lote'] ??
+            '')
+        .toString()
+        .trim();
   }
 
   void _sairModoIgreja() {
@@ -5738,9 +6027,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Future<void> _usarEnderecoIgreja() async {
+    if (_loadingChurchAddress) return;
+    setState(() => _loadingChurchAddress = true);
     try {
-      final snap = await ChurchTenantResilientReads.churchDocument(widget.tenantId);
-      final data = snap.data() ?? {};
+      final bundle = await ChurchTenantResilientReads.loadChurchAddressBundle(
+        _editorTenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
+      final data = bundle.tenantData;
       final endereco = _buildEnderecoFromTenant(data);
       if (endereco.isEmpty) {
         if (mounted) {
@@ -5755,8 +6049,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final lng = data['longitude'];
       if (mounted) {
         setState(() {
+          _operationalTenantId = bundle.firestoreTenantId;
           _useChurchLocation = true;
           _churchAddressText = endereco;
+          _fillManualFieldsFromTenant(data);
           _locationLat = lat is num
               ? lat.toDouble()
               : (lat != null ? double.tryParse(lat.toString()) : null);
@@ -5766,18 +6062,22 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
-            'Endereço da igreja selecionado. Use “Editar endereço manual” para trocar por CEP.',
+            'Endereço da igreja aplicado. Use «Definir por CEP / manual» para outro local.',
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-              'Erro ao carregar igreja: ${formatFirebaseErrorForUser(e)}',
-            ),
-            backgroundColor: ThemeCleanPremium.error));
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.errorSnackBarWithRetry(
+            'Não foi possível ler o endereço da igreja agora. '
+            'Pode preencher o local manualmente ou tentar de novo.',
+            onRetry: _usarEnderecoIgreja,
+          ),
+        );
       }
+    } finally {
+      if (mounted) setState(() => _loadingChurchAddress = false);
     }
   }
 
@@ -5993,10 +6293,23 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     } catch (_) {}
     _publicSite = data['publicSite'] != false;
     _galleryPermanent = data['galleryPermanent'] == true;
-    unawaited(_loadCategories());
+    unawaited(_bootstrapEventForm());
     if (widget.doc != null) {
       unawaited(_refreshAgendaLinkFromFirestore());
     }
+  }
+
+  Future<void> _bootstrapEventForm() async {
+    try {
+      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+        widget.tenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
+      if (mounted && tid.trim().isNotEmpty) {
+        setState(() => _operationalTenantId = tid.trim());
+      }
+    } catch (_) {}
+    await _loadCategories();
   }
 
   Future<void> _refreshAgendaLinkFromFirestore() async {
@@ -6118,7 +6431,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _loadCategories() async {
     setState(() => _loadingCategories = true);
     try {
-      final q = await ChurchTenantResilientReads.eventCategories(widget.tenantId);
+      final q = await ChurchTenantResilientReads.eventCategories(
+        _editorTenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
       final list = q.docs.toList()
         ..sort((a, b) => (a.data()['nome'] ?? '')
             .toString()
@@ -6919,6 +7235,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
+  Future<void> _waitForInFlightPhotoUploads() async {
+    const maxWait = Duration(seconds: 22);
+    final deadline = DateTime.now().add(maxWait);
+    while (_inFlightPhotoUploads > 0 && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+    }
+  }
+
   Future<void> _save() async {
     if (_saving) return;
     if (_mediaPicking) {
@@ -6942,6 +7266,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       await AppFinalizeBootstrap.ensureSessionForPublish(
         logLabel: 'evento_save',
       );
+      await _waitForInFlightPhotoUploads();
       ChurchPublishFlowLog.eventoStart();
       await FeedPublishPreflight.prepareForFirestoreSave(
         inFlightCount: () => _inFlightPhotoUploads,
@@ -6978,7 +7303,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           }
           await FeedMediaPublishService.publish(
             docRef: docRef,
-            tenantId: widget.tenantId,
+            tenantId: _editorTenantId,
             postId: postId,
             postType: 'evento',
             corePayload: payload,
@@ -7864,7 +8189,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Use o CEP para preencher rua, bairro e cidade; complete número, quadra/lote e ponto de referência. Ou use o endereço cadastrado da igreja.',
+                  'Use o endereço da igreja com um toque ou preencha manualmente (CEP ou campos abaixo).',
                   style: TextStyle(
                       fontSize: 12.5,
                       height: 1.35,
@@ -7939,6 +8264,55 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     ),
                   )
                 else ...[
+                  FilledButton.icon(
+                    onPressed:
+                        _loadingChurchAddress ? null : _usarEnderecoIgreja,
+                    icon: _loadingChurchAddress
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.church_rounded,
+                            size: 20, color: Colors.white),
+                    label: Text(
+                      _loadingChurchAddress
+                          ? 'A carregar endereço…'
+                          : 'Usar endereço da igreja (cadastro)',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.green.shade700,
+                      minimumSize: Size(double.infinity, minTouch),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(child: Divider(color: Colors.grey.shade300)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Text(
+                          'ou CEP / manual',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                      Expanded(child: Divider(color: Colors.grey.shade300)),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -8111,25 +8485,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                                   : Colors.grey.shade900),
                         ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: minTouch),
-                    child: FilledButton.icon(
-                      onPressed: _usarEnderecoIgreja,
-                      icon: const Icon(Icons.church_rounded,
-                          size: 20, color: Colors.white),
-                      label: const Text('Usar endereço da igreja (cadastro)',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w600)),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
-                        minimumSize: Size(double.infinity, minTouch),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 14),
-                      ),
                     ),
                   ),
                 ],
@@ -8469,6 +8824,7 @@ class _FixosTabState extends State<_FixosTab> {
   static const _wn = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
   static const _wdEvento = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
   late Future<QuerySnapshot<Map<String, dynamic>>> _templatesFuture;
+  QuerySnapshot<Map<String, dynamic>>? _lastGoodTemplatesSnap;
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _proximosNoticiasFuture;
   String _fixFilterPeriod = 'all';
   bool _selectMode = false;
@@ -8486,12 +8842,88 @@ class _FixosTabState extends State<_FixosTab> {
   @override
   void initState() {
     super.initState();
-    _templatesFuture = _load();
+    _templatesFuture = _seedOrLoadTemplates();
     _proximosNoticiasFuture = _loadProximosNoticias();
+    unawaited(_primeTemplatesFromCache());
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadTemplates() {
+    final tid = widget.templates.parent?.id ?? '';
+    if (tid.isEmpty) return _load();
+
+    final ram = _EventTemplatesRamCache.peek(tid);
+    if (ram != null && ram.isNotEmpty) {
+      final snap = MergedFirestoreQuerySnapshot(ram);
+      _lastGoodTemplatesSnap = snap;
+      return Future.value(snap);
+    }
+
+    final mem = FirestoreReadResilience.peekLastGoodQuery(
+      _eventTemplatesMemKey(tid),
+    );
+    if (mem != null && mem.docs.isNotEmpty) {
+      _lastGoodTemplatesSnap = mem;
+      return Future.value(mem);
+    }
+
+    return _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FixosTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldTid = oldWidget.templates.parent?.id ?? '';
+    final newTid = widget.templates.parent?.id ?? '';
+    if (oldTid != newTid && newTid.isNotEmpty) {
+      _templatesFuture = _seedOrLoadTemplates();
+      _proximosNoticiasFuture = _loadProximosNoticias();
+      unawaited(_primeTemplatesFromCache());
+      setState(() {});
+    }
+  }
+
+  Future<void> _primeTemplatesFromCache() async {
+    final tid = widget.templates.parent?.id ?? '';
+    if (tid.isEmpty) return;
+
+    try {
+      final snap = await ChurchTenantResilientReads.eventTemplates(tid).timeout(
+        const Duration(milliseconds: 1800),
+      );
+      if (!mounted || snap.docs.isEmpty) return;
+      _EventTemplatesRamCache.put(tid, snap.docs);
+      setState(() {
+        _lastGoodTemplatesSnap = snap;
+        _templatesFuture = Future.value(snap);
+      });
+    } catch (_) {}
+
+    if (_lastGoodTemplatesSnap != null) return;
+
+    try {
+      final snap = await widget.templates
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
+      if (!mounted || snap.docs.isEmpty) return;
+      _EventTemplatesRamCache.put(tid, snap.docs);
+      setState(() {
+        _lastGoodTemplatesSnap = snap;
+        _templatesFuture = Future.value(snap);
+      });
+    } catch (_) {}
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _load() async {
-    return widget.templates.get();
+    final tid = widget.templates.parent?.id ?? '';
+    if (tid.isEmpty) return const MergedFirestoreQuerySnapshot([]);
+    final snap = await FirestoreWebGuard.runWithWebRecovery(
+      () => ChurchTenantResilientReads.eventTemplates(tid),
+    );
+    if (snap.docs.isNotEmpty) {
+      _EventTemplatesRamCache.put(tid, snap.docs);
+      _lastGoodTemplatesSnap = snap;
+    }
+    return snap;
   }
 
   static int _timeSortMinutes(String t) {
@@ -8524,8 +8956,6 @@ class _FixosTabState extends State<_FixosTab> {
   /// Próximos eventos em [noticias]: feed (especiais), agenda/gerados e instâncias com data.
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadProximosNoticias() async {
-    // Token em cache: evita ida forçada à rede a cada abertura da lista.
-    await firebaseDefaultAuth.currentUser?.getIdToken();
     final now = DateTime.now();
     final rangeStart = DateTime(now.year, now.month, now.day);
     final rangeEnd = rangeStart.add(const Duration(days: 400));
@@ -9221,11 +9651,16 @@ class _FixosTabState extends State<_FixosTab> {
             onRetry: _refresh,
           );
         }
-        if (snap.connectionState != ConnectionState.done || !snap.hasData) {
+        QuerySnapshot<Map<String, dynamic>>? effectiveSnap = snap.data;
+        if ((snap.connectionState != ConnectionState.done || !snap.hasData) &&
+            _lastGoodTemplatesSnap != null &&
+            _lastGoodTemplatesSnap!.docs.isNotEmpty) {
+          effectiveSnap = _lastGoodTemplatesSnap;
+        }
+        if (effectiveSnap == null) {
           return const ChurchPanelLoadingBody();
         }
-        final docs = snap.data!.docs.toList()
-          ..sort(_compareTemplates);
+        final docs = effectiveSnap.docs.toList()..sort(_compareTemplates);
         if (docs.isEmpty) {
           return FutureBuilder<
               List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
@@ -10012,22 +10447,53 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
   String? _error;
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (_stats.isEmpty) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    final tid = widget.noticias.parent?.id ?? '';
     try {
       QuerySnapshot<Map<String, dynamic>> snap;
-      try {
-        snap = await widget.noticias
-            .orderBy('startAt', descending: true)
-            .limit(YahwehPerformanceV4.dashboardStatsSampleLimit)
-            .get();
-      } catch (_) {
-        // Fallback sem orderBy (evita exigir índice no Firestore).
-        snap = await widget.noticias
-            .limit(YahwehPerformanceV4.dashboardStatsSampleLimit)
-            .get();
+      final ram = tid.isNotEmpty ? _EventosNoticiasRamCache.peek(tid) : null;
+      if (ram != null && ram.isNotEmpty) {
+        snap = MergedFirestoreQuerySnapshot(ram);
+      } else {
+        final mem = tid.isNotEmpty
+            ? FirestoreReadResilience.peekLastGoodQuery(
+                _eventosNoticiasMemKey(
+                  tid,
+                  YahwehPerformanceV4.dashboardStatsSampleLimit,
+                ),
+              )
+            : null;
+        if (mem != null && mem.docs.isNotEmpty) {
+          snap = mem;
+        } else {
+          try {
+            snap = await FirestoreWebGuard.runWithWebRecovery(
+              () => FirestoreReadResilience.getQuery(
+                widget.noticias
+                    .orderBy('startAt', descending: true)
+                    .limit(YahwehPerformanceV4.dashboardStatsSampleLimit),
+                cacheKey: '${tid}_eventos_dashboard_stats',
+              ),
+            );
+          } catch (_) {
+            snap = await FirestoreWebGuard.runWithWebRecovery(
+              () => FirestoreReadResilience.getQuery(
+                widget.noticias.limit(
+                  YahwehPerformanceV4.dashboardStatsSampleLimit,
+                ),
+                cacheKey: '${tid}_eventos_dashboard_plain',
+              ),
+            );
+          }
+        }
+      }
+      if (snap.docs.isNotEmpty && tid.isNotEmpty) {
+        _EventosNoticiasRamCache.put(tid, snap.docs);
       }
       var allSorted = snap.docs.where(noticiaDocEhEventoSpecialFeed).toList();
       if (allSorted.length > 1 &&
@@ -10073,6 +10539,44 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       }
       legend.sort((a, b) => b.count.compareTo(a.count));
       var eventDocs = allSorted.take(_maxEvents).toList();
+      final list = <_EventStats>[];
+      for (final d in eventDocs) {
+        final data = d.data();
+        final title = (data['title'] ?? 'Evento').toString();
+        final rsvp = (data['rsvp'] as List?)?.length ?? 0;
+        final likes = (data['likes'] as List?)?.length ?? 0;
+        list.add(_EventStats(
+            title: title,
+            rsvp: rsvp,
+            likes: likes,
+            comments: 0,
+            eventRef: d.reference));
+      }
+      if (mounted) {
+        setState(() {
+          _stats = list;
+          _categoryPieSections = pieSections;
+          _categoryLegend = legend;
+          _loading = false;
+        });
+      }
+      unawaited(_enrichDashboardCommentCounts(eventDocs, list));
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _enrichDashboardCommentCounts(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> eventDocs,
+    List<_EventStats> base,
+  ) async {
+    if (eventDocs.isEmpty || !mounted) return;
+    try {
       final commentCounts = await Future.wait<int>(
         eventDocs.map((d) async {
           try {
@@ -10084,34 +10588,20 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
           }
         }),
       );
-      final list = <_EventStats>[];
+      if (!mounted) return;
+      final enriched = <_EventStats>[];
       for (var i = 0; i < eventDocs.length; i++) {
-        final d = eventDocs[i];
-        final data = d.data();
-        final title = (data['title'] ?? 'Evento').toString();
-        final rsvp = (data['rsvp'] as List?)?.length ?? 0;
-        final likes = (data['likes'] as List?)?.length ?? 0;
-        list.add(_EventStats(
-            title: title,
-            rsvp: rsvp,
-            likes: likes,
-            comments: commentCounts[i],
-            eventRef: d.reference));
+        final b = base[i];
+        enriched.add(_EventStats(
+          title: b.title,
+          rsvp: b.rsvp,
+          likes: b.likes,
+          comments: commentCounts[i],
+          eventRef: b.eventRef,
+        ));
       }
-      if (mounted)
-        setState(() {
-          _stats = list;
-          _categoryPieSections = pieSections;
-          _categoryLegend = legend;
-          _loading = false;
-        });
-    } catch (e) {
-      if (mounted)
-        setState(() {
-          _error = e.toString();
-          _loading = false;
-        });
-    }
+      setState(() => _stats = enriched);
+    } catch (_) {}
   }
 
   @override

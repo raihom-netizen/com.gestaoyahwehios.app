@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
@@ -1024,8 +1025,17 @@ class FinancePage extends StatefulWidget {
 class _FinancePageState extends State<FinancePage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabCtrl;
-  late final CollectionReference<Map<String, dynamic>> _financeCol;
-  late final DocumentReference<Map<String, dynamic>> _tenantRef;
+  /// Mesmo critério que Eventos/Chat: doc operacional (cluster irmão) ganha sobre hint.
+  String? _firestoreTenantId;
+  bool _financeBootstrapDone = false;
+  String get _tid => (_firestoreTenantId ?? widget.tenantId).trim();
+
+  DocumentReference<Map<String, dynamic>> get _tenantRef =>
+      firebaseDefaultFirestore.collection('igrejas').doc(_tid);
+
+  CollectionReference<Map<String, dynamic>> get _financeCol =>
+      _tenantRef.collection('finance');
+
   /// Incrementado após salvar/excluir lançamento — atualiza Resumo + Lançamentos.
   int _financeRevision = 0;
   final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
@@ -1053,6 +1063,16 @@ class _FinancePageState extends State<FinancePage>
     setState(() => _financeRevision++);
   }
 
+  void _prewarmFinanceCaches(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    unawaited(ChurchTenantResilientReads.financeRecent(
+      tid,
+      limit: YahwehPerformanceV4.financeChartsSampleLimit,
+    ));
+    unawaited(ChurchTenantResilientReads.contas(tid));
+  }
+
   void _scheduleFinanceRealtimeRefresh() {
     _financeRealtimeDebounce?.cancel();
     _financeRealtimeDebounce = Timer(const Duration(milliseconds: 300), () {
@@ -1071,26 +1091,64 @@ class _FinancePageState extends State<FinancePage>
       _financeCol.limit(1).snapshots().listen((_) => _scheduleFinanceRealtimeRefresh()),
       db
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('contas')
           .limit(1)
           .snapshots()
           .listen((_) => _scheduleFinanceRealtimeRefresh()),
       db
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_tid)
           .collection('despesas_fixas')
           .limit(1)
           .snapshots()
           .listen((_) => _scheduleFinanceRealtimeRefresh()),
       db
           .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('receitas_fixas')
+          .doc(_tid)
+          .collection('receitas_recorrentes')
           .limit(1)
           .snapshots()
           .listen((_) => _scheduleFinanceRealtimeRefresh()),
     ]);
+  }
+
+  Future<void> _bootstrapFirestoreTenant() async {
+    if (!mounted) return;
+    final hint = widget.tenantId.trim();
+    setState(() {
+      _firestoreTenantId = hint.isEmpty ? null : hint;
+      _financeBootstrapDone = true;
+    });
+    _startFinanceRealtimeSync();
+    unawaited(_resolveOperationalTenantInBackground());
+  }
+
+  Future<void> _resolveOperationalTenantInBackground() async {
+    try {
+      final uid = firebaseDefaultAuth.currentUser?.uid;
+      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+        widget.tenantId,
+        userUid: uid,
+      ).timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      if (tid.trim().isNotEmpty && tid != _firestoreTenantId) {
+        setState(() => _firestoreTenantId = tid);
+        _notifyFinanceChanged();
+      }
+      final effective = _tid;
+      unawaited(
+        Future.wait([
+          ChurchTenantResilientReads.financeRecent(
+            effective,
+            limit: YahwehPerformanceV4.financeChartsSampleLimit,
+          ),
+          ChurchTenantResilientReads.contas(effective),
+          ChurchTenantResilientReads.despesasFixas(effective),
+          ChurchTenantResilientReads.receitasRecorrentes(effective),
+        ]).catchError((_) => <void>[]),
+      );
+    } catch (_) {}
   }
 
   @override
@@ -1101,10 +1159,8 @@ class _FinancePageState extends State<FinancePage>
     final rawTab = widget.initialTabIndex ?? 0;
     final idx = rawTab < 0 ? 0 : (rawTab > 7 ? 7 : rawTab);
     _tabCtrl = TabController(length: 8, vsync: this, initialIndex: idx);
-    _tenantRef =
-        firebaseDefaultFirestore.collection('igrejas').doc(widget.tenantId);
-    _financeCol = _tenantRef.collection('finance');
-    _startFinanceRealtimeSync();
+    unawaited(_bootstrapFirestoreTenant());
+    _prewarmFinanceCaches(widget.tenantId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_warmupBankBrandingAssets());
     });
@@ -1118,19 +1174,23 @@ class _FinancePageState extends State<FinancePage>
   void didUpdateWidget(covariant FinancePage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _startFinanceRealtimeSync();
-      _notifyFinanceChanged();
+      setState(() {
+        _firestoreTenantId = null;
+        _financeBootstrapDone = false;
+      });
+      unawaited(_bootstrapFirestoreTenant());
     }
   }
 
   Future<void> _openPendingLancamento(String id) async {
     if (!mounted) return;
     try {
+      await _bootstrapFirestoreTenant();
       final doc = await _financeCol.doc(id).get();
       if (!doc.exists || !mounted) return;
       _tabCtrl.index = 1;
       final ok = await showFinanceLancamentoEditorForTenant(context,
-          tenantId: widget.tenantId,
+          tenantId: _tid,
           existingDoc: doc,
           panelRole: widget.role);
       if (ok && mounted) _notifyFinanceChanged();
@@ -1167,6 +1227,27 @@ class _FinancePageState extends State<FinancePage>
     final moduleEntry = kChurchShellNavEntries[ChurchShellIndices.financeiro];
     final moduleAccent = moduleEntry.accent;
     final shellChrome = widget.onShellBack != null && isMobile;
+
+    if (!_financeBootstrapDone) {
+      return Scaffold(
+        backgroundColor: ThemeCleanPremium.surfaceVariant,
+        appBar: showAppBar
+            ? AppBar(
+                leading: canPop
+                    ? IconButton(
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        onPressed: () => Navigator.maybePop(context),
+                        tooltip: 'Voltar')
+                    : null,
+                elevation: 0,
+                backgroundColor: ThemeCleanPremium.primary,
+                foregroundColor: Colors.white,
+                title: const Text('Financeiro'),
+              )
+            : null,
+        body: const ChurchPanelLoadingBody(),
+      );
+    }
 
     if (!AppPermissions.canViewFinance(
       widget.role,
@@ -1488,41 +1569,43 @@ class _FinancePageState extends State<FinancePage>
             controller: _tabCtrl,
             children: [
               _ResumoTab(
-                key: ValueKey('resumo_${widget.tenantId}_$_financeRevision'),
+                key: ValueKey('resumo_${_tid}_$_financeRevision'),
                 financeCol: _financeCol,
-                tenantId: widget.tenantId,
+                tenantId: _tid,
                 role: widget.role,
                 financeRevision: _financeRevision,
                 onFinanceChanged: _notifyFinanceChanged,
               ),
               _LancamentosTab(
-                key: ValueKey('lanc_${widget.tenantId}_$_financeRevision'),
+                key: ValueKey('lanc_${_tid}_$_financeRevision'),
                 financeCol: _financeCol,
-                tenantId: widget.tenantId,
+                tenantId: _tid,
                 role: widget.role,
                 onFinanceChanged: _notifyFinanceChanged,
               ),
               _DespesasFixasTab(
-                tenantId: widget.tenantId,
+                key: ValueKey('desp_fixas_$_tid'),
+                tenantId: _tid,
                 role: widget.role,
               ),
               FinanceReceitasFixasTab(
-                tenantId: widget.tenantId,
+                key: ValueKey('rec_fixas_$_tid'),
+                tenantId: _tid,
                 role: widget.role,
               ),
               FinanceConciliacaoReceitasTab(
-                tenantId: widget.tenantId,
+                tenantId: _tid,
                 role: widget.role,
               ),
-              _FinanceCategoriasTab(tenantId: widget.tenantId),
+              _FinanceCategoriasTab(tenantId: _tid),
               _FinanceContasTab(
-                tenantId: widget.tenantId,
+                tenantId: _tid,
                 role: widget.role,
                 onEditLancamento: (ctx, doc) =>
                     _showLancamentoDialog(ctx, doc: doc),
               ),
               RelatorioFinanceiroPage(
-                tenantId: widget.tenantId,
+                tenantId: _tid,
                 embeddedInFinanceModule: true,
                 onEmbeddedBackToResumo: () {
                   if (_tabCtrl.index != 0) {
@@ -1545,7 +1628,7 @@ class _FinancePageState extends State<FinancePage>
   Future<void> _showLancamentoDialog(BuildContext context,
       {DocumentSnapshot<Map<String, dynamic>>? doc}) async {
     final ok = await showFinanceLancamentoEditorForTenant(context,
-        tenantId: widget.tenantId,
+        tenantId: _tid,
         existingDoc: doc,
         panelRole: widget.role);
     if (ok && mounted) _notifyFinanceChanged();
@@ -1601,7 +1684,7 @@ class _FinancePageState extends State<FinancePage>
 
   Future<void> _exportarPdf(BuildContext context) async {
     final signers =
-        await _pickFinancePdfSigners(context, tenantId: widget.tenantId);
+        await _pickFinancePdfSigners(context, tenantId: _tid);
     if (!mounted || signers == null) return;
     final snap = await _financeCol
         .orderBy('createdAt', descending: true)
@@ -1610,7 +1693,7 @@ class _FinancePageState extends State<FinancePage>
     if (!mounted) return;
     await exportFinanceiroRelatorioPdf(
       context: context,
-      tenantId: widget.tenantId,
+      tenantId: _tid,
       docs: snap.docs,
       filename: 'financeiro_relatorio.pdf',
       leftSignerName: signers.leftName,
@@ -1708,6 +1791,8 @@ class _FinanceContasResumoStrip extends StatelessWidget {
   final String role;
   final CollectionReference<Map<String, dynamic>> financeCol;
   final VoidCallback onFinanceChanged;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> financeDocs;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> contasDocs;
 
   const _FinanceContasResumoStrip({
     super.key,
@@ -1715,6 +1800,8 @@ class _FinanceContasResumoStrip extends StatelessWidget {
     required this.role,
     required this.financeCol,
     required this.onFinanceChanged,
+    required this.financeDocs,
+    required this.contasDocs,
   });
 
   @override
@@ -1722,40 +1809,19 @@ class _FinanceContasResumoStrip extends StatelessWidget {
     final mesRef = DateTime(DateTime.now().year, DateTime.now().month, 1);
     final mesLabel = DateFormat('MMMM yyyy', 'pt_BR').format(mesRef);
 
-    return FutureBuilder<List<dynamic>>(
-      future: Future.wait([
-        financeCol.orderBy('createdAt', descending: true).get(),
-        firebaseDefaultFirestore
-            .collection('igrejas')
-            .doc(tenantId)
-            .collection('contas')
-            .orderBy('nome')
-            .get(),
-      ]),
-      builder: (context, snap) {
-        if (!snap.hasData) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: LinearProgressIndicator(
-              borderRadius: BorderRadius.circular(8),
-              backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.08),
-            ),
-          );
-        }
-        final fin = snap.data![0] as QuerySnapshot<Map<String, dynamic>>;
-        final contas = snap.data![1] as QuerySnapshot<Map<String, dynamic>>;
-        final totais = _totaisReceitaDespesaPorContaNoMes(fin.docs, mesRef);
-        final contasAtivas = contas.docs.where((c) => c.data()['ativo'] != false).toList();
+    final totais = _totaisReceitaDespesaPorContaNoMes(financeDocs, mesRef);
+    final contasAtivas =
+        contasDocs.where((c) => c.data()['ativo'] != false).toList();
 
-        double gReceitas = 0, gDespesas = 0;
-        for (final t in totais.values) {
-          gReceitas += t.receitas;
-          gDespesas += t.despesas;
-        }
-        final gSaldo = gReceitas - gDespesas;
-        final nf = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+    double gReceitas = 0, gDespesas = 0;
+    for (final t in totais.values) {
+      gReceitas += t.receitas;
+      gDespesas += t.despesas;
+    }
+    final gSaldo = gReceitas - gDespesas;
+    final nf = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
-        Future<void> openExtrato({String? contaId, required String title}) async {
+    Future<void> openExtrato({String? contaId, required String title}) async {
           await Navigator.push<void>(
             context,
             MaterialPageRoute(
@@ -2105,8 +2171,6 @@ class _FinanceContasResumoStrip extends StatelessWidget {
             ],
           ),
         );
-      },
-    );
   }
 
   /// Barra fina Receitas vs Despesas no mês (visual premium; o saldo fica na linha de cima).
@@ -2200,6 +2264,7 @@ class _ResumoTabState extends State<_ResumoTab> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
   late Future<QuerySnapshot<Map<String, dynamic>>> _futureContas;
   late Future<FinanceTenantSettings> _futureSettings;
+  late Future<List<dynamic>> _combinedFuture;
   String _periodFilter = 'mes_atual';
   DateTime? _periodStart;
   DateTime? _periodEnd;
@@ -2271,21 +2336,29 @@ class _ResumoTabState extends State<_ResumoTab> {
   @override
   void initState() {
     super.initState();
+    _reloadFutures();
+  }
+
+  void _reloadFutures() {
     _future = ChurchTenantResilientReads.financeRecent(
         widget.tenantId,
         limit: YahwehPerformanceV4.financeChartsSampleLimit);
     _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
     _futureSettings = FinanceTenantSettings.load(widget.tenantId);
+    _combinedFuture = Future.wait([_future, _futureContas, _futureSettings]);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ResumoTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId ||
+        oldWidget.financeRevision != widget.financeRevision) {
+      setState(_reloadFutures);
+    }
   }
 
   Future<void> _refresh() async {
-    setState(() {
-      _future = ChurchTenantResilientReads.financeRecent(
-        widget.tenantId,
-        limit: YahwehPerformanceV4.financeChartsSampleLimit);
-      _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
-      _futureSettings = FinanceTenantSettings.load(widget.tenantId);
-    });
+    setState(_reloadFutures);
   }
 
   Widget _buildPieChart(List<MapEntry<String, double>> entries, double total,
@@ -2397,7 +2470,7 @@ class _ResumoTabState extends State<_ResumoTab> {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<dynamic>>(
-      future: Future.wait([_future, _futureContas, _futureSettings]),
+      future: _combinedFuture,
       builder: (context, snap) {
         if (snap.hasError) {
           return ChurchPanelErrorBody(
@@ -2558,6 +2631,8 @@ class _ResumoTabState extends State<_ResumoTab> {
                 role: widget.role,
                 financeCol: widget.financeCol,
                 onFinanceChanged: widget.onFinanceChanged,
+                financeDocs: allDocs,
+                contasDocs: contasDocs,
               ),
               const SizedBox(height: ThemeCleanPremium.spaceLg),
               // Filtros por período
@@ -3378,28 +3453,28 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
       final n = DateTime.now();
       _mesRefM = DateTime(n.year, n.month, 1);
     }
-    _future = widget.financeCol
-        .orderBy('createdAt', descending: true)
-        .limit(_fetchLimit)
-        .get();
+    _future = ChurchTenantResilientReads.financeRecent(
+      widget.tenantId,
+      limit: _fetchLimit,
+    );
   }
 
   void _loadMoreLancamentos() {
     setState(() {
       _fetchLimit += YahwehPerformanceV4.defaultPageSize;
-      _future = widget.financeCol
-          .orderBy('createdAt', descending: true)
-          .limit(_fetchLimit)
-          .get();
+      _future = ChurchTenantResilientReads.financeRecent(
+        widget.tenantId,
+        limit: _fetchLimit,
+      );
     });
   }
 
   void _refresh() {
     setState(() {
-      _future = widget.financeCol
-          .orderBy('createdAt', descending: true)
-          .limit(_fetchLimit)
-          .get();
+      _future = ChurchTenantResilientReads.financeRecent(
+        widget.tenantId,
+        limit: _fetchLimit,
+      );
     });
   }
 
@@ -4119,36 +4194,48 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   String _filtroContaId = '__geral__';
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
   late Future<QuerySnapshot<Map<String, dynamic>>> _futureContas;
+  late Future<List<dynamic>> _combinedFuture;
+  int _financeFetchLimit = YahwehPerformanceV4.financeListInitialLimit;
+
+  void _reloadFutures() {
+    _future = ChurchTenantResilientReads.financeRecent(
+      widget.tenantId,
+      limit: _financeFetchLimit,
+    );
+    _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
+    _combinedFuture = Future.wait([_future, _futureContas]);
+  }
+
+  void _loadMoreFinanceLancamentos() {
+    setState(() {
+      _financeFetchLimit += YahwehPerformanceV4.financeListPageStep;
+      _reloadFutures();
+    });
+  }
 
   @override
   void initState() {
     super.initState();
-    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
-    _future = widget.financeCol.orderBy('createdAt', descending: true).get();
-    _futureContas = firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(widget.tenantId)
-        .collection('contas')
-        .orderBy('nome')
-        .get();
+    _reloadFutures();
+  }
+
+  @override
+  void didUpdateWidget(covariant _LancamentosTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId ||
+        oldWidget.financeCol.path != widget.financeCol.path) {
+      setState(_reloadFutures);
+    }
   }
 
   void _refresh() {
-    setState(() {
-      _future = widget.financeCol.orderBy('createdAt', descending: true).get();
-      _futureContas = firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
-          .collection('contas')
-          .orderBy('nome')
-          .get();
-    });
+    setState(_reloadFutures);
   }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<dynamic>>(
-      future: Future.wait([_future, _futureContas]),
+      future: _combinedFuture,
       builder: (context, snap) {
         if (snap.hasError) {
           return ChurchPanelErrorBody(
@@ -4847,6 +4934,13 @@ class _LancamentosTabState extends State<_LancamentosTab> {
                 ),
               ),
             ),
+              if ((financeSnap?.docs.length ?? 0) >= _financeFetchLimit)
+                SliverToBoxAdapter(
+                  child: LazyLoadMoreFooter(
+                    label: 'Carregar mais lançamentos',
+                    onLoadMore: _loadMoreFinanceLancamentos,
+                  ),
+                ),
             ],
           ),
         );
@@ -5252,7 +5346,11 @@ class _DespesasFixasTab extends StatefulWidget {
   final String tenantId;
   final String role;
 
-  const _DespesasFixasTab({required this.tenantId, required this.role});
+  const _DespesasFixasTab({
+    super.key,
+    required this.tenantId,
+    required this.role,
+  });
 
   @override
   State<_DespesasFixasTab> createState() => _DespesasFixasTabState();
@@ -5267,17 +5365,26 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
 
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
 
+  void _reloadFuture() {
+    _future = ChurchTenantResilientReads.despesasFixas(widget.tenantId);
+  }
+
   @override
   void initState() {
     super.initState();
-    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
-    _future = _col.orderBy('descricao').get();
+    _reloadFuture();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DespesasFixasTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      setState(_reloadFuture);
+    }
   }
 
   void _refresh() {
-    setState(() {
-      _future = _col.orderBy('descricao').get();
-    });
+    setState(_reloadFuture);
   }
 
   @override
@@ -6510,13 +6617,12 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
   @override
   void initState() {
     super.initState();
-    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
-    _future = _col.orderBy('nome').get();
+    _future = ChurchTenantResilientReads.contas(widget.tenantId);
   }
 
   void _refresh() {
     setState(() {
-      _future = _col.orderBy('nome').get();
+      _future = ChurchTenantResilientReads.contas(widget.tenantId);
     });
   }
 

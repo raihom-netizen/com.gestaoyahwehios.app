@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Recuperação automática de mensagens presas (`sending` / `uploading` / `queued`).
 ///
@@ -42,6 +43,83 @@ abstract final class ChurchChatAutoRecoveryService {
     } catch (e, st) {
       YahwehFlowLog.error('CHAT', e, st);
     }
+  }
+
+  /// Ao abrir um thread — recupera envios presos desta conversa (cutoff mais curto).
+  static Future<int> recoverStuckForThread({
+    required String tenantId,
+    required String threadId,
+    required String uid,
+    Duration maxAge = const Duration(minutes: 4),
+  }) async {
+    if (tenantId.trim().isEmpty || threadId.trim().isEmpty || uid.isEmpty) {
+      return 0;
+    }
+    final cutoff = DateTime.now().subtract(maxAge);
+    var fixed = 0;
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> stuck;
+    try {
+      final snap = await ChurchChatService.messagesCol(tenantId, threadId)
+          .where('senderUid', isEqualTo: uid)
+          .where('deliveryStatus', whereIn: _stuckStatuses)
+          .orderBy('createdAt', descending: true)
+          .limit(20)
+          .get();
+      stuck = snap.docs;
+    } catch (_) {
+      try {
+        final snap = await ChurchChatService.messagesCol(tenantId, threadId)
+            .orderBy('createdAt', descending: true)
+            .limit(25)
+            .get();
+        stuck = snap.docs.where((d) {
+          final data = d.data();
+          if ((data['senderUid'] ?? '').toString() != uid) return false;
+          final ds =
+              (data['deliveryStatus'] ?? data['status'] ?? '').toString();
+          return _stuckStatuses.contains(ds);
+        }).toList();
+      } catch (e, st) {
+        YahwehFlowLog.error('CHAT', e, st);
+        return 0;
+      }
+    }
+
+    for (final doc in stuck) {
+      final data = doc.data();
+      final created = data['createdAt'];
+      if (created is Timestamp && created.toDate().isAfter(cutoff)) {
+        continue;
+      }
+      final type = (data['type'] ?? 'text').toString();
+      final mediaUrl = (data['mediaUrl'] ?? data['fileUrl'] ?? '').toString();
+      if (mediaUrl.trim().isNotEmpty) {
+        try {
+          await FirestoreWebGuard.runWithWebRecovery(() => doc.reference.update({
+                'deliveryStatus': ChurchChatService.deliverySent,
+                'status': ChurchChatService.deliverySent,
+                'uploadProgress': 1,
+              }));
+          fixed++;
+          continue;
+        } catch (e, st) {
+          YahwehFlowLog.error('CHAT', e, st);
+        }
+      }
+      if (type != 'text') {
+        try {
+          await ChurchChatService.abandonMediaUploadMessage(
+            tenantId: tenantId,
+            threadId: threadId,
+            messageId: doc.id,
+          );
+          fixed++;
+        } catch (e, st) {
+          YahwehFlowLog.error('CHAT', e, st);
+        }
+      }
+    }
+    return fixed;
   }
 
   static Future<int> recoverStuckForTenant(

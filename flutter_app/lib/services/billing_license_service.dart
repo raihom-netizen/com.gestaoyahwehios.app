@@ -160,12 +160,14 @@ class BillingLicenseService {
     await ref.set({
       'plano': 'free',
       'planId': 'free',
+      'isFree': true,
       'adminBlocked': false,
       'status': 'ativa',
       'ativa': true,
       'status_assinatura': 'active',
       'data_bloqueio': FieldValue.delete(),
       'data_vencimento': FieldValue.delete(),
+      'expiresAt': FieldValue.delete(),
       'masterInactive': FieldValue.delete(),
       'siteDisabled': FieldValue.delete(),
       'license': {
@@ -223,6 +225,7 @@ class BillingLicenseService {
     final patch = <String, dynamic>{
       'plano': planId,
       'planId': planId,
+      'isFree': false,
       'adminBlocked': false,
       'status': 'ativa',
       'license': lic,
@@ -236,6 +239,10 @@ class BillingLicenseService {
     if (licenseExpiresAt != null) {
       final ts = Timestamp.fromDate(licenseExpiresAt);
       patch['licenseExpiresAt'] = ts;
+      patch['expiresAt'] = ts;
+      patch['data_vencimento'] = ts;
+      patch['status_assinatura'] = 'active';
+      patch['data_bloqueio'] = FieldValue.delete();
       lic['expiresAt'] = ts;
     }
     await ref.set(patch, SetOptions(merge: true));

@@ -9,6 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/finance_audit_log_service.dart';
 import 'package:gestao_yahweh/services/receitas_recorrentes_geracao_service.dart';
@@ -127,21 +128,26 @@ class _FinanceReceitasFixasTabState extends State<FinanceReceitasFixasTab> {
 
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
 
+  void _reloadFuture() {
+    _future = ChurchTenantResilientReads.receitasRecorrentes(widget.tenantId);
+  }
+
   @override
   void initState() {
     super.initState();
-    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
-    _future = _col
-        .limit(YahwehPerformanceV4.defaultPageSize * 5)
-        .get();
+    _reloadFuture();
+  }
+
+  @override
+  void didUpdateWidget(covariant FinanceReceitasFixasTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      setState(_reloadFuture);
+    }
   }
 
   void _refresh() {
-    setState(() {
-      _future = _col
-          .limit(YahwehPerformanceV4.defaultPageSize * 5)
-          .get();
-    });
+    setState(_reloadFuture);
   }
 
   Future<void> _gerarPendentes() async {
@@ -959,21 +965,20 @@ class _FinanceConciliacaoReceitasTabState
   String _filtroCategoria = 'todas';
   late Future<QuerySnapshot<Map<String, dynamic>>> _contasFuture;
   late Future<List<String>> _catsFuture;
+  late Future<List<dynamic>> _metaFuture;
+
+  void _reloadMetaFutures() {
+    _contasFuture = ChurchTenantResilientReads.contas(widget.tenantId);
+    _catsFuture = _categoriasReceitaTenant(widget.tenantId);
+    _metaFuture = Future.wait([_contasFuture, _catsFuture]);
+  }
 
   @override
   void initState() {
     super.initState();
     final n = DateTime.now();
     _competencia = competenciaFinanceira(n);
-    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
-    _contasFuture = firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(widget.tenantId)
-        .collection('contas')
-        .orderBy('nome')
-        .limit(YahwehPerformanceV4.defaultPageSize * 3)
-        .get();
-    _catsFuture = _categoriasReceitaTenant(widget.tenantId);
+    _reloadMetaFutures();
   }
 
   List<String> _competenciaOpcoes() {
@@ -1234,7 +1239,7 @@ class _FinanceConciliacaoReceitasTabState
               ),
               const SizedBox(height: 8),
               FutureBuilder<List<dynamic>>(
-                future: Future.wait([_contasFuture, _catsFuture]),
+                future: _metaFuture,
                 builder: (context, meta) {
                   if (!meta.hasData) {
                     return const SizedBox(height: 8);

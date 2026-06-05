@@ -24,6 +24,8 @@ export type GyModuleKind =
   | "pastoral"
   | "devocional"
   | "aniversario"
+  | "financeiro"
+  | "membro"
   | "generico"
   | "chat";
 
@@ -43,6 +45,10 @@ export function moduleAccentHex(kind: GyModuleKind): string {
       return "#6366F1";
     case "aniversario":
       return "#E11D48";
+    case "financeiro":
+      return "#37474F";
+    case "membro":
+      return "#2563EB";
     case "generico":
       return "#3B82F6";
     case "chat":

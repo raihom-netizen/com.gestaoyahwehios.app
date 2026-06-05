@@ -1,4 +1,4 @@
-﻿import 'dart:async' show StreamSubscription, Timer, unawaited;
+import 'dart:async' show StreamSubscription, Timer, unawaited;
 import 'dart:io' show File;
 import 'dart:typed_data';
 import 'dart:convert' show jsonDecode;
@@ -43,6 +43,7 @@ import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
@@ -173,6 +174,44 @@ String muralFeedPhotoRefAt(
   return photos[idx];
 }
 
+/// Cache RAM — feed de avisos instantâneo ao reabrir o mural.
+abstract final class _AvisosFeedRamCache {
+  _AvisosFeedRamCache._();
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _byTenant = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(String tenantId) {
+    final key = tenantId.trim();
+    if (key.isEmpty) return null;
+    final hit = _byTenant[key];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byTenant.remove(key);
+      return null;
+    }
+    return hit.docs;
+  }
+
+  static void put(
+    String tenantId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final key = tenantId.trim();
+    if (key.isEmpty || docs.isEmpty) return;
+    _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
+  }
+}
+
+String _avisosFeedMemKey(String tenantId, int limit) =>
+    '${tenantId.trim()}_avisos_feed_$limit';
+
 class InstagramMural extends StatefulWidget {
   final String tenantId;
   final String role;
@@ -271,12 +310,13 @@ class InstagramMuralState extends State<InstagramMural> {
   void initState() {
     super.initState();
     logYahwehModuleScreen('avisos');
-    _feedSkeletonCapTimer = Timer(const Duration(seconds: 8), () {
+    _feedSkeletonCapTimer = Timer(const Duration(milliseconds: 2500), () {
       if (!mounted) return;
       if (_isFeedInitialLoading && _feedRawDocs.isEmpty) {
         setState(() => _isFeedInitialLoading = false);
       }
     });
+    unawaited(_primeFeedFromPersistedCache());
     unawaited(_bootstrapMural());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -327,6 +367,61 @@ class InstagramMuralState extends State<InstagramMural> {
       }
       rethrow;
     }
+  }
+
+  Future<void> _primeFeedFromPersistedCache() async {
+    final tid = widget.tenantId.trim();
+    if (tid.isEmpty) return;
+
+    void applyDocs(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+      if (!mounted || docs.isEmpty) return;
+      setState(() {
+        _feedRawDocs
+          ..clear()
+          ..addAll(docs);
+        _feedLastCursor = _feedRawDocs.isNotEmpty ? _feedRawDocs.last : null;
+        _isFeedInitialLoading = false;
+        _feedLoadError = null;
+      });
+    }
+
+    final ram = _AvisosFeedRamCache.peek(tid);
+    if (ram != null && ram.isNotEmpty) {
+      applyDocs(ram);
+    }
+
+    if (_feedRawDocs.isEmpty) {
+      final mem = FirestoreReadResilience.peekLastGoodQuery(
+        _avisosFeedMemKey(tid, _feedPageSize),
+      );
+      if (mem != null && mem.docs.isNotEmpty) {
+        applyDocs(mem.docs);
+      }
+    }
+
+    try {
+      final snap = await ChurchTenantResilientReads.avisosFeed(
+        tid,
+        limit: _feedPageSize,
+      ).timeout(const Duration(milliseconds: 1800));
+      if (snap.docs.isNotEmpty) {
+        _AvisosFeedRamCache.put(tid, snap.docs);
+        applyDocs(snap.docs);
+      }
+    } catch (_) {}
+
+    if (_feedRawDocs.isNotEmpty) return;
+
+    try {
+      final snap = await _feedBaseQuery()
+          .limit(_feedPageSize)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
+      if (snap.docs.isNotEmpty) {
+        _AvisosFeedRamCache.put(tid, snap.docs);
+        applyDocs(snap.docs);
+      }
+    } catch (_) {}
   }
 
   Future<void> _bootstrapMural() async {
@@ -498,11 +593,10 @@ class InstagramMuralState extends State<InstagramMural> {
     final requestEpoch = ++_feedRequestEpoch;
     setState(() {
       if (reset) {
-        _isFeedInitialLoading = true;
+        _isFeedInitialLoading = _feedRawDocs.isEmpty;
         _feedLoadError = null;
         _hasMoreFeedPages = true;
         _feedLastCursor = null;
-        _feedRawDocs.clear();
       }
       _isFeedPageLoading = true;
     });
@@ -518,7 +612,7 @@ class InstagramMuralState extends State<InstagramMural> {
           return ChurchTenantResilientReads.avisosFeed(
             widget.tenantId,
             limit: _feedPageSize,
-          ).timeout(const Duration(seconds: 12));
+          ).timeout(const Duration(seconds: 8));
         });
       } else {
         snap = await FirestoreWebGuard.runWithWebRecovery(() {
@@ -532,15 +626,24 @@ class InstagramMuralState extends State<InstagramMural> {
       if (!mounted || requestEpoch != _feedRequestEpoch) return;
 
       final nextDocs = snap.docs;
-      final idSeen = <String>{
-        for (final d in _feedRawDocs) d.id,
-      };
-      for (final d in nextDocs) {
-        if (idSeen.add(d.id)) _feedRawDocs.add(d);
+      if (reset) {
+        _feedRawDocs
+          ..clear()
+          ..addAll(nextDocs);
+      } else {
+        final idSeen = <String>{
+          for (final d in _feedRawDocs) d.id,
+        };
+        for (final d in nextDocs) {
+          if (idSeen.add(d.id)) _feedRawDocs.add(d);
+        }
       }
       _feedLastCursor = _feedRawDocs.isNotEmpty ? _feedRawDocs.last : null;
       _hasMoreFeedPages = nextDocs.length >= _feedPageSize;
       _feedLoadError = null;
+      if (_feedRawDocs.isNotEmpty) {
+        _AvisosFeedRamCache.put(widget.tenantId, _feedRawDocs);
+      }
     } catch (e) {
       if (!mounted || requestEpoch != _feedRequestEpoch) return;
       if (_feedRawDocs.isEmpty) {
@@ -3284,14 +3387,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         await ImmediateFeedPhotoAttach.ensureDraftPost(
           docRef: ref,
           isNewDoc: true,
-          tenantId: widget.tenantId,
+          tenantId: _editorTenantId,
           postType: widget.type,
           title: _title.text,
         );
         _draftStubEnsured = true;
       }
       final url = await ImmediateFeedPhotoAttach.uploadSingleSlot(
-        tenantId: widget.tenantId,
+        tenantId: _editorTenantId,
         postType: widget.type,
         postId: ref.id,
         slotIndex: slot,
@@ -3377,7 +3480,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   /// Quando false, o post não aparece no site público (painel/app continuam).
   bool _publicSite = true;
   bool _buscandoCep = false;
+  bool _loadingChurchAddress = false;
   bool _useChurchLocation = false;
+  String? _operationalTenantId;
   String? _churchAddressText;
   double? _locationLat;
   double? _locationLng;
@@ -3455,7 +3560,22 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       }
     } catch (_) {}
     _publicSite = data['publicSite'] != false;
+    unawaited(_resolveOperationalTenantForEditor());
   }
+
+  Future<void> _resolveOperationalTenantForEditor() async {
+    try {
+      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+        widget.tenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
+      if (!mounted || tid.trim().isEmpty) return;
+      setState(() => _operationalTenantId = tid.trim());
+    } catch (_) {}
+  }
+
+  String get _editorTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
 
   /// Monta o endereço completo a partir do doc da igreja (tenant).
   static String _buildEnderecoFromTenant(Map<String, dynamic> data) {
@@ -3464,15 +3584,25 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       return endereco;
     }
     final rua = (data['rua'] ?? data['address'] ?? '').toString().trim();
+    final numero = (data['numero'] ?? '').toString().trim();
+    final quadra = (data['quadraLoteNumero'] ??
+            data['quadraLote'] ??
+            data['quadra_lote'] ??
+            '')
+        .toString()
+        .trim();
     final bairro = (data['bairro'] ?? '').toString().trim();
     final cidade =
         (data['cidade'] ?? data['localidade'] ?? '').toString().trim();
     final estado = (data['estado'] ?? data['uf'] ?? '').toString().trim();
-    final cep = (data['cep'] ?? '').toString().trim();
+    final cep = _onlyDigits((data['cep'] ?? '').toString());
     final parts = <String>[];
     if (rua.isNotEmpty) {
-      parts.add(rua);
+      parts.add(numero.isNotEmpty ? '$rua, Nº $numero' : rua);
+    } else if (numero.isNotEmpty) {
+      parts.add('Nº $numero');
     }
+    if (quadra.isNotEmpty) parts.add('Qd/Lt $quadra');
     if (bairro.isNotEmpty) {
       parts.add(bairro);
     }
@@ -3483,10 +3613,32 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     } else if (estado.isNotEmpty) {
       parts.add(estado);
     }
-    if (cep.isNotEmpty) {
-      parts.add('CEP $cep');
+    if (cep.length == 8) {
+      parts.add('CEP ${_formatCepDisplay(cep)}');
     }
     return parts.join(', ');
+  }
+
+  void _fillManualFieldsFromTenant(Map<String, dynamic> data) {
+    final cepDigits = _onlyDigits((data['cep'] ?? '').toString());
+    if (cepDigits.length == 8) {
+      _cep.text = _formatCepDisplay(cepDigits);
+    }
+    _logradouro.text =
+        (data['rua'] ?? data['address'] ?? data['endereco'] ?? '')
+            .toString()
+            .trim();
+    _numero.text = (data['numero'] ?? '').toString().trim();
+    _bairro.text = (data['bairro'] ?? '').toString().trim();
+    _cidade.text =
+        (data['cidade'] ?? data['localidade'] ?? '').toString().trim();
+    _uf.text = (data['estado'] ?? data['uf'] ?? '').toString().trim();
+    _quadraLote.text = (data['quadraLoteNumero'] ??
+            data['quadraLote'] ??
+            data['quadra_lote'] ??
+            '')
+        .toString()
+        .trim();
   }
 
   void _sairModoIgreja() {
@@ -3499,17 +3651,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   }
 
   Future<void> _usarEnderecoIgreja() async {
+    if (_loadingChurchAddress) return;
+    setState(() => _loadingChurchAddress = true);
     try {
-      DocumentSnapshot<Map<String, dynamic>> snap;
-      try {
-        snap = await ChurchTenantResilientReads.churchDocument(widget.tenantId);
-      } catch (_) {
-        snap = await firebaseDefaultFirestore
-            .collection('igrejas')
-            .doc(widget.tenantId)
-            .get(const GetOptions(source: Source.cache));
-      }
-      final data = snap.data() ?? {};
+      final bundle = await ChurchTenantResilientReads.loadChurchAddressBundle(
+        _editorTenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
+      final data = bundle.tenantData;
       final endereco = _buildEnderecoFromTenant(data);
       if (endereco.isEmpty) {
         if (mounted) {
@@ -3524,8 +3673,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       final lng = data['longitude'];
       if (mounted) {
         setState(() {
+          _operationalTenantId = bundle.firestoreTenantId;
           _useChurchLocation = true;
           _churchAddressText = endereco;
+          _fillManualFieldsFromTenant(data);
           _locationLat = lat is num
               ? lat.toDouble()
               : (lat != null ? double.tryParse(lat.toString()) : null);
@@ -3535,7 +3686,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
-            'Endereço da igreja selecionado. Use “Definir por CEP / manual” para outro local.',
+            'Endereço da igreja aplicado. Use «Definir por CEP / manual» para outro local.',
           ),
         );
       }
@@ -3549,6 +3700,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           ),
         );
       }
+    } finally {
+      if (mounted) setState(() => _loadingChurchAddress = false);
     }
   }
 
@@ -3994,6 +4147,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     return payload;
   }
 
+  Future<void> _waitForInFlightPhotoUploads() async {
+    const maxWait = Duration(seconds: 22);
+    final deadline = DateTime.now().add(maxWait);
+    while (_inFlightPhotoUploads > 0 && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+    }
+  }
+
   Future<void> _save() async {
     if (_saving) return;
     if (_title.text.trim().isEmpty) {
@@ -4006,6 +4167,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       await AppFinalizeBootstrap.ensureSessionForPublish(
         logLabel: 'mural_${widget.type}_save',
       );
+      await _waitForInFlightPhotoUploads();
+      final hasNewImages = _newPhotoCount > 0;
       if (widget.type == 'evento') {
         ChurchPublishFlowLog.eventoStart();
       } else {
@@ -4016,7 +4179,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       );
       final docRef = _editorPostRef;
       final isNewDoc = widget.doc == null && !_draftStubEnsured;
-      final hasNewImages = _newPhotoCount > 0;
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
       if (!hasNewImages && existingUrls.isNotEmpty) {
@@ -4050,7 +4212,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         final n = bytes?.length ?? paths?.length ?? 0;
         await FeedMediaPublishService.publish(
           docRef: docRef,
-          tenantId: widget.tenantId,
+          tenantId: _editorTenantId,
           postId: docRef.id,
           postType: widget.type,
           corePayload: corePayload,
@@ -4587,7 +4749,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'CEP preenche rua, bairro e cidade; complete número, quadra/lote e referência. Ou use o endereço da igreja.',
+                        'Use o endereço da igreja com um toque ou preencha manualmente (CEP ou campos abaixo).',
                         style: TextStyle(
                             fontSize: 12.5,
                             height: 1.35,
@@ -4685,6 +4847,59 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                           ),
                         )
                       else ...[
+                        FilledButton.icon(
+                          onPressed:
+                              _loadingChurchAddress ? null : _usarEnderecoIgreja,
+                          icon: _loadingChurchAddress
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.church_rounded,
+                                  size: 20, color: Colors.white),
+                          label: Text(
+                            _loadingChurchAddress
+                                ? 'A carregar endereço…'
+                                : 'Usar endereço da igreja (cadastro)',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.green.shade700,
+                            minimumSize: const Size(double.infinity,
+                                ThemeCleanPremium.minTouchTarget),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 14),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                                child: Divider(color: Colors.grey.shade300)),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 10),
+                              child: Text(
+                                'ou CEP / manual',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                                child: Divider(color: Colors.grey.shade300)),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -4861,24 +5076,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                                 ),
                               ),
                             ],
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        FilledButton.icon(
-                          onPressed: _usarEnderecoIgreja,
-                          icon: const Icon(Icons.church_rounded,
-                              size: 20, color: Colors.white),
-                          label: const Text(
-                              'Usar endereço da igreja (cadastro)',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600)),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.green.shade700,
-                            minimumSize: const Size(double.infinity,
-                                ThemeCleanPremium.minTouchTarget),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 14),
                           ),
                         ),
                       ],

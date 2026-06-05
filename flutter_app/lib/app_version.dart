@@ -1,4 +1,15 @@
 /// Single source of app version used everywhere.
+/// 11.2.295+1819: Deploy completo — web, AAB Play, ZIP iOS Codemagic.
+/// 11.2.295+1818: Eventos — categorias tenant operacional, endereço igreja, publicar rápido.
+/// 11.2.295+1817: Avisos — endereço igreja rápido, botão antes do CEP, publicar sem rede off.
+/// 11.2.295+1816: Chat igreja — envio sem desligar rede (texto/foto/vídeo WhatsApp-like).
+/// 11.2.295+1815: Carteira membro — tenant operacional antes do load, CPF do membro, findByHint resiliente.
+/// 11.2.295+1814: Licença — lê expiresAt, free real, carência 3d, sem loop suspended.
+/// 11.2.295+1813: Escolha plano — prefetch PIX/cartão, tenant cache, checkout instantâneo.
+/// 11.2.295+1812: Fornecedores — cache RAM, FutureBuilder estável, recibo PDF rápido, agenda sem bloqueio.
+/// 11.2.295+1811: Patrimônio — bootstrap instantâneo, cache RAM, novo bem sem bloqueio, permissões núcleo financeiro.
+/// 11.2.295+1810: Financeiro — bootstrap instantâneo, FutureBuilder estável, strip sem query ilimitada.
+/// 11.2.295+1809: Relatórios — cache RAM membros, FutureBuilder financeiro estável, PDF rápido (branding timeout).
 /// 11.2.295+1759: Cartão membro — índice signatários, paginação 40, cache foto PDF.
 /// 11.2.295+1758: Painel master — paginação users/igrejas, storage amostra 100, limites unificados.
 /// 11.2.295+1757: Cadastro público Firestore-first + foto BG; certificados/finance/liderança paginados.
@@ -274,8 +285,29 @@
 const String appVersion = '11.2.295';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
-/// 11.2.295+1774: Painel master — lista igrejas server-first, KPI membros reais, callables auth operador.
-const String appBuildNumber = '1774';
+/// 11.2.295+1787: Mobile warmup — tenant operacional + Hive financeiro/contas/despesas fixas.
+/// 11.2.295+1786: Painel Master — KPIs RAM/prefs instantâneos, SWR background, BI sem scan lento.
+/// 11.2.295+1785: Financeiro — tenant operacional (cluster irmão), cache-first SWR, despesas/receitas fixas resilientes.
+/// 11.2.295+1780: Chat — envio texto WebGuard+retry, lista não lidas no topo, badge WhatsApp.
+/// 11.2.295+1788: Membros + cartão membro — tenant operacional cluster, membrosRecent sibling fallback.
+/// 11.2.295+1789: Membros painel total real (directory); chat tenant operacional unificado; painel inicial resolve tenant cedo.
+/// 11.2.295+1790: Financeiro e Patrimônio — tenant operacional + sibling fallback, lista completa com paginação.
+/// 11.2.295+1791: Cadastro da Igreja — bootstrap estável, cache cluster, sem piscar/reload no formulário.
+/// 11.2.295+1792: Estabilidade global CT — sessão sempre logada web/Android/iOS, keepalive Firestore, rede resume.
+/// 11.2.295+1793: Cadastro da Igreja — pintura instantânea cache-first; cluster scan só em background.
+/// 11.2.295+1794: Doação — contas MP cache-first, tenant operacional, timeout MP (sem Aguarde preso).
+/// 11.2.295+1795: Membros — painel 62/62 ativos (sem orderBy updatedAt); summary directory + lista rápida.
+/// 11.2.295+1796: Departamentos — cache-first instantâneo; bootstrap presets só em background.
+/// 11.2.295+1797: Visitantes — cache RAM + mem; sem preparePanelRead; plain query se faltar createdAt.
+/// 11.2.295+1798: Cargos — cache-first instantâneo; sem resolveEffectiveTenantId bloqueante.
+/// 11.2.295+1799: Mural avisos — feed imediato; avisosFeed sem preparePanelRead.
+/// 11.2.295+1800: Mural eventos — Feed/Galeria/Fixos/Dashboard cache-first instantâneo.
+/// 11.2.295+1801: Pedidos de oração — cache RAM + Hive; sem preparePanelRead.
+/// 11.2.295+1802: Agenda inteligente — cache RAM por mês; tenant + Firestore cache-first.
+/// 11.2.295+1803: Aprovações rápidas — pendentes cache-first; sem preparePanelRead.
+/// 11.2.295+1804: Chat Igreja — grupos instantâneos, layout web WhatsApp, mensagens/upload rápidos.
+/// 11.2.295+1805: Minha Escala + Escala Geral — cache-first instantâneo; sem preparePanelRead.
+const String appBuildNumber = '1819';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

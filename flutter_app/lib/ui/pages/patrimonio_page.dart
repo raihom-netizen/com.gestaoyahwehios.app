@@ -27,13 +27,15 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart'
+    show MergedFirestoreQuerySnapshot;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/immediate_patrimonio_photo_attach.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
@@ -41,6 +43,7 @@ import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
     show kMaxPatrimonioPhotosPerItem;
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
@@ -638,6 +641,48 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
 // PatrimonioPage — Módulo de Gestão de Patrimônio (Bens · Dashboard · Relatórios · Inventário)
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/// Lista de bens — cache RAM curto para reabrir o módulo sem skeleton longo.
+abstract final class _PatrimonioRamCache {
+  _PatrimonioRamCache._();
+
+  static final Map<
+      String,
+      ({
+        QuerySnapshot<Map<String, dynamic>> snap,
+        DateTime at,
+      })> _ram = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static QuerySnapshot<Map<String, dynamic>>? peek(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return null;
+    final hit = _ram[tid];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _ram.remove(tid);
+      return null;
+    }
+    return hit.snap;
+  }
+
+  static void store(String tenantId, QuerySnapshot<Map<String, dynamic>> snap) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty || snap.docs.isEmpty) return;
+    _ram[tid] = (snap: snap, at: DateTime.now());
+  }
+}
+
+void _prewarmPatrimonioModule(String tenantId) {
+  final tid = tenantId.trim();
+  if (tid.isEmpty) return;
+  unawaited(ChurchTenantResilientReads.patrimonio(
+    tid,
+    limit: YahwehPerformanceV4.patrimonioListPageSize,
+  ));
+  unawaited(ChurchTenantResilientReads.contas(tid));
+}
+
 /// Abas do cabeçalho — alto contraste sobre fundo primário (segmentos tipo “pill”).
 class PatrimonioModuleTabBar extends StatelessWidget implements PreferredSizeWidget {
   final TabController controller;
@@ -716,16 +761,21 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   String _q = '';
   String _filterCategoria = '';
   String _filterStatus = '';
+  String? _operationalTenantId;
+  bool _patrimonioBootstrapDone = false;
 
-  bool get _canWrite {
-    final r = widget.role.toLowerCase();
-    return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
+  String get _effectiveTenantId {
+    final op = _operationalTenantId?.trim() ?? '';
+    if (op.isNotEmpty) return op;
+    return widget.tenantId.trim();
   }
+
+  bool get _canWrite => ChurchRolePermissions.isFinanceCoreTeam(widget.role);
 
   CollectionReference<Map<String, dynamic>> get _col =>
       firebaseDefaultFirestore
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_effectiveTenantId)
           .collection('patrimonio');
 
   /// Categorias principais do inventário (ERP) + legado para dados antigos.
@@ -812,7 +862,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       _col.limit(1).snapshots().listen((_) => _schedulePatrimonioRealtimeRefresh()),
       db
           .collection('igrejas')
-          .doc(widget.tenantId)
+          .doc(_effectiveTenantId)
           .collection('config')
           .doc('patrimonio')
           .snapshots()
@@ -832,9 +882,11 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       _searchCtrl.text = s;
       _q = s.toLowerCase();
     }
-    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
+    _patrimonioBootstrapDone = true;
+    _prewarmPatrimonioModule(widget.tenantId);
     unawaited(FastMediaPublishBootstrap.warmForPatrimonioSave());
     unawaited(_loadCategoriasExtras());
+    unawaited(_resolveOperationalTenant());
     _startPatrimonioRealtimeSync();
     final resumeId = widget.initialOpenPatrimonioDocId?.trim() ?? '';
     if (resumeId.isNotEmpty) {
@@ -844,10 +896,27 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     }
   }
 
+  Future<void> _resolveOperationalTenant() async {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return;
+    try {
+      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+        seed,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      ).timeout(const Duration(seconds: 10));
+      if (!mounted || tid.isEmpty || tid == _operationalTenantId) return;
+      setState(() => _operationalTenantId = tid);
+      _startPatrimonioRealtimeSync();
+      _refreshPatrimonioTabs();
+      unawaited(_loadCategoriasExtras());
+      _prewarmPatrimonioModule(tid);
+    } catch (_) {}
+  }
+
   Future<void> _openResumedPatrimonioDoc(String itemDocId) async {
     try {
       final snap = await ChurchTenantResilientReads.patrimonioItem(
-        widget.tenantId,
+        _effectiveTenantId,
         itemDocId,
       );
       if (!mounted || !snap.exists) return;
@@ -861,16 +930,16 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   void didUpdateWidget(covariant PatrimonioPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _startPatrimonioRealtimeSync();
+      setState(() => _operationalTenantId = null);
+      unawaited(_resolveOperationalTenant());
       _refreshPatrimonioTabs();
-      unawaited(_loadCategoriasExtras());
     }
   }
 
   Future<void> _loadCategoriasExtras() async {
     try {
       final snap =
-          await ChurchTenantResilientReads.patrimonioConfig(widget.tenantId);
+          await ChurchTenantResilientReads.patrimonioConfig(_effectiveTenantId);
       final extra = snap.data()?['categoriasExtras'];
       if (!mounted) return;
       setState(() {
@@ -992,16 +1061,27 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   // ─── CRUD ──────────────────────────────────────────────────────────────────
 
   Future<void> _openForm({DocumentSnapshot<Map<String, dynamic>>? doc}) async {
-    if (!_canWrite) return;
+    if (!_canWrite) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Sem permissão para cadastrar ou editar patrimônio.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
     if (doc != null) {
       unawaited(
         AppResumeStateService.saveOpenPatrimonio(
-          tenantId: widget.tenantId,
+          tenantId: _effectiveTenantId,
           itemDocId: doc.id,
         ),
       );
     }
-    await _loadCategoriasExtras();
+    unawaited(_loadCategoriasExtras());
     if (!mounted) return;
     final result = await Navigator.push<bool>(
       context,
@@ -1122,7 +1202,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                   border: Border.all(color: Colors.grey.shade200),
                 ),
                 child: QrImageView(
-                  data: 'PATRIMONIO|${widget.tenantId}|${doc.id}|$serie',
+                  data: 'PATRIMONIO|${_effectiveTenantId}|${doc.id}|$serie',
                   version: QrVersions.auto,
                   size: 200,
                   gapless: true,
@@ -1154,8 +1234,10 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   Future<void> _exportPdfFromPage(BuildContext context) async {
     try {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-      final snap = await _col.orderBy('nome').get();
+      final snap = await ChurchTenantResilientReads.patrimonioAll(
+        _effectiveTenantId,
+        limit: 800,
+      );
       final docs = snap.docs;
       if (docs.isEmpty) {
         if (mounted) {
@@ -1941,6 +2023,27 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     final moduleAccent = moduleEntry.accent;
     final shellChrome = widget.onShellBack != null && isMobile;
 
+    if (!_patrimonioBootstrapDone) {
+      return Scaffold(
+        backgroundColor: ThemeCleanPremium.surfaceVariant,
+        appBar: showAppBar
+            ? AppBar(
+                leading: canPop
+                    ? IconButton(
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        onPressed: () => Navigator.maybePop(context),
+                        tooltip: 'Voltar',
+                      )
+                    : null,
+                backgroundColor: ThemeCleanPremium.primary,
+                foregroundColor: Colors.white,
+                title: const Text('Patrimônio'),
+              )
+            : null,
+        body: const ChurchPanelLoadingBody(),
+      );
+    }
+
     if (!AppPermissions.canViewPatrimonio(
       widget.role,
       memberCanViewPatrimonio: widget.podeVerPatrimonio,
@@ -2094,6 +2197,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               ),
             Expanded(
               child: TabBarView(
+                key: ValueKey('patrimonio_tabs_$_effectiveTenantId'),
                 controller: _tabCtrl,
                 children: [
                   _BensTab(
@@ -2142,7 +2246,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                     statusLabel: _statusLabel,
                     statusColor: _statusColor,
                     fmtMoney: _fmtMoney,
-                    tenantId: widget.tenantId,
+                    tenantId: _effectiveTenantId,
                     onBemSelected: (doc) {
                       if (_canWrite) {
                         _openForm(doc: doc);
@@ -2157,7 +2261,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                     statusLabel: _statusLabel,
                     fmtMoney: _fmtMoney,
                     fmtDate: _fmtDate,
-                    tenantId: widget.tenantId,
+                    tenantId: _effectiveTenantId,
                   ),
                   _InventarioTab(
                     key: _inventarioTabKey,
@@ -2171,7 +2275,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                     statusColor: _statusColor,
                     fmtMoney: _fmtMoney,
                     fmtDate: _fmtDate,
-                    tenantId: widget.tenantId,
+                    tenantId: _effectiveTenantId,
                   ),
                 ],
               ),
@@ -2313,7 +2417,14 @@ class _BensTabState extends State<_BensTab> {
   @override
   void initState() {
     super.initState();
-    _future = _loadBensFirstPaint();
+    final tid = _tenantId;
+    final cached = _PatrimonioRamCache.peek(tid);
+    if (cached != null && cached.docs.isNotEmpty) {
+      _future = Future.value(cached);
+      unawaited(_refreshBensFromServer());
+    } else {
+      _future = _loadBensFirstPaint();
+    }
   }
 
   String get _tenantId => widget.col.parent?.id ?? '';
@@ -2339,29 +2450,16 @@ class _BensTabState extends State<_BensTab> {
     });
   }
 
-  /// Cache Firestore + rede com retry; refresh em background.
+  /// Cache Hive/rede — primeira pintura rápida; refresh em background.
   Future<QuerySnapshot<Map<String, dynamic>>> _loadBensFirstPaint() async {
     try {
       final snap = await _loadPatrimonioResilient()
-          .timeout(const Duration(seconds: 18));
+          .timeout(const Duration(seconds: 12));
       if (snap.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(_tenantId, snap);
         unawaited(_refreshBensFromServer());
-        return snap;
       }
-    } catch (_) {}
-    try {
-      final cached = await widget.col
-          .orderBy('nome')
-          .get(const GetOptions(source: Source.cache))
-          .timeout(const Duration(seconds: 4));
-      if (cached.docs.isNotEmpty) {
-        unawaited(_refreshBensFromServer());
-        return cached;
-      }
-    } catch (_) {}
-    try {
-      return await _loadPatrimonioResilient()
-          .timeout(const Duration(seconds: 14));
+      return snap;
     } catch (_) {
       return const MergedFirestoreQuerySnapshot([]);
     }
@@ -2369,7 +2467,11 @@ class _BensTabState extends State<_BensTab> {
 
   Future<void> _refreshBensFromServer() async {
     try {
-      final server = await _loadPatrimonioResilient();
+      final server = await _loadPatrimonioResilient()
+          .timeout(const Duration(seconds: 14));
+      if (server.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(_tenantId, server);
+      }
       if (!mounted) return;
       setState(() => _future = Future.value(server));
     } catch (_) {}
@@ -3703,12 +3805,25 @@ class _RelatoriosPatrimonioTab extends StatefulWidget {
 }
 
 class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
-  int _streamRetryToken = 0;
   String _filtroCategoria = '';
   int? _filtroAno;
   int? _filtroMes;
   DateTime? _aquisicaoInicio;
   DateTime? _aquisicaoFim;
+  late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _reloadPatrimonio();
+  }
+
+  void _reloadPatrimonio() {
+    _future = ChurchTenantResilientReads.patrimonioAll(
+      widget.tenantId,
+      limit: 800,
+    );
+  }
 
   static const _mesesNomes = [
     'Jan',
@@ -3804,8 +3919,6 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
       );
       return;
     }
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-    if (!context.mounted) return;
     await _exportPatrimonioRelatorioPdf(
       context: context,
       tenantId: widget.tenantId,
@@ -3822,24 +3935,20 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
     final now = DateTime.now();
     final anos = List<int>.generate(now.year - 1999, (i) => 2000 + i);
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      key: ValueKey(_streamRetryToken),
-      stream: widget.col
-          .orderBy('nome')
-          .limit(YahwehPerformanceV4.patrimonioListPageSize)
-          .snapshots(),
+    return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      future: _future,
       builder: (context, snap) {
         if (snap.hasError) {
           return ChurchPanelErrorBody(
             title: 'Não foi possível carregar o patrimônio',
             error: snap.error,
-            onRetry: () => setState(() => _streamRetryToken++),
+            onRetry: () => setState(_reloadPatrimonio),
           );
         }
-        if (!snap.hasData) {
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const ChurchPanelLoadingBody();
         }
-        final all = snap.data!.docs;
+        final all = snap.data?.docs ?? [];
         final filtered = _applyFilters(all);
         double soma = 0;
         for (final d in filtered) {
@@ -4253,7 +4362,6 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
       );
       return;
     }
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     if (!context.mounted) return;
     await _exportPatrimonioRelatorioPdf(
       context: context,
@@ -4462,7 +4570,13 @@ class _DashboardTabState extends State<_DashboardTab> {
   @override
   void initState() {
     super.initState();
-    _future = _loadDashboardFirstPaint();
+    final cached = _PatrimonioRamCache.peek(widget.tenantId);
+    if (cached != null && cached.docs.isNotEmpty) {
+      _future = Future.value(cached);
+      unawaited(_refreshDashboardInBackground());
+    } else {
+      _future = _loadDashboardFirstPaint();
+    }
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() =>
@@ -4470,27 +4584,25 @@ class _DashboardTabState extends State<_DashboardTab> {
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadDashboardFirstPaint() async {
     try {
-      final snap = await _loadPatrimonioAllResilient();
+      final snap = await _loadPatrimonioAllResilient()
+          .timeout(const Duration(seconds: 12));
       if (snap.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(widget.tenantId, snap);
         unawaited(_refreshDashboardInBackground());
-        return snap;
       }
-    } catch (_) {}
-    try {
-      final cached = await widget.col
-          .orderBy('nome')
-          .get(const GetOptions(source: Source.cache));
-      if (cached.docs.isNotEmpty) {
-        unawaited(_refreshDashboardInBackground());
-        return cached;
-      }
-    } catch (_) {}
-    return _loadPatrimonioAllResilient();
+      return snap;
+    } catch (_) {
+      return const MergedFirestoreQuerySnapshot([]);
+    }
   }
 
   Future<void> _refreshDashboardInBackground() async {
     try {
-      final server = await _loadPatrimonioAllResilient();
+      final server = await _loadPatrimonioAllResilient()
+          .timeout(const Duration(seconds: 14));
+      if (server.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(widget.tenantId, server);
+      }
       if (!mounted) return;
       setState(() => _future = Future.value(server));
     } catch (_) {}
@@ -5354,7 +5466,13 @@ class _InventarioTabState extends State<_InventarioTab> {
   @override
   void initState() {
     super.initState();
-    _future = _loadInventarioFirstPaint();
+    final cached = _PatrimonioRamCache.peek(widget.tenantId);
+    if (cached != null && cached.docs.isNotEmpty) {
+      _future = Future.value(cached);
+      unawaited(_refreshInventarioInBackground());
+    } else {
+      _future = _loadInventarioFirstPaint();
+    }
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() =>
@@ -5363,27 +5481,25 @@ class _InventarioTabState extends State<_InventarioTab> {
   Future<QuerySnapshot<Map<String, dynamic>>>
       _loadInventarioFirstPaint() async {
     try {
-      final snap = await _loadPatrimonioAllResilient();
+      final snap = await _loadPatrimonioAllResilient()
+          .timeout(const Duration(seconds: 12));
       if (snap.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(widget.tenantId, snap);
         unawaited(_refreshInventarioInBackground());
-        return snap;
       }
-    } catch (_) {}
-    try {
-      final cached = await widget.col
-          .orderBy('nome')
-          .get(const GetOptions(source: Source.cache));
-      if (cached.docs.isNotEmpty) {
-        unawaited(_refreshInventarioInBackground());
-        return cached;
-      }
-    } catch (_) {}
-    return _loadPatrimonioAllResilient();
+      return snap;
+    } catch (_) {
+      return const MergedFirestoreQuerySnapshot([]);
+    }
   }
 
   Future<void> _refreshInventarioInBackground() async {
     try {
-      final server = await _loadPatrimonioAllResilient();
+      final server = await _loadPatrimonioAllResilient()
+          .timeout(const Duration(seconds: 14));
+      if (server.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(widget.tenantId, server);
+      }
       if (!mounted) return;
       setState(() => _future = Future.value(server));
     } catch (_) {}
@@ -7105,10 +7221,14 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     _status = (data['status'] ??
             (widget.doc == null ? 'novo' : 'bom'))
         .toString();
-    if (data['dataAquisicao'] is Timestamp)
+    if (widget.doc == null) {
+      _dataAquisicao = DateTime.now();
+    } else if (data['dataAquisicao'] is Timestamp) {
       _dataAquisicao = (data['dataAquisicao'] as Timestamp).toDate();
-    if (data['proximaManutencao'] is Timestamp)
+    }
+    if (data['proximaManutencao'] is Timestamp) {
       _proximaManutencao = (data['proximaManutencao'] as Timestamp).toDate();
+    }
     final urls = _fotoUrlsFromData(data);
     _existingUrls.addAll(
         urls.length > _maxFotosPorItem ? urls.sublist(0, _maxFotosPorItem) : urls);
@@ -7320,6 +7440,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _newImages.addAll(novosBytes);
       _newNames.addAll(novosNomes);
     });
+    for (final bytes in novosBytes) {
+      unawaited(_uploadPatrimonioPhotoInBackground(bytes));
+    }
     if (mounted) {
       ImmediateMediaAttachFeedback.showArquivoAnexado(
         context,
@@ -7346,6 +7469,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         _newImages.add(bytes);
         _newNames.add(file.name.isNotEmpty ? file.name : 'camera.webp');
       });
+      unawaited(_uploadPatrimonioPhotoInBackground(bytes));
       if (mounted) {
         ImmediateMediaAttachFeedback.showArquivoAnexado(
           context,
@@ -7379,8 +7503,11 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       YahwehFlowLog.patrimonioStart();
       await ImmediateMediaWarm.drainInFlight(() => _inFlightPhotoUploads);
       unawaited(ImmediateMediaWarm.warmPatrimonio());
+      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
       try {
-        await ensureFirebaseReadyForPublishUpload();
+        await ensureFirebaseReadyForPublishUpload()
+            .timeout(const Duration(seconds: 8))
+            .catchError((_) {});
       } catch (e, st) {
         if (isFirebaseNoAppError(e)) {
           await FirebaseBootstrapService.ensureAlwaysOn(
@@ -7467,12 +7594,14 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
             PatrimonioPublishService.stateUploading;
         if (isNewItem) {
           early['criadoEm'] = FieldValue.serverTimestamp();
-          await itemRef.set(early);
+          await FirestoreWebGuard.runWithWebRecovery(() => itemRef.set(early));
           _itemStubEnsured = true;
         } else {
           early['imageVariants'] = FieldValue.delete();
           early['fotoVariants'] = FieldValue.delete();
-          await itemRef.set(early, SetOptions(merge: true));
+          await FirestoreWebGuard.runWithWebRecovery(
+            () => itemRef.set(early, SetOptions(merge: true)),
+          );
         }
         YahwehFlowLog.patrimonioFirestoreOk();
         final imagesCopy =
@@ -7555,9 +7684,11 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       }
       if (widget.doc == null && nBatch == 0) {
         payload['criadoEm'] = FieldValue.serverTimestamp();
-        await itemRef.set(payload);
+        await FirestoreWebGuard.runWithWebRecovery(() => itemRef.set(payload));
       } else if (widget.doc != null) {
-        await itemRef.set(payload, SetOptions(merge: true));
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => itemRef.set(payload, SetOptions(merge: true)),
+        );
       }
       YahwehFlowLog.patrimonioFirestoreOk();
       FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(
@@ -7754,7 +7885,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           ),
           title: nome,
           subtitle:
-              '${_formatBytesPat(_newImages[idx].length)} · aguardando envio',
+              '${_formatBytesPat(_newImages[idx].length)} · ${_inFlightPhotoUploads > 0 ? 'A enviar…' : 'aguardando envio'}',
           onRemove: () => setState(() {
             _newImages.removeAt(idx);
             _newNames.removeAt(idx);

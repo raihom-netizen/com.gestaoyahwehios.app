@@ -23,6 +23,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/media_cache_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/church_payment_receiving_settings_section.dart';
 import 'package:gestao_yahweh/ui/widgets/version_footer.dart';
+import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -336,6 +337,14 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   }
 
   bool get _restrictedMemberSettings => AppPermissions.isRestrictedMember(widget.role);
+
+  bool get _canOpenEngineerDiagnostic {
+    final r = widget.role.toLowerCase();
+    return r.contains('gestor') ||
+        r.contains('adm') ||
+        r == 'pastor' ||
+        r == 'admin';
+  }
 
   bool get _showMercadoPagoChurchSettings =>
       AppPermissions.canViewChurchMercadoPagoSettings(
@@ -753,6 +762,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                   _SectionTitle(icon: Icons.notifications_active_rounded, title: 'Notificações e acesso'),
                   _buildNotificacoesCard(),
                   const SizedBox(height: 24),
+                  ..._buildEngineerDiagnosticSection(context),
                   ..._buildBackupSection(context),
                   ..._buildDicasSection(),
                   const SizedBox(height: 24),
@@ -992,6 +1002,85 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     );
   }
 
+  List<Widget> _buildEngineerDiagnosticSection(BuildContext context) {
+    if (!_canOpenEngineerDiagnostic) return const [];
+    return [
+      _SectionTitle(
+        icon: Icons.engineering_rounded,
+        title: 'Depurador / Engenheiro',
+      ),
+      _Card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Diagnóstico Firebase, tenant operacional e saúde da sessão web.',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 10),
+            SelectableText(
+              'Vínculo Auth: ${widget.tenantId.trim()}',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+            FutureBuilder<String>(
+              future: _resolveEffectiveTenantId(),
+              builder: (context, snap) {
+                final op = (snap.data ?? '').trim();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: SelectableText(
+                    op.isEmpty
+                        ? 'Tenant operacional: a resolver…'
+                        : 'Tenant operacional: $op',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: op == widget.tenantId.trim()
+                          ? Colors.grey.shade700
+                          : ThemeCleanPremium.primary,
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const SystemFirebaseHealthPage(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.health_and_safety_rounded, size: 20),
+              label: const Text('Abrir diagnóstico Firebase'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF0F766E),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () {
+                TenantResolverService.invalidateOperationalChurchDocCache(
+                  seedId: widget.tenantId,
+                  userUid: FirebaseAuth.instance.currentUser?.uid,
+                );
+                ScaffoldMessenger.of(context).showSnackBar(
+                  ThemeCleanPremium.successSnackBar(
+                    'Cache de tenant limpo. Volte ao Painel ou Departamentos.',
+                  ),
+                );
+              },
+              icon: const Icon(Icons.refresh_rounded, size: 20),
+              label: const Text('Re-sincronizar vínculo da igreja'),
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
   List<Widget> _buildBackupSection(BuildContext context) {
     if (_restrictedMemberSettings) return const [];
     return [
@@ -1120,7 +1209,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
 
   /// Usa o serviço centralizado para garantir mesmo path que AuthGate, dashboard e MembersPage (import/export no mesmo tenant).
   Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+      TenantResolverService.resolveOperationalChurchDocId(
         widget.tenantId,
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );

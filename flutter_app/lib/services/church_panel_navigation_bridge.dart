@@ -123,6 +123,13 @@ class ChurchPanelNavigationBridge {
         return kChurchShellIndexEscalaGeral;
       case 'fornecedor_agenda_reminder':
         return kChurchShellIndexFornecedores;
+      case 'new_member':
+        return kChurchShellIndexMembers;
+      case 'birthday_daily':
+        return kChurchShellIndexPainel;
+      case 'financeiro_vencimento_digest':
+      case 'financeiro_vencimento_24h':
+        return kChurchShellIndexFinanceiro;
       case 'novo_chat':
       case 'chat_message':
       case 'church_chat':

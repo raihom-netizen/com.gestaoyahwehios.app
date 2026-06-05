@@ -26,6 +26,8 @@
 # Forcar `flutter clean` (caso suspeite de cache corrompido): -ForceClean
 # Pular gate Modo Producao (emergencia): -SkipProductionGate
 # Continuar web/AAB/iOS se regras falharem (503 API Google): -ContinueOnRulesFailure (padrao no deploy_completo.ps1)
+# Retomar deploy interrompido: -SkipRules -SkipFunctionsDeploy (regras/functions ja OK)
+# Log persistente: -LogTo "D:\Temporarios\deploy_completo.log"
 #
 # Atalho: .\scripts\deploy_completo.ps1 (mesmos parâmetros)
 
@@ -36,7 +38,11 @@ param(
     [switch] $ForceClean,
     [switch] $ForceFirestoreRules,
     [switch] $SkipProductionGate,
-    [switch] $ContinueOnRulesFailure
+    [switch] $ContinueOnRulesFailure,
+    [switch] $SkipRules,
+    [switch] $SkipFunctionsDeploy,
+    [switch] $SkipWeb,
+    [string] $LogTo = ''
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,6 +106,10 @@ finally { Pop-Location }
 # ========================================================================
 # [1/6] Firestore + Storage rules
 # ========================================================================
+if ($SkipRules) {
+    Write-Host "`n=== [1/6] Firestore + Storage -- SKIP (-SkipRules) ===" -ForegroundColor Yellow
+}
+else {
 Write-Host "`n=== [1/6] Firestore + Storage (regras e indices) ===" -ForegroundColor Cyan
 # ForcePublish no deploy completo; poucas rodadas + preflight + background se 503 persistir.
 $rulesMaxAttempts = if ($ContinueOnRulesFailure) { 1 } else { 12 }
@@ -123,10 +133,17 @@ if ($rulesExit -ne 0) {
         exit $rulesExit
     }
 }
+}
 
 # ========================================================================
 # [2/6] Cloud Functions -- SKIP se nao mudou
 # ========================================================================
+if ($SkipFunctionsDeploy) {
+    Write-Host "`n=== [2/6] Cloud Functions -- SKIP (-SkipFunctionsDeploy) ===" -ForegroundColor Yellow
+    $functionsChanged = $false
+    $functionsSkipReason = "retomada manual (-SkipFunctionsDeploy)"
+}
+else {
 $functionsChanged = $true
 $functionsSkipReason = ""
 if (-not $ForceFunctions) {
@@ -191,13 +208,19 @@ else {
     Pop-Location
     if ($funcExit -ne 0) { exit $funcExit }
 }
+}
 
 # ========================================================================
 # [3/6] Web + Hosting (sub-script com -SkipPubGet)
 # ========================================================================
+if ($SkipWeb) {
+    Write-Host "`n=== [3/6] Web + Hosting -- SKIP (-SkipWeb) ===" -ForegroundColor Yellow
+}
+else {
 Write-Host "`n=== [3/6] Web + Hosting ===" -ForegroundColor Cyan
 & (Join-Path $RepoRoot "scripts\deploy_web_hosting.ps1") -SkipPubGet
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 
 # ========================================================================
 # [4/6] AAB Play Store (sub-script com -SkipPubGet)

@@ -32,8 +32,9 @@ class MasterCommandCenterPage extends StatefulWidget {
 class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabs;
-  MasterDashboardSummary? _summary;
-  bool _loadingSummary = true;
+  MasterDashboardSummary? _summary = MasterDashboardCacheService.peekMemory();
+  bool _loadingSummary = MasterDashboardCacheService.peekMemory() == null;
+  bool _revalidatingSummary = false;
   final _clientSearch = TextEditingController();
   String _clientQ = '';
 
@@ -55,13 +56,49 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
   }
 
   Future<void> _loadSummary({bool force = false}) async {
-    setState(() => _loadingSummary = true);
+    if (!force) {
+      final instant = await MasterDashboardCacheService.readCachedInstant();
+      if (instant != null && mounted) {
+        setState(() {
+          _summary = instant;
+          _loadingSummary = false;
+        });
+        if (!instant.isFresh) {
+          _revalidateSummaryInBackground();
+          return;
+        }
+      } else if (_summary == null && mounted) {
+        setState(() => _loadingSummary = true);
+      }
+    } else if (mounted) {
+      setState(() => _revalidatingSummary = true);
+    }
+
     try {
       final s = await MasterDashboardCacheService.refresh(force: force);
       if (mounted) setState(() => _summary = s);
     } finally {
-      if (mounted) setState(() => _loadingSummary = false);
+      if (mounted) {
+        setState(() {
+          _loadingSummary = false;
+          _revalidatingSummary = false;
+        });
+      }
     }
+  }
+
+  void _revalidateSummaryInBackground() {
+    if (_revalidatingSummary) return;
+    _revalidatingSummary = true;
+    MasterDashboardCacheService.revalidateInBackground(
+      onUpdated: (s) {
+        if (!mounted) return;
+        setState(() {
+          _summary = s;
+          _revalidatingSummary = false;
+        });
+      },
+    );
   }
 
   MasterChurchHealth _healthFor(Map<String, dynamic> data) {
@@ -176,8 +213,18 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
                       ),
                     ),
                     MasterCacheUpdatedBadge(summary: s),
+                    if (_revalidatingSummary)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: LinearProgressIndicator(
+                          minHeight: 2,
+                          color: ThemeCleanPremium.primary.withValues(alpha: 0.7),
+                          backgroundColor:
+                              ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                        ),
+                      ),
                     const SizedBox(height: 8),
-                    if (_loadingSummary)
+                    if (_loadingSummary && s == null)
                       const Center(child: CircularProgressIndicator())
                     else if (s != null) ...[
                       LayoutBuilder(

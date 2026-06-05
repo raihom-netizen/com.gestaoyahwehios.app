@@ -22,9 +22,13 @@ Future<void> prepareFirestorePublishAttempt({
   }
   if (kIsWeb) {
     try {
-      await FirestoreWebGuard.recoverFirestoreWebSession(
-        allowHardReconnect: attempt >= 2,
-      );
+      if (attempt == 0) {
+        await FirestoreWebGuard.prepareForChatWrite();
+      } else {
+        await FirestoreWebGuard.recoverFirestoreWebSession(
+          allowHardReconnect: attempt >= 2,
+        );
+      }
     } catch (_) {}
   }
   if (allowReconnect) {

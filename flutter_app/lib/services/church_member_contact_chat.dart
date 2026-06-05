@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -277,8 +280,16 @@ abstract final class ChurchMemberContactChat {
       return;
     }
 
+    var operationalTenant = tenantId.trim();
+    try {
+      operationalTenant = await TenantResolverService.resolveOperationalChurchDocId(
+        tenantId,
+        userUid: myUid,
+      );
+    } catch (_) {}
+
     final resolved = await resolvePeerForChat(
-      tenantId: tenantId,
+      tenantId: operationalTenant,
       memberData: memberData,
       memberDocId: memberDocId,
     );
@@ -317,7 +328,7 @@ abstract final class ChurchMemberContactChat {
 
     final titleA = FirebaseAuth.instance.currentUser?.displayName ?? 'Eu';
     final ensured = await ChurchChatService.ensureDmThreadResilient(
-      tenantId: tenantId,
+      tenantId: operationalTenant,
       uidA: myUid,
       uidB: peerUid,
       titleA: titleA,
@@ -336,10 +347,58 @@ abstract final class ChurchMemberContactChat {
 
     ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
       threadId: threadId,
-      tenantId: tenantId,
+      tenantId: operationalTenant,
       peerUid: peerUid,
       displayName: titulo,
       initialDraftText: draft.isEmpty ? null : draft,
+    );
+
+    unawaited(
+      _openChatThreadFallback(
+        operationalTenant: operationalTenant,
+        threadId: threadId,
+        peerUid: peerUid,
+        displayName: titulo,
+        memberRole: memberRole,
+        viewerCpfDigits: viewerCpfDigits,
+        initialDraftText: draft.isEmpty ? null : draft,
+      ),
+    );
+  }
+
+  /// Se o hub embutido não consumir o pending a tempo, abre a thread directamente.
+  static Future<void> _openChatThreadFallback({
+    required String operationalTenant,
+    required String threadId,
+    required String peerUid,
+    required String displayName,
+    required String memberRole,
+    required String viewerCpfDigits,
+    String? initialDraftText,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 450));
+    final pending =
+        ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen();
+    if (pending == null || pending.threadId != threadId) return;
+
+    final nav = appRootNavigatorKey.currentState;
+    if (nav == null) return;
+
+    ChurchPanelNavigationBridge.instance.consumePendingChatThreadOpen();
+    await nav.push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => ChurchChatThreadPage(
+          tenantId: operationalTenant,
+          threadId: threadId,
+          title: displayName,
+          isDepartment: false,
+          peerUid: peerUid,
+          memberRole: memberRole,
+          memberCpfDigits: viewerCpfDigits.replaceAll(RegExp(r'\D'), ''),
+          initialDraftText: initialDraftText,
+        ),
+      ),
     );
   }
 

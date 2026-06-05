@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -35,34 +36,152 @@ class AprovarMembrosPendentesPage extends StatefulWidget {
       _AprovarMembrosPendentesPageState();
 }
 
+/// Cache RAM — pendentes instantâneos ao reabrir Aprovações rápidas.
+abstract final class _PendentesRamCache {
+  _PendentesRamCache._();
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _byTenant = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(String tenantId) {
+    final key = tenantId.trim();
+    if (key.isEmpty) return null;
+    final hit = _byTenant[key];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byTenant.remove(key);
+      return null;
+    }
+    return hit.docs;
+  }
+
+  static void put(
+    String tenantId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final key = tenantId.trim();
+    if (key.isEmpty || docs.isEmpty) return;
+    _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
+  }
+}
+
 class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPage>
     with SingleTickerProviderStateMixin {
-  late final CollectionReference<Map<String, dynamic>> _membersCol;
   final Set<String> _selecionados = {};
   Map<String, String>? _tenantLinkageCache;
   int _pendentesStreamKey = 0;
   late TabController _tabCtrl;
+  String _effectiveTenantId = '';
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedPendentesDocs;
+
+  String get _tid =>
+      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
+
+  static String _pendentesMemKey(String tenantId) =>
+      '${tenantId.trim()}_membros_pendente_warm';
+
+  CollectionReference<Map<String, dynamic>> get _membersCol =>
+      FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(_tid)
+          .collection('membros');
+
+  void _hydratePendentesFromRam() {
+    final ram = _PendentesRamCache.peek(_tid);
+    if (ram != null && ram.isNotEmpty) {
+      _seedPendentesDocs = ram;
+    } else {
+      final mem = FirestoreReadResilience.peekLastGoodQuery(_pendentesMemKey(_tid));
+      if (mem != null && mem.docs.isNotEmpty) {
+        _seedPendentesDocs = mem.docs;
+      }
+    }
+  }
+
+  Future<void> _openPendentesFast() async {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return;
+
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(seed)
+          .collection('membros')
+          .where('status', isEqualTo: 'pendente')
+          .limit(120)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(milliseconds: 1800));
+      if (mounted && snap.docs.isNotEmpty) {
+        _PendentesRamCache.put(seed, snap.docs);
+        setState(() => _seedPendentesDocs = snap.docs);
+      }
+    } catch (_) {}
+
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final op = await TenantResolverService.resolveOperationalChurchDocId(
+        seed,
+        userUid: uid,
+      ).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => _effectiveTenantId.isNotEmpty ? _effectiveTenantId : seed,
+      );
+      if (!mounted || op.isEmpty || op == _tid) return;
+      setState(() {
+        _effectiveTenantId = op;
+        _tenantLinkageCache = null;
+        _pendentesStreamKey++;
+      });
+      final alt = await _membersCol
+          .where('status', isEqualTo: 'pendente')
+          .limit(120)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 10));
+      if (mounted && alt.docs.isNotEmpty) {
+        _PendentesRamCache.put(op, alt.docs);
+        setState(() => _seedPendentesDocs = alt.docs);
+      }
+    } catch (_) {}
+  }
 
   @override
   void initState() {
     super.initState();
-    _membersCol = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
-        .collection('membros');
+    _effectiveTenantId = widget.tenantId;
     _tabCtrl = TabController(length: 2, vsync: this);
     _tabCtrl.addListener(() {
       if (mounted) setState(() {});
     });
+    _hydratePendentesFromRam();
+    unawaited(_openPendentesFast());
     unawaited(_warmPendentesCache());
+  }
+
+  @override
+  void didUpdateWidget(covariant AprovarMembrosPendentesPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _effectiveTenantId = widget.tenantId;
+      _tenantLinkageCache = null;
+      _seedPendentesDocs = null;
+      _selecionados.clear();
+      _hydratePendentesFromRam();
+      _pendentesStreamKey++;
+      unawaited(_openPendentesFast());
+    }
   }
 
   Future<void> _warmPendentesCache() async {
     try {
-      await ChurchTenantResilientReads.preparePanelRead();
       await FirestoreReadResilience.getQuery(
         _membersCol.where('status', isEqualTo: 'pendente').limit(120),
-        cacheKey: '${widget.tenantId}_membros_pendente_warm',
+        cacheKey: _pendentesMemKey(_tid),
       );
     } catch (_) {}
   }
@@ -75,7 +194,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
 
   Future<Map<String, String>> _getTenantLinkage() async {
     if (_tenantLinkageCache != null) return _tenantLinkageCache!;
-    final snap = await ChurchTenantResilientReads.churchDocument(widget.tenantId);
+    final snap = await ChurchTenantResilientReads.churchDocument(_tid);
     final d = snap.data();
     final id = snap.id;
     final alias = (d?['alias'] ?? d?['slug'] ?? id).toString().trim();
@@ -103,7 +222,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       await _membersCol.doc(id).update({
         'alias': linkage['alias'],
         'slug': linkage['slug'],
-        'tenantId': widget.tenantId,
+        'tenantId': _tid,
         'status': 'ativo',
         'STATUS': 'ativo',
         'aprovadoEm': FieldValue.serverTimestamp(),
@@ -208,7 +327,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         batch.update(_membersCol.doc(id), {
           'alias': linkage['alias'],
           'slug': linkage['slug'],
-          'tenantId': widget.tenantId,
+          'tenantId': _tid,
           'status': newStatus,
           'STATUS': newStatus,
           if (newStatus == 'ativo') 'aprovadoEm': FieldValue.serverTimestamp(),
@@ -260,7 +379,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         batch.update(_membersCol.doc(d.id), {
           'alias': linkage['alias'],
           'slug': linkage['slug'],
-          'tenantId': widget.tenantId,
+          'tenantId': _tid,
           'status': 'ativo',
           'STATUS': 'ativo',
           'aprovadoEm': FieldValue.serverTimestamp(),
@@ -482,9 +601,19 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
                   ),
                 );
               }
-              final docs = snap.data?.docs ?? [];
-              final isLoading =
-                  snap.connectionState == ConnectionState.waiting && !snap.hasData;
+              var docs = snap.data?.docs ?? [];
+              if (docs.isEmpty &&
+                  _seedPendentesDocs != null &&
+                  _seedPendentesDocs!.isNotEmpty) {
+                docs = _seedPendentesDocs!;
+              }
+              if (snap.hasData && snap.data!.docs.isNotEmpty) {
+                _PendentesRamCache.put(_tid, snap.data!.docs);
+                _seedPendentesDocs = snap.data!.docs;
+              }
+              final isLoading = snap.connectionState == ConnectionState.waiting &&
+                  !snap.hasData &&
+                  docs.isEmpty;
               if (isLoading) {
                 return const ChurchPanelLoadingBody();
               }
@@ -831,22 +960,41 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
     final range = _effectiveRange;
     final t0 = Timestamp.fromDate(range.$1);
     final t1 = Timestamp.fromDate(range.$2);
+    const getOpts = GetOptions(source: Source.serverAndCache);
 
-    final approved = await widget.membersCol
-        .where('status', isEqualTo: 'ativo')
-        .where('aprovadoEm', isGreaterThanOrEqualTo: t0)
-        .where('aprovadoEm', isLessThanOrEqualTo: t1)
-        .orderBy('aprovadoEm', descending: true)
-        .limit(800)
-        .get();
+    QuerySnapshot<Map<String, dynamic>> approved;
+    QuerySnapshot<Map<String, dynamic>> rejected;
+    try {
+      approved = await widget.membersCol
+          .where('status', isEqualTo: 'ativo')
+          .where('aprovadoEm', isGreaterThanOrEqualTo: t0)
+          .where('aprovadoEm', isLessThanOrEqualTo: t1)
+          .orderBy('aprovadoEm', descending: true)
+          .limit(800)
+          .get(getOpts)
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      approved = await widget.membersCol
+          .where('status', isEqualTo: 'ativo')
+          .limit(400)
+          .get(getOpts);
+    }
 
-    final rejected = await widget.membersCol
-        .where('status', isEqualTo: 'reprovado')
-        .where('reprovadoEm', isGreaterThanOrEqualTo: t0)
-        .where('reprovadoEm', isLessThanOrEqualTo: t1)
-        .orderBy('reprovadoEm', descending: true)
-        .limit(800)
-        .get();
+    try {
+      rejected = await widget.membersCol
+          .where('status', isEqualTo: 'reprovado')
+          .where('reprovadoEm', isGreaterThanOrEqualTo: t0)
+          .where('reprovadoEm', isLessThanOrEqualTo: t1)
+          .orderBy('reprovadoEm', descending: true)
+          .limit(800)
+          .get(getOpts)
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      rejected = await widget.membersCol
+          .where('status', isEqualTo: 'reprovado')
+          .limit(200)
+          .get(getOpts);
+    }
 
     return _HistoryData.fromSnapshots(range.$1, range.$2, approved, rejected);
   }

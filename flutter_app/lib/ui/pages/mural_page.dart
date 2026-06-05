@@ -1,12 +1,11 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:async';
+
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_theme.dart' show SaaSContentViewport;
 import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_insights_dashboard.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
@@ -37,11 +36,14 @@ class MuralPage extends StatefulWidget {
 
 class _MuralPageState extends State<MuralPage>
     with SingleTickerProviderStateMixin {
-  int _slugRetryKey = 0;
   late TabController _tab;
   bool _insightsTabActivated = false;
   final GlobalKey<InstagramMuralState> _muralFeedKey =
       GlobalKey<InstagramMuralState>();
+
+  String _effectiveTenantId = '';
+  String _churchSlug = '';
+  Map<String, dynamic>? _tenantData;
 
   bool get _canWriteAvisos => AppPermissions.canManageChurchMuralEventsAgenda(
         widget.role,
@@ -53,34 +55,52 @@ class _MuralPageState extends State<MuralPage>
   @override
   void initState() {
     super.initState();
+    _effectiveTenantId = widget.tenantId;
+    _churchSlug = widget.tenantId;
     _tab = TabController(length: 2, vsync: this);
     _tab.addListener(() {
       if (_tab.index == 1) _insightsTabActivated = true;
       if (mounted) setState(() {});
     });
+    unawaited(_resolveTenantBundleBackground());
+  }
+
+  @override
+  void didUpdateWidget(covariant MuralPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _effectiveTenantId = widget.tenantId;
+      _churchSlug = widget.tenantId;
+      _tenantData = null;
+      unawaited(_resolveTenantBundleBackground());
+    }
+  }
+
+  /// Slug/tenant operacional em background — feed arranca com [widget.tenantId].
+  Future<void> _resolveTenantBundleBackground() async {
+    try {
+      final bundle = await ChurchTenantResilientReads.loadTenantBundle(
+        widget.tenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      ).timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      setState(() {
+        _effectiveTenantId = bundle.firestoreTenantId;
+        _churchSlug = bundle.churchSlug;
+        _tenantData = bundle.tenantData;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _onRefresh() async {
+    await _muralFeedKey.currentState?.refreshFeed();
+    await _resolveTenantBundleBackground();
   }
 
   @override
   void dispose() {
     _tab.dispose();
     super.dispose();
-  }
-
-  /// Resolve o tenant com o mesmo ID que as regras Firestore usam para [sameChurch],
-  /// depois lê slug / fallback com rede ou cache.
-  Future<({
-    String firestoreTenantId,
-    String churchSlug,
-    Map<String, dynamic> tenantData,
-  })> _loadTenantAndSlug() =>
-      ChurchTenantResilientReads.loadTenantBundle(
-        widget.tenantId,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
-      );
-
-  Future<void> _onRefresh() async {
-    await _muralFeedKey.currentState?.refreshFeed();
-    setState(() => _slugRetryKey++);
   }
 
   String? _muralModuleBarSubtitle() {
@@ -172,86 +192,62 @@ class _MuralPageState extends State<MuralPage>
             ),
       body: SafeArea(
         top: widget.onShellBack == null,
-        child: FutureBuilder<
-            ({
-              String firestoreTenantId,
-              String churchSlug,
-              Map<String, dynamic> tenantData,
-            })>(
-          key: ValueKey(_slugRetryKey),
-          future: _loadTenantAndSlug(),
-          builder: (context, snap) {
-            if (snap.hasError) {
-              return ChurchPanelErrorBody(
-                title: 'Não foi possível carregar o mural',
-                error: snap.error,
-                onRetry: () => setState(() => _slugRetryKey++),
-              );
-            }
-            if (snap.connectionState == ConnectionState.waiting &&
-                !snap.hasData) {
-              return const ChurchPanelLoadingBody();
-            }
-            final data = snap.data!;
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (widget.onShellBack != null)
-                  ChurchEmbeddedModuleBar(
-                    title: 'Mural de Avisos',
-                    icon: kChurchShellNavEntries[7].icon,
-                    accent: kChurchShellNavEntries[7].accent,
-                    onBack: widget.onShellBack!,
-                    subtitle: _muralModuleBarSubtitle(),
-                  ),
-                if (!showAppBar)
-                  Material(
-                    color: Colors.white,
-                    elevation: 0,
-                    shadowColor: Colors.transparent,
-                    surfaceTintColor: Colors.transparent,
-                    shape: Border(
-                      bottom:
-                          BorderSide(color: Colors.grey.shade200, width: 1),
-                    ),
-                    child: ChurchPanelPillTabBar(
-                      controller: _tab,
-                      dense: true,
-                      style: ChurchPanelPillTabBarStyle.onLight,
-                      tabs: _muralTabs,
-                    ),
-                  ),
-                Expanded(
-                  child: TabBarView(
-                    controller: _tab,
-                    children: [
-                      RefreshIndicator(
-                        onRefresh: _onRefresh,
-                        child: SaaSContentViewport(
-                          child: InstagramMural(
-                            key: _muralFeedKey,
-                            tenantId: data.firestoreTenantId,
-                            role: widget.role,
-                            churchSlug: data.churchSlug,
-                            initialTenantData: data.tenantData,
-                            permissions: widget.permissions,
-                            initialOpenAvisoDocId: widget.initialOpenAvisoDocId,
-                          ),
-                        ),
-                      ),
-                      if (_insightsTabActivated)
-                        ChurchAvisosInsightsDashboard(
-                          tenantId: data.firestoreTenantId,
-                          canModerateComments: _canModerateAvisosComments,
-                        )
-                      else
-                        const SizedBox.shrink(),
-                    ],
-                  ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (widget.onShellBack != null)
+              ChurchEmbeddedModuleBar(
+                title: 'Mural de Avisos',
+                icon: kChurchShellNavEntries[7].icon,
+                accent: kChurchShellNavEntries[7].accent,
+                onBack: widget.onShellBack!,
+                subtitle: _muralModuleBarSubtitle(),
+              ),
+            if (!showAppBar)
+              Material(
+                color: Colors.white,
+                elevation: 0,
+                shadowColor: Colors.transparent,
+                surfaceTintColor: Colors.transparent,
+                shape: Border(
+                  bottom: BorderSide(color: Colors.grey.shade200, width: 1),
                 ),
-              ],
-            );
-          },
+                child: ChurchPanelPillTabBar(
+                  controller: _tab,
+                  dense: true,
+                  style: ChurchPanelPillTabBarStyle.onLight,
+                  tabs: _muralTabs,
+                ),
+              ),
+            Expanded(
+              child: TabBarView(
+                controller: _tab,
+                children: [
+                  RefreshIndicator(
+                    onRefresh: _onRefresh,
+                    child: SaaSContentViewport(
+                      child: InstagramMural(
+                        key: _muralFeedKey,
+                        tenantId: _effectiveTenantId,
+                        role: widget.role,
+                        churchSlug: _churchSlug,
+                        initialTenantData: _tenantData,
+                        permissions: widget.permissions,
+                        initialOpenAvisoDocId: widget.initialOpenAvisoDocId,
+                      ),
+                    ),
+                  ),
+                  if (_insightsTabActivated)
+                    ChurchAvisosInsightsDashboard(
+                      tenantId: _effectiveTenantId,
+                      canModerateComments: _canModerateAvisosComments,
+                    )
+                  else
+                    const SizedBox.shrink(),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

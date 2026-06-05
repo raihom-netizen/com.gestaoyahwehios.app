@@ -32,7 +32,8 @@ class AdminDashboardPage extends StatefulWidget {
 }
 
 class _AdminDashboardPageState extends State<AdminDashboardPage> {
-  bool _loading = true;
+  bool _loading = MasterDashboardCacheService.peekMemory() == null;
+  bool _revalidating = false;
   int _usuarios = 0;
   int _igrejas = 0;
   double _receita = 0;
@@ -55,20 +56,45 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
   /// Acessos por dia (últimos 14 dias) para minigráfico
   List<MapEntry<String, int>> _acessosPorDia = [];
 
+  MasterDashboardSummary? _masterSummary =
+      MasterDashboardCacheService.peekMemory();
+
   @override
   void initState() {
     super.initState();
     YahwehPerformanceMonitor.markScreenStart('master_dashboard');
-    _load();
+    final peek = MasterDashboardCacheService.peekMemory();
+    if (peek != null) {
+      _applyFromMasterSummary(peek);
+    }
+    unawaited(_load());
   }
 
-  MasterDashboardSummary? _masterSummary;
-
   Future<void> _load({bool force = false}) async {
-    setState(() => _loading = true);
+    if (!force) {
+      final instant = await MasterDashboardCacheService.readCachedInstant();
+      if (instant != null && mounted) {
+        _applyFromMasterSummary(instant);
+        setState(() {
+          _masterSummary = instant;
+          _loading = false;
+        });
+        if (!instant.isFresh) {
+          _revalidateInBackground();
+          YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame(
+              'master_dashboard');
+          return;
+        }
+      } else if (mounted && _masterSummary == null) {
+        setState(() => _loading = true);
+      }
+    } else if (mounted) {
+      setState(() => _revalidating = true);
+    }
+
     try {
       final summary = await MasterDashboardCacheService.refresh(force: force);
-      if (summary.hasChartData || summary.igrejas > 0) {
+      if (_hasUsableSummary(summary)) {
         _applyFromMasterSummary(summary);
         if (mounted) {
           setState(() {
@@ -79,17 +105,46 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
         return;
       }
       await _loadDashboardData().timeout(
-        const Duration(seconds: 25),
+        const Duration(seconds: 18),
         onTimeout: () => throw TimeoutException('Dashboard'),
       );
     } on TimeoutException {
       if (mounted) setState(() {});
     } finally {
       if (mounted) {
-        setState(() => _loading = false);
-        YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame('master_dashboard');
+        setState(() {
+          _loading = false;
+          _revalidating = false;
+        });
+        YahwehPerformanceMonitor.markScreenReadyAfterFirstFrame(
+            'master_dashboard');
       }
     }
+  }
+
+  bool _hasUsableSummary(MasterDashboardSummary s) =>
+      s.igrejas > 0 ||
+      s.membrosTotal > 0 ||
+      s.usuarios > 0 ||
+      s.hasChartData ||
+      s.receita > 0;
+
+  void _revalidateInBackground() {
+    if (_revalidating) return;
+    _revalidating = true;
+    MasterDashboardCacheService.revalidateInBackground(
+      onUpdated: (s) {
+        if (!mounted || !_hasUsableSummary(s)) {
+          _revalidating = false;
+          return;
+        }
+        _applyFromMasterSummary(s);
+        setState(() {
+          _masterSummary = s;
+          _revalidating = false;
+        });
+      },
+    );
   }
 
   void _applyFromMasterSummary(MasterDashboardSummary s) {
@@ -349,6 +404,16 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _WelcomeStrip(),
+            if (_revalidating)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: LinearProgressIndicator(
+                  minHeight: 2,
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.75),
+                  backgroundColor:
+                      ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                ),
+              ),
             if (_masterSummary != null) ...[
               MasterCacheUpdatedBadge(summary: _masterSummary),
               if (_masterSummary!.hasActionQueue &&

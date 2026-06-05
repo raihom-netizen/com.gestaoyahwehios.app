@@ -8,7 +8,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/pdf/church_transfer_letter_pdf.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -79,13 +81,15 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   String? _signer2MemberId;
 
   Map<String, dynamic>? _tenant;
-  bool _loading = true;
+  bool _membersSyncing = false;
   bool _savingTpl = false;
   bool _pdfBusy = false;
   _LetterSignatureMode _signatureMode = _LetterSignatureMode.digital;
   String _memberFilter = '';
   final Set<String> _selectedIds = {};
   late Future<QuerySnapshot<Map<String, dynamic>>> _membersFuture;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _seedMemberDocs = [];
+  int _membersQueryLimit = 600;
   Future<ReportPdfBranding>? _brandingFuture;
   final Map<String, Uint8List?> _signatureBytesCache = <String, Uint8List?>{};
 
@@ -118,60 +122,210 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       if (!_tabs.indexIsChanging && mounted) setState(() {});
     });
     _effectiveTenantId = widget.tenantId.trim();
-    _membersFuture = _loadMembers();
-    _bootstrap();
+    final ram = _effectiveTenantId.isNotEmpty
+        ? _ChurchLettersMembersRamCache.peek(_effectiveTenantId)
+        : null;
+    if (ram != null && ram.isNotEmpty) {
+      _seedMemberDocs = List.from(ram);
+      _membersFuture = Future.value(_LettersMembersListSnapshot(_seedMemberDocs));
+      _applyDefaultSignerFromLoadedMembers(_seedMemberDocs);
+    } else {
+      _membersFuture = Future.value(_LettersMembersListSnapshot(const []));
+    }
+    unawaited(_openChurchLettersFast());
+    unawaited(_bootstrap());
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _memberDocsFromSnapshot(
+    QuerySnapshot<Map<String, dynamic>>? snap,
+  ) {
+    if (snap != null && snap.docs.isNotEmpty) return snap.docs;
+    if (_seedMemberDocs.isNotEmpty) return _seedMemberDocs;
+    return const [];
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _fetchMemberDocs() async {
+    final tid = _effectiveTenantId.isNotEmpty
+        ? _effectiveTenantId
+        : widget.tenantId.trim();
+    if (tid.isEmpty) return const [];
+
+    try {
+      final dir = await MembersDirectorySnapshotService.readOnce(tid);
+      if (dir.hasEntries) {
+        final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+        for (final e in dir.entries) {
+          if (out.length >= _membersQueryLimit) break;
+          out.add(_LettersCachedMemberQueryDoc(
+            id: e.memberDocId,
+            data: e.toMemberDataMap(),
+          ));
+        }
+        if (out.isNotEmpty) {
+          unawaited(
+              MembersDirectorySnapshotService.warmFromCallableIfStale(tid));
+          return out;
+        }
+      }
+    } catch (_) {}
+
+    final snap = await ChurchTenantResilientReads.membrosRecent(
+      tid,
+      limit: _membersQueryLimit,
+    );
+    return snap.docs;
+  }
+
+  Future<void> _openChurchLettersFast() async {
+    final tid = _effectiveTenantId.isNotEmpty
+        ? _effectiveTenantId
+        : widget.tenantId.trim();
+    if (tid.isEmpty) return;
+    if (mounted) setState(() => _membersSyncing = true);
+    try {
+      final docs = await _fetchMemberDocs();
+      if (!mounted || docs.isEmpty) return;
+      _ChurchLettersMembersRamCache.put(tid, docs);
+      setState(() {
+        _seedMemberDocs = docs;
+        _membersFuture = Future.value(_LettersMembersListSnapshot(docs));
+        _applyDefaultSignerFromLoadedMembers(docs);
+        _membersSyncing = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _membersSyncing = false);
+    }
   }
 
   Future<void> _bootstrap() async {
-    try {
-      final tid =
-          await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
-      if (tid.isNotEmpty && mounted) {
-        setState(() {
-          _effectiveTenantId = tid;
-          _brandingFuture = null;
-        });
-        _refreshMembers();
-      }
-    } catch (_) {}
+    final hint = widget.tenantId.trim();
+    if (hint.isNotEmpty) _effectiveTenantId = hint;
 
     try {
       final ch = await FirebaseFirestore.instance
           .collection('igrejas')
           .doc(_effectiveTenantId)
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
       final d = ch.data() ?? {};
-      if (!mounted) return;
-      setState(() => _tenant = d);
-      final missao = (d['missao'] ??
-              d['descricao'] ??
-              d['sobre'] ??
-              'evangelizar, discipular e servir a comunidade')
-          .toString()
-          .trim();
-      _missionCtrl.text = missao;
+      if (mounted) {
+        setState(() => _tenant = d);
+        _missionCtrl.text = _defaultMissionText();
+      }
+    } catch (_) {}
 
-      final cfg = await _configRef.get();
+    try {
+      final cfg = await _configRef
+          .get(const GetOptions(source: Source.serverAndCache));
       final c = cfg.data() ?? {};
       final a = (c['modeloApresentacao'] ?? '').toString().trim();
       final t = (c['modeloTransferencia'] ?? '').toString().trim();
       final g = (c['modeloAgradecimento'] ?? '').toString().trim();
-      _tplApresentacaoCtrl.text =
-          a.isNotEmpty ? a : kDefaultChurchLetterApresentacaoTemplate.trim();
-      _tplTransferCtrl.text =
-          t.isNotEmpty ? t : kDefaultChurchLetterTransferenciaTemplate.trim();
-      _tplAgradecimentoCtrl.text =
-          g.isNotEmpty ? g : kDefaultChurchLetterAgradecimentoTemplate.trim();
-
-      await _defaultSignerFromMembro();
-      unawaited(_getBrandingCached());
+      if (mounted) {
+        _tplApresentacaoCtrl.text =
+            a.isNotEmpty ? a : kDefaultChurchLetterApresentacaoTemplate.trim();
+        _tplTransferCtrl.text =
+            t.isNotEmpty ? t : kDefaultChurchLetterTransferenciaTemplate.trim();
+        _tplAgradecimentoCtrl.text = g.isNotEmpty
+            ? g
+            : kDefaultChurchLetterAgradecimentoTemplate.trim();
+      }
     } catch (_) {
-      _tplApresentacaoCtrl.text = kDefaultChurchLetterApresentacaoTemplate.trim();
-      _tplTransferCtrl.text = kDefaultChurchLetterTransferenciaTemplate.trim();
-      _tplAgradecimentoCtrl.text =
-          kDefaultChurchLetterAgradecimentoTemplate.trim();
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        _tplApresentacaoCtrl.text =
+            kDefaultChurchLetterApresentacaoTemplate.trim();
+        _tplTransferCtrl.text =
+            kDefaultChurchLetterTransferenciaTemplate.trim();
+        _tplAgradecimentoCtrl.text =
+            kDefaultChurchLetterAgradecimentoTemplate.trim();
+      }
+    }
+
+    if (_seedMemberDocs.isNotEmpty) {
+      _applyDefaultSignerFromLoadedMembers(_seedMemberDocs);
+    } else {
+      await _defaultSignerFromMembro();
+    }
+    unawaited(_getBrandingCached());
+
+    unawaited(() async {
+      try {
+        final tid =
+            await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+        if (tid.isNotEmpty && tid != _effectiveTenantId && mounted) {
+          setState(() {
+            _effectiveTenantId = tid;
+            _brandingFuture = null;
+          });
+          await _openChurchLettersFast();
+          try {
+            final ch = await FirebaseFirestore.instance
+                .collection('igrejas')
+                .doc(tid)
+                .get(const GetOptions(source: Source.serverAndCache));
+            if (mounted) {
+              setState(() {
+                _tenant = ch.data();
+                if (_missionCtrl.text.trim().isEmpty) {
+                  _missionCtrl.text = _defaultMissionText();
+                }
+              });
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    }());
+
+  }
+
+  void _applyDefaultSignerFromLoadedMembers(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    if (_signer1MemberId != null &&
+        docs.any((d) => d.id == _signer1MemberId)) {
+      return;
+    }
+
+    final gestorNome = (_tenant?['gestorNome'] ??
+            _tenant?['gestor_nome'] ??
+            _tenant?['responsavel'] ??
+            '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    if (gestorNome.isNotEmpty) {
+      for (final d in docs) {
+        if (!_memberAtivo(d.data())) continue;
+        final n = _memberName(d.data()).toLowerCase();
+        if (n == gestorNome || n.contains(gestorNome)) {
+          _signer1MemberId = d.id;
+          return;
+        }
+      }
+    }
+
+    for (final d in docs) {
+      final m = d.data();
+      if (!_memberAtivo(m)) continue;
+      final funcoes = m['FUNCOES'];
+      if (funcoes is List) {
+        for (final f in funcoes) {
+          final fn = f.toString().toLowerCase();
+          if (fn.contains('pastor') ||
+              fn.contains('gestor') ||
+              fn.contains('presidente')) {
+            _signer1MemberId = d.id;
+            return;
+          }
+        }
+      }
+      final cargo = _cargoFromMember(m).toLowerCase();
+      if (cargo.contains('pastor') ||
+          cargo.contains('gestor') ||
+          cargo.contains('presidente')) {
+        _signer1MemberId = d.id;
+        return;
+      }
     }
   }
 
@@ -257,21 +411,43 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadMembers() async {
-    var tid = _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
-    try {
-      tid = await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
-    } catch (_) {}
-    return FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tid)
-        .collection('membros')
-        .get(const GetOptions(source: Source.serverAndCache));
+    final docs = await _fetchMemberDocs();
+    final tid = _effectiveTenantId.isNotEmpty
+        ? _effectiveTenantId
+        : widget.tenantId.trim();
+    if (tid.isNotEmpty && docs.isNotEmpty) {
+      _ChurchLettersMembersRamCache.put(tid, docs);
+    }
+    if (mounted) {
+      setState(() {
+        _seedMemberDocs = docs;
+        _applyDefaultSignerFromLoadedMembers(docs);
+      });
+    }
+    return _LettersMembersListSnapshot(docs);
   }
 
   void _refreshMembers() {
+    final prev = _seedMemberDocs;
     setState(() {
-      _membersFuture = _loadMembers();
+      _membersSyncing = true;
+      _membersFuture = prev.isNotEmpty
+          ? Future.value(_LettersMembersListSnapshot(prev))
+          : _loadMembers();
     });
+    unawaited(() async {
+      try {
+        final snap = await _loadMembers();
+        if (!mounted) return;
+        setState(() {
+          _seedMemberDocs = snap.docs;
+          _membersFuture = Future.value(_LettersMembersListSnapshot(_seedMemberDocs));
+          _membersSyncing = false;
+        });
+      } catch (_) {
+        if (mounted) setState(() => _membersSyncing = false);
+      }
+    }());
   }
 
   @override
@@ -288,6 +464,143 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
 
   String get _nomeIgreja =>
       (_tenant?['name'] ?? _tenant?['nome'] ?? 'Igreja').toString().trim();
+
+  String get _gestorNomeExibicao =>
+      (_tenant?['gestorNome'] ??
+              _tenant?['gestor_nome'] ??
+              _tenant?['responsavel'] ??
+              '')
+          .toString()
+          .trim();
+
+  String get _gestorCargoExibicao =>
+      (_tenant?['gestorCargo'] ?? _tenant?['gestor_cargo'] ?? 'Pastor(a) Presidente')
+          .toString()
+          .trim();
+
+  Widget _buildChurchIdentityCard(Color accent) {
+    final igreja = _nomeIgreja;
+    final local = _cityStateLine();
+    final gestor = _gestorNomeExibicao;
+    final cargo = _gestorCargoExibicao;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            accent.withValues(alpha: 0.08),
+            Colors.white,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        border: Border.all(color: accent.withValues(alpha: 0.14)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.church_rounded, color: accent, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  igreja,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: accent,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+              if (_membersSyncing)
+                SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: accent.withValues(alpha: 0.7),
+                  ),
+                ),
+            ],
+          ),
+          if (local.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              local,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ],
+          if (gestor.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              '$cargo: $gestor',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey.shade800,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMembersListSkeleton() {
+    Widget row() => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2E8F0),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      height: 13,
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8EDF3),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      height: 10,
+                      width: 100,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(children: [row(), row(), row(), row(), row()]),
+    );
+  }
 
   String _cityStateLine() {
     final d = _tenant;
@@ -964,6 +1277,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                 const SizedBox(height: 16),
               ],
               if (widget.embeddedInShell) const SizedBox(height: 12),
+              _buildChurchIdentityCard(accent),
+              const SizedBox(height: 12),
               Container(
                 decoration: BoxDecoration(
                   borderRadius:
@@ -1067,16 +1382,69 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                               FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
                                 future: _membersFuture,
                                 builder: (context, msnap) {
-                                  final docs = msnap.hasData
-                                      ? (msnap.data!.docs.toList()
-                                        ..sort((a, b) => _memberName(a.data())
-                                            .toLowerCase()
-                                            .compareTo(
-                                                _memberName(b.data()).toLowerCase())))
-                                      : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+                                  if (msnap.hasError) {
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      child: Column(
+                                        children: [
+                                          Text(
+                                            'Erro ao carregar assinantes: ${msnap.error}',
+                                            style: TextStyle(
+                                              color: Colors.red.shade700,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          TextButton.icon(
+                                            onPressed: _refreshMembers,
+                                            icon: const Icon(Icons.refresh_rounded),
+                                            label: const Text('Tentar novamente'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }
+                                  final docs =
+                                      List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+                                    _memberDocsFromSnapshot(msnap.data),
+                                  )..sort((a, b) => _memberName(a.data())
+                                        .toLowerCase()
+                                        .compareTo(
+                                            _memberName(b.data()).toLowerCase()));
+                                  if (docs.isEmpty &&
+                                      (msnap.connectionState ==
+                                              ConnectionState.waiting ||
+                                          _membersSyncing)) {
+                                    return Column(
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        LinearProgressIndicator(
+                                          minHeight: 3,
+                                          color: accent.withValues(alpha: 0.65),
+                                          backgroundColor:
+                                              accent.withValues(alpha: 0.12),
+                                        ),
+                                        const SizedBox(height: 12),
+                                        _buildMembersListSkeleton(),
+                                      ],
+                                    );
+                                  }
                                   final activeDocs = docs
                                       .where((d) => _memberAtivo(d.data()))
                                       .toList();
+
+                                  if (activeDocs.isEmpty && docs.isNotEmpty) {
+                                    return Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 8),
+                                      child: Text(
+                                        'Nenhum membro ativo no cadastro. Atualize em Membros ou toque em «Atualizar lista» abaixo.',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.orange.shade800,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    );
+                                  }
 
                                   Widget signerRow({
                                     required String label,
@@ -1152,7 +1520,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                         }),
                                       ),
                                       const SizedBox(height: 12),
-                                      if (msnap.hasData)
+                                      if (docs.isNotEmpty)
                                         InputDecorator(
                                           decoration: premiumField(
                                             'Contato no documento (automático)',
@@ -1160,15 +1528,19 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                                 'Unão dos contactos dos assinantes no cadastro',
                                           ),
                                           child: Text(
-                                            _contactoPdf(msnap.data!),
+                                            _contactoPdf(
+                                              _LettersMembersListSnapshot(docs),
+                                            ),
                                             style: TextStyle(
                                               fontWeight: FontWeight.w600,
                                               color: Colors.grey.shade800,
                                             ),
                                           ),
                                         ),
-                                      if (msnap.hasData &&
-                                          _contactoPdf(msnap.data!).isEmpty)
+                                      if (docs.isNotEmpty &&
+                                          _contactoPdf(
+                                            _LettersMembersListSnapshot(docs),
+                                          ).isEmpty)
                                         Padding(
                                           padding: const EdgeInsets.only(top: 6),
                                           child: Text(
@@ -1463,7 +1835,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                     ),
                     const Spacer(),
                     Text(
-                      '${_selectedIds.length} selecionado(s)',
+                      '${_selectedIds.length} selecionado(s) · ${_seedMemberDocs.where((d) => _memberAtivo(d.data())).length} ativo(s)',
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         color: accent,
@@ -1475,19 +1847,29 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                 FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   future: _membersFuture,
                   builder: (context, snap) {
-                    if (_loading) {
-                      return const Padding(
-                        padding: EdgeInsets.all(32),
-                        child: Center(child: CircularProgressIndicator()),
+                    if (snap.hasError) {
+                      return Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: [
+                            Text('Erro: ${snap.error}',
+                                style: TextStyle(color: Colors.red.shade700)),
+                            TextButton.icon(
+                              onPressed: _refreshMembers,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Tentar novamente'),
+                            ),
+                          ],
+                        ),
                       );
                     }
-                    if (snap.hasError) {
-                      return Text('Erro: ${snap.error}');
+                    if ((snap.connectionState == ConnectionState.waiting &&
+                            !snap.hasData &&
+                            _seedMemberDocs.isEmpty) ||
+                        (_membersSyncing && _memberDocsFromSnapshot(snap.data).isEmpty)) {
+                      return _buildMembersListSkeleton();
                     }
-                    if (!snap.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    final docs = snap.data!.docs.where((d) {
+                    final docs = _memberDocsFromSnapshot(snap.data).where((d) {
                       final m = d.data();
                       if (!_memberAtivo(m)) return false;
                       final n = _memberName(m).toLowerCase();
@@ -1829,4 +2211,96 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       ),
     );
   }
+}
+
+/// Cache RAM — membros instantâneos ao reabrir Cartas e transferências.
+abstract final class _ChurchLettersMembersRamCache {
+  _ChurchLettersMembersRamCache._();
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _byTenant = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(
+      String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return null;
+    final hit = _byTenant[tid];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byTenant.remove(tid);
+      return null;
+    }
+    return hit.docs;
+  }
+
+  static void put(
+    String tenantId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty || docs.isEmpty) return;
+    _byTenant[tid] = (docs: List.from(docs), at: DateTime.now());
+  }
+}
+
+class _LettersMembersListSnapshot implements QuerySnapshot<Map<String, dynamic>> {
+  _LettersMembersListSnapshot(this.docs);
+
+  @override
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
+
+  @override
+  List<DocumentChange<Map<String, dynamic>>> get docChanges => const [];
+
+  @override
+  SnapshotMetadata get metadata => const _LettersMembersSnapshotMetadata();
+
+  @override
+  int get size => docs.length;
+}
+
+class _LettersMembersSnapshotMetadata implements SnapshotMetadata {
+  const _LettersMembersSnapshotMetadata();
+
+  @override
+  bool get hasPendingWrites => false;
+
+  @override
+  bool get isFromCache => true;
+}
+
+// ignore: subtype_of_sealed_class
+class _LettersCachedMemberQueryDoc
+    implements QueryDocumentSnapshot<Map<String, dynamic>> {
+  _LettersCachedMemberQueryDoc({required this.id, required Map<String, dynamic> data})
+      : _data = data;
+
+  @override
+  final String id;
+  final Map<String, dynamic> _data;
+
+  @override
+  Map<String, dynamic> data() => Map<String, dynamic>.from(_data);
+
+  @override
+  dynamic get(Object field) => _data[field];
+
+  @override
+  dynamic operator [](Object field) => _data[field];
+
+  @override
+  bool get exists => true;
+
+  @override
+  SnapshotMetadata get metadata => const _LettersMembersSnapshotMetadata();
+
+  @override
+  DocumentReference<Map<String, dynamic>> get reference =>
+      throw UnsupportedError('cached member doc has no reference');
 }

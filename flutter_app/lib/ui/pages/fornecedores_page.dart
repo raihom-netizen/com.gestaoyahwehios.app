@@ -1,7 +1,6 @@
 import 'dart:async' show Timer, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -9,7 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart'
+    show MergedFirestoreQuerySnapshot;
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/pdf/fornecedor_recibo_pdf.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
@@ -33,6 +34,147 @@ import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+/// Cache RAM — cadastro de fornecedores (reabrir módulo sem skeleton longo).
+abstract final class _FornecedoresRamCache {
+  _FornecedoresRamCache._();
+
+  static final Map<
+      String,
+      ({
+        QuerySnapshot<Map<String, dynamic>> snap,
+        DateTime at,
+      })> _ram = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static QuerySnapshot<Map<String, dynamic>>? peek(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return null;
+    final hit = _ram[tid];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _ram.remove(tid);
+      return null;
+    }
+    return hit.snap;
+  }
+
+  static void store(String tenantId, QuerySnapshot<Map<String, dynamic>> snap) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty || snap.docs.isEmpty) return;
+    _ram[tid] = (snap: snap, at: DateTime.now());
+  }
+}
+
+Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
+  String tenantId, {
+  required int limit,
+  String? fornecedorIdFilter,
+  bool descending = false,
+}) async {
+  final tid = tenantId.trim();
+  if (tid.isEmpty) return const MergedFirestoreQuerySnapshot([]);
+  final col = FirebaseFirestore.instance
+      .collection('igrejas')
+      .doc(tid)
+      .collection('fornecedor_compromissos');
+  final f = (fornecedorIdFilter ?? '').trim();
+  final Query<Map<String, dynamic>> q = f.isNotEmpty
+      ? col
+          .where('fornecedorId', isEqualTo: f)
+          .orderBy('dataVencimento', descending: true)
+          .limit(200)
+      : col.orderBy('dataVencimento', descending: descending).limit(limit);
+  try {
+    return await q
+        .get(const GetOptions(source: Source.serverAndCache))
+        .timeout(const Duration(seconds: 12));
+  } catch (_) {
+    return const MergedFirestoreQuerySnapshot([]);
+  }
+}
+
+Future<List<({
+  String id,
+  String nome,
+  String cargo,
+  String assinatura,
+})>> _fetchReciboSigners(String tenantId) async {
+  final tid = tenantId.trim();
+  if (tid.isEmpty) return const [];
+  try {
+    final dir = await MembersDirectorySnapshotService.readOnce(tid);
+    if (dir.hasEntries) {
+      final out = <({
+        String id,
+        String nome,
+        String cargo,
+        String assinatura,
+      })>[];
+      for (final e in dir.entries) {
+        final m = e.toMemberDataMap();
+        final nome = (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
+            .toString()
+            .trim();
+        if (nome.isEmpty) continue;
+        out.add((
+          id: e.memberDocId,
+          nome: nome,
+          cargo: (m['CARGO'] ?? m['FUNCAO'] ?? m['cargo'] ?? '')
+              .toString()
+              .trim(),
+          assinatura: (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '')
+              .toString()
+              .trim(),
+        ));
+      }
+      if (out.isNotEmpty) {
+        out.sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+        return out;
+      }
+    }
+  } catch (_) {}
+  try {
+    final snap =
+        await ChurchTenantResilientReads.membrosRecent(tid, limit: 400);
+    final out = snap.docs
+        .map((d) {
+          final md = d.data();
+          return (
+            id: d.id,
+            nome: (md['NOME_COMPLETO'] ?? md['nome'] ?? md['name'] ?? '')
+                .toString()
+                .trim(),
+            cargo: (md['CARGO'] ?? md['FUNCAO'] ?? md['cargo'] ?? '')
+                .toString()
+                .trim(),
+            assinatura: (md['assinaturaUrl'] ?? md['assinatura_url'] ?? '')
+                .toString()
+                .trim(),
+          );
+        })
+        .where((e) => e.nome.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+    return out;
+  } catch (_) {
+    return const [];
+  }
+}
+
+Future<ReportPdfBranding> _loadBrandingFastForRecibo(String tenantId) async {
+  try {
+    return await loadReportPdfBranding(tenantId)
+        .timeout(const Duration(seconds: 12));
+  } catch (_) {
+    return ReportPdfBranding(
+      churchName: '',
+      logoBytes: null,
+      accent: ReportPdfBranding.defaultAccent,
+    );
+  }
+}
 
 /// Moldura para o [TableCalendar] (sombras, borda, cantos) — alinhado ao painel premium.
 Widget _fornecedorAgendaCalendarPremiumShell({required Widget child}) {
@@ -827,7 +969,6 @@ Future<void> showFornecedorCompromissoEditor(
   valorCtrl.dispose();
 
   if (ok != true || !context.mounted) return;
-  await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
   final dt = DateTime(
     dEnd.year,
     dEnd.month,
@@ -889,6 +1030,39 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   Timer? _searchDebounce;
   late TabController _tabMain;
   QuerySnapshot<Map<String, dynamic>>? _fornecedoresCacheSnap;
+  late Future<QuerySnapshot<Map<String, dynamic>>> _fornecedoresFuture;
+
+  void _reloadFornecedoresList() {
+    _fornecedoresFuture = ChurchTenantResilientReads.fornecedores(
+      widget.tenantId,
+      limit: _fornecedoresListLimit,
+    ).then((snap) {
+      if (snap.docs.isNotEmpty) {
+        _FornecedoresRamCache.store(widget.tenantId, snap);
+        _fornecedoresCacheSnap = snap;
+      }
+      return snap;
+    });
+  }
+
+  void _refreshFornecedoresBackground() {
+    unawaited(() async {
+      try {
+        final snap = await ChurchTenantResilientReads.fornecedores(
+          widget.tenantId,
+          limit: _fornecedoresListLimit,
+        );
+        if (snap.docs.isNotEmpty) {
+          _FornecedoresRamCache.store(widget.tenantId, snap);
+        }
+        if (!mounted) return;
+        setState(() {
+          _fornecedoresCacheSnap = snap;
+          _fornecedoresFuture = Future.value(snap);
+        });
+      } catch (_) {}
+    }());
+  }
 
   static const _mainTabs = <Widget>[
     Tab(
@@ -912,17 +1086,14 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     _tabMain.addListener(() {
       if (!_tabMain.indexIsChanging && mounted) setState(() {});
     });
-    unawaited(_warmFornecedoresListCache());
-  }
-
-  Future<void> _warmFornecedoresListCache() async {
-    try {
-      final cached =
-          await ChurchTenantResilientReads.fornecedores(widget.tenantId);
-      if (cached.docs.isNotEmpty && mounted) {
-        setState(() => _fornecedoresCacheSnap = cached);
-      }
-    } catch (_) {}
+    final cached = _FornecedoresRamCache.peek(widget.tenantId);
+    if (cached != null && cached.docs.isNotEmpty) {
+      _fornecedoresCacheSnap = cached;
+      _fornecedoresFuture = Future.value(cached);
+      _refreshFornecedoresBackground();
+    } else {
+      _reloadFornecedoresList();
+    }
   }
 
   @override
@@ -972,6 +1143,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
         docId: docId,
       ),
     );
+    if (mounted) setState(_reloadFornecedoresList);
   }
 
   @override
@@ -1210,21 +1382,22 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           ),
         ),
         Expanded(
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _col.orderBy('nome').limit(_fornecedoresListLimit).snapshots(),
-            initialData: _fornecedoresCacheSnap,
+          child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            future: _fornecedoresFuture,
             builder: (context, snap) {
               if (snap.hasError) {
                 return ChurchPanelErrorBody(
                   title: 'Erro ao carregar fornecedores',
                   error: snap.error,
-                  onRetry: () => setState(() {}),
+                  onRetry: () => setState(_reloadFornecedoresList),
                 );
               }
-              if (!snap.hasData) {
+              if (snap.connectionState == ConnectionState.waiting &&
+                  !snap.hasData) {
                 return const ChurchPanelLoadingBody();
               }
-              final docs = snap.data!.docs.where((d) {
+              final docs = (snap.data?.docs ?? _fornecedoresCacheSnap?.docs ?? [])
+                  .where((d) {
                 if (_q.isEmpty) return true;
                 final m = d.data();
                 final blob = [
@@ -1299,6 +1472,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                             onLoadMore: () => setState(() {
                               _fornecedoresListLimit +=
                                   YahwehPerformanceV4.defaultPageSize;
+                              _reloadFornecedoresList();
                             }),
                           );
                         }
@@ -1484,29 +1658,42 @@ class _FornecedoresCompromissosListaTab extends StatefulWidget {
 class _FornecedoresCompromissosListaTabState
     extends State<_FornecedoresCompromissosListaTab>
     with AutomaticKeepAliveClientMixin {
-  /// Recria subscrições Firestore após «Tentar novamente» (ex.: índice em deploy).
   int _retryNonce = 0;
+  late Future<
+      ({
+        QuerySnapshot<Map<String, dynamic>> fornecedores,
+        QuerySnapshot<Map<String, dynamic>> compromissos,
+      })> _agendaFuture;
 
   @override
   bool get wantKeepAlive => true;
 
+  String get _tenantId => widget.colFornecedores.parent?.id ?? '';
+
   CollectionReference<Map<String, dynamic>> get _compCol => FirebaseFirestore
       .instance
       .collection('igrejas')
-      .doc(widget.tenantId)
+      .doc(_tenantId)
       .collection('fornecedor_compromissos');
 
-  Query<Map<String, dynamic>> get _query {
-    final f = (widget.fornecedorIdFilter ?? '').trim();
-    if (f.isEmpty) {
-      return _compCol
-          .orderBy('dataVencimento', descending: true)
-          .limit(YahwehPerformanceV4.defaultPageSize);
-    }
-    return _compCol
-        .where('fornecedorId', isEqualTo: f)
-        .orderBy('dataVencimento', descending: true)
-        .limit(200);
+  @override
+  void initState() {
+    super.initState();
+    _reloadAgenda();
+  }
+
+  void _reloadAgenda() {
+    _agendaFuture = Future.wait<QuerySnapshot<Map<String, dynamic>>>([
+      ChurchTenantResilientReads.fornecedores(_tenantId),
+      _loadFornecedorCompromissosQuery(
+        _tenantId,
+        limit: YahwehPerformanceV4.defaultPageSize,
+        fornecedorIdFilter: widget.fornecedorIdFilter,
+        descending: true,
+      ),
+    ]).then(
+      (r) => (fornecedores: r[0], compromissos: r[1]),
+    );
   }
 
   Future<void> _editar(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
@@ -1526,13 +1713,13 @@ class _FornecedoresCompromissosListaTabState
       day: day,
       existing: doc,
     );
-    if (mounted) setState(() {});
+    if (mounted) setState(_reloadAgenda);
   }
 
   Future<void> _excluir(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
     if (!await _confirmDeleteFornecedorCompromisso(context)) return;
     await doc.reference.delete();
-    if (mounted) setState(() {});
+    if (mounted) setState(_reloadAgenda);
   }
 
   @override
@@ -1541,37 +1728,34 @@ class _FornecedoresCompromissosListaTabState
     final pad = ThemeCleanPremium.pagePadding(context);
     return KeyedSubtree(
       key: ValueKey<int>(_retryNonce),
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: widget.colFornecedores
-            .orderBy('nome')
-            .limit(YahwehPerformanceV4.defaultPageSize)
-            .snapshots(),
-        builder: (context, fnSnap) {
-          if (fnSnap.hasError) {
+      child: FutureBuilder<
+          ({
+            QuerySnapshot<Map<String, dynamic>> fornecedores,
+            QuerySnapshot<Map<String, dynamic>> compromissos,
+          })>(
+        future: _agendaFuture,
+        builder: (context, bundle) {
+          if (bundle.hasError) {
             return ChurchPanelErrorBody(
-              title: 'Erro ao carregar cadastros de fornecedores',
-              error: fnSnap.error,
-              onRetry: () => setState(() => _retryNonce++),
+              title: 'Erro ao carregar agendamentos',
+              error: bundle.error,
+              onRetry: () => setState(() {
+                _retryNonce++;
+                _reloadAgenda();
+              }),
             );
           }
+          if (bundle.connectionState == ConnectionState.waiting &&
+              !bundle.hasData) {
+            return const ChurchPanelLoadingBody();
+          }
+          final fnSnap = bundle.data!.fornecedores;
+          final snap = bundle.data!.compromissos;
           final nomePorId = <String, String>{};
-          for (final d in fnSnap.data?.docs ?? []) {
+          for (final d in fnSnap.docs) {
             nomePorId[d.id] = (d.data()['nome'] ?? '').toString().trim();
           }
-          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _query.snapshots(),
-            builder: (context, snap) {
-            if (snap.hasError) {
-              return ChurchPanelErrorBody(
-                title: 'Erro ao carregar agendamentos',
-                error: snap.error,
-                onRetry: () => setState(() => _retryNonce++),
-              );
-            }
-            if (!snap.hasData || !fnSnap.hasData) {
-              return const ChurchPanelLoadingBody();
-            }
-            final docs = snap.data!.docs;
+          final docs = snap.docs;
             final deep = Color.lerp(
                     ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.35) ??
                 ThemeCleanPremium.primary;
@@ -1837,10 +2021,8 @@ class _FornecedoresCompromissosListaTabState
                       },
                     ),
             );
-          },
-        );
-      },
-    ),
+        },
+      ),
     );
   }
 }
@@ -1869,12 +2051,39 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
 
   DateTime _focused = DateTime.now();
   DateTime? _selected;
+  late Future<
+      ({
+        QuerySnapshot<Map<String, dynamic>> fornecedores,
+        QuerySnapshot<Map<String, dynamic>> compromissos,
+      })> _agendaFuture;
+
+  String get _tenantId => widget.tenantId.trim().isNotEmpty
+      ? widget.tenantId.trim()
+      : (widget.colFornecedores.parent?.id ?? '');
 
   CollectionReference<Map<String, dynamic>> get _compCol => FirebaseFirestore
       .instance
       .collection('igrejas')
-      .doc(widget.tenantId)
+      .doc(_tenantId)
       .collection('fornecedor_compromissos');
+
+  @override
+  void initState() {
+    super.initState();
+    _reloadAgenda();
+  }
+
+  void _reloadAgenda() {
+    _agendaFuture = Future.wait<QuerySnapshot<Map<String, dynamic>>>([
+      ChurchTenantResilientReads.fornecedores(_tenantId),
+      _loadFornecedorCompromissosQuery(
+        _tenantId,
+        limit: YahwehPerformanceV4.defaultPageSize * 3,
+      ),
+    ]).then(
+      (r) => (fornecedores: r[0], compromissos: r[1]),
+    );
+  }
 
   Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupByDay(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
@@ -1929,6 +2138,7 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
       day: day,
       existing: doc,
     );
+    if (mounted) setState(_reloadAgenda);
   }
 
   Future<void> _excluirCompromissoAgendaGeral(
@@ -1936,6 +2146,7 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
   ) async {
     if (!await _confirmDeleteFornecedorCompromisso(context)) return;
     await doc.reference.delete();
+    if (mounted) setState(_reloadAgenda);
   }
 
   void _showDayAgendaGeralSheet(
@@ -2168,34 +2379,32 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: widget.colFornecedores
-          .orderBy('nome')
-          .limit(YahwehPerformanceV4.defaultPageSize)
-          .snapshots(),
-      builder: (context, fnSnap) {
+    return FutureBuilder<
+        ({
+          QuerySnapshot<Map<String, dynamic>> fornecedores,
+          QuerySnapshot<Map<String, dynamic>> compromissos,
+        })>(
+      future: _agendaFuture,
+      builder: (context, bundle) {
+        if (bundle.hasError) {
+          return ChurchPanelErrorBody(
+            title: 'Erro ao carregar agenda geral',
+            error: bundle.error,
+            onRetry: () => setState(_reloadAgenda),
+          );
+        }
+        if (bundle.connectionState == ConnectionState.waiting &&
+            !bundle.hasData) {
+          return const ChurchPanelLoadingBody();
+        }
+        final fnSnap = bundle.data!.fornecedores;
+        final snap = bundle.data!.compromissos;
         final nomePorId = <String, String>{};
-        for (final d in fnSnap.data?.docs ?? []) {
+        for (final d in fnSnap.docs) {
           nomePorId[d.id] = (d.data()['nome'] ?? '').toString().trim();
         }
-        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: _compCol
-              .orderBy('dataVencimento', descending: false)
-              .limit(YahwehPerformanceV4.defaultPageSize)
-              .snapshots(),
-          builder: (context, snap) {
-            if (snap.hasError) {
-              return ChurchPanelErrorBody(
-                title: 'Erro ao carregar agenda geral',
-                error: snap.error,
-                onRetry: () => setState(() {}),
-              );
-            }
-            if (!snap.hasData || !fnSnap.hasData) {
-              return const ChurchPanelLoadingBody();
-            }
-            final docs = snap.data!.docs;
-            final byDay = _groupByDay(docs);
+        final docs = snap.docs;
+        final byDay = _groupByDay(docs);
 
             return DecoratedBox(
               decoration: BoxDecoration(
@@ -2406,8 +2615,6 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
                 ],
               ),
             );
-          },
-        );
       },
     );
   }
@@ -2788,7 +2995,6 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final payload = <String, dynamic>{
         'nome': _nomeCtrl.text.trim(),
         'tipoPessoa': _tipo,
@@ -3285,51 +3491,44 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
   }
 
   Future<void> _emitirRecibo(Map<String, dynamic> m, String financeDocId) async {
-    final doc = await _fornecedorRef.get();
-    if (!doc.exists || !mounted) return;
-    final fd = doc.data()!;
-    final nomeForn = (fd['nome'] ?? '').toString();
-    final cj = (fd['cpfCnpj'] ?? '').toString();
-    final end = [
-      fd['logradouro'],
-      fd['numero'],
-      fd['bairro'],
-      fd['cidade'],
-      fd['uf'],
-    ].whereType<Object>().map((e) => e.toString().trim()).where((s) => s.isNotEmpty).join(', ');
-    final valor = (m['amount'] ?? m['valor'] ?? 0);
-    final v = valor is num ? valor.toDouble() : double.tryParse('$valor') ?? 0;
-    final desc = (m['descricao'] ?? '').toString();
-    final ts = m['createdAt'];
-    DateTime? dt;
-    if (ts is Timestamp) dt = ts.toDate();
-    final membrosSnap = await firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(widget.tenantId)
-        .collection('membros')
-        .get();
-    if (!mounted) return;
-    final signers = membrosSnap.docs
-        .map((d) {
-          final md = d.data();
-          return (
-            id: d.id,
-            nome: (md['NOME_COMPLETO'] ?? md['nome'] ?? md['name'] ?? '')
-                .toString()
-                .trim(),
-            cargo:
-                (md['CARGO'] ?? md['FUNCAO'] ?? md['cargo'] ?? '').toString().trim(),
-            assinatura:
-                (md['assinaturaUrl'] ?? md['assinatura_url'] ?? '').toString().trim(),
+    try {
+      final doc = await _fornecedorRef.get(
+        const GetOptions(source: Source.serverAndCache),
+      );
+      if (!doc.exists || !mounted) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Fornecedor não encontrado.')),
           );
-        })
-        .where((e) => e.nome.isNotEmpty)
-        .toList()
-      ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+        }
+        return;
+      }
+      final fd = doc.data()!;
+      final nomeForn = (fd['nome'] ?? '').toString();
+      final cj = (fd['cpfCnpj'] ?? '').toString();
+      final end = [
+        fd['logradouro'],
+        fd['numero'],
+        fd['bairro'],
+        fd['cidade'],
+        fd['uf'],
+      ]
+          .whereType<Object>()
+          .map((e) => e.toString().trim())
+          .where((s) => s.isNotEmpty)
+          .join(', ');
+      final valor = (m['amount'] ?? m['valor'] ?? 0);
+      final v = valor is num ? valor.toDouble() : double.tryParse('$valor') ?? 0;
+      final desc = (m['descricao'] ?? '').toString();
+      final ts = m['createdAt'];
+      DateTime? dt;
+      if (ts is Timestamp) dt = ts.toDate();
 
-    String? signerId;
-    var useDigital = true;
-    final cfg = await showDialog<({String? signerId, bool useDigital})>(
+      final signers = await _fetchReciboSigners(widget.tenantId);
+      if (!mounted) return;
+      String? signerId;
+      var useDigital = true;
+      final cfg = await showDialog<({String? signerId, bool useDigital})>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlg) => AlertDialog(
@@ -3396,39 +3595,51 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
         ),
       ),
     );
-    if (cfg == null || !mounted) return;
-    final sel = signers.where((s) => s.id == cfg.signerId);
-    final signer = sel.isNotEmpty ? sel.first : null;
-    Uint8List? sigBytes;
-    if (cfg.useDigital && signer != null && signer.assinatura.isNotEmpty) {
-      final url = sanitizeImageUrl(signer.assinatura);
-      if (url.isNotEmpty) {
-        sigBytes = await ImageHelper.getBytesFromUrlOrNull(
-          url,
-          timeout: const Duration(seconds: 14),
+      if (cfg == null || !mounted) return;
+      final sel = signers.where((s) => s.id == cfg.signerId);
+      final signer = sel.isNotEmpty ? sel.first : null;
+      Uint8List? sigBytes;
+      if (cfg.useDigital && signer != null && signer.assinatura.isNotEmpty) {
+        final url = sanitizeImageUrl(signer.assinatura);
+        if (url.isNotEmpty) {
+          sigBytes = await ImageHelper.getBytesFromUrlOrNull(
+            url,
+            timeout: const Duration(seconds: 14),
+          );
+        }
+      }
+      final branding = await _loadBrandingFastForRecibo(widget.tenantId);
+      if (!mounted) return;
+      final bytes = await buildFornecedorReciboPdf(
+        branding: branding,
+        fornecedorNome: nomeForn,
+        fornecedorCpfCnpj: cj.isEmpty ? null : cj,
+        fornecedorEndereco: end.isEmpty ? null : end,
+        valor: v,
+        referente: desc.isEmpty ? 'Pagamento / serviço' : desc,
+        dataPagamento: dt,
+        showDigitalSignature: cfg.useDigital,
+        churchSignatureImageBytes: sigBytes,
+        churchSignerName: signer?.nome ?? '',
+        churchSignerRole: signer?.cargo ?? '',
+      );
+      if (!mounted) return;
+      await showPdfActions(
+        context,
+        bytes: bytes,
+        filename: 'recibo_fornecedor.pdf',
+      );
+      await _financeCol.doc(financeDocId).update({
+        'reciboEmitidoAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e, st) {
+      debugPrint('fornecedor recibo: $e\n$st');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao emitir recibo: $e')),
         );
       }
     }
-    final branding = await loadReportPdfBranding(widget.tenantId);
-    if (!mounted) return;
-    final bytes = await buildFornecedorReciboPdf(
-      branding: branding,
-      fornecedorNome: nomeForn,
-      fornecedorCpfCnpj: cj.isEmpty ? null : cj,
-      fornecedorEndereco: end.isEmpty ? null : end,
-      valor: v,
-      referente: desc.isEmpty ? 'Pagamento / serviço' : desc,
-      dataPagamento: dt,
-      showDigitalSignature: cfg.useDigital,
-      churchSignatureImageBytes: sigBytes,
-      churchSignerName: signer?.nome ?? '',
-      churchSignerRole: signer?.cargo ?? '',
-    );
-    if (!context.mounted) return;
-    await showPdfActions(context, bytes: bytes, filename: 'recibo_fornecedor.pdf');
-    await _financeCol.doc(financeDocId).update({
-      'reciboEmitidoAt': FieldValue.serverTimestamp(),
-    });
   }
 
   @override

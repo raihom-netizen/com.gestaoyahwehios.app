@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/offline/offline_first_coordinator.dart';
 import 'package:gestao_yahweh/services/background_upload_worker.dart';
+import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/system_health_service.dart';
@@ -66,6 +67,7 @@ abstract final class AppFinalizeBootstrap {
       await FirebaseBootstrap.ensureInitialized();
       FirebaseBootstrapService.refreshCachedApp();
       await FirebaseAuthTokenGuard.refreshIfStale();
+      await ChurchAutoSessionService.ensureAutoPainelFlagForPersistedSession();
       if (kIsWeb) {
         await FirestoreWebGuard.recoverFirestoreWebSession(
           allowHardReconnect: true,
@@ -88,7 +90,7 @@ abstract final class AppFinalizeBootstrap {
     await ensureFirebaseReadyToPublish(logLabel: logLabel ?? 'publish');
     if (kIsWeb) {
       try {
-        await FirestoreWebGuard.recoverFirestoreWebSession();
+        await FirestoreWebGuard.prepareForChatWrite();
       } catch (_) {}
     }
   }

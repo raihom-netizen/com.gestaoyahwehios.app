@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Push FCM por tópico quando há conteúdo novo (avisos, eventos na agenda, escalas).
  * Tópicos alinhados ao app: `gypush_{tenantIdSafe}_{aviso|evento|escala}`.
  * O app inscreve/desinscreve conforme `users/{uid}.pushAvisos`, `pushEventos`, `pushEscalas` (padrão true).
@@ -14,7 +14,13 @@ function safeTid(t: string): string {
 /** Mesmo formato usado no Flutter [FcmService.topicPushNovo]. */
 export function topicPushNovo(
   tenantId: string,
-  kind: "aviso" | "evento" | "escala" | "fornecedor_agenda",
+  kind:
+    | "aviso"
+    | "evento"
+    | "escala"
+    | "fornecedor_agenda"
+    | "gestores"
+    | "financeiro",
 ): string {
   return `gypush_${safeTid(tenantId)}_${kind}`;
 }

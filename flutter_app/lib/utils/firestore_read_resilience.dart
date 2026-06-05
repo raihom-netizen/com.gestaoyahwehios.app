@@ -125,6 +125,8 @@ class FirestoreReadResilience {
               );
             } catch (_) {}
           }
+        } else if (kIsWeb) {
+          await FirestoreWebGuard.prepareForChatWrite();
         }
         final snap = kIsWeb
             ? await firestoreQueryGetReliable(query).timeout(attemptTimeout)
@@ -143,6 +145,17 @@ class FirestoreReadResilience {
       if (mem != null) return mem;
     }
     throw lastError ?? StateError('firestore_query_failed');
+  }
+
+  /// Último snapshot bom em memória (web/mobile) — exibir feed enquanto a rede atualiza.
+  static QuerySnapshot<Map<String, dynamic>>? peekLastGoodQuery(
+    String cacheKey,
+  ) {
+    final key = cacheKey.trim();
+    if (key.isEmpty) return null;
+    final mem = _lastGoodByKey[key];
+    if (mem != null && mem.docs.isNotEmpty) return mem;
+    return null;
   }
 
   static void forgetKey(String cacheKey) {

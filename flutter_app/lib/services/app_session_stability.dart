@@ -9,7 +9,9 @@ import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
+import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -30,9 +32,12 @@ abstract final class AppSessionStability {
   static DateTime? _cachedMasterAt;
   static bool _adminPanelVerified = false;
   static bool _bound = false;
+  static bool _keepaliveBound = false;
+  static Timer? _keepaliveTimer;
   static final List<void Function()> _resumeListeners = <void Function()>[];
 
   static const Duration _masterCacheTtl = Duration(hours: 12);
+  static const Duration _sessionKeepaliveInterval = Duration(minutes: 4);
 
   /// Regista lifecycle + visibilidade da aba (web). Idempotente.
   static void bindGlobal(WidgetsBindingObserver observer) {
@@ -55,18 +60,50 @@ abstract final class AppSessionStability {
     _resumeListeners.remove(listener);
   }
 
+  /// Pulso periódico — mantém sessão e Firestore activos (web/Android/iOS).
+  static void bindSessionKeepalive() {
+    if (_keepaliveBound) return;
+    _keepaliveBound = true;
+    _keepaliveTimer?.cancel();
+    _keepaliveTimer = Timer.periodic(_sessionKeepaliveInterval, (_) {
+      unawaited(_runSoftKeepalive());
+    });
+  }
+
+  static Future<void> _runSoftKeepalive() async {
+    final u = FirebaseAuth.instance.currentUser ?? _stickyUser;
+    if (u == null || u.isAnonymous) return;
+    rememberUser(u);
+    try {
+      await FirebaseAuthTokenGuard.refreshIfStale();
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensureWebDatabaseConnected(refreshAuth: false);
+      } else {
+        await firebaseDefaultFirestore.enableNetwork().catchError((_) {});
+      }
+      await ChurchAutoSessionService.ensureAutoPainelFlagForPersistedSession();
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('AppSessionStability keepalive: $e\n$st');
+      }
+    }
+  }
+
+  /// Volta da rede (modo avião / Wi‑Fi) — recuperação completa sem throttle de resume.
+  static void onConnectivityRestored() => onGlobalResume(force: true);
+
   /// Chamado ao voltar do background / foco na aba (web + mobile).
-  static void onGlobalResume() {
+  static void onGlobalResume({bool force = false}) {
     final u = FirebaseAuth.instance.currentUser;
     if (u != null && !u.isAnonymous) {
       _stickyUser = u;
     }
-    if (!FirebaseAuthTokenGuard.shouldHandleAppResume()) {
-      return;
-    }
-    unawaited(AppFinalizeBootstrap.onAppResume());
-    if (kIsWeb) {
-      unawaited(FirestoreWebGuard.bindWebHostingDomainSession());
+    final runHeavy = force || FirebaseAuthTokenGuard.shouldHandleAppResume();
+    if (runHeavy) {
+      unawaited(AppFinalizeBootstrap.onAppResume());
+      if (kIsWeb) {
+        unawaited(FirestoreWebGuard.bindWebHostingDomainSession());
+      }
     }
     for (final cb in List<void Function()>.from(_resumeListeners)) {
       try {

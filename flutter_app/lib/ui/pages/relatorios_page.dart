@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -16,7 +15,6 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:gestao_yahweh/services/yahweh_share_service.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
@@ -26,14 +24,102 @@ import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
-import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
-import 'package:gestao_yahweh/services/church_data_query.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
 import 'package:gestao_yahweh/ui/pages/relatorio_gastos_fornecedores_page.dart';
 import '../../services/app_permissions.dart';
+
+/// Membros para relatórios — cache RAM + `_panel_cache/members_directory` (rápido).
+abstract final class _RelatoriosMembersDataCache {
+  _RelatoriosMembersDataCache._();
+
+  static final Map<
+      String,
+      ({
+        List<Map<String, dynamic>> items,
+        DateTime at,
+      })> _ram = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static List<Map<String, dynamic>>? peek(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return null;
+    final hit = _ram[tid];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _ram.remove(tid);
+      return null;
+    }
+    return hit.items;
+  }
+
+  static Future<List<Map<String, dynamic>>> fetch(
+    String tenantId, {
+    int limit = 800,
+  }) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return const [];
+
+    final cached = peek(tid);
+    if (cached != null && cached.isNotEmpty) return cached;
+
+    try {
+      final dir = await MembersDirectorySnapshotService.readOnce(tid);
+      if (dir.hasEntries) {
+        final out = <Map<String, dynamic>>[];
+        for (final e in dir.entries) {
+          if (out.length >= limit) break;
+          out.add({...e.toMemberDataMap(), 'id': e.memberDocId});
+        }
+        if (out.isNotEmpty) {
+          _ram[tid] = (items: List.from(out), at: DateTime.now());
+          unawaited(
+              MembersDirectorySnapshotService.warmFromCallableIfStale(tid));
+          return out;
+        }
+      }
+    } catch (_) {}
+
+    try {
+      final snap =
+          await ChurchTenantResilientReads.membrosRecent(tid, limit: limit);
+      final out =
+          snap.docs.map((d) => {...d.data(), 'id': d.id}).toList(growable: false);
+      if (out.isNotEmpty) {
+        _ram[tid] = (items: List.from(out), at: DateTime.now());
+      }
+      return out;
+    } catch (_) {
+      return peek(tid) ?? const [];
+    }
+  }
+}
+
+/// Branding PDF com timeout — evita «Gerando...» infinito se logo/Storage falhar.
+Future<ReportPdfBranding> _loadReportPdfBrandingFast(String tenantId) async {
+  try {
+    return await loadReportPdfBranding(tenantId)
+        .timeout(const Duration(seconds: 12));
+  } catch (_) {
+    return ReportPdfBranding(
+      churchName: '',
+      logoBytes: null,
+      accent: ReportPdfBranding.defaultAccent,
+    );
+  }
+}
+
+void _prewarmRelatoriosData(String tenantId) {
+  final tid = tenantId.trim();
+  if (tid.isEmpty) return;
+  unawaited(_RelatoriosMembersDataCache.fetch(tid));
+  unawaited(_loadReportPdfBrandingFast(tid));
+}
 
 /// Fecha no máximo uma rota (relatório sobre o painel). Nunca usa rootNavigator.
 void _popUmaRotaRelatorio(BuildContext context) {
@@ -473,21 +559,14 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
+    _prewarmRelatoriosData(widget.tenantId);
     _loadDepartamentos();
   }
 
   Future<void> _loadDepartamentos() async {
     try {
-      final snap = await ChurchDataQuery.getRecentPage(
-        collection: FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(widget.tenantId)
-            .collection('departamentos'),
-        orderField: 'nome',
-        descending: false,
-        limit: 100,
-      );
+      final snap =
+          await ChurchTenantResilientReads.departamentos(widget.tenantId);
       if (mounted) {
         setState(() {
           _departamentos = snap.docs
@@ -581,15 +660,8 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
   CollectionReference<Map<String, dynamic>> get _membersIgrejas => FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('membros');
   CollectionReference<Map<String, dynamic>> get _membrosIgrejas => FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('membros');
 
-  Future<List<Map<String, dynamic>>> _fetchMembers() async {
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-    final snap = await _members
-        .limit(YahwehPerformanceV4.defaultPageSize * 25)
-        .get();
-    return snap.docs
-        .map((d) => {...d.data(), 'id': d.id})
-        .toList();
-  }
+  Future<List<Map<String, dynamic>>> _fetchMembers() =>
+      _RelatoriosMembersDataCache.fetch(widget.tenantId, limit: 800);
 
   String _val(Map<String, dynamic> m, String key) {
     if (key == 'nome') return (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '').toString();
@@ -671,7 +743,12 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
     setState(() => _loading = true);
     YahwehFlowLog.relatorioStart();
     try {
-      var list = await _fetchMembers();
+      final prep = await Future.wait<dynamic>([
+        _fetchMembers(),
+        _loadReportPdfBrandingFast(widget.tenantId),
+      ]);
+      var list = prep[0] as List<Map<String, dynamic>>;
+      final branding = prep[1] as ReportPdfBranding;
       list = _aplicarFiltros(list);
       if (list.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nenhum membro para exportar.')));
@@ -697,8 +774,6 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
           ...keys.map((k) => _pdfSanitizeCell(k, _val(e.value, k))),
         ];
       }).toList();
-
-      final branding = await loadReportPdfBranding(widget.tenantId);
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
@@ -876,35 +951,25 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
   @override
   void initState() {
     super.initState();
-    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
-    _carregarMembros();
+    _prewarmRelatoriosData(widget.tenantId);
+    final cached = _RelatoriosMembersDataCache.peek(widget.tenantId);
+    if (cached != null && cached.isNotEmpty) {
+      _todosMembros = cached;
+      _loadingMembros = false;
+    }
+    unawaited(_carregarMembros());
   }
 
   Future<void> _carregarMembros() async {
-    setState(() {
-      _loadingMembros = true;
-      _erroMembros = null;
-    });
+    if (_todosMembros.isEmpty) {
+      setState(() {
+        _loadingMembros = true;
+        _erroMembros = null;
+      });
+    }
     try {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-      final snapM = await _members.limit(1000).get();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      final snapMb = await _membros.limit(1000).get();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      final snapMI = await _membersIgrejas.limit(1000).get();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
-      final snapMbI = await _membrosIgrejas.limit(1000).get();
-      final all = <Map<String, dynamic>>[];
-      for (final d in snapM.docs) all.add({...d.data(), 'id': d.id});
-      for (final d in snapMb.docs) {
-        if (!all.any((e) => e['id'] == d.id)) all.add({...d.data(), 'id': d.id});
-      }
-      for (final d in snapMI.docs) {
-        if (!all.any((e) => e['id'] == d.id)) all.add({...d.data(), 'id': d.id});
-      }
-      for (final d in snapMbI.docs) {
-        if (!all.any((e) => e['id'] == d.id)) all.add({...d.data(), 'id': d.id});
-      }
+      final all =
+          await _RelatoriosMembersDataCache.fetch(widget.tenantId, limit: 800);
       if (mounted) {
         setState(() {
           _todosMembros = all;
@@ -1024,7 +1089,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                   : _filtro == 4
                       ? 'Aniversariantes — Ano'
                       : 'Aniversariantes — Período';
-      final branding = await loadReportPdfBranding(widget.tenantId);
+      final branding = await _loadReportPdfBrandingFast(widget.tenantId);
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
@@ -1750,6 +1815,8 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
   _FinancePeriodMode _periodMode = _FinancePeriodMode.month;
   DateTime? _customRangeStart;
   DateTime? _customRangeEnd;
+  Future<Map<String, dynamic>>? _summaryFuture;
+  String _summaryQueryKey = '';
 
   DocumentReference<Map<String, dynamic>> get _tenantRef =>
       FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId);
@@ -1757,19 +1824,45 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
   bool get _embedded => widget.embeddedInFinanceModule;
 
   Future<void> _loadCategoriasContas() async {
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-    final catsReceita = await _tenantRef.collection('categorias_receitas').orderBy('nome').get();
-    final catsDespesa = await _tenantRef.collection('categorias_despesas').orderBy('nome').get();
-    final cats = <String>{};
-    for (final d in catsReceita.docs) cats.add((d.data()['nome'] ?? '').toString());
-    for (final d in catsDespesa.docs) cats.add((d.data()['nome'] ?? '').toString());
-    final contasSnap = await _tenantRef.collection('contas').orderBy('nome').get();
-    final contas = contasSnap.docs.map((d) => (id: d.id, nome: (d.data()['nome'] ?? '').toString())).where((e) => e.nome.isNotEmpty).toList();
-    if (mounted) setState(() {
-      _categorias = cats.toList()..sort();
-      _contas = contas;
-      _initLoaded = true;
-    });
+    try {
+      final results = await Future.wait([
+        _tenantRef
+            .collection('categorias_receitas')
+            .orderBy('nome')
+            .get(const GetOptions(source: Source.serverAndCache)),
+        _tenantRef
+            .collection('categorias_despesas')
+            .orderBy('nome')
+            .get(const GetOptions(source: Source.serverAndCache)),
+        _tenantRef
+            .collection('contas')
+            .orderBy('nome')
+            .get(const GetOptions(source: Source.serverAndCache)),
+      ]);
+      final catsReceita = results[0];
+      final catsDespesa = results[1];
+      final contasSnap = results[2];
+      final cats = <String>{};
+      for (final d in catsReceita.docs) {
+        cats.add((d.data()['nome'] ?? '').toString());
+      }
+      for (final d in catsDespesa.docs) {
+        cats.add((d.data()['nome'] ?? '').toString());
+      }
+      final contas = contasSnap.docs
+          .map((d) => (id: d.id, nome: (d.data()['nome'] ?? '').toString()))
+          .where((e) => e.nome.isNotEmpty)
+          .toList();
+      if (mounted) {
+        setState(() {
+          _categorias = cats.toList()..sort();
+          _contas = contas;
+          _initLoaded = true;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _initLoaded = true);
+    }
   }
 
   @override
@@ -1778,8 +1871,23 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
     final now = DateTime.now();
     _mes = now.month;
     _ano = now.year;
-    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
+    _prewarmRelatoriosData(widget.tenantId);
     _loadCategoriasContas();
+    _ensureSummaryFuture();
+  }
+
+  String _summaryQueryKeyNow() =>
+      '${widget.tenantId}_$_periodMode$_mes$_ano'
+      '_${_customRangeStart?.millisecondsSinceEpoch}_'
+      '${_customRangeEnd?.millisecondsSinceEpoch}_'
+      '$_filtroTipo$_filtroCategoria$_filtroConta$_filtroStatusDespesa';
+
+  void _ensureSummaryFuture() {
+    final key = _summaryQueryKeyNow();
+    if (_summaryFuture == null || key != _summaryQueryKey) {
+      _summaryQueryKey = key;
+      _summaryFuture = _loadFinanceSummary();
+    }
   }
 
   ({DateTime inicio, DateTime fim}) _periodoSelecionado() {
@@ -1875,7 +1983,8 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
         .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(p.fim))
         .orderBy('createdAt', descending: true)
         .limit(2000)
-        .get();
+        .get(const GetOptions(source: Source.serverAndCache))
+        .timeout(const Duration(seconds: 30));
     return snap.docs.map((d) {
       final m = d.data();
       final ts = m['createdAt'];
@@ -1901,7 +2010,6 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
   }
 
   Future<Map<String, dynamic>> _loadFinanceSummary() async {
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     final rows = await financeFirestoreOpWithRetry(_queryFinanceRows);
     final contaLabels = <String, String>{
       for (final c in _contas) c.id: c.nome,
@@ -1934,10 +2042,12 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
     Uint8List? rightSig,
     bool showDigital
   })?> _pickFinanceReportSigners() async {
-    final snap = await _tenantRef.collection('membros').get();
-    final members = snap.docs
-        .map((d) {
-          final m = d.data();
+    var raw = _RelatoriosMembersDataCache.peek(widget.tenantId) ?? const [];
+    if (raw.isEmpty) {
+      raw = await _RelatoriosMembersDataCache.fetch(widget.tenantId, limit: 800);
+    }
+    final members = raw
+        .map((m) {
           final nome = (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
               .toString()
               .trim();
@@ -1946,14 +2056,15 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
               .trim();
           final assinatura =
               (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim();
+          final id = (m['id'] ?? '').toString();
           return (
-            id: d.id,
+            id: id,
             nome: nome,
             cargo: cargo,
             assinatura: assinatura,
           );
         })
-        .where((e) => e.nome.isNotEmpty)
+        .where((e) => e.nome.isNotEmpty && e.id.isNotEmpty)
         .toList()
       ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
 
@@ -2090,14 +2201,20 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
   }
 
   Future<void> _exportPdf({bool fechamentoOficial = false}) async {
+    final signerSel = await _pickFinanceReportSigners();
+    if (signerSel == null) return;
     setState(() => _loading = true);
     try {
-      final signerSel = await _pickFinanceReportSigners();
-      if (signerSel == null) return;
-      final tenantSnap = await _tenantRef.get();
+      final tenantSnap = await _tenantRef.get(
+        const GetOptions(source: Source.serverAndCache),
+      );
       final tenant = tenantSnap.data() ?? <String, dynamic>{};
-      final branding = await loadReportPdfBranding(widget.tenantId);
-      final summary = await _loadFinanceSummary();
+      final prep = await Future.wait<dynamic>([
+        _loadReportPdfBrandingFast(widget.tenantId),
+        _loadFinanceSummary(),
+      ]);
+      final branding = prep[0] as ReportPdfBranding;
+      final summary = prep[1] as Map<String, dynamic>;
       final rows = (summary['rows'] as List).cast<Map<String, dynamic>>();
       final entradas = (summary['entradas'] as num).toDouble();
       final saidas = (summary['saidas'] as num).toDouble();
@@ -2398,6 +2515,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
 
   @override
   Widget build(BuildContext context) {
+    _ensureSummaryFuture();
     final meses = const [
       'Janeiro',
       'Fevereiro',
@@ -2831,9 +2949,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                   )),
             const SizedBox(height: ThemeCleanPremium.spaceLg),
             FutureBuilder<Map<String, dynamic>>(
-              key: ValueKey<String>(
-                  '${widget.tenantId}_$_periodMode$_mes$_ano${_customRangeStart?.millisecondsSinceEpoch}_${_customRangeEnd?.millisecondsSinceEpoch}_$_filtroTipo$_filtroCategoria$_filtroConta$_filtroStatusDespesa'),
-              future: _loadFinanceSummary(),
+              future: _summaryFuture,
               builder: (context, snap) {
                 if (snap.hasError) {
                   return Padding(
@@ -2841,7 +2957,10 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                     child: ChurchPanelErrorBody(
                       title: 'Não foi possível carregar o resumo financeiro',
                       error: snap.error,
-                      onRetry: () => setState(() {}),
+                      onRetry: () => setState(() {
+                        _summaryQueryKey = '';
+                        _ensureSummaryFuture();
+                      }),
                     ),
                   );
                 }
@@ -4004,7 +4123,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true));
+    _prewarmRelatoriosData(widget.tenantId);
     _load();
   }
 
@@ -4014,8 +4133,10 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
       _loadError = null;
     });
     try {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-      final snap = await _col.orderBy('nome').get();
+      final snap = await ChurchTenantResilientReads.patrimonioAll(
+        widget.tenantId,
+        limit: 500,
+      );
       if (mounted) {
         setState(() {
           _docs = snap.docs;
@@ -4091,7 +4212,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
         if (v is num) valorTotal += v.toDouble();
       }
 
-      final branding = await loadReportPdfBranding(widget.tenantId);
+      final branding = await _loadReportPdfBrandingFast(widget.tenantId);
       final extraPat = <String>[
         'Quantidade de bens: ${docs.length}',
         'Valor total: ${_fmtMoney(valorTotal)}',
@@ -4329,8 +4450,9 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
     });
     _eventos = [];
     try {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-      final snap = await _noticias.where('type', isEqualTo: 'evento').get();
+      final snap = await _noticias
+          .where('type', isEqualTo: 'evento')
+          .get(const GetOptions(source: Source.serverAndCache));
       final now = DateTime.now();
       DateTime start;
       DateTime end;
@@ -4383,6 +4505,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
   @override
   void initState() {
     super.initState();
+    _prewarmRelatoriosData(widget.tenantId);
     _carregar();
   }
 
@@ -4395,7 +4518,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
     try {
       await _carregar();
       final titulo = _tipo == 'dia' ? 'Relatório de Eventos — Dia' : _tipo == 'mes' ? 'Relatório de Eventos — Mês' : _tipo == 'anual' ? 'Relatório de Eventos — Ano' : 'Relatório de Eventos — Período';
-      final branding = await loadReportPdfBranding(widget.tenantId);
+      final branding = await _loadReportPdfBrandingFast(widget.tenantId);
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(

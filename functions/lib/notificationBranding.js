@@ -31,6 +31,10 @@ function moduleAccentHex(kind) {
             return "#6366F1";
         case "aniversario":
             return "#E11D48";
+        case "financeiro":
+            return "#37474F";
+        case "membro":
+            return "#2563EB";
         case "generico":
             return "#3B82F6";
         case "chat":

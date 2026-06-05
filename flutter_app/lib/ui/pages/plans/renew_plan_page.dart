@@ -84,6 +84,8 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   _ExpressPayStep _expressPayStep = _ExpressPayStep.options;
   String? _prefetchKey;
   MpCheckoutSession? _prefetchedCheckout;
+  String? _pixPrefetchKey;
+  MpPixSession? _prefetchedPix;
 
   /// Modo expresso — última versão do doc da igreja (para mostrar plano
   /// atual + data de vencimento no cabeçalho).
@@ -275,17 +277,56 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   String get _currentPrefetchKey =>
       '$_selected|${_billingAnnual ? "a" : "m"}|${_expressCardInstallments.clamp(1, 6)}';
 
-  void _invalidateCheckoutPrefetch() {
+  String get _currentPixPrefetchKey =>
+      '$_selected|${_billingAnnual ? "a" : "m"}';
+
+  void _invalidatePaymentPrefetch() {
     _prefetchKey = null;
     _prefetchedCheckout = null;
+    _pixPrefetchKey = null;
+    _prefetchedPix = null;
+  }
+
+  void _schedulePaymentPrefetch() {
+    if (_paymentPix) {
+      unawaited(_schedulePixPrefetch());
+      return;
+    }
+    if (_usesAnnualCardConfirmFlow &&
+        _expressPayStep == _ExpressPayStep.confirm) {
+      unawaited(_scheduleCheckoutPrefetch(requireConfirmFlow: true));
+    } else {
+      unawaited(_scheduleCheckoutPrefetch(requireConfirmFlow: false));
+    }
+  }
+
+  Future<void> _schedulePixPrefetch() async {
+    if (!_paymentPix) return;
+    final key = _currentPixPrefetchKey;
+    if (_prefetchedPix != null && _pixPrefetchKey == key) return;
+    _pixPrefetchKey = key;
+    _prefetchedPix = null;
+    try {
+      final pix = await _billing.createMpPixPayment(
+        planId: _selected,
+        billingCycle:
+            _billingAnnual ? BillingCycle.annual : BillingCycle.monthly,
+      );
+      if (!mounted) return;
+      if (_pixPrefetchKey != key) return;
+      if (pix.isValid) {
+        setState(() => _prefetchedPix = pix);
+      }
+    } catch (_) {}
   }
 
   void _backToPaymentOptions() {
     setState(() {
       _expressPayStep = _ExpressPayStep.options;
       _err = null;
+      _invalidatePaymentPrefetch();
     });
-    _invalidateCheckoutPrefetch();
+    _schedulePaymentPrefetch();
     _scrollPaymentSectionIntoView();
   }
 
@@ -295,7 +336,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
       _expressPayStep = _ExpressPayStep.confirm;
       _err = null;
     });
-    _scheduleCheckoutPrefetch();
+    _schedulePaymentPrefetch();
     _scrollPaymentSectionIntoView();
   }
 
@@ -304,8 +345,9 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
       _paymentPix = true;
       _expressPayStep = _ExpressPayStep.options;
       _err = null;
+      _invalidatePaymentPrefetch();
     });
-    _invalidateCheckoutPrefetch();
+    _schedulePaymentPrefetch();
   }
 
   void _onSelectCard() {
@@ -313,25 +355,34 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
       _paymentPix = false;
       _expressPayStep = _ExpressPayStep.options;
       _err = null;
+      _invalidatePaymentPrefetch();
     });
-    _invalidateCheckoutPrefetch();
     if (_usesAnnualCardConfirmFlow && !_billingAnnual) {
       _goToCardConfirmStep();
     } else {
+      _schedulePaymentPrefetch();
       _scrollPaymentSectionIntoView();
     }
   }
 
   void _onSelectInstallment(int n) {
-    setState(() => _expressCardInstallments = n);
-    _invalidateCheckoutPrefetch();
+    setState(() {
+      _expressCardInstallments = n;
+      _invalidatePaymentPrefetch();
+    });
     if (_usesAnnualCardConfirmFlow) {
       _goToCardConfirmStep();
+    } else {
+      _schedulePaymentPrefetch();
     }
   }
 
-  Future<void> _scheduleCheckoutPrefetch() async {
-    if (_paymentPix || !_usesAnnualCardConfirmFlow) return;
+  Future<void> _scheduleCheckoutPrefetch({bool requireConfirmFlow = true}) async {
+    if (_paymentPix) return;
+    if (requireConfirmFlow) {
+      if (!_usesAnnualCardConfirmFlow) return;
+      if (_expressPayStep != _ExpressPayStep.confirm) return;
+    }
     final key = _currentPrefetchKey;
     if (_prefetchedCheckout != null && _prefetchKey == key) return;
     _prefetchKey = key;
@@ -396,7 +447,8 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
 
   Future<void> _startPaymentStatusWatcher() async {
     if (_churchBillingSub != null) return;
-    final tenantId = await _resolveTenantIdFromClaims();
+    var tenantId = ExpressRenewBootstrap.instance.cachedTenantId;
+    tenantId ??= await _resolveTenantIdFromClaims();
     if (tenantId == null || tenantId.isEmpty) return;
     _churchBillingSub = FirebaseFirestore.instance
         .collection('igrejas')
@@ -437,7 +489,9 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
         });
         if (church != null) _applyChurchBillingSnapshot(church);
       }
+      _schedulePaymentPrefetch();
     }));
+    _schedulePaymentPrefetch();
     _planPricesSub =
         PlanPriceService.watchEffectivePlanConfigs().listen((cfg) {
       if (mounted) setState(() => _effectiveConfigs = cfg);
@@ -835,16 +889,23 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
       _pixSession = null;
     });
     try {
-      final tenantId = await _resolveTenantIdFromClaims();
+      var tenantId = ExpressRenewBootstrap.instance.cachedTenantId;
+      tenantId ??= await _resolveTenantIdFromClaims();
       if (tenantId == null || tenantId.isEmpty) {
         throw 'Sua sessão ainda não está vinculada a uma igreja. '
             'Saia, entre de novo com a conta de gestor e aguarde alguns segundos.';
       }
       if (_paymentPix) {
-        final pix = await _billing.createMpPixPayment(
-          planId: _selected,
-          billingCycle: _billingAnnual ? BillingCycle.annual : BillingCycle.monthly,
-        );
+        final pixPrefetchOk = _prefetchedPix != null &&
+            _pixPrefetchKey == _currentPixPrefetchKey;
+        final pix = pixPrefetchOk
+            ? _prefetchedPix!
+            : await _billing.createMpPixPayment(
+                planId: _selected,
+                billingCycle: _billingAnnual
+                    ? BillingCycle.annual
+                    : BillingCycle.monthly,
+              );
         if (!pix.isValid) throw 'Não foi possível gerar o PIX.';
         if (!mounted) return;
         setState(() => _pixSession = pix);
@@ -1185,11 +1246,14 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                         child: _PlanCardOficial(
                           plan: display,
                           selected: p.id == _selected,
-                          onTap: () => setState(() {
-                            _selected = p.id;
-                            _expressPayStep = _ExpressPayStep.options;
-                            _invalidateCheckoutPrefetch();
-                          }),
+                          onTap: () {
+                            setState(() {
+                              _selected = p.id;
+                              _expressPayStep = _ExpressPayStep.options;
+                              _invalidatePaymentPrefetch();
+                            });
+                            _schedulePaymentPrefetch();
+                          },
                           priceMonthly: cfg?.monthlyPrice ?? p.monthlyPrice,
                           priceAnnual: cfg?.annualPrice ?? p.annualPrice,
                           onChooseMonthly: () {
@@ -1198,8 +1262,9 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                               _billingAnnual = false;
                               _expressCardInstallments = 1;
                               _expressPayStep = _ExpressPayStep.options;
-                              _invalidateCheckoutPrefetch();
+                              _invalidatePaymentPrefetch();
                             });
+                            _schedulePaymentPrefetch();
                             _scrollPaymentSectionIntoView();
                           },
                           onChooseAnnual: () {
@@ -1209,8 +1274,9 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                               _expressCardInstallments =
                                   _expressCardInstallments.clamp(1, 6);
                               _expressPayStep = _ExpressPayStep.options;
-                              _invalidateCheckoutPrefetch();
+                              _invalidatePaymentPrefetch();
                             });
+                            _schedulePaymentPrefetch();
                             _scrollPaymentSectionIntoView();
                           },
                         ),
@@ -1237,12 +1303,15 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                         child: _ChoiceChip(
                           label: 'Mensal',
                           selected: !_billingAnnual,
-                          onTap: () => setState(() {
-                            _billingAnnual = false;
-                            _expressCardInstallments = 1;
-                            _expressPayStep = _ExpressPayStep.options;
-                            _invalidateCheckoutPrefetch();
-                          }),
+                          onTap: () {
+                            setState(() {
+                              _billingAnnual = false;
+                              _expressCardInstallments = 1;
+                              _expressPayStep = _ExpressPayStep.options;
+                              _invalidatePaymentPrefetch();
+                            });
+                            _schedulePaymentPrefetch();
+                          },
                         ),
                       ),
                       SizedBox(
@@ -1250,13 +1319,16 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                         child: _ChoiceChip(
                           label: 'Anual',
                           selected: _billingAnnual,
-                          onTap: () => setState(() {
-                            _billingAnnual = true;
-                            _expressCardInstallments =
-                                _expressCardInstallments.clamp(1, 6);
-                            _expressPayStep = _ExpressPayStep.options;
-                            _invalidateCheckoutPrefetch();
-                          }),
+                          onTap: () {
+                            setState(() {
+                              _billingAnnual = true;
+                              _expressCardInstallments =
+                                  _expressCardInstallments.clamp(1, 6);
+                              _expressPayStep = _ExpressPayStep.options;
+                              _invalidatePaymentPrefetch();
+                            });
+                            _schedulePaymentPrefetch();
+                          },
                         ),
                       ),
                     ],

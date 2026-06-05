@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap;
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
@@ -102,9 +103,35 @@ abstract final class MemberCardDirectoryService {
     required String tenantId,
     int limit = YahwehPerformanceV4.memberCardListPageSize,
   }) async {
-    await ChurchTenantResilientReads.preparePanelRead();
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return const [];
+
+    // Leitura instantânea — `_panel_cache/members_directory` (1 doc).
+    try {
+      final dir = await MembersDirectorySnapshotService.readOnce(tid);
+      if (dir.hasEntries) {
+        final out = <MemberCardListEntry>[];
+        for (final e in dir.entries) {
+          if (out.length >= limit) break;
+          final data = e.toMemberDataMap();
+          final url = (e.photoUrl ?? '').trim();
+          out.add(MemberCardListEntry(
+            id: e.memberDocId,
+            name: e.displayName,
+            data: data,
+            photoUrl: url.isNotEmpty ? url : null,
+          ));
+        }
+        out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+        if (out.isNotEmpty) {
+          unawaited(MembersDirectorySnapshotService.warmFromCallableIfStale(tid));
+          return out;
+        }
+      }
+    } catch (_) {}
+
     final snap =
-        await ChurchTenantResilientReads.membrosRecent(tenantId, limit: limit);
+        await ChurchTenantResilientReads.membrosRecent(tid, limit: limit);
     final out = <MemberCardListEntry>[];
     for (final d in snap.docs) {
       final data = Map<String, dynamic>.from(d.data());

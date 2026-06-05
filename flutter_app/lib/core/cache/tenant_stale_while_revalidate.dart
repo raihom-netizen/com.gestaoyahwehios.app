@@ -1,12 +1,27 @@
 import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Stale-while-revalidate — mostra Hive instantaneamente, atualiza em background.
+/// Stale-while-revalidate — mostra Hive / cache Firestore instantaneamente, atualiza em background.
 abstract final class TenantStaleWhileRevalidate {
   TenantStaleWhileRevalidate._();
+
+  static Duration _networkAttemptTimeout(int attempt) {
+    if (!kIsWeb) return const Duration(seconds: 22);
+    switch (attempt) {
+      case 0:
+        return const Duration(seconds: 8);
+      case 1:
+        return const Duration(seconds: 12);
+      default:
+        return const Duration(seconds: 16);
+    }
+  }
 
   /// Retorna cache Hive imediato (se existir) e dispara [networkFetch] em background.
   static Future<QuerySnapshot<Map<String, dynamic>>> loadQuery({
@@ -14,6 +29,7 @@ abstract final class TenantStaleWhileRevalidate {
     required String module,
     required Future<QuerySnapshot<Map<String, dynamic>>> Function() networkFetch,
     bool refreshInBackground = true,
+    String? firestoreCacheKey,
   }) async {
     final tid = tenantId.trim();
     if (tid.isNotEmpty) {
@@ -26,14 +42,62 @@ abstract final class TenantStaleWhileRevalidate {
         return MergedFirestoreQuerySnapshot(docs);
       }
     }
-    final snap = await networkFetch().timeout(
-      const Duration(seconds: 20),
-      onTimeout: () => const MergedFirestoreQuerySnapshot([]),
-    );
-    if (tid.isNotEmpty && snap.docs.isNotEmpty) {
-      unawaited(TenantModuleHiveCache.saveFromQuerySnapshot(tid, module, snap));
+
+    final memKey = firestoreCacheKey?.trim() ?? '';
+    if (memKey.isNotEmpty) {
+      final mem = FirestoreReadResilience.peekLastGoodQuery(memKey);
+      if (mem != null && mem.docs.isNotEmpty) {
+        if (refreshInBackground) {
+          unawaited(_refresh(tid, module, networkFetch));
+        }
+        return mem;
+      }
     }
-    return snap;
+
+    Object? lastError;
+    StackTrace? lastStack;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (kIsWeb) {
+          if (attempt == 0) {
+            await FirestoreWebGuard.prepareForCriticalWrite();
+          } else {
+            await FirestoreWebGuard.recoverFirestoreWebSession(
+              allowHardReconnect: true,
+            );
+            await Future<void>.delayed(
+              Duration(milliseconds: 280 + attempt * 320),
+            );
+          }
+        }
+        final snap =
+            await networkFetch().timeout(_networkAttemptTimeout(attempt));
+        if (tid.isNotEmpty && snap.docs.isNotEmpty) {
+          unawaited(
+            TenantModuleHiveCache.saveFromQuerySnapshot(tid, module, snap),
+          );
+        }
+        return snap;
+      } catch (e, st) {
+        lastError = e;
+        lastStack = st;
+        if (memKey.isNotEmpty) {
+          final mem = FirestoreReadResilience.peekLastGoodQuery(memKey);
+          if (mem != null && mem.docs.isNotEmpty) {
+            if (refreshInBackground) {
+              unawaited(_refresh(tid, module, networkFetch));
+            }
+            return mem;
+          }
+        }
+        if (attempt >= 2) break;
+      }
+    }
+
+    if (lastError != null) {
+      Error.throwWithStackTrace(lastError, lastStack ?? StackTrace.current);
+    }
+    return const MergedFirestoreQuerySnapshot([]);
   }
 
   static Future<void> _refresh(
@@ -42,7 +106,14 @@ abstract final class TenantStaleWhileRevalidate {
     Future<QuerySnapshot<Map<String, dynamic>>> Function() networkFetch,
   ) async {
     try {
-      final snap = await networkFetch();
+      if (kIsWeb) {
+        await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: false)
+            .timeout(const Duration(seconds: 6))
+            .catchError((_) {});
+      }
+      final snap = await networkFetch().timeout(
+        kIsWeb ? const Duration(seconds: 16) : const Duration(seconds: 22),
+      );
       if (snap.docs.isNotEmpty) {
         await TenantModuleHiveCache.saveFromQuerySnapshot(
           tenantId,
@@ -60,7 +131,12 @@ abstract final class TenantStaleWhileRevalidate {
     required Future<QuerySnapshot<Map<String, dynamic>>> Function() networkFetch,
   }) async {
     try {
-      final snap = await networkFetch();
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+      }
+      final snap = await networkFetch().timeout(
+        kIsWeb ? const Duration(seconds: 16) : const Duration(seconds: 22),
+      );
       if (snap.docs.isNotEmpty) {
         await TenantModuleHiveCache.saveFromQuerySnapshot(
           tenantId,

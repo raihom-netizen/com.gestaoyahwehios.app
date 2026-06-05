@@ -27,3 +27,21 @@ const LinearGradient churchChatHubBackgroundGradient = LinearGradient(
     Color(0xFFFDF4FF),
   ],
 );
+
+/// Fundo da conversa (thread) — gradiente multicolor suave estilo WhatsApp premium.
+const LinearGradient churchChatThreadBackgroundGradient = LinearGradient(
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [
+    Color(0xFFD1FAE5),
+    Color(0xFFE0F2FE),
+    Color(0xFFEDE9FE),
+    Color(0xFFFCE7F3),
+  ],
+  stops: [0.0, 0.32, 0.68, 1.0],
+);
+
+/// Decoração pronta para o corpo do thread.
+BoxDecoration get churchChatThreadBackgroundDecoration => const BoxDecoration(
+      gradient: churchChatThreadBackgroundGradient,
+    );

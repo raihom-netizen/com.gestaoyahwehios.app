@@ -33,7 +33,9 @@ abstract final class YahwehPerformanceV4 {
   static const int adminExportBatchLimit = 500;
   /// Amostra para gráficos/estatísticas do dashboard (não lista paginada).
   static const int dashboardStatsSampleLimit = 100;
-  static const int financeChartsSampleLimit = 100;
+  static const int financeChartsSampleLimit = 500;
+  static const int financeListInitialLimit = 250;
+  static const int financeListPageStep = 100;
   static const int publicFeedPageSize = 20;
   static const int chatMessagesPageSize = 20;
   static const int chatThreadsListLimit = 50;
@@ -55,8 +57,8 @@ abstract final class YahwehPerformanceV4 {
   static const int masterCacheChurchesScanLimit = 100;
   static const int memberCardListPageSize = 40;
   static const int memberCardSignatoryQueryLimit = 24;
-  static const int memberCardPdfPhotoParallel = 4;
-  static const int patrimonioListPageSize = 20;
+  static const int memberCardPdfPhotoParallel = 8;
+  static const int patrimonioListPageSize = 40;
   static const int financeSummaryFirstLimit = 20;
 
   // ——— Pré-carregamento ———

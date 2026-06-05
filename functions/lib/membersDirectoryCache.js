@@ -123,6 +123,40 @@ function directoryEntry(doc) {
         dataNascimento: d.DATA_NASCIMENTO ?? d.dataNascimento ?? d.birthDate ?? null,
     };
 }
+function computeMembersSummary(memberDocs) {
+    let ativos = 0;
+    let inativos = 0;
+    let pendentes = 0;
+    let homens = 0;
+    let mulheres = 0;
+    let sexoNi = 0;
+    for (const doc of memberDocs) {
+        const e = directoryEntry(doc);
+        const status = String(e.status ?? "ativo").toLowerCase();
+        if (status.includes("pendente"))
+            pendentes += 1;
+        else if (status.includes("inativ"))
+            inativos += 1;
+        else
+            ativos += 1;
+        const g = String(e.genero ?? "").toLowerCase().trim();
+        if (g.startsWith("m") || g === "masculino" || g === "m")
+            homens += 1;
+        else if (g.startsWith("f") || g === "feminino" || g === "f")
+            mulheres += 1;
+        else
+            sexoNi += 1;
+    }
+    return {
+        total: memberDocs.length,
+        ativos,
+        inativos,
+        pendentes,
+        homens,
+        mulheres,
+        sexoNi,
+    };
+}
 /**
  * Grava `igrejas/{tenantId}/_panel_cache/members_directory` (1 read na lista).
  * Chamado após scan de `membros` no painel (sem segunda query).
@@ -131,6 +165,7 @@ async function recomputeMembersDirectoryFromDocs(tenantId, memberDocs, totalCoun
     const tid = String(tenantId || "").trim();
     if (!tid)
         return;
+    const summary = computeMembersSummary(memberDocs);
     const entries = memberDocs
         .map((doc) => directoryEntry(doc))
         .sort((a, b) => String(a.displayName ?? "")
@@ -143,15 +178,24 @@ async function recomputeMembersDirectoryFromDocs(tenantId, memberDocs, totalCoun
         .doc(tid)
         .collection("_panel_cache")
         .doc("members_directory");
+    const resolvedTotal = typeof totalCount === "number" && totalCount > 0
+        ? totalCount
+        : memberDocs.length;
     await ref.set({
-        schemaVersion: 1,
+        schemaVersion: 2,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        totalCount: typeof totalCount === "number" ? totalCount : entries.length,
+        totalCount: resolvedTotal,
+        summary: {
+            ...summary,
+            total: resolvedTotal,
+        },
         entries,
     }, { merge: false });
     functions.logger.info("membersDirectoryCache: atualizado", {
         tenantId: tid,
         entries: entries.length,
+        totalCount: resolvedTotal,
+        ativos: summary.ativos,
     });
 }
 /** Callable: 1 round-trip para lista leve de membros (módulo Membros). */
@@ -180,12 +224,12 @@ exports.getChurchMembersDirectory = functions
         !updated ||
         Date.now() - updated.toMillis() > staleMs;
     if (isStale) {
+        // Sem orderBy — docs legados sem `updatedAt` entravam no count() mas não na lista (46 vs 62).
         const membrosSnap = await db
             .collection("igrejas")
             .doc(tenantId)
             .collection("membros")
-            .orderBy("updatedAt", "desc")
-            .limit(800)
+            .limit(DIRECTORY_MAX)
             .get();
         let total = membrosSnap.size;
         try {

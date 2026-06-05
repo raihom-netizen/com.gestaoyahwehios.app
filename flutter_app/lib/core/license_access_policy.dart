@@ -7,24 +7,73 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 class LicenseAccessPolicy {
   LicenseAccessPolicy._();
 
-  /// Fim do período de acesso considerando doc da igreja (trial 30 dias, licença paga, etc.).
+  /// Fim do período de acesso considerando doc da igreja (trial, licença paga, master, etc.).
+  /// Usa sempre a data **mais favorável** (mais tardia) entre os campos conhecidos.
   static DateTime? churchAccessEnd(Map<String, dynamic>? church) {
     if (church == null) return null;
+    final lic = church['license'] is Map
+        ? Map<String, dynamic>.from(church['license'] as Map)
+        : null;
+    final billing = church['billing'] is Map
+        ? Map<String, dynamic>.from(church['billing'] as Map)
+        : null;
+
     DateTime? best;
-    void takeLater(Timestamp? ts) {
-      if (ts == null) return;
-      final d = ts.toDate();
+    var hasExplicitLicenseEnd = false;
+
+    void takeLater(Object? raw, {bool explicit = true}) {
+      final d = _toDate(raw);
+      if (d == null) return;
+      if (explicit) hasExplicitLicenseEnd = true;
       if (best == null || d.isAfter(best!)) best = d;
     }
 
-    takeLater(church['licenseExpiresAt'] as Timestamp?);
-    takeLater(church['trialEndsAt'] as Timestamp?);
-    final c = church['createdAt'];
-    if (c is Timestamp) {
-      final d = c.toDate().add(const Duration(days: 30));
-      if (best == null || d.isAfter(best!)) best = d;
+    takeLater(church['licenseExpiresAt']);
+    takeLater(church['expiresAt']);
+    takeLater(church['data_vencimento']);
+    takeLater(church['trialEndsAt']);
+    if (lic != null) {
+      takeLater(lic['expiresAt']);
+      takeLater(lic['licenseExpiresAt']);
+      takeLater(lic['trialEndsAt']);
+    }
+    if (billing != null) {
+      takeLater(billing['nextChargeAt']);
+      takeLater(billing['currentPeriodEnd']);
+      takeLater(billing['paidUntil']);
+    }
+
+    if (!hasExplicitLicenseEnd) {
+      final c = church['createdAt'];
+      if (c is Timestamp) {
+        final d = c.toDate().add(const Duration(days: 30));
+        if (best == null || d.isAfter(best!)) best = d;
+      }
     }
     return best;
+  }
+
+  static DateTime? _toDate(Object? raw) {
+    if (raw == null) return null;
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    if (raw is Map) {
+      final sec = raw['seconds'] ?? raw['_seconds'];
+      if (sec is num) {
+        return DateTime.fromMillisecondsSinceEpoch(sec.toInt() * 1000);
+      }
+    }
+    return DateTime.tryParse(raw.toString());
+  }
+
+  static bool churchIsFree(Map<String, dynamic>? church) {
+    if (church == null) return false;
+    final lic = church['license'];
+    final planKey =
+        (church['plano'] ?? church['planId'] ?? '').toString().toLowerCase();
+    return planKey == 'free' ||
+        church['isFree'] == true ||
+        (lic is Map && lic['isFree'] == true);
   }
 
   /// Bloqueio do painel da igreja: master bloqueou, ou (vencimento + 3 dias de carência), ou assinatura ACTIVE vencida.
@@ -35,11 +84,7 @@ class LicenseAccessPolicy {
   }) {
     if (church != null) {
       final lic = church['license'];
-      final planKey =
-          (church['plano'] ?? church['planId'] ?? '').toString().toLowerCase();
-      final isFree = planKey == 'free' ||
-          (lic is Map && lic['isFree'] == true);
-      if (isFree) {
+      if (churchIsFree(church)) {
         if (church['adminBlocked'] == true) return true;
         if (lic is Map && lic['adminBlocked'] == true) return true;
         return false;

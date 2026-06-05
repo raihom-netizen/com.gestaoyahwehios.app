@@ -17,7 +17,7 @@ const Duration kMediaVideoMaxDuration = Duration(seconds: 60); // legado / outro
 const Duration kMediaChatVideoMaxDuration = Duration(seconds: 90);
 
 /// Uploads de mídia no chat em paralelo (fotos/vídeos do lote).
-const int kChatMaxConcurrentMediaUploads = 3;
+const int kChatMaxConcurrentMediaUploads = 4;
 
 /// Timeout máximo para uploads de imagem/comprovante (~200 KB–2 MB).
 const int kStorageUploadImageMaxSeconds = 30;

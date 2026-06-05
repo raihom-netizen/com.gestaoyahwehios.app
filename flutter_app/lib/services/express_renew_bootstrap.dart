@@ -16,6 +16,7 @@ class ExpressRenewBootstrap {
 
   Map<String, dynamic>? get cachedChurchData => _cachedChurchData;
   Map<String, EffectivePlanConfig>? get cachedPlans => _cachedPlans;
+  String? get cachedTenantId => _cachedTenantId;
 
   static String tenantFromClaims(Map<dynamic, dynamic>? claims) {
     return (claims?['igrejaId'] ?? claims?['tenantId'] ?? '')

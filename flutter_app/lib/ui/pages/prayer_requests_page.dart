@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 
 /// E-mail na ficha do membro (várias chaves usadas no app).
 String _emailFromMemberData(Map<String, dynamic> data) {
@@ -58,10 +62,68 @@ class PrayerRequestsPage extends StatefulWidget {
   State<PrayerRequestsPage> createState() => _PrayerRequestsPageState();
 }
 
+/// Cache RAM — pedidos de oração instantâneos ao reabrir o módulo.
+abstract final class _PedidosOracaoRamCache {
+  _PedidosOracaoRamCache._();
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _byKey = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static String _key(String tenantId, String suffix) =>
+      '${tenantId.trim()}_$suffix';
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(
+    String tenantId,
+    String suffix,
+  ) {
+    final hit = _byKey[_key(tenantId, suffix)];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byKey.remove(_key(tenantId, suffix));
+      return null;
+    }
+    return hit.docs;
+  }
+
+  static void put(
+    String tenantId,
+    String suffix,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    if (tenantId.trim().isEmpty || docs.isEmpty) return;
+    _byKey[_key(tenantId, suffix)] = (docs: List.from(docs), at: DateTime.now());
+  }
+}
+
 class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   /// Filtro por status: Todos | Respondidas | Não Respondidas
   String _filtroStatus = 'Todos';
   late Future<QuerySnapshot<Map<String, dynamic>>> _pedidosFuture;
+  String _effectiveTenantId = '';
+
+  String get _tid =>
+      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
+
+  String _filtroCacheSuffix() {
+    if (_filtroStatus == 'Respondidas') return 'respondidas';
+    if (_filtroStatus == 'Não Respondidas') return 'pendentes';
+    return 'all';
+  }
+
+  static String _pedidosMemKey(String tenantId, String suffix) =>
+      '${tenantId.trim()}_pedidos_oracao_$suffix';
+
+  bool? _respondidaFilterFromStatus() {
+    if (_filtroStatus == 'Respondidas') return true;
+    if (_filtroStatus == 'Não Respondidas') return false;
+    return null;
+  }
 
   Query<Map<String, dynamic>> _getQuery() {
     Query<Map<String, dynamic>> q = _col.orderBy('createdAt', descending: true);
@@ -73,29 +135,131 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     return q;
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadPedidos() async {
-    bool? respondida;
-    if (_filtroStatus == 'Respondidas') {
-      respondida = true;
-    } else if (_filtroStatus == 'Não Respondidas') {
-      respondida = false;
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadPedidos({
+    bool forceServer = false,
+  }) async {
+    final tid = _tid.trim();
+    if (tid.isEmpty) {
+      return _col.limit(1).get();
+    }
+    final filter = _respondidaFilterFromStatus();
+    if (forceServer) {
+      final col = FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .collection('pedidosOracao');
+      final snap = await FirestoreReadResilience.getQuery(
+        col.limit(300),
+        cacheKey: _pedidosMemKey(tid, _filtroCacheSuffix()),
+      );
+      if (snap.docs.isNotEmpty) {
+        _PedidosOracaoRamCache.put(tid, _filtroCacheSuffix(), snap.docs);
+      }
+      return snap;
     }
     return ChurchTenantResilientReads.pedidosOracao(
-      widget.tenantId,
-      respondidaFilter: respondida,
+      tid,
+      respondidaFilter: filter,
     );
   }
 
-  void _refreshPedidos() {
+  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadPedidos() {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return _loadPedidos();
+
+    final suffix = _filtroCacheSuffix();
+    final ram = _PedidosOracaoRamCache.peek(seed, suffix);
+    if (ram != null && ram.isNotEmpty) {
+      return Future.value(MergedFirestoreQuerySnapshot(ram));
+    }
+
+    final mem = FirestoreReadResilience.peekLastGoodQuery(
+      _pedidosMemKey(seed, suffix),
+    );
+    if (mem != null && mem.docs.isNotEmpty) {
+      return Future.value(mem);
+    }
+
+    return _loadPedidos();
+  }
+
+  Future<void> _openPedidosFast() async {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return;
+
+    try {
+      final snap = await ChurchTenantResilientReads.pedidosOracao(
+        seed,
+        respondidaFilter: _respondidaFilterFromStatus(),
+      ).timeout(const Duration(milliseconds: 1800));
+      if (mounted && snap.docs.isNotEmpty) {
+        _PedidosOracaoRamCache.put(seed, _filtroCacheSuffix(), snap.docs);
+        setState(() {
+          _pedidosFuture = Future.value(snap);
+        });
+      }
+    } catch (_) {}
+
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final op = await TenantResolverService.resolveOperationalChurchDocId(
+        seed,
+        userUid: uid,
+      ).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => _effectiveTenantId.isNotEmpty
+            ? _effectiveTenantId
+            : seed,
+      );
+      if (!mounted) return;
+      if (op.isNotEmpty && op != _tid) {
+        setState(() => _effectiveTenantId = op);
+        final alt = await ChurchTenantResilientReads.pedidosOracao(
+          op,
+          respondidaFilter: _respondidaFilterFromStatus(),
+        ).timeout(const Duration(seconds: 12));
+        if (!mounted) return;
+        if (alt.docs.isNotEmpty) {
+          _PedidosOracaoRamCache.put(op, _filtroCacheSuffix(), alt.docs);
+          setState(() => _pedidosFuture = Future.value(alt));
+        }
+      }
+    } catch (_) {}
+
+    unawaited(_refreshPedidosBackground());
+  }
+
+  Future<void> _refreshPedidosBackground() async {
+    try {
+      final snap = await _loadPedidos();
+      if (!mounted || snap.docs.isEmpty) return;
+      _PedidosOracaoRamCache.put(_tid, _filtroCacheSuffix(), snap.docs);
+      setState(() => _pedidosFuture = Future.value(snap));
+    } catch (_) {}
+  }
+
+  void _refreshPedidos({bool forceServer = false}) {
     setState(() {
-      _pedidosFuture = _loadPedidos();
+      _pedidosFuture = _loadPedidos(forceServer: forceServer);
     });
   }
 
   @override
   void initState() {
     super.initState();
-    _pedidosFuture = _loadPedidos();
+    _effectiveTenantId = widget.tenantId;
+    _pedidosFuture = _seedOrLoadPedidos();
+    unawaited(_openPedidosFast());
+  }
+
+  @override
+  void didUpdateWidget(covariant PrayerRequestsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _effectiveTenantId = widget.tenantId;
+      _pedidosFuture = _seedOrLoadPedidos();
+      unawaited(_openPedidosFast());
+    }
   }
 
   static const _filtrosStatus = ['Todos', 'Não Respondidas', 'Respondidas'];
@@ -128,7 +292,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   CollectionReference<Map<String, dynamic>> get _col => FirebaseFirestore
       .instance
       .collection('igrejas')
-      .doc(widget.tenantId)
+      .doc(_tid)
       .collection('pedidosOracao');
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
@@ -1242,8 +1406,11 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                         ),
                       ),
                       onSelected: (_) {
-                        setState(() => _filtroStatus = s);
-                        _refreshPedidos();
+                        setState(() {
+                          _filtroStatus = s;
+                          _pedidosFuture = _seedOrLoadPedidos();
+                        });
+                        unawaited(_openPedidosFast());
                       },
                     );
                   },

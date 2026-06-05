@@ -240,6 +240,54 @@ List<DateTime> scheduleTemplateOccurrencesInRange({
   return out;
 }
 
+/// Cache RAM — modelos/escalas/departamentos instantâneos ao reabrir Escala Geral.
+abstract final class _SchedulesPageRamCache {
+  _SchedulesPageRamCache._();
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> templates,
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> instances,
+        List<_DeptItem> depts,
+        DateTime at,
+      })> _byTenant = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static ({
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> templates,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> instances,
+    List<_DeptItem> depts,
+  })? peek(String tenantId) {
+    final key = tenantId.trim();
+    if (key.isEmpty) return null;
+    final hit = _byTenant[key];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byTenant.remove(key);
+      return null;
+    }
+    return (templates: hit.templates, instances: hit.instances, depts: hit.depts);
+  }
+
+  static void put(
+    String tenantId, {
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> templates,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> instances,
+    required List<_DeptItem> depts,
+  }) {
+    final key = tenantId.trim();
+    if (key.isEmpty) return;
+    _byTenant[key] = (
+      templates: List.from(templates),
+      instances: List.from(instances),
+      depts: List.from(depts),
+      at: DateTime.now(),
+    );
+  }
+}
+
 class SchedulesPage extends StatefulWidget {
   final String tenantId;
   final String role;
@@ -295,6 +343,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
   final Set<String> _managedDeptIds = {};
 
+  String _effectiveTenantId = '';
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedTemplates;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedInstances;
+  List<_DeptItem>? _seedDepts;
+
   DocumentReference<Map<String, dynamic>> _churchDoc(String tid) => FirebaseFirestore.instance.collection('igrejas').doc(tid);
   CollectionReference<Map<String, dynamic>> _templatesCol(String tid) => _churchDoc(tid).collection('escala_templates');
   CollectionReference<Map<String, dynamic>> _instancesCol(String tid) => _churchDoc(tid).collection('escalas');
@@ -309,18 +362,83 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   Color _colorForDept(int index) => _deptColors[index % _deptColors.length];
 
   Future<String> _resolveTenantAndSeedPresets() async {
-    final tid = await TenantResolverService
-        .resolveEffectiveTenantIdPreferringUserBinding(
-      widget.tenantId,
-      userUid: FirebaseAuth.instance.currentUser?.uid,
-    );
-    if (AppPermissions.canEditDepartments(widget.role)) {
+    final hint = widget.tenantId.trim();
+    try {
+      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+        widget.tenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      ).timeout(const Duration(seconds: 8), onTimeout: () => hint);
+      if (mounted && tid != _effectiveTenantId) {
+        setState(() => _effectiveTenantId = tid);
+        _refreshAllData(tid);
+      }
+      unawaited(_seedPresetsInBackground(tid));
+      return tid;
+    } catch (_) {
+      return hint.isNotEmpty ? hint : widget.tenantId;
+    }
+  }
+
+  Future<void> _seedPresetsInBackground(String tid) async {
+    if (!AppPermissions.canEditDepartments(widget.role)) return;
+    try {
       await ChurchDepartmentsBootstrap.ensureMissingPresetDocuments(
         _departmentsCol(tid),
-        refreshToken: true,
       );
+    } catch (_) {}
+  }
+
+  void _refreshAllData(String tid) {
+    setState(() {
+      _deptsFuture = _loadDepartmentsForTenant(tid);
+      _templatesFuture =
+          ChurchTenantResilientReads.escalaTemplates(tid);
+      _instancesFuture =
+          ChurchTenantResilientReads.escalasRecent(tid, limit: 500);
+      _tenantFuture = _churchDoc(tid).get();
+    });
+  }
+
+  Future<void> _openSchedulesFast() async {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return;
+
+    final ram = _SchedulesPageRamCache.peek(seed);
+    if (ram != null && mounted) {
+      setState(() {
+        _seedDepts = ram.depts;
+        _seedTemplates = ram.templates;
+        _seedInstances = ram.instances;
+      });
     }
-    return tid;
+
+    try {
+      final results = await Future.wait<Object>([
+        ChurchTenantResilientReads.escalaTemplates(seed)
+            .timeout(const Duration(milliseconds: 1800)),
+        ChurchTenantResilientReads.escalasRecent(seed, limit: 500)
+            .timeout(const Duration(milliseconds: 1800)),
+        _loadDepartmentsForTenant(seed)
+            .timeout(const Duration(milliseconds: 1800)),
+      ]);
+      if (!mounted) return;
+      final templates =
+          (results[0] as QuerySnapshot<Map<String, dynamic>>).docs;
+      final instances =
+          (results[1] as QuerySnapshot<Map<String, dynamic>>).docs;
+      final depts = results[2] as List<_DeptItem>;
+      _SchedulesPageRamCache.put(
+        seed,
+        templates: templates,
+        instances: instances,
+        depts: depts,
+      );
+      setState(() {
+        _seedTemplates = templates;
+        _seedInstances = instances;
+        _seedDepts = depts;
+      });
+    } catch (_) {}
   }
 
   Future<List<_DeptItem>> _loadDepartmentsForTenant(String tid) async {
@@ -496,16 +614,20 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   void _refreshTemplates() {
+    final tid = _effectiveTenantId.isNotEmpty
+        ? _effectiveTenantId
+        : widget.tenantId.trim();
     setState(() {
-      _templatesFuture = _effectiveTidFuture.then(
-        (tid) => ChurchTenantResilientReads.escalaTemplates(tid),
-      );
+      _templatesFuture = ChurchTenantResilientReads.escalaTemplates(tid);
     });
   }
 
   void _refreshInstances() {
+    final tid = _effectiveTenantId.isNotEmpty
+        ? _effectiveTenantId
+        : widget.tenantId.trim();
     setState(() {
-      _instancesFuture = _fetchInstancesForEffectiveTenant();
+      _instancesFuture = ChurchTenantResilientReads.escalasRecent(tid, limit: 500);
     });
   }
 
@@ -1128,14 +1250,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   void initState() {
     super.initState();
     logYahwehModuleScreen('escalas');
+    _effectiveTenantId = widget.tenantId.trim();
     _tab = TabController(length: 3, vsync: this);
+    unawaited(_openSchedulesFast());
     _effectiveTidFuture = _resolveTenantAndSeedPresets();
-    _deptsFuture = _effectiveTidFuture.then(_loadDepartmentsForTenant);
-    _templatesFuture = _effectiveTidFuture.then(
-      (tid) => ChurchTenantResilientReads.escalaTemplates(tid),
-    );
-    _instancesFuture = _fetchInstancesForEffectiveTenant();
-    _tenantFuture = _effectiveTidFuture.then((tid) => _churchDoc(tid).get());
+    final seed = _effectiveTenantId;
+    _deptsFuture = _loadDepartmentsForTenant(seed);
+    _templatesFuture = ChurchTenantResilientReads.escalaTemplates(seed);
+    _instancesFuture = ChurchTenantResilientReads.escalasRecent(seed, limit: 500);
+    _tenantFuture = _churchDoc(seed).get();
     _effectiveTidFuture.then((tid) async {
       try {
         final s = await DepartmentMemberIntegrationService.managedDepartmentIdsForCpf(
@@ -2088,10 +2211,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                     ),
                   );
                 }
-                if (snap.connectionState == ConnectionState.waiting || !snap.hasData) {
+                if (snap.connectionState == ConnectionState.waiting &&
+                    !snap.hasData &&
+                    (_seedTemplates == null || _seedTemplates!.isEmpty)) {
                   return const ChurchPanelLoadingBody();
                 }
-                var docs = snap.data?.docs ?? [];
+                var docs = snap.data?.docs ?? _seedTemplates ?? [];
                 if (_canWriteFull) {
                   // todos os modelos
                 } else if (_scopedDeptLeader) {
@@ -2115,7 +2240,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                     ]),
                   );
                 }
-                final allDepts = deptSnap.data ?? [];
+                final allDepts = deptSnap.data ?? _seedDepts ?? [];
                   return RefreshIndicator(
                   onRefresh: () async => _refreshTemplates(),
                   child: ListView.separated(
@@ -2874,7 +2999,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     return FutureBuilder<List<_DeptItem>>(
       future: _deptsFuture,
       builder: (context, deptSnap) {
-        final allDepts = deptSnap.data ?? [];
+        final allDepts = deptSnap.data ?? _seedDepts ?? [];
         return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
           future: _instancesFuture,
           builder: (context, snap) {
@@ -2888,8 +3013,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 ),
               );
             }
-            if (snap.connectionState == ConnectionState.waiting ||
-                !snap.hasData) {
+            final hasSeed =
+                _seedInstances != null && _seedInstances!.isNotEmpty;
+            if ((snap.connectionState == ConnectionState.waiting ||
+                    !snap.hasData) &&
+                !hasSeed) {
               return RefreshIndicator(
                 onRefresh: () async => _refreshInstances(),
                 child: CustomScrollView(
@@ -2904,7 +3032,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 ),
               );
             }
-            final allDocs = snap.data?.docs ?? [];
+            final allDocs = snap.data?.docs ?? _seedInstances ?? [];
             var deptFiltered = _filterDeptId.isEmpty
                 ? allDocs
                 : allDocs

@@ -196,9 +196,9 @@ class _MembersPageState extends State<MembersPage> {
 
   String get _effectiveTenantId => _resolvedTenantId ?? widget.tenantId;
 
-  /// Usa o serviço centralizado para garantir mesmo path que AuthGate, dashboard e import/export.
+  /// Doc operacional do cluster (membros, escalas, financeiro, …).
   Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+      TenantResolverService.resolveOperationalChurchDocId(
         widget.tenantId,
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );
@@ -547,8 +547,14 @@ class _MembersPageState extends State<MembersPage> {
     unawaited(_watchMembersDirectoryCache());
     // Resolve tenant o mais cedo possível para que _effectiveTenantId esteja correto em ações (add/edit).
     _resolveEffectiveTenantId().then((resolved) {
-      if (mounted && _resolvedTenantId != resolved) {
-        setState(() => _resolvedTenantId = resolved);
+      if (!mounted) return;
+      final changed = _resolvedTenantId != resolved;
+      if (changed) {
+        setState(() {
+          _resolvedTenantId = resolved;
+          _membersDataFuture = _loadMembersData();
+          _deptsFuture = _loadDeptsForFilter();
+        });
       }
       _startMembersRealtimeWatch(resolved.isNotEmpty ? resolved : widget.tenantId);
     });
@@ -577,8 +583,14 @@ class _MembersPageState extends State<MembersPage> {
       _membersDataFuture = _loadMembersData();
       _deptsFuture = _loadDeptsForFilter();
       _resolveEffectiveTenantId().then((resolved) {
-        if (mounted && _resolvedTenantId != resolved) {
-          setState(() => _resolvedTenantId = resolved);
+        if (!mounted) return;
+        final changed = _resolvedTenantId != resolved;
+        if (changed) {
+          setState(() {
+            _resolvedTenantId = resolved;
+            _membersDataFuture = _loadMembersData();
+            _deptsFuture = _loadDeptsForFilter();
+          });
         }
         _startMembersRealtimeWatch(
             resolved.isNotEmpty ? resolved : widget.tenantId);
@@ -771,6 +783,15 @@ class _MembersPageState extends State<MembersPage> {
         _applyDirectoryCacheState(warmed);
       }),
     );
+    if (!_directoryCache.isCompleteForStats ||
+        !(_directoryCache.summary?.hasCounts ?? false)) {
+      unawaited(
+        MembersDirectorySnapshotService.warmFromCallable(tenantId: tid).then((warmed) {
+          if (!mounted || !warmed.hasEntries) return;
+          _applyDirectoryCacheState(warmed);
+        }),
+      );
+    }
   }
 
   Future<void> _watchMembersDirectoryCache() async {
@@ -820,8 +841,115 @@ class _MembersPageState extends State<MembersPage> {
         .toList();
   }
 
+  bool _membersListFiltersActive() {
+    return _filtroStatus != 'todos' ||
+        _filtroGenero != 'todos' ||
+        _filtroDepartamento != 'todos' ||
+        _filtroFaixaEtaria != 'todas' ||
+        _filtroDiaCadastro != 'todos' ||
+        _filtroAniversarioMes != null;
+  }
+
+  /// Painel & números: directory completo + merge com query Firestore.
+  List<_MemberDoc> _docsForMembersStatsPanel(List<_MemberDoc> mergedFromQuery) {
+    final fromCache =
+        _aplicarFiltros(_memberDocsFromDirectoryCache(), applySearch: false);
+    final fromQuery =
+        _aplicarFiltros(mergedFromQuery, applySearch: false);
+    if (fromCache.isEmpty) return fromQuery;
+    if (fromQuery.isEmpty) return fromCache;
+    final byId = <String, _MemberDoc>{
+      for (final m in fromCache) m.id: m,
+    };
+    for (final m in fromQuery) {
+      byId[m.id] = m;
+    }
+    return byId.values.toList();
+  }
+
+  MembersDirectorySummary? _directorySummaryForStatsPanel() {
+    final s = _directoryCache.summary;
+    if (s != null && s.hasCounts) return s;
+    if (_directoryCache.isCompleteForStats) {
+      return _computeSummaryFromDirectoryEntries(_directoryCache.entries);
+    }
+    return null;
+  }
+
+  MembersDirectorySummary _computeSummaryFromDirectoryEntries(
+    List<MemberDirectoryEntry> entries,
+  ) {
+    var ativos = 0, inativos = 0, pendentes = 0;
+    var homens = 0, mulheres = 0, sexoNi = 0;
+    for (final e in entries) {
+      final status = e.status.toLowerCase();
+      if (status.contains('pendente')) {
+        pendentes++;
+      } else if (status.contains('inativ')) {
+        inativos++;
+      } else {
+        ativos++;
+      }
+      final g = genderCategoryFromMemberData(e.toMemberDataMap());
+      if (g == 'M') {
+        homens++;
+      } else if (g == 'F') {
+        mulheres++;
+      } else {
+        sexoNi++;
+      }
+    }
+    final total = _directoryCache.totalCount > 0
+        ? _directoryCache.totalCount
+        : entries.length;
+    return MembersDirectorySummary(
+      total: total,
+      ativos: ativos,
+      inativos: inativos,
+      pendentes: pendentes,
+      homens: homens,
+      mulheres: mulheres,
+      sexoNi: sexoNi,
+    );
+  }
+
+  int _heroTotalForMembersStatsPanel(
+    List<_MemberDoc> filteredDocs, {
+    MembersLimitResult? limitResult,
+  }) {
+    if (!_membersListFiltersActive()) {
+      final summary = _directoryCache.summary;
+      if (summary != null && summary.total > 0) return summary.total;
+      final tc = _directoryCache.totalCount;
+      if (tc > 0) return tc;
+      final planCount = limitResult?.currentCount ?? 0;
+      if (planCount > filteredDocs.length) return planCount;
+    }
+    return filteredDocs.length;
+  }
+
+  void _ensureMembersDirectoryCompleteForStats() {
+    final tid = _effectiveTenantId.trim();
+    if (tid.isEmpty) return;
+    final entries = _directoryCache.entries.length;
+    final total = _directoryCache.totalCount;
+    final summaryOk = _directoryCache.summary?.hasCounts ?? false;
+    if (total > 0 && entries >= total && summaryOk) return;
+    if (entries >= 500 && summaryOk) return;
+    unawaited(
+      MembersDirectorySnapshotService.warmFromCallable(tenantId: tid).then((warmed) {
+        if (!mounted || !warmed.hasEntries) return;
+        if (warmed.entries.length > _directoryCache.entries.length ||
+            warmed.totalCount > _directoryCache.totalCount ||
+            (warmed.summary?.hasCounts ?? false)) {
+          _applyDirectoryCacheState(warmed);
+        }
+      }),
+    );
+  }
+
   static const int _membersLoadLimit = YahwehPerformanceV4.defaultPageSize;
-  static const Duration _membersCoreLoadTimeout = Duration(seconds: 28);
+  static const Duration _membersCoreLoadTimeout = Duration(seconds: 18);
   static const int _maxRelatedTenantMemberQueries = 3;
 
   /// Lista a partir do cache `_panel_cache/members_directory` quando o Firestore falha.
@@ -906,16 +1034,24 @@ class _MembersPageState extends State<MembersPage> {
 
     try {
       return await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-        membrosOrdered(),
-        membersLegacy(),
-        pendente(),
-      ]).timeout(_membersCoreLoadTimeout);
-    } catch (_) {
-      return Future.wait<QuerySnapshot<Map<String, dynamic>>>([
         membrosPlain(),
         membersLegacy(),
         pendente(),
       ]).timeout(_membersCoreLoadTimeout);
+    } catch (_) {
+      try {
+        return await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
+          membrosOrdered(),
+          membersLegacy(),
+          pendente(),
+        ]).timeout(_membersCoreLoadTimeout);
+      } catch (_) {
+        return Future.wait<QuerySnapshot<Map<String, dynamic>>>([
+          membrosPlain(),
+          membersLegacy(),
+          pendente(),
+        ]).timeout(_membersCoreLoadTimeout);
+      }
     }
   }
 
@@ -1726,6 +1862,11 @@ class _MembersPageState extends State<MembersPage> {
   bool _canOpenCarteirinhaFor(_MemberDoc member) =>
       _canManage || _isSelfMember(member);
 
+  String _memberCpfDigitsForCarteira(Map<String, dynamic> data) =>
+      (data['CPF'] ?? data['cpf'] ?? '')
+          .toString()
+          .replaceAll(RegExp(r'\D'), '');
+
   bool _memberHasLogin(_MemberDoc member) =>
       (member.data['authUid'] ?? '').toString().trim().isNotEmpty;
 
@@ -2398,7 +2539,7 @@ class _MembersPageState extends State<MembersPage> {
                             tenantId: _effectiveTenantId,
                             role: widget.role,
                             memberId: member.id,
-                            cpf: widget.linkedCpf,
+                            cpf: _memberCpfDigitsForCarteira(member.data),
                           );
                         }),
                   if (_isSelfMember(member) && _memberHasLogin(member))
@@ -5486,7 +5627,7 @@ class _MembersPageState extends State<MembersPage> {
                                           tenantId: _effectiveTenantId,
                                           role: widget.role,
                                           memberId: docs[i].id,
-                                          cpf: widget.linkedCpf,
+                                          cpf: _memberCpfDigitsForCarteira(data),
                                         );
                                       }
                                       if (v == 'password_self') {
@@ -5817,7 +5958,7 @@ class _MembersPageState extends State<MembersPage> {
                                     tenantId: _effectiveTenantId,
                                     role: widget.role,
                                     memberId: member.id,
-                                    cpf: widget.linkedCpf,
+                                    cpf: _memberCpfDigitsForCarteira(member.data),
                                   );
                                 }
                                 if (v == 'password_self') {
@@ -7403,6 +7544,7 @@ class _MembersPageState extends State<MembersPage> {
     EdgeInsets padding,
     MembersLimitResult? limitResult,
   ) {
+    _ensureMembersDirectoryCompleteForStats();
     return FutureBuilder<List<QuerySnapshot<Map<String, dynamic>>>>(
       future: _membersDataFuture,
       builder: (context, snap) {
@@ -7416,6 +7558,12 @@ class _MembersPageState extends State<MembersPage> {
               return _MembersPremiumStatsPanel(
                 padding: padding,
                 allDocs: docsForStats,
+                heroTotal: _heroTotalForMembersStatsPanel(
+                  docsForStats,
+                  limitResult: limitResult,
+                ),
+                directorySummary: _directorySummaryForStatsPanel(),
+                useDirectorySummary: !_membersListFiltersActive(),
                 searchQuery: _q,
                 limitResult: limitResult,
                 canManage: _canManage,
@@ -7454,6 +7602,12 @@ class _MembersPageState extends State<MembersPage> {
                   _MembersPremiumStatsPanel(
                     padding: padding,
                     allDocs: docsForStats,
+                    heroTotal: _heroTotalForMembersStatsPanel(
+                      docsForStats,
+                      limitResult: limitResult,
+                    ),
+                    directorySummary: _directorySummaryForStatsPanel(),
+                    useDirectorySummary: !_membersListFiltersActive(),
                     searchQuery: _q,
                     limitResult: limitResult,
                     canManage: _canManage,
@@ -7511,10 +7665,16 @@ class _MembersPageState extends State<MembersPage> {
           );
         }
         final merged = _mergedMemberDocsFromSnapshots(list);
-        final docsForStats = _aplicarFiltros(merged, applySearch: false);
+        final docsForStats = _docsForMembersStatsPanel(merged);
         return _MembersPremiumStatsPanel(
           padding: padding,
           allDocs: docsForStats,
+          heroTotal: _heroTotalForMembersStatsPanel(
+            docsForStats,
+            limitResult: limitResult,
+          ),
+          directorySummary: _directorySummaryForStatsPanel(),
+          useDirectorySummary: !_membersListFiltersActive(),
           searchQuery: _q,
           limitResult: limitResult,
           canManage: _canManage,
@@ -7789,6 +7949,11 @@ class _MembersPremiumStatsPanel extends StatefulWidget {
   final EdgeInsets padding;
   final List<_MemberDoc> allDocs;
 
+  /// Total exibido no cartão principal (pode ser `totalCount` do directory, não só docs carregados).
+  final int heroTotal;
+  final MembersDirectorySummary? directorySummary;
+  final bool useDirectorySummary;
+
   /// Texto da busca rápida (só afeta a lista; gráficos ignoram).
   final String searchQuery;
   final MembersLimitResult? limitResult;
@@ -7807,6 +7972,9 @@ class _MembersPremiumStatsPanel extends StatefulWidget {
   const _MembersPremiumStatsPanel({
     required this.padding,
     required this.allDocs,
+    required this.heroTotal,
+    this.directorySummary,
+    this.useDirectorySummary = false,
     required this.searchQuery,
     required this.limitResult,
     required this.canManage,
@@ -7836,19 +8004,46 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final n = widget.allDocs.length;
+    final n = widget.heroTotal > 0 ? widget.heroTotal : widget.allDocs.length;
     var homens = 0, mulheres = 0, sexoNi = 0;
     var criancas = 0, adolescentes = 0, adultos = 0, idosos = 0, semIdade = 0;
     var ativos = 0, inativos = 0, pendentes = 0;
+
+    final summary = widget.directorySummary;
+    final useSummaryCounts = summary != null &&
+        summary.hasCounts &&
+        widget.useDirectorySummary;
+
+    if (useSummaryCounts) {
+      ativos = summary.ativos;
+      inativos = summary.inativos;
+      pendentes = summary.pendentes;
+      homens = summary.homens;
+      mulheres = summary.mulheres;
+      sexoNi = summary.sexoNi;
+    }
+
     for (final m in widget.allDocs) {
       final d = m.data;
-      final g = genderCategoryFromMemberData(d);
-      if (g == 'M') {
-        homens++;
-      } else if (g == 'F') {
-        mulheres++;
-      } else {
-        sexoNi++;
+      if (!useSummaryCounts) {
+        final g = genderCategoryFromMemberData(d);
+        if (g == 'M') {
+          homens++;
+        } else if (g == 'F') {
+          mulheres++;
+        } else {
+          sexoNi++;
+        }
+        final s = (d['STATUS'] ?? d['status'] ?? '').toString().toLowerCase();
+        final pend = s.contains('pendente');
+        final inat = s.contains('inativ');
+        if (pend) {
+          pendentes++;
+        } else if (inat) {
+          inativos++;
+        } else {
+          ativos++;
+        }
       }
       final idade = ageFromMemberData(d);
       if (idade == null) {
@@ -7861,16 +8056,6 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
         adultos++;
       } else {
         idosos++;
-      }
-      final s = (d['STATUS'] ?? d['status'] ?? '').toString().toLowerCase();
-      final pend = s.contains('pendente');
-      final inat = s.contains('inativ');
-      if (pend) {
-        pendentes++;
-      } else if (inat) {
-        inativos++;
-      } else {
-        ativos++;
       }
     }
 
@@ -8321,8 +8506,8 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(
                     lim > 0
-                        ? 'membros no painel (plano: $used / $lim)'
-                        : 'membros no painel',
+                        ? 'membros na igreja (plano: $used / $lim)'
+                        : 'membros na igreja',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.92),
                       fontSize: 13,

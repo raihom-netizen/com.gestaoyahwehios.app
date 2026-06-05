@@ -111,7 +111,7 @@ class PlanPriceService {
           .collection('config')
           .doc('plans')
           .collection('items')
-          .get();
+          .get(const GetOptions(source: Source.serverAndCache));
       return _mergeCatalogFromQuerySnap(snap);
     } catch (_) {
       final fallback = <String, EffectivePlanConfig>{

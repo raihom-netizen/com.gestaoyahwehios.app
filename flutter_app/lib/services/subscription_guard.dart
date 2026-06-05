@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/license_access_policy.dart';
 
 class SubscriptionGuardState {
   final String statusAssinatura;
@@ -44,8 +45,7 @@ class SubscriptionGuard {
     final c = church ?? const <String, dynamic>{};
     final lic = c['license'] is Map ? Map<String, dynamic>.from(c['license'] as Map) : const <String, dynamic>{};
 
-    final planKey = (c['plano'] ?? c['planId'] ?? '').toString().toLowerCase();
-    final isFree = planKey == 'free' || lic['isFree'] == true;
+    final isFree = LicenseAccessPolicy.churchIsFree(c);
     final adminBlocked = c['adminBlocked'] == true || lic['adminBlocked'] == true;
     /// Master / documento: igreja desligada no ecossistema (site público + bloqueio alinhado ao painel).
     final ecosystemOff = adminBlocked ||
@@ -61,22 +61,23 @@ class SubscriptionGuard {
         .trim();
     final normalizedStatus = _normalizeStatus(rawStatus);
 
-    final dataVencimento = _pickDate(
-      c['data_vencimento'],
-      c['licenseExpiresAt'],
-      c['trialEndsAt'],
-      c['billing'] is Map ? (c['billing'] as Map)['nextChargeAt'] : null,
-      subscription?['data_vencimento'],
-      subscription?['nextChargeAt'],
-      subscription?['trialEndsAt'],
-      subscription?['currentPeriodEnd'],
-    );
+    final dataVencimento = LicenseAccessPolicy.churchAccessEnd(c) ??
+        _pickLatestDate(
+          subscription?['data_vencimento'],
+          subscription?['nextChargeAt'],
+          subscription?['trialEndsAt'],
+          subscription?['currentPeriodEnd'],
+        );
 
-    final dataBloqueio = _pickDate(
-      c['data_bloqueio'],
-      subscription?['data_bloqueio'],
-    ) ??
-        (dataVencimento != null ? dataVencimento.add(const Duration(days: AppConstants.subscriptionGraceDays)) : null);
+    final dataBloqueio = _pickLatestDate(
+          c['data_bloqueio'],
+          subscription?['data_bloqueio'],
+        ) ??
+        (dataVencimento != null
+            ? dataVencimento.add(
+                const Duration(days: AppConstants.subscriptionGraceDays),
+              )
+            : null);
 
     if (isFree) {
       // FREE = acesso liberado; só bloqueia se o master ligou «Bloquear igreja».
@@ -92,8 +93,12 @@ class SubscriptionGuard {
       );
     }
 
-    final suspendedByStatus = normalizedStatus == 'suspended';
-    final blockedByDate = dataBloqueio != null && current.isAfter(dataBloqueio);
+    // `status_assinatura: suspended` pode ter sido gravado pelo próprio painel numa
+    // avaliação anterior errada — só bloqueia por status se a data + carência já passou.
+    final blockedByDate =
+        dataBloqueio != null && current.isAfter(dataBloqueio);
+    final suspendedByStatus =
+        normalizedStatus == 'suspended' && blockedByDate;
     final blocked = ecosystemOff || suspendedByStatus || blockedByDate;
 
     final inGrace = !blocked &&
@@ -134,12 +139,14 @@ class SubscriptionGuard {
     return v;
   }
 
-  static DateTime? _pickDate([Object? a, Object? b, Object? c, Object? d, Object? e, Object? f, Object? g, Object? h]) {
+  static DateTime? _pickLatestDate([Object? a, Object? b, Object? c, Object? d, Object? e, Object? f, Object? g, Object? h]) {
+    DateTime? best;
     for (final raw in [a, b, c, d, e, f, g, h]) {
       final dt = _toDate(raw);
-      if (dt != null) return dt;
+      if (dt == null) continue;
+      if (best == null || dt.isAfter(best)) best = dt;
     }
-    return null;
+    return best;
   }
 
   static DateTime? _toDate(Object? raw) {
