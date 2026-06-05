@@ -1,10 +1,10 @@
 # Base estável — Gestão YAHWEH (produção)
 
-**Tag Git:** `baseline-11.2.295-1603`  
-**Commit:** `e77b4b5` (deploy completo 2026-05-22)  
-**Versão:** `11.2.295+1603`
+**Tag Git:** `baseline-11.2.295-1819`  
+**Commit:** `30da39e` (deploy completo 2026-06-05)  
+**Versão:** `11.2.295+1819`
 
-Esta base foi validada em produção: web online, AAB Play, push GitHub, correções iOS (TestFlight) e upload rápido (chat / avisos / eventos).
+Ponto de partida **antes das próximas melhorias** (jun/2026). Base validada em produção: web online, AAB Play, push GitHub, correções carteirinha, chat igreja, avisos e eventos.
 
 ## Antes de cada melhoria ou deploy
 
@@ -35,8 +35,8 @@ Esta base foi validada em produção: web online, AAB Play, push GitHub, correç
 - `LSApplicationQueriesSchemes`: **sem** `http` / `https`.
 - CI valida IPA: `scripts/codemagic_ios_validate_ipa_before_upload.sh`
 - Guia: `IOS/CODEMAGIC_INVALID_BINARY.md`
-- IPA no CI: sempre **`GestaoYahweh.ipa`** após `codemagic_ios_normalize_ipa_for_asc.sh` (evita falha Publishing com «Gestão Yahweh - Igrejas.ipa»).
-- Upload rápido (chat/avisos/eventos): regras Firestore `chatTenantMemberFast`, `muralPostPublishFinalizeAllowed` — deploy `.\scripts\deploy_firebase_rules.ps1` (sem nova versão do app).
+- IPA no CI: sempre **`GestaoYahweh.ipa`** após `codemagic_ios_normalize_ipa_for_asc.sh`.
+- Chat/avisos/eventos: `prepareForChatWrite` / leituras resilientes — não reintroduzir `prepareForCriticalWrite` a cada envio.
 
 ## Dart — evitar regressão de compilação
 
@@ -48,12 +48,25 @@ Esta base foi validada em produção: web online, AAB Play, push GitHub, correç
 | Artefacto | Caminho típico |
 |-----------|----------------|
 | Web | https://gestaoyahweh-21e23.web.app |
-| AAB | `D:\Temporarios\GestaoYahweh_11.2.295_build1603_play.aab` |
-| ZIP iOS | `D:\Temporarios\GestaoYahweh_ios_sources_11.2.295_build1603.zip` |
+| AAB | `D:\Temporarios\GestaoYahweh_11.2.295_build1819_play.aab` |
+| ZIP iOS | `D:\Temporarios\GestaoYahweh_ios_sources_11.2.295_build1819.zip` |
+| Backup geral | `D:\Temporarios\bkp_estado_geral_2026-06-05_build1819\` |
 
 ## Voltar a esta base
 
 ```powershell
 git fetch origin
-git checkout baseline-11.2.295-1603
+git checkout baseline-11.2.295-1819
 ```
+
+Restaurar a partir do bundle (máquina nova):
+
+```powershell
+git clone gestao_yahweh_11.2.295_1819.bundle gestao_yahweh_restored
+cd gestao_yahweh_restored
+git checkout baseline-11.2.295-1819
+```
+
+## Baseline anterior
+
+- `baseline-11.2.295-1603` — commit `e77b4b5` (2026-05-22)
