@@ -2076,7 +2076,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
     final isMobile = ThemeCleanPremium.isMobile(context);
 
     final content = StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: _visitorDoc.snapshots(),
+      stream: _visitorDoc.watchSafe(),
       builder: (context, vSnap) {
         if (vSnap.hasError) {
           return Center(child: Text('Erro: ${vSnap.error}'));

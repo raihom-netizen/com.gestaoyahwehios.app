@@ -3,6 +3,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 /// Gráficos de acessos ao domínio — dados em config/analytics e/ou analytics/domain/daily_hits.
@@ -142,8 +143,10 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
       }
 
       try {
-        final configSnap =
-            await FirebaseFirestore.instance.doc('config/analytics').get();
+        final configSnap = await FirestoreReadResilience.getDocument(
+          FirebaseFirestore.instance.doc('config/analytics'),
+          cacheKey: 'config_analytics',
+        );
         if (configSnap.exists) {
           final data = configSnap.data();
           final dynamic dailyObj =
@@ -163,13 +166,15 @@ class _AdminAcessosDominioPageState extends State<AdminAcessosDominioPage> {
       } catch (_) {}
 
       try {
-        final colSnap = await FirebaseFirestore.instance
-            .collection('analytics')
-            .doc('domain')
-            .collection('daily_hits')
-            .orderBy('date', descending: true)
-            .limit(YahwehPerformanceV4.masterAnalyticsSampleLimit)
-            .get();
+        final colSnap = await FirestoreReadResilience.getQuery(
+          FirebaseFirestore.instance
+              .collection('analytics')
+              .doc('domain')
+              .collection('daily_hits')
+              .orderBy('date', descending: true)
+              .limit(YahwehPerformanceV4.masterAnalyticsSampleLimit),
+          cacheKey: 'analytics_domain_daily_hits',
+        );
 
         if (colSnap.docs.isNotEmpty) {
           for (final d in colSnap.docs) {

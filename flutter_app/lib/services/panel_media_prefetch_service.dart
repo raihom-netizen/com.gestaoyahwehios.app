@@ -30,7 +30,7 @@ abstract final class PanelMediaPrefetchService {
     if (tid.isEmpty) {
       return const Stream<Map<String, dynamic>?>.empty();
     }
-    return FirestoreStreamUtils.resilientDocument(_ref(tid).snapshots())
+    return _ref(tid).watchSafe()
         .map((s) => s.exists ? s.data() : null);
   }
 

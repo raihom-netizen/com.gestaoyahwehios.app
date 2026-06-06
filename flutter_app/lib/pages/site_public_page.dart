@@ -16,6 +16,7 @@ import "package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dar
 import "package:gestao_yahweh/ui/widgets/yahweh_official_social_bar.dart";
 import "package:gestao_yahweh/services/public_site_analytics.dart";
 import "package:gestao_yahweh/core/app_constants.dart";
+import "package:gestao_yahweh/services/firestore_stream_utils.dart";
 import "package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart";
 
 String money(double v) => "R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}";
@@ -1207,17 +1208,17 @@ class _PremiumIncludedFeaturesGrid extends StatelessWidget {
   const _PremiumIncludedFeaturesGrid();
 
   static const List<({IconData icon, String label})> _features = [
-    (icon: Icons.groups_rounded, label: 'Controle de membros'),
+    (icon: Icons.people_alt_rounded, label: 'Controle de membros'),
     (icon: Icons.cake_rounded, label: 'Aniversariantes'),
     (icon: Icons.campaign_rounded, label: 'Avisos'),
-    (icon: Icons.event_available_rounded, label: 'Eventos'),
-    // calendar_view_week_rounded pode não vir no MaterialIcons tree-shaken (web) → ícone vazio.
-    (icon: Icons.event_note_rounded, label: 'Escalas'),
-    (icon: Icons.calendar_month_rounded, label: 'Agendas'),
+    (icon: Icons.celebration_rounded, label: 'Eventos'),
+    (icon: Icons.view_timeline_rounded, label: 'Escalas'),
+    (icon: Icons.event_available_rounded, label: 'Agendas'),
     (icon: Icons.volunteer_activism_rounded, label: 'Pedidos de orações'),
     (
-      icon: Icons.chat_bubble_rounded,
-      label: 'Chat Igreja — comunicação interna (membros e departamentos)',
+      icon: Icons.chat_rounded,
+      label:
+          'Chat Igreja — transmissão para todos, grupos e membros (estilo WhatsApp)',
     ),
     (icon: Icons.public_rounded, label: 'Site público integrado ao sistema'),
     (icon: Icons.inventory_2_rounded, label: 'Controle de patrimônio'),
@@ -1226,8 +1227,8 @@ class _PremiumIncludedFeaturesGrid extends StatelessWidget {
       label:
           'Controle financeiro — Mercado Pago e PIX com lançamentos automáticos',
     ),
-    (icon: Icons.business_center_rounded, label: 'Cadastro de Fornecedores e Prestadores de Serviços'),
-    (icon: Icons.workspace_premium_rounded, label: 'Emissão de certificados'),
+    (icon: Icons.local_shipping_rounded, label: 'Fornecedores e prestadores'),
+    (icon: Icons.verified_rounded, label: 'Emissão de certificados'),
     (icon: Icons.badge_rounded, label: 'Cartão membro moderno'),
     (icon: Icons.devices_rounded, label: 'Acesso via web, Android e iOS (Apple)'),
   ];
@@ -1357,7 +1358,7 @@ class _DownloadsSection extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Android: instale Gestão Yahweh - Igrejas pela Play Store (botão Android abaixo).',
+              'Android: instale Gestão Yahweh - Igrejas pela Google Play.',
               style: TextStyle(color: Colors.black54, height: 1.35),
             ),
             const SizedBox(height: 10),
@@ -1370,11 +1371,11 @@ class _DownloadsSection extends StatelessWidget {
               'Links alternativos podem ser definidos pelo painel master em config/appDownloads.',
               style: TextStyle(color: Colors.black45, fontSize: 12.5, height: 1.3),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .doc('config/appDownloads')
-                  .snapshots(),
+              stream: FirestoreStreamUtils.documentWatchBootstrap(
+                FirebaseFirestore.instance.doc('config/appDownloads'),
+              ),
               builder: (context, snap) {
                 final data = snap.data?.data() ?? {};
                 final folderUrl = (data['driveFolderUrl'] ?? '').toString();
@@ -1384,33 +1385,139 @@ class _DownloadsSection extends StatelessWidget {
                     AppConstants.effectiveAppDownloadsIosUrl(data);
 
                 return Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
+                  spacing: 12,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    FilledButton.icon(
-                      onPressed: () => _open(androidEffective),
-                      icon: const Icon(Icons.android),
-                      label: const Text('Android'),
+                    _ModernStoreButton(
+                      label: 'Google Play',
+                      subtitle: 'Android',
+                      icon: Icons.android_rounded,
+                      gradient: const [
+                        Color(0xFF01875F),
+                        Color(0xFF00A86B),
+                      ],
+                      onTap: () => _open(androidEffective),
                     ),
-                    FilledButton.tonalIcon(
-                      onPressed: iosEffective.isEmpty
+                    _ModernStoreButton(
+                      label: 'TestFlight',
+                      subtitle: 'iPhone / iPad',
+                      icon: Icons.apple_rounded,
+                      gradient: const [
+                        Color(0xFF1C1C1E),
+                        Color(0xFF3A3A3C),
+                      ],
+                      enabled: iosEffective.isNotEmpty,
+                      onTap: iosEffective.isEmpty
                           ? null
                           : () => _open(iosEffective),
-                      icon: const Icon(Icons.apple),
-                      label: const Text('iPhone (TestFlight)'),
                     ),
-                    OutlinedButton.icon(
-                      onPressed: folderUrl.isEmpty
-                          ? null
-                          : () => _open(folderUrl),
-                      icon: const Icon(Icons.folder_open),
-                      label: const Text('Pasta de downloads'),
-                    ),
+                    if (folderUrl.isNotEmpty)
+                      OutlinedButton.icon(
+                        onPressed: () => _open(folderUrl),
+                        icon: const Icon(Icons.folder_open_rounded),
+                        label: const Text('Pasta de downloads'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 14,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
                   ],
                 );
               },
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Botão estilo loja — Play Store / TestFlight modernos no site de divulgação.
+class _ModernStoreButton extends StatelessWidget {
+  const _ModernStoreButton({
+    required this.label,
+    required this.subtitle,
+    required this.icon,
+    required this.gradient,
+    required this.onTap,
+    this.enabled = true,
+  });
+
+  final String label;
+  final String subtitle;
+  final IconData icon;
+  final List<Color> gradient;
+  final VoidCallback? onTap;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = enabled
+        ? gradient
+        : [Colors.grey.shade400, Colors.grey.shade500];
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: colors,
+            ),
+            boxShadow: enabled
+                ? [
+                    BoxShadow(
+                      color: colors.first.withValues(alpha: 0.35),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: Colors.white, size: 32),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

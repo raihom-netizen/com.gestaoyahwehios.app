@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Caixa de entrada interna — além do push (avisos, eventos, escalas, chat…).
 abstract final class InternalNotificationInboxService {
@@ -40,7 +41,7 @@ abstract final class InternalNotificationInboxService {
     return _inbox(uid)
         .orderBy('createdAt', descending: true)
         .limit(limit)
-        .snapshots();
+        .watchSafe();
   }
 
   static Future<void> markRead(DocumentReference<Map<String, dynamic>> ref) async {

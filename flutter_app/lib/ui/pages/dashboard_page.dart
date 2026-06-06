@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -28,6 +28,7 @@ import '../widgets/member_demographics_utils.dart';
 import '../widgets/install_pwa_button.dart';
 import '../widgets/yahweh_premium_feed_widgets.dart'
     show YahwehPremiumFeedShimmer;
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 class DashboardPage extends StatelessWidget {
   final String tenantId; // igrejaId
@@ -492,7 +493,7 @@ class DashboardPage extends StatelessWidget {
                     future: membersCol.get(const GetOptions(source: Source.cache)),
                     builder: (context, cachedSnap) {
                       return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        stream: membersCol.snapshots(),
+                        stream: membersCol.watchSafe(),
                         builder: (context, membersSnap) {
                           final fallbackDocs = cachedSnap.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
                           final docs = membersSnap.data?.docs ?? fallbackDocs;
@@ -702,11 +703,11 @@ class DashboardPage extends StatelessWidget {
                           ),
                           const SizedBox(height: 14),
                           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                            stream: visitantesMesQuery.snapshots(),
+                            stream: visitantesMesQuery.watchSafe(),
                             builder: (context, visitSnap) {
                               final visitantesMes = visitSnap.data?.docs.length ?? 0;
                               return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                                stream: proximoEventoQuery.snapshots(),
+                                stream: proximoEventoQuery.watchSafe(),
                                 builder: (context, eventSnap) {
                                   final nextEvent = eventSnap.data?.docs.isNotEmpty == true
                                       ? eventSnap.data!.docs.first.data()
@@ -1050,7 +1051,7 @@ class DashboardPage extends StatelessWidget {
                                 DocumentSnapshot<Map<String, dynamic>>>(
                               stream: FirebaseFirestore.instance
                                   .doc('config/appDownloads')
-                                  .snapshots(),
+                                  .watchSafe(),
                               builder: (context, dlSnap) {
                                 final data = dlSnap.data?.data() ?? {};
                                 final folderUrl =
@@ -1133,7 +1134,7 @@ class _LicenseActiveBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('igrejas').doc(tenantId).snapshots(),
+      stream: FirebaseFirestore.instance.collection('igrejas').doc(tenantId).watchSafe(),
       builder: (context, tenantSnap) {
         DateTime? vencimento;
         if (tenantSnap.hasData) {
@@ -1501,7 +1502,7 @@ class _MuralPreview extends StatelessWidget {
         .limit(2);
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: col.snapshots(),
+      stream: col.watchSafe(),
       builder: (context, snap) {
         if (!snap.hasData)
           return const SizedBox(

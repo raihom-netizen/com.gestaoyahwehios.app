@@ -21,6 +21,8 @@ import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 
 enum _CartaKind {
   apresentacao,
@@ -67,7 +69,7 @@ class ChurchLettersPage extends StatefulWidget {
 }
 
 class _ChurchLettersPageState extends State<ChurchLettersPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, SearchDebounceStateMixin {
   late TabController _tabs;
   final _destIgrejaCtrl = TextEditingController();
   final _missionCtrl = TextEditingController();
@@ -1790,8 +1792,9 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                 const SizedBox(height: 8),
                 TextField(
                   controller: _searchCtrl,
-                  onChanged: (v) =>
-                      setState(() => _memberFilter = v.trim().toLowerCase()),
+                  onChanged: (v) => scheduleSearchUpdate(
+                    () => _memberFilter = v.trim().toLowerCase(),
+                  ),
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.search_rounded),
                     hintText: 'Filtrar por nome ou CPF…',
@@ -2081,7 +2084,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           ),
           const SizedBox(height: 16),
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _historyQuery().snapshots(),
+            stream: _historyQuery().watchSafe(),
             builder: (context, snap) {
               if (snap.hasError) {
                 return Text('Erro: ${snap.error}');

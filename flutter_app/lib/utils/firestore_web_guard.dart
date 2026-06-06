@@ -172,13 +172,19 @@ class FirestoreWebGuard {
     await ensureWebDatabaseConnected(refreshAuth: true);
   }
 
-  /// Antes de publicar aviso/evento/chat — reduz INTERNAL ASSERTION (SDK 11.x).
+  /// Antes de publicar/gravar doc crítico — reduz INTERNAL ASSERTION (SDK 11.x + listeners do painel).
   static Future<void> prepareForCriticalWrite() async {
     if (!kIsWeb) return;
     applyWebFirestoreSettings();
     await recoverFirestoreWebSession(allowHardReconnect: true);
     await ensureWebDatabaseConnected(refreshAuth: true);
-    await Future<void>.delayed(const Duration(milliseconds: 160));
+    // Segundo ciclo rede — alinha WatchChangeAggregator após dezenas de listeners no IndexedStack.
+    try {
+      await firebaseDefaultFirestore.disableNetwork();
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await firebaseDefaultFirestore.enableNetwork();
+    } catch (_) {}
+    await Future<void>.delayed(const Duration(milliseconds: 200));
   }
 
   /// Chat (texto/mídia): **não** desliga a rede — listeners do thread ficam activos.

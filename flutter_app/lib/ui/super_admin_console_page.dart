@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// ✅ Painel Master (Super Admin)
 /// - Lista todas as igrejas (collection: tenants)
@@ -607,7 +608,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                 _SalesSummary(plans: _plans),
                 const SizedBox(height: 12),
                 StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  stream: _memberCardCfg.snapshots(),
+                  stream: _memberCardCfg.watchSafe(),
                   builder: (context, snap) {
                     final data = snap.data?.data() ?? {};
                     final title = (data['title'] ?? 'Gestao YAHWEH').toString();
@@ -724,7 +725,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                 Expanded(
                   child: _tab == 1
                       ? StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          stream: _plans.orderBy('order').snapshots(),
+                          stream: _plans.orderBy('order').watchSafe(),
                           builder: (context, snap) {
                             if (snap.hasError)
                               return Center(child: Text('Erro: ${snap.error}'));
@@ -885,7 +886,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                           },
                         )
                       : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          stream: _plans.orderBy('order').snapshots(),
+                          stream: _plans.orderBy('order').watchSafe(),
                           builder: (context, plansSnap) {
                             if (plansSnap.hasError)
                               return Center(
@@ -899,7 +900,7 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
                                 QuerySnapshot<Map<String, dynamic>>>(
                               stream: FirebaseFirestore.instance
                                   .collection('igrejas')
-                                  .snapshots(),
+                                  .watchSafe(),
                               builder: (context, snap) {
                                 if (snap.hasError) {
                                   return Center(
@@ -1091,7 +1092,7 @@ class _SalesSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: plans.orderBy('order').snapshots(),
+      stream: plans.orderBy('order').watchSafe(),
       builder: (context, plansSnap) {
         if (!plansSnap.hasData) {
           return const Card(
@@ -1110,7 +1111,7 @@ class _SalesSummary extends StatelessWidget {
         }
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance.collection('igrejas').snapshots(),
+          stream: FirebaseFirestore.instance.collection('igrejas').watchSafe(),
           builder: (context, snap) {
             if (!snap.hasData) {
               return const Card(

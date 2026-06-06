@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Lê caches gerados pelas Cloud Functions (`_performance_cache`).
 ///
@@ -81,7 +82,7 @@ abstract final class ChurchPerformanceCacheService {
   }
 
   static Stream<List<Map<String, dynamic>>> watchPublicFeed(String tenantId) {
-    return _ref(tenantId, 'public_feed').snapshots().map((snap) {
+    return _ref(tenantId, 'public_feed').watchSafe().map((snap) {
       final data = snap.data()?['data'];
       if (data is! List) return const [];
       return data

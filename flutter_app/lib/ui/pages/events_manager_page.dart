@@ -1,4 +1,4 @@
-import 'dart:async' show TimeoutException, unawaited;
+import 'dart:async' show TimeoutException, Timer, unawaited;
 import 'dart:convert';
 import 'dart:io' show File;
 import 'dart:math';
@@ -1336,6 +1336,8 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
   QuerySnapshot<Map<String, dynamic>>? _lastGoodGallerySnap;
   final TextEditingController _searchCtrl = TextEditingController();
+  String _searchApplied = '';
+  Timer? _searchDebounce;
   String _order = 'recent_first';
   String _period = 'all';
   String _mediaType = 'all';
@@ -1347,6 +1349,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   @override
   void initState() {
     super.initState();
+    _searchCtrl.addListener(_onGallerySearchInput);
     _future = _seedOrLoadGallery();
     unawaited(_openGalleryFast());
   }
@@ -1390,8 +1393,20 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     } catch (_) {}
   }
 
+  void _onGallerySearchInput() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      final q = _searchCtrl.text.trim();
+      if (q == _searchApplied) return;
+      setState(() => _searchApplied = q);
+    });
+  }
+
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtrl.removeListener(_onGallerySearchInput);
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -1611,7 +1626,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
             return true;
           }).toList();
         }
-        final q = _searchCtrl.text.trim().toLowerCase();
+        final q = _searchApplied.trim().toLowerCase();
         if (q.isNotEmpty) {
           docs = docs.where((d) {
             final p = d.data();
@@ -1720,7 +1735,6 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                   children: [
                     TextField(
                       controller: _searchCtrl,
-                      onChanged: (_) => setState(() {}),
                       decoration: const InputDecoration(
                         hintText: 'Pesquisar evento por título ou descrição',
                         prefixIcon: Icon(Icons.search_rounded),
@@ -2608,6 +2622,8 @@ class _FeedTabState extends State<_FeedTab> {
   String _filterPeriod = 'all';
   int _filterWeekday = 0;
   final _searchCtrl = TextEditingController();
+  String _searchApplied = '';
+  Timer? _searchDebounce;
   bool _selectMode = false;
   final Set<String> _selectedEventIds = <String>{};
 
@@ -2617,7 +2633,9 @@ class _FeedTabState extends State<_FeedTab> {
     if (widget.initialFeedSearchQuery != null &&
         widget.initialFeedSearchQuery!.trim().isNotEmpty) {
       _searchCtrl.text = widget.initialFeedSearchQuery!.trim();
+      _searchApplied = _searchCtrl.text.trim();
     }
+    _searchCtrl.addListener(_onFeedSearchInput);
     _eventsFuture = _seedOrLoadEvents();
     unawaited(_primeEventsFromCache());
   }
@@ -2691,8 +2709,20 @@ class _FeedTabState extends State<_FeedTab> {
     } catch (_) {}
   }
 
+  void _onFeedSearchInput() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      final q = _searchCtrl.text.trim();
+      if (q == _searchApplied) return;
+      setState(() => _searchApplied = q);
+    });
+  }
+
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchCtrl.removeListener(_onFeedSearchInput);
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -2927,7 +2957,7 @@ class _FeedTabState extends State<_FeedTab> {
   }) {
         final effectiveNow = now ?? DateTime.now();
         final docs = _applyFilters(
-            allDocs, effectiveNow, _filterPeriod, _filterWeekday, _searchCtrl.text);
+            allDocs, effectiveNow, _filterPeriod, _filterWeekday, _searchApplied);
 
         final preloadUrls = docs
             .take(8)
@@ -3036,7 +3066,6 @@ class _FeedTabState extends State<_FeedTab> {
                           contentPadding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 12),
                         ),
-                        onChanged: (_) => setState(() {}),
                       ),
                       const SizedBox(height: 8),
                       Row(
@@ -5759,6 +5788,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   final List<String> _newNames = [];
   int _inFlightPhotoUploads = 0;
   bool _eventDraftEnsured = false;
+  final ValueNotifier<int> _addressPreviewTick = ValueNotifier(0);
+
+  void _notifyAddressPreview() => _addressPreviewTick.value++;
 
   int get _newPhotoCount => kIsWeb ? _newImages.length : _newImagePaths.length;
 
@@ -6195,7 +6227,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(ImmediateMediaWarm.warmFeed());
     _eventDocRef = widget.doc?.reference ?? widget.noticias.doc();
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
@@ -6520,6 +6551,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   @override
   void dispose() {
+    _addressPreviewTick.dispose();
     _title.dispose();
     _bodyDescription.dispose();
     _videoUrl.dispose();
@@ -7880,7 +7912,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 TextField(
                   controller: _videoUrl,
                   keyboardType: TextInputType.url,
-                  onChanged: (_) => setState(() {}),
                   decoration: const InputDecoration(
                     labelText: 'Link do vídeo (YouTube / Vimeo)',
                     prefixIcon: Icon(Icons.link_rounded),
@@ -8321,7 +8352,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           controller: _cep,
                           keyboardType: TextInputType.number,
                           maxLength: 9,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => _notifyAddressPreview(),
                           decoration: InputDecoration(
                             labelText: 'CEP',
                             hintText: '00000-000',
@@ -8363,7 +8394,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _logradouro,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => _notifyAddressPreview(),
                     decoration: InputDecoration(
                       labelText: 'Logradouro (rua, avenida…)',
                       prefixIcon: const Icon(Icons.signpost_outlined),
@@ -8374,7 +8405,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _numero,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => _notifyAddressPreview(),
                     keyboardType: TextInputType.text,
                     decoration: InputDecoration(
                       labelText: 'Número',
@@ -8386,7 +8417,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _bairro,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => _notifyAddressPreview(),
                     decoration: InputDecoration(
                       labelText: 'Bairro',
                       prefixIcon: const Icon(Icons.apartment_rounded),
@@ -8402,7 +8433,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         flex: 3,
                         child: TextField(
                           controller: _cidade,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => _notifyAddressPreview(),
                           decoration: InputDecoration(
                             labelText: 'Cidade',
                             prefixIcon: const Icon(Icons.location_city_rounded),
@@ -8416,7 +8447,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         width: 88,
                         child: TextField(
                           controller: _uf,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => _notifyAddressPreview(),
                           textCapitalization: TextCapitalization.characters,
                           maxLength: 2,
                           decoration: InputDecoration(
@@ -8432,7 +8463,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _quadraLote,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => _notifyAddressPreview(),
                     decoration: InputDecoration(
                       labelText: 'Quadra e lote (opcional)',
                       hintText: 'Ex.: Qd 5 Lt 12',
@@ -8444,7 +8475,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _referencia,
-                    onChanged: (_) => setState(() {}),
+                    onChanged: (_) => _notifyAddressPreview(),
                     maxLines: 2,
                     decoration: InputDecoration(
                       labelText: 'Ponto de referência (opcional)',
@@ -8464,7 +8495,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(color: Colors.grey.shade200),
                     ),
-                    child: Column(
+                    child: ValueListenableBuilder<int>(
+                      valueListenable: _addressPreviewTick,
+                      builder: (context, _, __) {
+                        final resumo = _montarEnderecoManual();
+                        final empty = resumo.isEmpty;
+                        return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Resumo do local',
@@ -8474,17 +8510,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                                 color: Colors.grey.shade700)),
                         const SizedBox(height: 6),
                         Text(
-                          _montarEnderecoManual().isEmpty
-                              ? '(preencha os campos acima)'
-                              : _montarEnderecoManual(),
+                          empty ? '(preencha os campos acima)' : resumo,
                           style: TextStyle(
                               fontSize: 13.5,
                               height: 1.4,
-                              color: _montarEnderecoManual().isEmpty
+                              color: empty
                                   ? Colors.grey.shade500
                                   : Colors.grey.shade900),
                         ),
                       ],
+                    );
+                      },
                     ),
                   ),
                 ],
@@ -11327,7 +11363,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                     key: ValueKey('com_sheet_$_commentsStreamKey'),
                     stream: _selected.eventRef
                         .collection('comentarios')
-                        .snapshots(),
+                        .watchSafe(),
                     builder: (context, snap) {
                       if (snap.hasError) {
                         return ChurchPanelErrorBody(

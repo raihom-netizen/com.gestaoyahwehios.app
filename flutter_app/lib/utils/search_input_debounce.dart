@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 /// Debounce padrão (500 ms) antes de filtrar lista ou consultar Firestore.
 const Duration kSearchInputDebounceDelay = Duration(milliseconds: 500);

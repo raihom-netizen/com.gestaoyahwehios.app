@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
-/// Padrão Controle Total: 1.º frame do cache local, depois stream em tempo real.
+/// Padrão Controle Total: cache local primeiro, depois stream seguro.
 Stream<List<T>> firestoreCacheFirstList<T>({
   required Query<Map<String, dynamic>> query,
   required T Function(QueryDocumentSnapshot<Map<String, dynamic>> doc) mapDoc,
@@ -11,5 +12,5 @@ Stream<List<T>> firestoreCacheFirstList<T>({
       yield cached.docs.map(mapDoc).toList();
     }
   } catch (_) {}
-  yield* query.snapshots().map((snap) => snap.docs.map(mapDoc).toList());
+  yield* query.watchSafe().map((snap) => snap.docs.map(mapDoc).toList());
 }

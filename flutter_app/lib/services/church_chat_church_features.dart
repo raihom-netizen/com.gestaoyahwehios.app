@@ -56,6 +56,31 @@ abstract final class ChurchChatChurchFeatures {
     }
   }
 
+  /// Transmissão nos grupos `dept_*` (paralelo limitado).
+  static Future<int> postBroadcastToDepartmentThreads({
+    required String tenantId,
+    required String title,
+    required String body,
+    required Iterable<({String id, String name})> departments,
+  }) async {
+    var ok = 0;
+    final t = title.trim();
+    final b = body.trim();
+    if (t.isEmpty || b.isEmpty) return 0;
+    final message = t == b ? t : '$t\n$b';
+    for (final d in departments) {
+      if (d.id.trim().isEmpty) continue;
+      final sent = await sendPastoralHighlightToDepartment(
+        tenantId: tenantId,
+        departmentId: d.id,
+        departmentName: d.name,
+        message: message,
+      );
+      if (sent) ok++;
+    }
+    return ok;
+  }
+
   /// Aviso automático no grupo quando uma escala é criada/gerada.
   static Future<void> notifyDepartmentEscalaCreated({
     required String tenantId,

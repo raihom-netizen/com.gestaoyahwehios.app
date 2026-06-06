@@ -107,12 +107,16 @@ abstract final class MemberCardDirectoryService {
     if (tid.isEmpty) return const [];
 
     // Leitura instantânea — `_panel_cache/members_directory` (1 doc).
+    final effectiveLimit = limit <= 0
+        ? YahwehPerformanceV4.adminExportBatchLimit
+        : limit.clamp(1, YahwehPerformanceV4.adminExportBatchLimit);
+
     try {
       final dir = await MembersDirectorySnapshotService.readOnce(tid);
       if (dir.hasEntries) {
         final out = <MemberCardListEntry>[];
         for (final e in dir.entries) {
-          if (out.length >= limit) break;
+          if (out.length >= effectiveLimit) break;
           final data = e.toMemberDataMap();
           final url = (e.photoUrl ?? '').trim();
           out.add(MemberCardListEntry(
@@ -130,8 +134,10 @@ abstract final class MemberCardDirectoryService {
       }
     } catch (_) {}
 
-    final snap =
-        await ChurchTenantResilientReads.membrosRecent(tid, limit: limit);
+    final snap = await ChurchTenantResilientReads.membrosRecent(
+      tid,
+      limit: effectiveLimit,
+    );
     final out = <MemberCardListEntry>[];
     for (final d in snap.docs) {
       final data = Map<String, dynamic>.from(d.data());

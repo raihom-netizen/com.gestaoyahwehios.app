@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/services/installed_app_build.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Versão mínima em `config/appVersion`: força ou avisa utilizadores Android/iOS/Web.
@@ -62,8 +63,9 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
       _error = null;
     });
     try {
-      final doc = await FirestoreWebGuard.runWithWebRecovery(
-        () => FirebaseFirestore.instance.doc(_path).get(),
+      final doc = await FirestoreReadResilience.getDocument(
+        FirebaseFirestore.instance.doc(_path),
+        cacheKey: 'config_appVersion',
       );
       final data = doc.data();
       if (mounted) {
@@ -183,6 +185,7 @@ class _AdminForcarAtualizacaoPageState extends State<AdminForcarAtualizacaoPage>
       } else {
         payload['minBuildNumberIosAsc'] = FieldValue.delete();
       }
+      await FirestoreWebGuard.prepareForCriticalWrite();
       await FirestoreWebGuard.runWithWebRecovery(
         () => FirebaseFirestore.instance
             .doc(_path)

@@ -56,19 +56,25 @@ class _ChurchPaymentReceivingSettingsSectionState
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    if (mounted) setState(() => _loading = true);
     try {
-      await _resolveOperationalTenant();
-    } catch (_) {}
-    final cfg = await ChurchPaymentReceivingService.read(_effectiveTenantId);
-    if (!mounted) return;
-    _mpEnabled = cfg.mercadoPagoEnabled;
-    _initPayEnabled = cfg.initPayEnabled;
-    _initPayCheckoutCtrl.text = cfg.initPayCheckoutUrl;
-    _initPayPixCtrl.text = cfg.initPayPixLink;
-    _otherNameCtrl.text = cfg.otherProviderName;
-    _otherUrlCtrl.text = cfg.otherCheckoutUrl;
-    setState(() => _loading = false);
+      try {
+        await _resolveOperationalTenant().timeout(const Duration(seconds: 10));
+      } catch (_) {}
+      final cfg = await ChurchPaymentReceivingService.read(_effectiveTenantId)
+          .timeout(const Duration(seconds: 16));
+      if (!mounted) return;
+      _mpEnabled = cfg.mercadoPagoEnabled;
+      _initPayEnabled = cfg.initPayEnabled;
+      _initPayCheckoutCtrl.text = cfg.initPayCheckoutUrl;
+      _initPayPixCtrl.text = cfg.initPayPixLink;
+      _otherNameCtrl.text = cfg.otherProviderName;
+      _otherUrlCtrl.text = cfg.otherCheckoutUrl;
+    } catch (_) {
+      // Mantém defaults — evita spinner infinito se Firestore web falhar.
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override

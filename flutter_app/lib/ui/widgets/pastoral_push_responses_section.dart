@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Painel na aba Push: mensagens recentes e subcoleção `leituras` (confirmação + texto de resposta).
 class PastoralPushResponsesSection extends StatefulWidget {
@@ -378,7 +379,7 @@ class _PastoralPushResponsesSectionState
           ),
           const SizedBox(height: ThemeCleanPremium.spaceMd),
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: ref.snapshots(),
+            stream: ref.watchSafe(),
             builder: (context, snap) {
               if (snap.hasError) {
                 return Padding(
@@ -630,7 +631,7 @@ class _PastoralLeiturasPanel extends StatelessWidget {
         .collection('leituras');
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: ref.snapshots(),
+      stream: ref.watchSafe(),
       builder: (context, snap) {
         if (!snap.hasData) {
           return const Padding(

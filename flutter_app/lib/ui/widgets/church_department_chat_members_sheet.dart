@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_department_add_members_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show SafeCircleAvatarImage, imageUrlFromMap;
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Lista de membros do departamento + presença + DM (mesmo fluxo do hub do chat).
 class ChurchDepartmentChatMembersSheet extends StatefulWidget {
@@ -309,7 +310,7 @@ class _ChurchDepartmentChatMembersSheetState
                                       .doc(widget.tenantId)
                                       .collection('chat_presence')
                                       .doc(auth)
-                                      .snapshots(),
+                                      .watchSafe(),
                                   builder: (context, ps) {
                                     final on = ChurchChatService
                                         .isOnlineFromSnapshot(ps.data);
@@ -370,7 +371,7 @@ class _ChurchDepartmentChatMembersSheetState
                                       .doc(widget.tenantId)
                                       .collection('chat_presence')
                                       .doc(auth)
-                                      .snapshots(),
+                                      .watchSafe(),
                                   builder: (context, ps) {
                                     final on = ChurchChatService
                                         .isOnlineFromSnapshot(ps.data);

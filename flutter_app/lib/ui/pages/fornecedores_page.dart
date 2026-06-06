@@ -8,8 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart'
-    show MergedFirestoreQuerySnapshot;
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/pdf/fornecedor_recibo_pdf.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
@@ -3645,7 +3644,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: _fornecedorRef.snapshots(),
+      stream: _fornecedorRef.watchSafe(),
       builder: (context, snap) {
         if (!snap.hasData || !snap.data!.exists) {
           return Scaffold(
@@ -3780,7 +3779,7 @@ class _CadastroTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: fornecedorRef.snapshots(),
+      stream: fornecedorRef.watchSafe(),
       builder: (context, snap) {
         final m = snap.data?.data();
         if (m == null) {
@@ -3985,7 +3984,7 @@ class _FinanceiroTab extends StatelessWidget {
         ),
         Expanded(
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: q.snapshots(),
+            stream: q.watchSafe(),
             builder: (context, snap) {
               if (snap.hasError) {
                 return Center(child: Text('Erro: ${snap.error}'));
@@ -4479,7 +4478,7 @@ class _AgendaTabState extends State<_AgendaTab> {
         .doc(widget.fornecedorId);
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: fornecedorRef.snapshots(),
+      stream: fornecedorRef.watchSafe(),
       builder: (context, fornSnap) {
         final waFornecedor = (fornSnap.data?.data()?['whatsapp'] ?? '')
             .toString()
@@ -4490,7 +4489,7 @@ class _AgendaTabState extends State<_AgendaTab> {
               .where('fornecedorId', isEqualTo: widget.fornecedorId)
               .orderBy('dataVencimento', descending: false)
               .limit(80)
-              .snapshots(),
+              .watchSafe(),
           builder: (context, snap) {
             if (!snap.hasData) {
               return const Center(child: CircularProgressIndicator());

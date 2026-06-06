@@ -135,7 +135,7 @@ bool dashboardPreferPanelCacheMembers(
 }
 
 /// Dashboard Clean Premium — Aniversariantes, líderes, stats e gráficos (saudação no topo do shell).
-/// Membros em tempo real via `snapshots()` (um stream ou merge de vários tenants com mesmo slug).
+/// Membros via `MembersDirectorySnapshotService` + cache painel (sem N streams `membros`).
 class IgrejaDashboardModerno extends StatefulWidget {
   final String tenantId;
   final String role;
@@ -283,18 +283,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   void _attachHeavyDashboardStreamsInline(List<String> allIds) {
     _heavyDashboardStreamsScheduled = true;
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
-      _membersStream = null;
-      _deptStream = _createDepartmentsOneShotStream(allIds);
-      unawaited(_hydrateMembersDirectory(_effectiveTenantId));
-      return;
-    }
-    _membersStream = FirestoreStreamUtils.resilientQuery(
-      _createMembersSnapshotStream(allIds),
-    );
-    _deptStream = FirestoreStreamUtils.resilientQuery(
-      _createDepartmentsSnapshotStream(allIds),
-    );
+    // Controle Total: directory + one-shot dept — evita 2+ listeners live por tenant no mobile.
+    _membersStream = null;
+    _deptStream = _createDepartmentsOneShotStream(allIds);
+    unawaited(_hydrateMembersDirectory(_effectiveTenantId));
   }
 
   void _scheduleHeavyDashboardStreams(
@@ -373,7 +365,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(_hydrateMembersDirectory(tid));
-      _scheduleHeavyDashboardStreams([tid], force: true);
+      setState(() {
+        _scheduleHeavyDashboardStreams([tid], force: true);
+        if (_effectiveTenantId.trim().isNotEmpty) {
+          _attachPanelFeedStreams(_effectiveTenantId);
+        }
+      });
       unawaited(scheduleYahwehPanelImageWarmup(
         context,
         tid,
@@ -505,14 +502,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         .collection(ChurchTenantPostsCollections.eventos)
         .orderBy('startAt', descending: true)
         .limit(32);
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
-      _avisosStream = FirestoreStreamUtils.queryWatchBootstrap(avisosQ);
-      _noticiasPainelStream = FirestoreStreamUtils.queryWatchBootstrap(eventosQ);
-      return;
-    }
-    _avisosStream = FirestoreStreamUtils.resilientQuery(avisosQ.snapshots());
-    _noticiasPainelStream =
-        FirestoreStreamUtils.resilientQuery(eventosQ.snapshots());
+    _avisosStream = FirestoreStreamUtils.queryOneShot(avisosQ);
+    _noticiasPainelStream = FirestoreStreamUtils.queryOneShot(eventosQ);
   }
 
   /// Cache Firestore local antes do bootstrap — evita skeleton prolongado na web.
@@ -785,14 +776,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     String tenantId,
     int lim,
   ) {
-    return FirestoreStreamUtils.resilientQuery(
-      db
-          .collection('igrejas')
-          .doc(tenantId)
-          .collection('membros')
-          .limit(lim)
-          .snapshots(),
-    );
+    return db
+        .collection('igrejas')
+        .doc(tenantId)
+        .collection('membros')
+        .limit(lim)
+        .watchSafe();
   }
 
   static Stream<QuerySnapshot<Map<String, dynamic>>> _createDepartmentsOneShotStream(
@@ -828,14 +817,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       );
     }
     if (allIds.length == 1) {
-      return FirestoreStreamUtils.resilientQuery(
-        db
-            .collection('igrejas')
-            .doc(allIds.first)
-            .collection('departamentos')
-            .limit(_dashboardDepartmentsLimit)
-            .snapshots(),
-      );
+      return db
+          .collection('igrejas')
+          .doc(allIds.first)
+          .collection('departamentos')
+          .limit(_dashboardDepartmentsLimit)
+          .watchSafe();
     }
     return Stream<QuerySnapshot<Map<String, dynamic>>>.multi((ctrl) {
       final latest = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
@@ -859,7 +846,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
               .doc(id)
               .collection('departamentos')
               .limit(_dashboardDepartmentsLimit)
-              .snapshots()
+              .watchSafe()
               .listen(
                 (snap) {
                   latest[id] = snap.docs.toList();
@@ -2989,9 +2976,7 @@ class _DashboardInstitutionalVideoStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirestoreStreamUtils.resilientDocument(
-        firebaseDefaultFirestore.collection('igrejas').doc(tenantId).snapshots(),
-      ),
+      stream: firebaseDefaultFirestore.collection('igrejas').doc(tenantId).watchSafe(),
       builder: (context, snap) {
         final data = snap.data?.data();
         if (data == null || !mapHasInstitutionalVideo(data)) {
@@ -6191,7 +6176,7 @@ class _TarefasPendentes extends StatelessWidget {
                       .collection('membros')
                       .where('status', isEqualTo: 'pendente')
                       .limit(40)
-                      .snapshots(),
+                      .watchSafe(),
                   onTap: () => Navigator.push(
                       context,
                       ThemeCleanPremium.fadeSlideRoute(AprovarMembrosPendentesPage(
@@ -6212,7 +6197,7 @@ class _TarefasPendentes extends StatelessWidget {
                     .collection('visitantes')
                     .where('status', isEqualTo: 'Novo')
                     .limit(40)
-                    .snapshots(),
+                    .watchSafe(),
                 onTap: () => Navigator.push(
                     context,
                     ThemeCleanPremium.fadeSlideRoute(
@@ -6230,7 +6215,7 @@ class _TarefasPendentes extends StatelessWidget {
                     .collection('pedidosOracao')
                     .where('respondida', isEqualTo: false)
                     .limit(40)
-                    .snapshots(),
+                    .watchSafe(),
                 onTap: () => Navigator.push(
                     context,
                     ThemeCleanPremium.fadeSlideRoute(
@@ -7719,7 +7704,7 @@ class _DashboardVoluntariadoAtalhoCard extends StatelessWidget {
             .doc(tid)
             .collection('escala_trocas')
             .where('alvoCpf', isEqualTo: _cpfDigits)
-            .snapshots(),
+            .watchSafe(),
         builder: (context, snap) {
           if (!snap.hasData) return const SizedBox.shrink();
           final n = snap.data!.docs
@@ -9555,7 +9540,7 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
         ? ThemeCleanPremium.minTouchTarget
         : 44.0;
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: widget.doc.reference.snapshots(),
+      stream: widget.doc.reference.watchSafe(),
       builder: (context, snap) {
         final data = snap.data?.data() ?? widget.doc.data();
         final mergedLikes = NoticiaSocialService.mergedLikeUids(data);
@@ -9724,7 +9709,7 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
                     stream: widget.doc.reference
                         .collection('comentarios')
                         .limit(40)
-                        .snapshots(),
+                        .watchSafe(),
                     builder: (context, cs) {
                       if (cs.hasError || !cs.hasData) {
                         return const SizedBox.shrink();

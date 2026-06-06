@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 List<String> _pastoralStrList(dynamic v) {
   if (v is! List) return [];
@@ -120,7 +121,7 @@ class PastoralInboxHomeCard extends StatelessWidget {
         .limit(20);
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: ref.snapshots(),
+      stream: ref.watchSafe(),
       builder: (context, snap) {
         if (snap.hasError) {
           return const SizedBox.shrink();
@@ -195,7 +196,7 @@ class _PastoralInboxMergedContentState extends State<_PastoralInboxMergedContent
           .doc(doc.id)
           .collection('leituras')
           .doc(widget.uid)
-          .snapshots()
+          .watchSafe()
           .listen((snap) {
         if (!mounted) return;
         setState(() => _read[doc.id] = snap.exists);

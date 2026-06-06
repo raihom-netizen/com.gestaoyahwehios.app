@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/jimsabores_frota/core/frota_firestore_paths.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 class CombustiveisPage extends StatefulWidget {
   const CombustiveisPage({super.key});
@@ -285,7 +286,7 @@ class _CombustiveisPageState extends State<CombustiveisPage> {
                     child: StreamBuilder<QuerySnapshot>(
                       stream: FrotaFirestorePaths.combustiveis()
                           .orderBy('nome_lower')
-                          .snapshots(),
+                          .watchSafe(),
                       builder: (context, snapshot) {
                         if (!snapshot.hasData) {
                           return const Center(child: CircularProgressIndicator());

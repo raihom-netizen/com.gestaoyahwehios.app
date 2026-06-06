@@ -6,6 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/marketing_official_config.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Formulário Master — canais oficiais (Instagram, YouTube, WhatsApp) + nome de exibição.
 /// Grava em [MarketingOfficialConfig.firestoreDocPath].
@@ -46,7 +48,10 @@ class _AdminMarketingCanaisMasterCardState
       _error = null;
     });
     try {
-      final snap = await _ref.get();
+      final snap = await FirestoreReadResilience.getDocument(
+        _ref,
+        cacheKey: 'config_marketing_official',
+      );
       if (snap.exists && snap.data() != null) {
         final d = snap.data()!;
         _contactCtrl.text = _trimOrEmpty(

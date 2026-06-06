@@ -17,6 +17,7 @@ analyzer:
     # dart:js_util só existe no SDK web — evita falso erro no analyze geral
     - "lib/pwa_install/pwa_install_web.dart"
     - "lib/controle_total_sync/smart_input_clipboard_paste_web.dart"
+    - "lib/ui/widgets/pwa_install_bridge_web.dart"
 
 linter:
   # The lint rules applied to this project can be customized in the

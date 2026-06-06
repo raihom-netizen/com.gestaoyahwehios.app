@@ -54,9 +54,6 @@ const List<ChurchShellNavEntry> kChurchShellNavEntries = [
       Icons.feedback_rounded, 'Informações', Color(0xFF38BDF8)),
   ChurchShellNavEntry(
       Icons.fact_check_rounded, 'Aprovações rápidas', Color(0xFF22C55E)),
-  /// Mesmo glifo usado no preset “Pastoral” em Departamentos — evita glifo ausente na web.
-  ChurchShellNavEntry(
-      Icons.church_rounded, 'Pastoral & comunicação', Color(0xFFEAB308)),
   ChurchShellNavEntry(
       Icons.account_balance_wallet_rounded, 'Financeiro', Color(0xFF16A34A)),
   ChurchShellNavEntry(
@@ -82,7 +79,7 @@ abstract final class ChurchShellAccentTokens {
   static Color get loginGestor => kChurchShellNavEntries[1].accent;
 
   /// **Financeiro** — resumo de planos / mensalidades.
-  static Color get loginPlanos => kChurchShellNavEntries[20].accent;
+  static Color get loginPlanos => kChurchShellNavEntries[19].accent;
 
   /// **Painel** — tab Clientes na Torre Master.
   static Color get masterSaasClientes => kChurchShellNavEntries[0].accent;

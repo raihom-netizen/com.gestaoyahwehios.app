@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_funcoes_controle_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Funções e permissões — gerenciável pelo gestor/admin: CRUD + restaurar padrões + UI premium.
 class FuncoesPermissoesPage extends StatefulWidget {
@@ -353,7 +354,7 @@ class _FuncoesPermissoesPageState extends State<FuncoesPermissoesPage> {
                       ),
                     Expanded(
                       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                        stream: ChurchFuncoesControleService.collection(tid).orderBy('order').snapshots(),
+                        stream: ChurchFuncoesControleService.collection(tid).orderBy('order').watchSafe(),
                         builder: (context, snap) {
                           if (snap.hasError) {
                             return Center(child: Text('Erro: ${snap.error}', style: TextStyle(color: Colors.red.shade800)));

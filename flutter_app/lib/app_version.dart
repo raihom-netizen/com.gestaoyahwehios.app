@@ -1,5 +1,5 @@
 /// Single source of app version used everywhere.
-/// 11.2.295+1824: Deploy — performance hot path (sem preparePanelRead), busca global tenant operacional, mural/eventos rápidos.
+/// 11.2.295+1828: Deploy — Pastoral removido, transmissão Chat Igreja, Cargos alinhado FUNCAO, site divulgação ícones.
 /// 11.2.295+1823: Paths Firestore/Storage — avisos/eventos sibling fallback, mural tenant operacional, busca global igrejas/, prefetch shell, cartão configDoc.
 /// 11.2.295+1822: pending_uploads só em igrejas/{tenantId}/pending_uploads — sem raiz pendingUploads.
 /// 11.2.295+1821: Android — checkout MP no navegador (evita crash PlatformView JNI 15/16).
@@ -312,7 +312,7 @@ const String appVersion = '11.2.295';
 /// 11.2.295+1803: Aprovações rápidas — pendentes cache-first; sem preparePanelRead.
 /// 11.2.295+1804: Chat Igreja — grupos instantâneos, layout web WhatsApp, mensagens/upload rápidos.
 /// 11.2.295+1805: Minha Escala + Escala Geral — cache-first instantâneo; sem preparePanelRead.
-const String appBuildNumber = '1824';
+const String appBuildNumber = '1828';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

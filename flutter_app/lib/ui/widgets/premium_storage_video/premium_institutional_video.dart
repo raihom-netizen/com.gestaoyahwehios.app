@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/ui/widgets/premium_storage_video/firebase_storage_
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show freshFirebaseStorageDisplayUrl, sanitizeImageUrl;
 import 'package:video_player/video_player.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Campos opcionais no Firestore (`igrejas/{id}` ou `app_public/site`) para vídeo institucional.
 bool mapHasInstitutionalVideo(Map<String, dynamic>? data) {
@@ -474,7 +475,7 @@ class PremiumMarketingHeroVideo extends StatelessWidget {
       stream: FirebaseFirestore.instance
           .collection('app_public')
           .doc('site')
-          .snapshots(),
+          .watchSafe(),
       builder: (context, snap) {
         Map<String, dynamic>? data;
         if (snap.hasData && snap.data!.exists) {

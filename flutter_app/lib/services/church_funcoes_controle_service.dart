@@ -276,13 +276,39 @@ class ChurchFuncoesControleService {
     return pickHighestRole(candidates);
   }
 
-  /// Opções para o cadastro de membros: vêm de [funcoesControle] se houver docs; senão fallback.
+  /// Opções para o cadastro de membros: prioriza [cargos] (módulo Cargos); legado [funcoesControle]; fallback.
   static Future<List<({String key, String label, String permissionTemplate})>> loadOptionsForMemberPicker(
     String tenantId,
     List<String> fallbackKeys,
     String Function(String key) fallbackLabel,
   ) async {
     final tid = await resolveEffectiveTenantId(tenantId);
+    try {
+      final cargos = await FirebaseFirestore.instance
+          .collection('igrejas')
+          .doc(tid)
+          .collection('cargos')
+          .orderBy('name')
+          .limit(120)
+          .get();
+      if (cargos.docs.isNotEmpty) {
+        final out = <({String key, String label, String permissionTemplate})>[];
+        for (final d in cargos.docs) {
+          final data = d.data();
+          final key = (data['key'] ?? d.id).toString().trim();
+          if (key.isEmpty) continue;
+          final label = (data['name'] ?? key).toString().trim();
+          final tpl =
+              (data['permissionTemplate'] ?? key).toString().trim().toLowerCase();
+          out.add((
+            key: key,
+            label: label.isEmpty ? key : label,
+            permissionTemplate: tpl.isEmpty ? key : tpl,
+          ));
+        }
+        if (out.isNotEmpty) return out;
+      }
+    } catch (_) {}
     try {
       final snap = await collection(tid).orderBy('order').get();
       if (snap.docs.isNotEmpty) {

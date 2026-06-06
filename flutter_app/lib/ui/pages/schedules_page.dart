@@ -40,6 +40,7 @@ import 'package:gestao_yahweh/utils/schedule_swaps_report_pdf.dart';
 import 'package:gestao_yahweh/utils/escala_relatorio_premium_pdf.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 Map<String, dynamic> _remapScheduleCpfKeyedMap(
   Map<String, dynamic> old,
@@ -56,6 +57,34 @@ Map<String, dynamic> _remapScheduleCpfKeyedMap(
     }
   }
   return out;
+}
+
+/// Limite seguro para diálogos de escala (Controle Total — sem `.get()` ilimitado).
+const int _kScheduleMembersFetchLimit = 600;
+
+Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadScheduleMemberDocs(
+  String tenantId,
+) async {
+  final tid = tenantId.trim();
+  if (tid.isEmpty) return const [];
+  try {
+    final snap = await ChurchTenantResilientReads.membrosRecent(
+      tid,
+      limit: _kScheduleMembersFetchLimit,
+    );
+    if (snap.docs.isNotEmpty) return snap.docs;
+  } catch (_) {}
+  try {
+    return (await FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(tid)
+            .collection('membros')
+            .limit(_kScheduleMembersFetchLimit)
+            .get())
+        .docs;
+  } catch (_) {
+    return const [];
+  }
 }
 
 /// Filtro da lista de membros no detalhe da escala (chips de resumo).
@@ -948,8 +977,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     String initialApproverMemberId = '',
     bool initialShowDigitalSignatures = false,
   }) async {
-    final snap = await _membersCol(tid).get();
-    final options = snap.docs
+    final snap = await _loadScheduleMemberDocs(tid);
+    final options = snap
         .map((d) {
           final m = d.data();
           return (
@@ -1370,8 +1399,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       text: DateFormat('dd/MM/yyyy').format(rangeEnd),
     );
     final tid = await _effectiveTidFuture;
-    final membersSnap = await _membersCol(tid).get();
-    final signerOptions = membersSnap.docs
+    final membersSnap = await _loadScheduleMemberDocs(tid);
+    final signerOptions = membersSnap
         .map((d) {
           final m = d.data();
           return (
@@ -1983,9 +2012,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       for (final c in cpfs) freq[c] = (freq[c] ?? 0) + 1;
     }
 
-    final membersForYmds = await _membersCol(tid).get();
+    final membersForYmds = await _loadScheduleMemberDocs(tid);
     final unavailableByCpfNorm = <String, List<String>>{};
-    for (final md in membersForYmds.docs) {
+    for (final md in membersForYmds) {
       final d = md.data();
       final c =
           (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
@@ -4659,7 +4688,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     final names = ((data['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
     if (index < 0 || index >= cpfs.length) return;
     final tid = await _effectiveTidFuture;
-    final membersSnap = await _membersCol(tid).get();
+    final membersSnap = await _loadScheduleMemberDocs(tid);
     DateTime? escDt;
     try {
       escDt = (data['date'] as Timestamp?)?.toDate();
@@ -4673,7 +4702,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       currentDepartmentId: deptId,
     );
     final deptMembers = <Map<String, String>>[];
-    for (final m in membersSnap.docs) {
+    for (final m in membersSnap) {
       final d = m.data();
       final depts = (d['DEPARTAMENTOS'] as List?)?.map((e) => e.toString()).toList() ?? [];
       if (!depts.contains(deptId)) continue;
@@ -4975,7 +5004,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                           .doc(tid)
                           .collection('escala_trocas')
                           .where('escalaId', isEqualTo: doc.id)
-                          .snapshots();
+                          .watchSafe();
                     }(),
                     builder: (context, tSnap) {
                       final docs = (tSnap.hasData && !tSnap.hasError) ? tSnap.data!.docs : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
@@ -5883,13 +5912,14 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
     if (_departmentId.isEmpty) return;
     setState(() => _loadingMembers = true);
     try {
-      QuerySnapshot<Map<String, dynamic>> snap = await widget.membersCol.get().timeout(const Duration(seconds: 15));
+      QuerySnapshot<Map<String, dynamic>> snap = await ChurchTenantResilientReads
+          .membrosRecent(widget.tenantId, limit: _kScheduleMembersFetchLimit)
+          .timeout(const Duration(seconds: 15));
       List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs = snap.docs;
 
       if (allDocs.isEmpty) {
         try {
-          final snapIgrejas = await widget.membersColIgrejas.get().timeout(const Duration(seconds: 10));
-          allDocs = snapIgrejas.docs;
+          allDocs = await _loadScheduleMemberDocs(widget.tenantId);
         } catch (_) {}
       }
 
@@ -6464,12 +6494,23 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
     if (_departmentId.isEmpty) return;
     setState(() => _loadingMembers = true);
     try {
-      QuerySnapshot<Map<String, dynamic>> snap = await widget.membersCol.get().timeout(const Duration(seconds: 15));
+      final tid = widget.membersCol.path.split('/').length >= 2
+          ? widget.membersCol.path.split('/')[1]
+          : '';
+      QuerySnapshot<Map<String, dynamic>> snap = tid.isNotEmpty
+          ? await ChurchTenantResilientReads.membrosRecent(
+              tid,
+              limit: _kScheduleMembersFetchLimit,
+            ).timeout(const Duration(seconds: 15))
+          : await widget.membersCol
+              .limit(_kScheduleMembersFetchLimit)
+              .get()
+              .timeout(const Duration(seconds: 15));
       var allDocs = snap.docs;
-      if (allDocs.isEmpty) {
+
+      if (allDocs.isEmpty && tid.isNotEmpty) {
         try {
-          final snapIgrejas = await widget.membersColIgrejas.get().timeout(const Duration(seconds: 10));
-          allDocs = snapIgrejas.docs;
+          allDocs = await _loadScheduleMemberDocs(tid);
         } catch (_) {}
       }
 

@@ -740,7 +740,7 @@ class _MembersPageState extends State<MembersPage> {
           .collection('membros')
           .orderBy('updatedAt', descending: true)
           .limit(_membersLoadLimit)
-          .snapshots()
+          .watchSafe()
           .listen((snap) {
         if (_membrosRealtimeSkipInitial) {
           _membrosRealtimeSkipInitial = false;
@@ -758,7 +758,7 @@ class _MembersPageState extends State<MembersPage> {
             Filter('igrejaId', isEqualTo: tenantId),
           ))
           .limit(_membersLoadLimit)
-          .snapshots()
+          .watchSafe()
           .listen((_) => _scheduleMembersAutoRefresh()),
     );
   }

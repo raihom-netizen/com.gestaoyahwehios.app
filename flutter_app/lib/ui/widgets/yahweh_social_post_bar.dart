@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Barra estilo Instagram: curtir, comentar, confirmar presença (evento).
 /// Contadores em tempo real via stream do documento da notícia.
@@ -263,7 +264,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
                         stream: commentsRef
                             .orderBy('createdAt', descending: true)
                             .limit(40)
-                            .snapshots(),
+                            .watchSafe(),
                         builder: (context, snap) {
                           final docs = snap.data?.docs ?? [];
                           if (docs.isEmpty) {
@@ -380,7 +381,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: _postRef.snapshots(),
+      stream: _postRef.watchSafe(),
       builder: (context, snap) {
         final data = snap.data?.data() ?? {};
         final uid = FirebaseAuth.instance.currentUser?.uid ?? '';

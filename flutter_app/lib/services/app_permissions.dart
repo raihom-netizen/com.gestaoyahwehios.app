@@ -436,6 +436,13 @@ class AppPermissions {
     }.contains(n);
   }
 
+  /// Transmissão push + grupos chat (lista de difusão no Chat Igreja).
+  static bool canSendChurchBroadcast(
+    String role, {
+    List<String>? permissions,
+  }) =>
+      chatHubSeesAllDepartmentGroups(role, permissions: permissions);
+
   /// Adicionar/remover membros no grupo do departamento (chat).
   /// Só pastoral/gestão (adm, gestor, pastor, secretário, tesoureiro) — **não** líder de departamento.
   static bool canManageDepartmentChatMembers({

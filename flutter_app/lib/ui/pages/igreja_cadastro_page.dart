@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart'
@@ -415,36 +416,73 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   void _bindIgrejaLiveWatch(String resolvedId) {
     _igrejaLiveSub?.cancel();
-    _igrejaLiveSub = FirestoreStreamUtils.resilientDocument(
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(resolvedId)
-          .snapshots(),
-    ).listen(
-      (doc) {
-        if (!mounted) return;
-        final live = doc.data();
-        if (live == null || !doc.exists) return;
-        final score =
-            TenantResolverService.churchProfileRichnessScore(live);
-        if (!_formHydrated ||
-            _nameCtrl.text.trim().isEmpty ||
-            score > _hydratedProfileScore + 2) {
-          _hydrateFormFromFirestoreDoc(resolvedId, live);
-          return;
-        }
-        if (_uploadingLogo || _logoStagedNotUploaded || _saving) return;
-        final serverLogo = churchTenantLogoUrl(live);
-        final nu = serverLogo.isEmpty ? null : serverLogo;
-        if (nu != null && nu != _logoUrl) {
-          setState(() {
-            _logoUrl = nu;
-            _logoBytes = null;
-          });
-        }
-      },
+    _igrejaLiveSub = null;
+    // Web: zero `snapshots()` — evita INTERNAL ASSERTION ao gravar (Firestore JS 11.x).
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+      unawaited(_refreshIgrejaDocOnce(resolvedId));
+      return;
+    }
+    final ref =
+        FirebaseFirestore.instance.collection('igrejas').doc(resolvedId);
+    _igrejaLiveSub = FirestoreStreamUtils.documentWatchBootstrap(ref).listen(
+      (doc) => _onIgrejaDocSnapshot(resolvedId, doc),
       onError: (_) {},
     );
+  }
+
+  Future<void> _refreshIgrejaDocOnce(String resolvedId) async {
+    final tid = resolvedId.trim();
+    if (tid.isEmpty) return;
+    try {
+      final doc = await FirestoreReadResilience.getDocument(
+        FirebaseFirestore.instance.collection('igrejas').doc(tid),
+        cacheKey: 'igrejas/$tid',
+      );
+      if (!mounted) return;
+      _onIgrejaDocSnapshot(tid, doc);
+    } catch (_) {}
+  }
+
+  void _onIgrejaDocSnapshot(
+    String resolvedId,
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    if (!mounted) return;
+    final live = doc.data();
+    if (live == null || !doc.exists) return;
+    final score = TenantResolverService.churchProfileRichnessScore(live);
+    if (!_formHydrated ||
+        _nameCtrl.text.trim().isEmpty ||
+        score > _hydratedProfileScore + 2) {
+      _hydrateFormFromFirestoreDoc(resolvedId, live);
+      return;
+    }
+    if (_uploadingLogo || _logoStagedNotUploaded || _saving) return;
+    final serverLogo = churchTenantLogoUrl(live);
+    final nu = serverLogo.isEmpty ? null : serverLogo;
+    if (nu != null && nu != _logoUrl) {
+      setState(() {
+        _logoUrl = nu;
+        _logoBytes = null;
+      });
+    }
+  }
+
+  /// Antes de `.set()` na web: cancela watch local e estabiliza sessão Firestore.
+  Future<void> _prepareCadastroFirestoreWrite() async {
+    await _igrejaLiveSub?.cancel();
+    _igrejaLiveSub = null;
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+    }
+  }
+
+  bool _slugNeedsUniquenessCheck(String slugRaw) {
+    final prior = (_tenantLiveData['slug'] ?? _tenantLiveData['slugId'] ?? '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    return prior != slugRaw;
   }
 
   void _resetCadastroLoadState() {
@@ -1291,7 +1329,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (!existingSnap.exists) {
       payload['CRIADO_EM'] = FieldValue.serverTimestamp();
     }
-    await ref.set(payload, SetOptions(merge: true));
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => ref.set(payload, SetOptions(merge: true)),
+    );
 
     await _deleteDuplicateGestorMembroDocs(
         col, docId, cpfDigits, authUidForPayload);
@@ -1304,86 +1344,104 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final parallel = <Future<void>>[];
     if (userWriteId.isNotEmpty && _looksLikeFirebaseAuthUid(userWriteId)) {
       parallel.add(
-          FirebaseFirestore.instance.collection('users').doc(userWriteId).set({
-        'role': funcaoKey,
-        'roles': funcoes,
-        'nome': nome,
-        'displayName': nome,
-        'name': nome,
-        'email': email,
-        'tenantId': resolvedId,
-        'igrejaId': resolvedId,
-        'FUNCOES': funcoes,
-        'funcao': funcaoKey,
-        'cargo': cargoLabel,
-        'CARGO': cargoLabel,
-        'photoURL': photoUrl,
-        'fotoUrl': photoUrl,
-        'FOTO_URL_OU_ID': photoUrl,
-      }, SetOptions(merge: true)).catchError((Object _, StackTrace __) {}));
-      parallel.add(FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(resolvedId)
-          .collection('users')
-          .doc(userWriteId)
-          .set({
-        'role': funcaoKey,
-        'roles': funcoes,
-        'nome': nome,
-        'displayName': nome,
-        'email': email,
-        'FUNCOES': funcoes,
-        'funcao': funcaoKey,
-        'cargo': cargoLabel,
-        'CARGO': cargoLabel,
-        'photoURL': photoUrl,
-        'fotoUrl': photoUrl,
-        'FOTO_URL_OU_ID': photoUrl,
-      }, SetOptions(merge: true)));
+        FirestoreWebGuard.runWithWebRecovery(
+          () => FirebaseFirestore.instance
+              .collection('users')
+              .doc(userWriteId)
+              .set({
+            'role': funcaoKey,
+            'roles': funcoes,
+            'nome': nome,
+            'displayName': nome,
+            'name': nome,
+            'email': email,
+            'tenantId': resolvedId,
+            'igrejaId': resolvedId,
+            'FUNCOES': funcoes,
+            'funcao': funcaoKey,
+            'cargo': cargoLabel,
+            'CARGO': cargoLabel,
+            'photoURL': photoUrl,
+            'fotoUrl': photoUrl,
+            'FOTO_URL_OU_ID': photoUrl,
+          }, SetOptions(merge: true)),
+        ).catchError((Object _, StackTrace __) {}),
+      );
+      parallel.add(
+        FirestoreWebGuard.runWithWebRecovery(
+          () => FirebaseFirestore.instance
+              .collection('igrejas')
+              .doc(resolvedId)
+              .collection('users')
+              .doc(userWriteId)
+              .set({
+            'role': funcaoKey,
+            'roles': funcoes,
+            'nome': nome,
+            'displayName': nome,
+            'email': email,
+            'FUNCOES': funcoes,
+            'funcao': funcaoKey,
+            'cargo': cargoLabel,
+            'CARGO': cargoLabel,
+            'photoURL': photoUrl,
+            'fotoUrl': photoUrl,
+            'FOTO_URL_OU_ID': photoUrl,
+          }, SetOptions(merge: true)),
+        ),
+      );
     }
     if (cpfDigits.length == 11) {
-      parallel.add(FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(resolvedId)
-          .collection('usersIndex')
-          .doc(cpfDigits)
-          .set({
-        'email': email,
-        'cpf': cpfDigits,
-        'nome': nome,
-        'name': nome,
-        'tenantId': resolvedId,
-        'role': funcaoKey,
-        'cargo': cargoLabel,
-        'CARGO': cargoLabel,
-        'FUNCOES': funcoes,
-        if (authUidForPayload.isNotEmpty) 'uid': authUidForPayload,
-        if (authUidForPayload.isNotEmpty) 'authUid': authUidForPayload,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true)));
+      parallel.add(
+        FirestoreWebGuard.runWithWebRecovery(
+          () => FirebaseFirestore.instance
+              .collection('igrejas')
+              .doc(resolvedId)
+              .collection('usersIndex')
+              .doc(cpfDigits)
+              .set({
+            'email': email,
+            'cpf': cpfDigits,
+            'nome': nome,
+            'name': nome,
+            'tenantId': resolvedId,
+            'role': funcaoKey,
+            'cargo': cargoLabel,
+            'CARGO': cargoLabel,
+            'FUNCOES': funcoes,
+            if (authUidForPayload.isNotEmpty) 'uid': authUidForPayload,
+            if (authUidForPayload.isNotEmpty) 'authUid': authUidForPayload,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true)),
+        ),
+      );
     }
     if (authUidForPayload.isNotEmpty &&
         _looksLikeFirebaseAuthUid(authUidForPayload) &&
         authUidForPayload != cpfDigits) {
-      parallel.add(FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(resolvedId)
-          .collection('usersIndex')
-          .doc(authUidForPayload)
-          .set({
-        'email': email,
-        'cpf': cpfDigits,
-        'nome': nome,
-        'name': nome,
-        'tenantId': resolvedId,
-        'role': funcaoKey,
-        'cargo': cargoLabel,
-        'CARGO': cargoLabel,
-        'FUNCOES': funcoes,
-        'uid': authUidForPayload,
-        'authUid': authUidForPayload,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true)));
+      parallel.add(
+        FirestoreWebGuard.runWithWebRecovery(
+          () => FirebaseFirestore.instance
+              .collection('igrejas')
+              .doc(resolvedId)
+              .collection('usersIndex')
+              .doc(authUidForPayload)
+              .set({
+            'email': email,
+            'cpf': cpfDigits,
+            'nome': nome,
+            'name': nome,
+            'tenantId': resolvedId,
+            'role': funcaoKey,
+            'cargo': cargoLabel,
+            'CARGO': cargoLabel,
+            'FUNCOES': funcoes,
+            'uid': authUidForPayload,
+            'authUid': authUidForPayload,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true)),
+        ),
+      );
     }
     await Future.wait<void>(parallel);
 
@@ -1695,14 +1753,18 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-                'Faça login para salvar a logo.'));
+          ThemeCleanPremium.successSnackBar(
+            'Faça login para salvar a logo.',
+          ),
+        );
+      }
       return;
     }
     try {
-      await user.getIdToken(true);
+      await _prepareCadastroFirestoreWrite();
+      await user.getIdToken(false);
       final resolvedId =
           await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
       final data = {
@@ -1715,46 +1777,26 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         if (removeLogoVariants) 'logoVariants': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
-      await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(resolvedId)
-          .set(data, SetOptions(merge: true));
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => FirebaseFirestore.instance
+            .collection('igrejas')
+            .doc(resolvedId)
+            .set(data, SetOptions(merge: true)),
+        maxAttempts: 5,
+      );
       if (mounted) {
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-                'Logo atualizado e disponível.'));
+          ThemeCleanPremium.successSnackBar(
+            'Logo atualizado e disponível.',
+          ),
+        );
       }
     } catch (e) {
-      try {
-        await user.getIdToken(true);
-        final resolvedId = await TenantResolverService.resolveEffectiveTenantId(
-            widget.tenantId);
-        final data = {
-          'logoUrl': url,
-          'logo_url': url,
-          'logoProcessedUrl': url,
-          'logoProcessed': url,
-          if (storagePath != null && storagePath.isNotEmpty)
-            'logoPath': storagePath,
-          if (removeLogoVariants) 'logoVariants': FieldValue.delete(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        };
-        await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(resolvedId)
-            .set(data, SetOptions(merge: true));
-        if (mounted) {
-          setState(() {});
-          ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar(
-                  'Logo atualizado e disponível.'));
-        }
-      } catch (e2) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.feedbackSnackBar('Erro ao salvar logo: $e2'));
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar('Erro ao salvar logo: $e'),
+        );
       }
     }
   }
@@ -1854,9 +1896,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     ThemeCleanPremium.hapticAction();
     setState(() => _saving = true);
+    var savedTenantId = '';
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken();
+      await _prepareCadastroFirestoreWrite();
+      await FirebaseAuth.instance.currentUser?.getIdToken(false);
       final resolvedId = await _resolveTenantIdForSave();
+      savedTenantId = resolvedId;
       if (_canEdit &&
           _logoStagedNotUploaded &&
           _logoBytes != null &&
@@ -2000,21 +2045,28 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           }
           return;
         }
-        final taken = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .where('slug', isEqualTo: slugRaw)
-            .limit(2)
-            .get();
-        if (taken.docs.any((d) => d.id != resolvedId)) {
-          if (mounted) {
-            setState(() => _saving = false);
-            ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.feedbackSnackBar(
-                'O link "$slugRaw" já está em uso por outra igreja. Altere o nome da igreja para gerar outro.',
-              ),
-            );
+        if (_slugNeedsUniquenessCheck(slugRaw)) {
+          final taken = await FirestoreWebGuard.runWithWebRecovery(
+            () => FirestoreReadResilience.getQuery(
+              FirebaseFirestore.instance
+                  .collection('igrejas')
+                  .where('slug', isEqualTo: slugRaw)
+                  .limit(2),
+              cacheKey: 'igrejas_slug_check_$slugRaw',
+            ),
+            maxAttempts: 4,
+          );
+          if (taken.docs.any((d) => d.id != resolvedId)) {
+            if (mounted) {
+              setState(() => _saving = false);
+              ScaffoldMessenger.of(context).showSnackBar(
+                ThemeCleanPremium.feedbackSnackBar(
+                  'O link "$slugRaw" já está em uso por outra igreja. Altere o nome da igreja para gerar outro.',
+                ),
+              );
+            }
+            return;
           }
-          return;
         }
       }
 
@@ -2025,6 +2077,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
             .collection('igrejas')
             .doc(resolvedId)
             .set(data, SetOptions(merge: true)),
+        maxAttempts: 5,
       );
       TenantResolverService.invalidateRegistrationContextCache(
         seedId: widget.tenantId,
@@ -2059,6 +2112,16 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       );
     } finally {
       if (mounted) setState(() => _saving = false);
+      final tid = savedTenantId.trim().isNotEmpty
+          ? savedTenantId.trim()
+          : (_operationalTenantId ?? _hydratedTenantId ?? '').trim();
+      if (tid.isNotEmpty && mounted) {
+        if (kIsWeb) {
+          unawaited(_refreshIgrejaDocOnce(tid));
+        } else {
+          _bindIgrejaLiveWatch(tid);
+        }
+      }
     }
   }
 

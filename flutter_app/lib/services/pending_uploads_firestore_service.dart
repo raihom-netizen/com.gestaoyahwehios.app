@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 import 'package:gestao_yahweh/services/church_chat_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Fila por igreja: `igrejas/{tenantId}/pending_uploads/{id}`.
 /// A coleção raiz `pendingUploads` está descontinuada (legado — migrar/apagar).
@@ -238,7 +239,7 @@ abstract final class PendingUploadsFirestoreService {
         .where('ownerUid', isEqualTo: uid)
         .where('status', whereIn: ['pending', 'failed', 'uploading', 'queued'])
         .limit(25)
-        .snapshots();
+        .watchSafe();
   }
 
   /// Remove registos antigos de `pending_uploads` (builds com fila Firestore ligada).
@@ -288,9 +289,9 @@ abstract final class PendingUploadsFirestoreService {
     final group =
         firebaseDefaultFirestore.collectionGroup('pending_uploads');
     if (masterSeeAll) {
-      return group.limit(limit).snapshots();
+      return group.limit(limit).watchSafe();
     }
-    return group.where('ownerUid', isEqualTo: uid).limit(limit).snapshots();
+    return group.where('ownerUid', isEqualTo: uid).limit(limit).watchSafe();
   }
 
   /// @deprecated Use [watchAllTenantsPendingIndex].

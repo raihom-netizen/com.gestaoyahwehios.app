@@ -612,7 +612,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
   Widget build(BuildContext context) {
     final pad = ThemeCleanPremium.pagePadding(context);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirestoreStreamUtils.documentWatchBootstrap(
+      stream: FirestoreStreamUtils.documentWatchSafe(
         _marketingClientesDocRef,
       ),
       builder: (context, snap) {

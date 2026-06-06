@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited, Timer;
+import 'dart:async' show TimeoutException, Timer, unawaited;
 import 'dart:convert';
 import 'dart:math' show min;
 
@@ -53,6 +53,7 @@ import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/certificado_digital_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
@@ -326,7 +327,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   String _memberSearch = '';
   late Future<List<_MemberItem>> _membersListFuture;
   List<_MemberItem> _seedMemberItems = [];
-  int _membersListLimit = YahwehPerformanceV4.memberCardListPageSize;
+  int _membersListLimit = YahwehPerformanceV4.adminExportBatchLimit;
   bool _membersListLoadingMore = false;
   bool _membersListHasMore = true;
 
@@ -438,7 +439,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   Future<_CardData?> _bootstrapAndLoadCard() async {
     await _resolveOperationalTenantOnce();
-    return _load();
+    try {
+      return await FirestoreWebGuard.runWithWebRecovery(
+        () => _load().timeout(const Duration(seconds: 28)),
+      );
+    } on TimeoutException {
+      return null;
+    }
   }
 
   @override
@@ -521,7 +528,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<void> _reloadMembersList() async {
     final prev = _seedMemberItems;
     setState(() {
-      _membersListLimit = YahwehPerformanceV4.memberCardListPageSize;
+      _membersListLimit = YahwehPerformanceV4.adminExportBatchLimit;
       _membersListHasMore = true;
       _membersListFuture =
           prev.isNotEmpty ? Future.value(prev) : _loadMembersList();
@@ -1166,6 +1173,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         : 'Cartão não disponível.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: () =>
+                        setState(() => _loadFuture = _bootstrapAndLoadCard()),
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Tentar novamente'),
                   ),
                 ],
               ),
@@ -7176,7 +7190,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         .where('memberDocId', isEqualTo: mid)
         .orderBy('createdAt', descending: true)
         .limit(40)
-        .snapshots();
+        .watchSafe();
 
     return Container(
       width: double.infinity,

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 class GroupsPage extends StatefulWidget {
   final String tenantId;
@@ -576,7 +577,7 @@ class _GroupsPageState extends State<GroupsPage> {
           : null,
       body: SafeArea(
         child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: _gruposCol.orderBy('nome').snapshots(),
+          stream: _gruposCol.orderBy('nome').watchSafe(),
           builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting &&
                 !snap.hasData) {
@@ -1318,7 +1319,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
                 ),
                 Expanded(
                   child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: membersCol.orderBy('NOME_COMPLETO').snapshots(),
+                    stream: membersCol.orderBy('NOME_COMPLETO').watchSafe(),
                     builder: (_, snap) {
                       if (snap.connectionState == ConnectionState.waiting &&
                           !snap.hasData) {
@@ -1460,7 +1461,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: _encontrosCol
                 .orderBy('data', descending: true)
-                .snapshots(),
+                .watchSafe(),
             builder: (_, snap) {
               if (snap.connectionState == ConnectionState.waiting &&
                   !snap.hasData) {
@@ -1780,7 +1781,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: _groupRef.snapshots(),
+      stream: _groupRef.watchSafe(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return Scaffold(

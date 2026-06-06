@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/internal_notification_inbox_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 class NotificationsPage extends StatefulWidget {
   final String tenantId;
@@ -104,7 +105,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
     }
     return _notifications
         .where('memberCpfs', arrayContains: _cpfDigits)
-        .snapshots();
+        .watchSafe();
   }
 
   @override
@@ -125,7 +126,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       stream: _notifications
           .orderBy('createdAt', descending: true)
           .limit(120)
-          .snapshots(),
+          .watchSafe(),
       builder: (context, snap) {
         if (uid.isEmpty) {
           return _adminListFromSnap(snap);
@@ -250,7 +251,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _notifications
                   .where('departmentId', whereIn: deptIds)
-                  .snapshots(),
+                  .watchSafe(),
               builder: (context, deptStreamSnap) {
                 if (memberSnap.hasError || deptStreamSnap.hasError) {
                   return Center(

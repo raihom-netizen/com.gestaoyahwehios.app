@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import '../../services/app_permissions.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Item exibido na lista: pode vir de tenants/xxx/users (acesso ao painel) ou de members/membros.
 class _UserOrMemberRow {
@@ -163,7 +164,7 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
             ),
       body: SafeArea(
         child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: _usersCol.snapshots(),
+          stream: _usersCol.watchSafe(),
           builder: (context, snap) {
             if (snap.hasError) {
               return Center(child: Text('Erro ao carregar usuários.', style: TextStyle(color: Colors.grey.shade600)));

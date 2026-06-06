@@ -5,6 +5,8 @@ import 'package:gestao_yahweh/services/plan_price_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Lista todos os planos oficiais (mesma lista do painel divulgação e painel igreja).
 /// Permite ao master editar preços, nome exibido, texto de faixa de membros e limite máximo;
@@ -80,11 +82,13 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
       _err = null;
     });
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('config')
-          .doc('plans')
-          .collection('items')
-          .get();
+      final snap = await FirestoreReadResilience.getQuery(
+        FirebaseFirestore.instance
+            .collection('config')
+            .doc('plans')
+            .collection('items'),
+        cacheKey: 'config_plans_items',
+      );
 
       final Map<String, Map<String, dynamic>> byId = {};
       for (final d in snap.docs) {
@@ -177,12 +181,14 @@ class _EditarPrecosPlanosPageState extends State<EditarPrecosPlanosPage> {
       'maxMembers': maxMembersField,
     };
 
-    await FirebaseFirestore.instance
-        .collection('config')
-        .doc('plans')
-        .collection('items')
-        .doc(id)
-        .set(payload, SetOptions(merge: true));
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => FirebaseFirestore.instance
+          .collection('config')
+          .doc('plans')
+          .collection('items')
+          .doc(id)
+          .set(payload, SetOptions(merge: true)),
+    );
     if (!mounted) return;
     PlanPriceService.invalidateCache();
     ScaffoldMessenger.of(context).showSnackBar(

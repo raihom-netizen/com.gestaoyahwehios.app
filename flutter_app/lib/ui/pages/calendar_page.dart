@@ -28,6 +28,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Chaves de dia [`yyyy-MM-dd`]: ordem crescente (menor data → maior).
 int _compareAgendaDayKeysAscending(String a, String b) {
@@ -1006,7 +1007,7 @@ class _CalendarPageState extends State<CalendarPage>
     _agendaSub = _agenda
         .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
         .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
-        .snapshots()
+        .watchSafe()
         .listen((snap) {
       if (!mounted) return;
       setState(() => _agendaDocs = snap.docs);

@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/ui/widgets/marketing_gestao_yahweh_gallery.dart';
 import 'package:gestao_yahweh/ui/admin_marketing_clientes_tab.dart';
 import 'package:gestao_yahweh/ui/widgets/admin_marketing_canais_master_card.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Evita maps read-only do snapshot e falhas de interop na web ao gravar `items`.
 List<Map<String, dynamic>> _cloneGalleryItemMaps(List<Map<String, dynamic>> items) {
@@ -1034,7 +1035,7 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
             ],
             const SizedBox(height: 16),
             StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: FirestoreStreamUtils.documentWatchBootstrap(_docRef),
+              stream: FirestoreStreamUtils.documentWatchSafe(_docRef),
               builder: (context, snap) {
                 final items = _parseItems(snap.data?.data());
                 final visible = _visibleRows(items);

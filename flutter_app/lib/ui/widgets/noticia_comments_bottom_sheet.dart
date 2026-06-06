@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show SafeCircleAvatarImage;
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Comentários de um post em `igrejas/{tenant}/noticias/{id}/comentarios`.
 void showNoticiaCommentsBottomSheet(
@@ -143,7 +144,7 @@ class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
           Divider(height: 1, color: Colors.grey.shade200),
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: widget.commentsRef.snapshots(),
+              stream: widget.commentsRef.watchSafe(),
               builder: (context, snap) {
                 if (snap.hasError) {
                   return Center(

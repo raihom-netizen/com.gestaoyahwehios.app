@@ -33,6 +33,40 @@ import 'analytics_service.dart';
 import 'media_upload_service.dart';
 import 'upload_storage_task.dart' show formatUploadErrorForUser;
 
+/// Indicadores «a digitar / a gravar» num thread (polling leve).
+class ChurchChatTypingActivity {
+  const ChurchChatTypingActivity({
+    this.names = const [],
+    this.unnamed = 0,
+    this.recording = 0,
+  });
+
+  final List<String> names;
+  final int unnamed;
+  final int recording;
+
+  bool get isEmpty => names.isEmpty && unnamed == 0 && recording == 0;
+
+  String get label {
+    if (recording > 0 && names.isEmpty && unnamed == 0) {
+      return recording == 1
+          ? 'A gravar áudio…'
+          : '$recording pessoas a gravar áudio…';
+    }
+    if (names.isEmpty) {
+      return unnamed == 1
+          ? 'A digitar…'
+          : '$unnamed pessoas a digitar…';
+    }
+    if (unnamed == 0) {
+      return names.length == 1
+          ? '${names.first} está a digitar…'
+          : '${names.join(', ')} estão a digitar…';
+    }
+    return '${names.join(', ')} e mais $unnamed a digitar…';
+  }
+}
+
 /// Chat entre membros / grupos por departamento — retenção: texto 30 dias, mídia 3 dias.
 class ChurchChatService {
   ChurchChatService._();
@@ -823,7 +857,7 @@ class ChurchChatService {
         subParticipant = null;
         if (controller.isClosed) return;
 
-        subIndexed = chatThreadsQueryForUser(tenantId, uid).snapshots().listen(
+        subIndexed = chatThreadsQueryForUser(tenantId, uid).watchSafe().listen(
           (event) {
             wireAttempts = 0;
             lastIndexed = event;
@@ -861,7 +895,7 @@ class ChurchChatService {
         );
 
         subParticipant =
-            chatThreadsParticipantQuery(tenantId, uid).snapshots().listen(
+            chatThreadsParticipantQuery(tenantId, uid).watchSafe().listen(
           (event) {
             lastParticipant = event;
             emitMerged();
@@ -990,6 +1024,43 @@ class ChurchChatService {
       threadId: threadId,
       active: false,
     );
+  }
+
+  /// Leitura pontual de «a digitar» — evita `snapshots()` na conversa (teclado mais fluido).
+  static Future<ChurchChatTypingActivity> fetchActiveTyping({
+    required String tenantId,
+    required String threadId,
+    required String myUid,
+  }) async {
+    try {
+      final snap = await typingCol(tenantId, threadId).get();
+      final now = DateTime.now();
+      final names = <String>[];
+      var unnamed = 0;
+      var recording = 0;
+      for (final d in snap.docs) {
+        if (d.id == myUid) continue;
+        final data = d.data();
+        final ts = data['updatedAt'];
+        if (ts is! Timestamp) continue;
+        if (now.difference(ts.toDate()).inSeconds > 5) continue;
+        final lb = (data['label'] ?? '').toString().trim();
+        if (lb == typingLabelRecording) {
+          recording++;
+        } else if (lb.isNotEmpty) {
+          names.add(lb);
+        } else {
+          unnamed++;
+        }
+      }
+      return ChurchChatTypingActivity(
+        names: names,
+        unnamed: unnamed,
+        recording: recording,
+      );
+    } catch (_) {
+      return const ChurchChatTypingActivity();
+    }
   }
 
   /// Normaliza e limita tamanhos para as regras Firestore.

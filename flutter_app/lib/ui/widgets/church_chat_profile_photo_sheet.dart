@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Folha para trocar foto de um membro (próprio ou equipe no módulo Membros).
 Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
@@ -267,7 +268,7 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
                 .doc(widget.tenantId)
                 .collection('membros')
                 .doc(widget.memberId)
-                .snapshots(),
+                .watchSafe(),
             builder: (context, snap) {
               final data = snap.data?.data() ?? widget.initialData;
               final nome = (data['NOME_COMPLETO'] ?? data['nome'] ?? 'Membro')

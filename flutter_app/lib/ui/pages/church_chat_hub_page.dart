@@ -16,6 +16,8 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_threads_list_cache.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/church_firestore_collection_migration_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -37,6 +39,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show SafeCircleAvatarImage, imageUrlFromMap;
 import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_broadcast_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_list_preview.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
@@ -207,7 +210,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     super.initState();
     logYahwehModuleScreen('chat');
     unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
-    unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
+    });
     final hint = widget.tenantId.trim();
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (hint.isNotEmpty) {
@@ -798,10 +803,16 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         if (n > 0) map[doc.id] = n;
       }
       if (!mounted) return;
+      final changed = map.length != _unreadCountByThreadId.length ||
+          map.entries.any(
+            (e) => _unreadCountByThreadId[e.key] != e.value,
+          );
+      if (!changed) return;
       setState(() {
-        _unreadCountByThreadId
-          ..clear()
-          ..addAll(map);
+        for (final id in threadIds) {
+          _unreadCountByThreadId.remove(id);
+        }
+        _unreadCountByThreadId.addAll(map);
       });
     }());
   }
@@ -2190,6 +2201,24 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (mounted) setState(() => _chatPushEnabled = next);
   }
 
+  bool get _canSendBroadcast =>
+      AppPermissions.canSendChurchBroadcast(
+        widget.role,
+        permissions: widget.permissions,
+      );
+
+  Future<void> _openBroadcastSheet(String tid) async {
+    await showChurchChatBroadcastSheet(
+      context,
+      tenantId: tid,
+      role: widget.role,
+      permissions: widget.permissions,
+      departmentOptions: _departments
+          .map((d) => (id: d.id, name: d.name))
+          .toList(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tid = _resolvedTenantId;
@@ -2211,11 +2240,19 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         if (shellFullscreen)
           ChurchEmbeddedModuleBar(
             title: 'Chat',
-            icon: kChurchShellNavEntries[24].icon,
-            accent: kChurchShellNavEntries[24].accent,
+            icon: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].icon,
+            accent: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
             onBack: widget.onShellBack!,
             subtitle: _chatHubModuleBarSubtitle(),
             actions: [
+              if (_canSendBroadcast)
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Transmissão',
+                  onPressed: () => _openBroadcastSheet(tid),
+                  icon: const Icon(Icons.campaign_rounded,
+                      color: Colors.white, size: 22),
+                ),
               IconButton(
                 visualDensity: VisualDensity.compact,
                 tooltip: 'Nova conversa',
@@ -2229,6 +2266,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 onAlertModeTap: _openChatAlertModeSheet,
                 onProfilePhotoTap: () =>
                     _onChatHubProfilePhotoTap(tid, uid),
+                onBroadcastTap:
+                    _canSendBroadcast ? () => _openBroadcastSheet(tid) : null,
                 iconColor: Colors.white,
               ),
             ],
@@ -2240,6 +2279,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             onNewDm: () => _openPickPeer(context, tid, uid),
             onAlertModeTap: _openChatAlertModeSheet,
             onProfilePhotoTap: () => _onChatHubProfilePhotoTap(tid, uid),
+            onBroadcastTap:
+                _canSendBroadcast ? () => _openBroadcastSheet(tid) : null,
           ),
         ChurchChatPendingStatusBanner(
           tenantId: tid,
@@ -2779,7 +2820,20 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
   }
 
+  Map<String, Map<String, dynamic>> _deptThreadDataById(
+    QuerySnapshot<Map<String, dynamic>>? snap,
+  ) {
+    final out = <String, Map<String, dynamic>>{};
+    if (snap == null) return out;
+    for (final d in snap.docs) {
+      if (!d.id.startsWith('dept_')) continue;
+      out[d.id] = d.data();
+    }
+    return out;
+  }
+
   Widget _buildGruposTab(BuildContext context, String tid, String uid) {
+    Widget buildPrefsAndList(Map<String, Map<String, dynamic>> deptThreadById) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: ChurchChatMemberPrefs.watch(tid),
       builder: (context, prefSnap) {
@@ -2855,6 +2909,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             myUid: uid,
             entry: d,
             threadId: threadId,
+            threadData: deptThreadById[threadId],
             reorderIndex: reorderIndex,
             onOpenChat: () {
               Navigator.of(context).push(
@@ -2997,6 +3052,19 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           },
         );
       },
+    );
+    }
+
+    final threadStream = _chatThreadsStream;
+    if (threadStream == null) {
+      return buildPrefsAndList(_deptThreadDataById(_lastGoodChatThreadsSnap));
+    }
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: threadStream,
+      initialData: _lastGoodChatThreadsSnap,
+      builder: (context, ts) => buildPrefsAndList(
+        _deptThreadDataById(ts.data ?? _lastGoodChatThreadsSnap),
+      ),
     );
   }
 
@@ -4530,6 +4598,7 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
   final String myUid;
   final String threadId;
   final _DeptEntry entry;
+  final Map<String, dynamic>? threadData;
   final VoidCallback onOpenChat;
   final VoidCallback onOpenMembers;
   /// Índice na [SliverReorderableList]; `null` = sem arrastar.
@@ -4540,6 +4609,7 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
     required this.myUid,
     required this.threadId,
     required this.entry,
+    this.threadData,
     required this.onOpenChat,
     required this.onOpenMembers,
     this.reorderIndex,
@@ -4547,25 +4617,22 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: ChurchChatService.threadRef(tenantId, threadId).snapshots(),
-      builder: (context, ts) {
-        final data = ts.data?.data();
-        final unreadFlag = ts.hasData && data != null
-            ? _chatHubThreadIsUnreadForUser(data, myUid)
-            : false;
-        final preview = (data?['lastMessagePreview'] ?? 'Toque para abrir o grupo')
-            .toString()
-            .trim();
-        final safePreview =
-            preview.isEmpty ? 'Toque para abrir o grupo' : preview;
-        final lastMsgAt = data?['lastMessageAt'];
-        final timeLabel = _chatHubFmtThreadTime(lastMsgAt);
-        final participants = data?['participantUids'];
-        final nChatMembers = participants is List ? participants.length : 0;
+    final data = threadData;
+    final unreadFlag = data != null
+        ? _chatHubThreadIsUnreadForUser(data, myUid)
+        : false;
+    final preview = (data?['lastMessagePreview'] ?? 'Toque para abrir o grupo')
+        .toString()
+        .trim();
+    final safePreview =
+        preview.isEmpty ? 'Toque para abrir o grupo' : preview;
+    final lastMsgAt = data?['lastMessageAt'];
+    final timeLabel = _chatHubFmtThreadTime(lastMsgAt);
+    final participants = data?['participantUids'];
+    final nChatMembers = participants is List ? participants.length : 0;
 
-        const stripRadius = 26.0;
-        final stripBody = Material(
+    const stripRadius = 26.0;
+    final stripBody = Material(
             color: Colors.transparent,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(stripRadius),
@@ -4745,8 +4812,6 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
             ],
           ),
         );
-      },
-    );
   }
 }
 
@@ -4805,6 +4870,7 @@ class _WhatsAppStyleChatHubHeader extends StatelessWidget {
   final VoidCallback onNewDm;
   final VoidCallback onAlertModeTap;
   final VoidCallback onProfilePhotoTap;
+  final VoidCallback? onBroadcastTap;
 
   const _WhatsAppStyleChatHubHeader({
     required this.chatPushEnabled,
@@ -4812,6 +4878,7 @@ class _WhatsAppStyleChatHubHeader extends StatelessWidget {
     required this.onNewDm,
     required this.onAlertModeTap,
     required this.onProfilePhotoTap,
+    this.onBroadcastTap,
   });
 
   @override
@@ -4835,6 +4902,14 @@ class _WhatsAppStyleChatHubHeader extends StatelessWidget {
                 ),
               ),
               const Spacer(),
+              if (onBroadcastTap != null)
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Transmissão',
+                  onPressed: onBroadcastTap,
+                  icon: const Icon(Icons.campaign_rounded,
+                      color: Colors.white, size: 24),
+                ),
               IconButton(
                 visualDensity: VisualDensity.compact,
                 tooltip: 'Nova conversa',
@@ -4847,6 +4922,7 @@ class _WhatsAppStyleChatHubHeader extends StatelessWidget {
                 onMuteTap: onMuteTap,
                 onAlertModeTap: onAlertModeTap,
                 onProfilePhotoTap: onProfilePhotoTap,
+                onBroadcastTap: onBroadcastTap,
                 iconColor: Colors.white,
               ),
               const SizedBox(width: 2),
@@ -4863,6 +4939,7 @@ class _ChatHubOverflowMenu extends StatelessWidget {
   final VoidCallback onMuteTap;
   final VoidCallback onAlertModeTap;
   final VoidCallback onProfilePhotoTap;
+  final VoidCallback? onBroadcastTap;
   final Color iconColor;
 
   const _ChatHubOverflowMenu({
@@ -4870,6 +4947,7 @@ class _ChatHubOverflowMenu extends StatelessWidget {
     required this.onMuteTap,
     required this.onAlertModeTap,
     required this.onProfilePhotoTap,
+    this.onBroadcastTap,
     this.iconColor = Colors.white,
   });
 
@@ -4880,6 +4958,8 @@ class _ChatHubOverflowMenu extends StatelessWidget {
       icon: Icon(Icons.more_vert_rounded, color: iconColor, size: 24),
       onSelected: (value) {
         switch (value) {
+          case 'broadcast':
+            onBroadcastTap?.call();
           case 'profile':
             onProfilePhotoTap();
           case 'alerts':
@@ -4889,6 +4969,16 @@ class _ChatHubOverflowMenu extends StatelessWidget {
         }
       },
       itemBuilder: (context) => [
+        if (onBroadcastTap != null)
+          const PopupMenuItem(
+            value: 'broadcast',
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.campaign_rounded),
+              title: Text('Transmissão (lista de difusão)'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
         const PopupMenuItem(
           value: 'profile',
           child: ListTile(
@@ -4954,6 +5044,8 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
   final _filter = TextEditingController();
   Timer? _filterDebounce;
   String _filterQuery = '';
+  Map<String, bool> _presenceOnlineByUid = {};
+  Timer? _presencePollTimer;
 
   String? _cpfDigitsForMember(Map<String, dynamic> d, String docId) {
     final fromField =
@@ -4968,6 +5060,40 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
   void initState() {
     super.initState();
     _filter.addListener(_onFilterChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_pollPresence());
+      _presencePollTimer = Timer.periodic(
+        const Duration(seconds: 22),
+        (_) => unawaited(_pollPresence()),
+      );
+    });
+  }
+
+  Future<void> _pollPresence() async {
+    final uids = _eligible
+        .map((doc) =>
+            (doc.data()['authUid'] ?? doc.data()['firebaseUid'] ?? '')
+                .toString())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    if (uids.isEmpty) return;
+    final online = await ChurchChatService.fetchPresenceOnlineMap(
+      tenantId: widget.tid,
+      authUids: uids,
+    );
+    if (!mounted) return;
+    var changed = online.length != _presenceOnlineByUid.length;
+    if (!changed) {
+      for (final e in online.entries) {
+        if (_presenceOnlineByUid[e.key] != e.value) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!changed) return;
+    setState(() => _presenceOnlineByUid = online);
   }
 
   void _onFilterChanged() {
@@ -4983,6 +5109,7 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
   @override
   void dispose() {
     _filterDebounce?.cancel();
+    _presencePollTimer?.cancel();
     _filter.removeListener(_onFilterChanged);
     _filter.dispose();
     super.dispose();
@@ -5193,18 +5320,8 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
                             ? nome[0].toUpperCase()
                             : '?';
                         final cpfOpt = _cpfDigitsForMember(d, doc.id);
-                        return StreamBuilder<
-                            DocumentSnapshot<Map<String, dynamic>>>(
-                          stream: FirebaseFirestore.instance
-                              .collection('igrejas')
-                              .doc(widget.tid)
-                              .collection('chat_presence')
-                              .doc(auth)
-                              .snapshots(),
-                          builder: (context, presSnap) {
-                            final on = ChurchChatService.isOnlineFromSnapshot(
-                                presSnap.data);
-                            return Padding(
+                        final on = _presenceOnlineByUid[auth] ?? false;
+                        return Padding(
                               padding: const EdgeInsets.only(bottom: 10),
                               child: Material(
                                 color: Colors.transparent,
@@ -5367,8 +5484,6 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
                                 ),
                               ),
                             );
-                          },
-                        );
                       },
                     ),
             ),

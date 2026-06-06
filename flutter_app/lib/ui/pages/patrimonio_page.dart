@@ -34,8 +34,7 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart'
-    show MergedFirestoreQuerySnapshot;
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/immediate_patrimonio_photo_attach.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
@@ -859,13 +858,13 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     _patrimonioRealtimeSubs.clear();
     final db = firebaseDefaultFirestore;
     _patrimonioRealtimeSubs.addAll([
-      _col.limit(1).snapshots().listen((_) => _schedulePatrimonioRealtimeRefresh()),
+      _col.limit(1).watchSafe().listen((_) => _schedulePatrimonioRealtimeRefresh()),
       db
           .collection('igrejas')
           .doc(_effectiveTenantId)
           .collection('config')
           .doc('patrimonio')
-          .snapshots()
+          .watchSafe()
           .listen((_) => _schedulePatrimonioRealtimeRefresh()),
     ]);
   }
@@ -1767,7 +1766,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                         .collection('manutencoes')
                         .orderBy('data', descending: true)
                         .limit(12)
-                        .snapshots(),
+                        .watchSafe(),
                     builder: (context, mSnap) {
                       final mDocs = mSnap.data?.docs ?? [];
                       if (mDocs.isEmpty)
@@ -1853,7 +1852,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                         .collection('transferencias')
                         .orderBy('data', descending: true)
                         .limit(5)
-                        .snapshots(),
+                        .watchSafe(),
                     builder: (context, tSnap) {
                       final tDocs = tSnap.data?.docs ?? [];
                       if (tDocs.isEmpty)
@@ -5133,7 +5132,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                     .collection('patrimonio_inventario_historico')
                     .orderBy('finalizadoEm', descending: true)
                     .limit(48)
-                    .snapshots(),
+                    .watchSafe(),
                 builder: (context, hSnap) {
                   final hList = hSnap.data?.docs ?? [];
                   final now = DateTime.now();
@@ -5850,7 +5849,7 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
           .collection('patrimonio_inventario_historico')
           .orderBy('finalizadoEm', descending: true)
           .limit(200)
-          .snapshots(),
+          .watchSafe(),
       builder: (context, hSnap) {
         final allDocs = hSnap.data?.docs ?? [];
         final anos = <int>{};

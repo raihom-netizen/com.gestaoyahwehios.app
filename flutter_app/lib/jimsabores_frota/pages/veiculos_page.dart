@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/jimsabores_frota/core/frota_firestore_paths.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 class VeiculosPage extends StatefulWidget {
   const VeiculosPage({super.key});
@@ -361,7 +362,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
                   child: Padding(
                     padding: const EdgeInsets.all(10),
                     child: StreamBuilder<QuerySnapshot>(
-                      stream: FrotaFirestorePaths.veiculos().orderBy('placa').snapshots(),
+                      stream: FrotaFirestorePaths.veiculos().orderBy('placa').watchSafe(),
                       builder: (context, snapshot) {
                         if (!snapshot.hasData) {
                           return const Center(child: CircularProgressIndicator());

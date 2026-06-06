@@ -1088,27 +1088,27 @@ class _FinancePageState extends State<FinancePage>
     _financeRealtimeSubs.clear();
     final db = firebaseDefaultFirestore;
     _financeRealtimeSubs.addAll([
-      _financeCol.limit(1).snapshots().listen((_) => _scheduleFinanceRealtimeRefresh()),
+      _financeCol.limit(1).watchSafe().listen((_) => _scheduleFinanceRealtimeRefresh()),
       db
           .collection('igrejas')
           .doc(_tid)
           .collection('contas')
           .limit(1)
-          .snapshots()
+          .watchSafe()
           .listen((_) => _scheduleFinanceRealtimeRefresh()),
       db
           .collection('igrejas')
           .doc(_tid)
           .collection('despesas_fixas')
           .limit(1)
-          .snapshots()
+          .watchSafe()
           .listen((_) => _scheduleFinanceRealtimeRefresh()),
       db
           .collection('igrejas')
           .doc(_tid)
           .collection('receitas_recorrentes')
           .limit(1)
-          .snapshots()
+          .watchSafe()
           .listen((_) => _scheduleFinanceRealtimeRefresh()),
     ]);
   }
@@ -6345,7 +6345,7 @@ class _CategoriasSectionState extends State<_CategoriasSection> {
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       key: ValueKey('cat_stream_${widget.title}_$_categoriasStreamRetry'),
-      stream: widget.collection.orderBy('nome').snapshots(),
+      stream: widget.collection.orderBy('nome').watchSafe(),
       builder: (context, snap) {
         if (snap.hasError) {
           return Container(

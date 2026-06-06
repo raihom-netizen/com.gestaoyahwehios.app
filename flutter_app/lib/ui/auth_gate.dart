@@ -33,6 +33,83 @@ import '../services/church_sign_out_navigation.dart';
 import '../services/app_session_stability.dart';
 import '../core/firebase_auth_token_guard.dart';
 import '../core/roles_permissions.dart';
+import '../core/app_constants.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+
+/// Gestor/liderança: acesso ao painel mesmo se `users.ativo` estiver ausente ou membro desalinhado.
+bool authGateResolvePanelActive({
+  required bool activeFromMemberOrUser,
+  required String role,
+  Map<String, dynamic>? memberData,
+  Map<String, dynamic>? churchData,
+  String? userEmail,
+  String? cpfDigitsOrRaw,
+}) {
+  if (AppConstants.isProductMasterAccount(
+    email: userEmail,
+    cpfDigitsOrRaw: cpfDigitsOrRaw,
+  )) {
+    return true;
+  }
+  final roleNorm = ChurchRolePermissions.normalize(role);
+  if (ChurchRolePermissions.snapshotFor(roleNorm).editChurchProfile ||
+      roleNorm == ChurchRoleKeys.master) {
+    return true;
+  }
+  if (memberData != null) {
+    final funcoes = memberData['FUNCOES'] ?? memberData['funcoes'];
+    if (funcoes is List) {
+      for (final f in funcoes) {
+        final fk = ChurchRolePermissions.normalize(f.toString());
+        if (ChurchRolePermissions.snapshotFor(fk).editChurchProfile) {
+          return true;
+        }
+      }
+    }
+    final cargo = (memberData['CARGO'] ?? memberData['cargo'] ?? '').toString();
+    if (ChurchRolePermissions.snapshotFor(
+      ChurchRolePermissions.normalize(cargo),
+    ).editChurchProfile) {
+      return true;
+    }
+  }
+  final emailLower = (userEmail ?? '').trim().toLowerCase();
+  if (emailLower.isNotEmpty && churchData != null) {
+    for (final k in const [
+      'gestorEmail',
+      'emailGestor',
+      'gestor_email',
+      'email',
+    ]) {
+      final v = (churchData[k] ?? '').toString().trim().toLowerCase();
+      if (v.isNotEmpty && v == emailLower) return true;
+    }
+  }
+  return activeFromMemberOrUser;
+}
+
+/// Reaplica regras de gestor/master num perfil já em cache (evita «conta desativada» stale).
+Map<String, dynamic> authGateNormalizeProfile(
+  Map<String, dynamic> profile, {
+  String? userEmail,
+}) {
+  final church = profile['church'] is Map
+      ? Map<String, dynamic>.from(profile['church'] as Map)
+      : null;
+  final active = authGateResolvePanelActive(
+    activeFromMemberOrUser: profile['active'] == true,
+    role: (profile['role'] ?? '').toString(),
+    churchData: church,
+    userEmail: userEmail,
+    cpfDigitsOrRaw: (profile['cpf'] ?? '').toString(),
+  );
+  if (active == (profile['active'] == true)) return profile;
+  return {
+    ...profile,
+    'active': active,
+    if (active) 'memberStatusPending': false,
+  };
+}
 
 /// Tela quando usuário logou mas não tem igreja vinculada em claims nem em users.
 class _IgrejaNaoVinculadaPage extends StatefulWidget {
@@ -265,13 +342,52 @@ class _AguardandoAprovacaoPage extends StatelessWidget {
 }
 
 /// Tela quando o usuário está logado mas a conta está desativada (ativo: false).
-class _ContaDesativadaPage extends StatelessWidget {
+class _ContaDesativadaPage extends StatefulWidget {
   final User user;
 
   const _ContaDesativadaPage({required this.user});
 
   @override
+  State<_ContaDesativadaPage> createState() => _ContaDesativadaPageState();
+}
+
+class _ContaDesativadaPageState extends State<_ContaDesativadaPage> {
+  bool _repairing = false;
+
+  Future<void> _repairAccess() async {
+    setState(() => _repairing = true);
+    try {
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable(
+        'repairMyChurchBinding',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 45)),
+      );
+      await fn.call<Map<dynamic, dynamic>>({});
+      await AuthProfileCacheService.instance.clear(widget.user.uid);
+      await widget.user.getIdToken(true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Acesso reparado. Recarregando painel…'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.pushNamedAndRemoveUntil(context, '/painel', (_) => false);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível reparar: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _repairing = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final user = widget.user;
+    final isGestorEmail = AppConstants.isProductMasterAccount(email: user.email);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FA),
       appBar: AppBar(
@@ -308,11 +424,30 @@ class _ContaDesativadaPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Entre em contato com o administrador da igreja para reativar seu acesso.',
+                      isGestorEmail
+                          ? 'Seu perfil de gestor existe, mas o vínculo ativo não foi reconhecido. Use «Reparar acesso» ou saia e entre de novo.'
+                          : 'Entre em contato com o administrador da igreja para reativar seu acesso.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade700, height: 1.4),
                     ),
                     const SizedBox(height: 24),
+                    if (isGestorEmail)
+                      FilledButton.icon(
+                        onPressed: _repairing ? null : _repairAccess,
+                        icon: _repairing
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.healing_rounded),
+                        label: Text(_repairing ? 'Reparando…' : 'Reparar acesso'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF0F766E),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    if (isGestorEmail) const SizedBox(height: 10),
                     FilledButton.icon(
                       onPressed: () => FirebaseAuth.instance.signOut().then((_) {
                         Navigator.pushNamedAndRemoveUntil(context, '/igreja/login', (_) => false);
@@ -472,7 +607,11 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     if (repairDepth == 0 &&
         cached != null &&
         (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
-      return cached;
+      final normalized = authGateNormalizeProfile(cached, userEmail: user.email);
+      if (normalized['active'] != cached['active']) {
+        unawaited(AuthProfileCacheService.instance.save(user.uid, normalized));
+      }
+      return normalized;
     }
     if (repairDepth == 0 && AppConnectivityService.instance.isOnline) {
       if (kIsWeb) {
@@ -645,10 +784,10 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         userData['permissions'] ?? userData['permissoes'],
       );
       bool memberStatusPending = false;
+      Map<String, dynamic>? memberData;
       if (igrejaId.isNotEmpty) {
         try {
           final membersCol = db.collection('igrejas').doc(igrejaId).collection('membros');
-          Map<String, dynamic>? memberData;
           final byDocId = await membersCol.doc(user.uid).get();
           if (byDocId.exists) {
             memberData = byDocId.data() ?? {};
@@ -663,6 +802,48 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
               final status = (memberData['STATUS'] ?? memberData['status'] ?? '').toString().toLowerCase();
               if (status == 'ativo') active = true;
               if (status == 'pendente') { active = false; memberStatusPending = true; }
+            }
+          }
+          if (memberData == null) {
+            final cpfDigits =
+                (userData['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+            if (cpfDigits.length == 11) {
+              final byCpf = await membersCol.doc(cpfDigits).get();
+              if (byCpf.exists) {
+                memberData = byCpf.data() ?? {};
+                final status =
+                    (memberData['STATUS'] ?? memberData['status'] ?? '').toString().toLowerCase();
+                if (status == 'ativo') active = true;
+                if (status == 'pendente') {
+                  active = false;
+                  memberStatusPending = true;
+                }
+              }
+            }
+          }
+          if (memberData == null) {
+            final emailLower = (user.email ?? '').trim().toLowerCase();
+            if (emailLower.isNotEmpty) {
+              for (final field in const ['email', 'EMAIL', 'e-mail']) {
+                try {
+                  final byEmail = await membersCol
+                      .where(field, isEqualTo: emailLower)
+                      .limit(1)
+                      .get();
+                  if (byEmail.docs.isNotEmpty) {
+                    memberData = byEmail.docs.first.data();
+                    final status = (memberData['STATUS'] ?? memberData['status'] ?? '')
+                        .toString()
+                        .toLowerCase();
+                    if (status == 'ativo') active = true;
+                    if (status == 'pendente') {
+                      active = false;
+                      memberStatusPending = true;
+                    }
+                    break;
+                  }
+                } catch (_) {}
+              }
             }
           }
           if (memberData != null) {
@@ -710,6 +891,28 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
             if (r.isNotEmpty) role = r;
           }
         }
+      }
+
+      active = authGateResolvePanelActive(
+        activeFromMemberOrUser: active,
+        role: role,
+        memberData: memberData,
+        churchData: churchData,
+        userEmail: user.email,
+        cpfDigitsOrRaw: (userData['cpf'] ?? cached?['cpf'] ?? '').toString(),
+      );
+      if (ChurchRolePermissions.snapshotFor(
+        ChurchRolePermissions.normalize(role),
+      ).editChurchProfile) {
+        memberStatusPending = false;
+      }
+      if (active && userDoc.exists) {
+        unawaited(
+          db.collection('users').doc(user.uid).set(
+            {'ativo': true, 'active': true},
+            SetOptions(merge: true),
+          ).catchError((_) {}),
+        );
       }
 
       // Regras do Firestore leem `users/{uid}.role` + vínculo à igreja; o papel efetivo do painel
@@ -882,7 +1085,14 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         'igrejaId': igrejaId,
         'role': role.isNotEmpty ? role : 'membro',
         'cpf': (cached?['cpf'] ?? '').toString(),
-        'active': cached?['active'] != false,
+        'active': authGateResolvePanelActive(
+          activeFromMemberOrUser: cached?['active'] != false ||
+              claims['active'] == true,
+          role: role.isNotEmpty ? role : 'membro',
+          churchData: churchData,
+          userEmail: user.email,
+          cpfDigitsOrRaw: (cached?['cpf'] ?? '').toString(),
+        ),
         'memberStatusPending': cached?['memberStatusPending'] == true,
         'mustChangePass': cached?['mustChangePass'] == true,
         'mustCompleteRegistration':
@@ -946,13 +1156,23 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       final permissions = AppPermissions.normalizePermissions(
         p['permissions'] ?? cached?['permissions'],
       );
+      final roleTxt = (p['role'] ?? cached?['role'] ?? '').toString();
+      final active = authGateResolvePanelActive(
+        activeFromMemberOrUser: p['active'] == true || cached?['active'] == true,
+        role: roleTxt,
+        churchData: churchData,
+        userEmail: user.email,
+        cpfDigitsOrRaw: (p['cpf'] ?? cached?['cpf'] ?? '').toString(),
+      );
       return {
         'igrejaId': igrejaId,
-        'role': (p['role'] ?? cached?['role'] ?? '').toString(),
+        'role': roleTxt,
         'cpf': (p['cpf'] ?? cached?['cpf'] ?? '').toString(),
-        'active': p['active'] == true || cached?['active'] == true,
-        'memberStatusPending':
-            p['memberStatusPending'] == true || cached?['memberStatusPending'] == true,
+        'active': active,
+        'memberStatusPending': active
+            ? false
+            : (p['memberStatusPending'] == true ||
+                cached?['memberStatusPending'] == true),
         'mustChangePass': p['mustChangePass'] == true,
         'mustCompleteRegistration': p['mustCompleteRegistration'] == true,
         'subscription': p['subscription'] is Map
@@ -1158,13 +1378,22 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     final cached = await AuthProfileCacheService.instance.load(widget.user.uid);
     if (cached != null &&
         (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
+      final normalized = authGateNormalizeProfile(
+        cached,
+        userEmail: widget.user.email,
+      );
+      if (normalized['active'] != cached['active']) {
+        unawaited(
+          AuthProfileCacheService.instance.save(widget.user.uid, normalized),
+        );
+      }
       unawaited(_silentRefreshProfileCache());
       unawaited(
         ChurchAutoSessionService.preheatPanelCachesCoordinated(
           tenantIdHint: (cached['igrejaId'] ?? '').toString(),
         ),
       );
-      return cached;
+      return normalized;
     }
     return _profileFutureWithOfflineFallback();
   }
@@ -1215,7 +1444,12 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
         'igrejaId': igrejaId,
         'role': (userData['role'] ?? '').toString(),
         'cpf': (userData['cpf'] ?? '').toString(),
-        'active': userData['ativo'] == true,
+        'active': authGateResolvePanelActive(
+          activeFromMemberOrUser: userData['ativo'] == true,
+          role: (userData['role'] ?? '').toString(),
+          churchData: churchData,
+          userEmail: widget.user.email,
+        ),
         'memberStatusPending': false,
         'mustChangePass': userData['mustChangePass'] == true,
         'mustCompleteRegistration':
@@ -1242,13 +1476,19 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     unawaited(PersistentAuthSessionService.currentPersistedUser());
     final peek = AuthProfileCacheService.instance.peek(widget.user.uid);
     if (peek != null && (peek['igrejaId'] ?? '').toString().trim().isNotEmpty) {
-      _bootstrapProfile = peek;
+      _bootstrapProfile = authGateNormalizeProfile(
+        peek,
+        userEmail: widget.user.email,
+      );
     }
     unawaited(() async {
       final c = await AuthProfileCacheService.instance.load(widget.user.uid);
       if (!mounted) return;
       if (c != null && (c['igrejaId'] ?? '').toString().trim().isNotEmpty) {
-        setState(() => _bootstrapProfile = c);
+        setState(() => _bootstrapProfile = authGateNormalizeProfile(
+              c,
+              userEmail: widget.user.email,
+            ));
       }
     }());
     if (kIsWeb) {
@@ -1281,7 +1521,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     _userDocRoleSub = FirebaseFirestore.instance
         .collection('users')
         .doc(widget.user.uid)
-        .snapshots()
+        .watchSafe()
         .listen(_onUsersDocSnapshotForRole);
   }
 

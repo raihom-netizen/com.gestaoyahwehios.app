@@ -13,6 +13,7 @@ import 'package:pdf/pdf.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/pdf/cert_pdf_worker.dart'
     show
@@ -329,6 +330,12 @@ class CertificadosPage extends StatefulWidget {
 
 class _CertificadosPageState extends State<CertificadosPage> {
   String _searchQuery = '';
+  late final SearchInputDebounce _searchDebounce = SearchInputDebounce(
+    onDebounced: (v) {
+      if (!mounted) return;
+      setState(() => _searchQuery = v.trim().toLowerCase());
+    },
+  );
   bool _batchMode = false;
   String _signatureMode = 'digital';
   /// Preferência ao gerar lote local: um PDF vs ZIP (lembrada entre sessões no mesmo ecrã).
@@ -463,6 +470,12 @@ class _CertificadosPageState extends State<CertificadosPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       warmCertificatePdfFontAssets();
     });
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce.dispose();
+    super.dispose();
   }
 
   Future<void> _loadCertConfig() async {
@@ -1136,8 +1149,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                         vertical: 14,
                       ),
                     ),
-                    onChanged: (v) =>
-                        setState(() => _searchQuery = v.trim().toLowerCase()),
+                    onChanged: _searchDebounce.schedule,
                   ),
                 ),
               ),
@@ -6668,7 +6680,7 @@ class _CertificadosEmitidosHistoricoViewState
     final edge = ThemeCleanPremium.pagePadding(context);
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: CertificateEmitidoService.historicoQuery(widget.tenantId)
-          .snapshots(),
+          .watchSafe(),
       builder: (context, snap) {
         if (snap.hasError) {
           return Padding(

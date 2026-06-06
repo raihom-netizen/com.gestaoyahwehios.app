@@ -5842,8 +5842,47 @@ export const getUserProfile = functions
       let podeEmitirRelatoriosCompletos: boolean | undefined;
       const permissions: string[] = [];
 
+      const authEmail = String((context.auth.token?.email as string) || "")
+        .trim()
+        .toLowerCase();
+      const cpfDigits = String(userData.cpf || "").replace(/\D/g, "");
+      const isProductMaster =
+        authEmail === "raihom@gmail.com" || cpfDigits === "94536368191";
+
+      let memberData: Record<string, unknown> | null = null;
       if (memberSnap.exists) {
-        const memberData = memberSnap.data() || {};
+        memberData = (memberSnap.data() || {}) as Record<string, unknown>;
+      }
+      if (!memberSnap.exists && authEmail) {
+        for (const field of ["email", "EMAIL", "mail"]) {
+          try {
+            const byEmail = await db
+              .collection("igrejas")
+              .doc(igrejaId)
+              .collection("membros")
+              .where(field, "==", authEmail)
+              .limit(1)
+              .get();
+            if (!byEmail.empty) {
+              memberData = byEmail.docs[0].data() as Record<string, unknown>;
+              break;
+            }
+          } catch (_) {
+            /* índice ausente */
+          }
+        }
+      }
+      if (!memberData && cpfDigits.length === 11) {
+        const byCpf = await db
+          .collection("igrejas")
+          .doc(igrejaId)
+          .collection("membros")
+          .doc(cpfDigits)
+          .get();
+        if (byCpf.exists) memberData = (byCpf.data() || {}) as Record<string, unknown>;
+      }
+
+      if (memberData) {
         const status = String(memberData.STATUS || memberData.status || "").toLowerCase();
         if (status === "ativo") active = true;
         if (status === "pendente") {
@@ -5860,6 +5899,46 @@ export const getUserProfile = functions
           for (const x of mp) permissions.push(String(x));
         }
         if (!role) role = String(memberData.role || memberData.ROLE || "").trim();
+      }
+
+      const roleNorm = String(role || "").trim().toLowerCase();
+      const gestorRoles = new Set([
+        "gestor",
+        "master",
+        "admin",
+        "adm",
+        "administrador",
+        "pastor",
+        "lider",
+        "líder",
+      ]);
+      if (isProductMaster || gestorRoles.has(roleNorm)) {
+        active = true;
+        memberStatusPending = false;
+      } else if (authEmail && churchData) {
+        for (const k of [
+          "gestorEmail",
+          "emailGestor",
+          "gestor_email",
+          "email",
+        ]) {
+          const v = String((churchData as any)[k] || "")
+            .trim()
+            .toLowerCase();
+          if (v && v === authEmail) {
+            active = true;
+            memberStatusPending = false;
+            break;
+          }
+        }
+      }
+
+      if (active) {
+        await db
+          .collection("users")
+          .doc(uid)
+          .set({ ativo: true, active: true }, { merge: true })
+          .catch(() => undefined);
       }
 
       return {
@@ -5906,6 +5985,88 @@ export const getAdminCheck = functions
     const ndata = usuariosSnap.exists ? usuariosSnap.data() || {} : {};
     if (String(ndata.nivel || "").toLowerCase() === "adm") return { allowed: true };
     return { allowed: false };
+  });
+
+/**
+ * Credenciais MP (painel master): leitura via Admin SDK quando o Firestore web falha no cliente.
+ */
+export const getMercadoPagoAdminConfig = functions
+  .region("us-central1")
+  .https.onCall(async (_, context) => {
+    if (!context.auth?.uid) {
+      throw new functions.https.HttpsError("unauthenticated", "Login necessário.");
+    }
+    const email = String(context.auth.token?.email || "").trim().toLowerCase();
+    const ok = await isAdminPanelActor(
+      context.auth.uid,
+      context.auth.token?.role,
+      email,
+    );
+    if (!ok) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "Sem permissão para credenciais Mercado Pago.",
+      );
+    }
+    const snap = await db.collection("config").doc("mercado_pago").get();
+    if (!snap.exists) return { config: null };
+    return { config: snap.data() || null };
+  });
+
+/**
+ * Grava config/mercado_pago sem apagar tokens existentes quando o formulário veio vazio (falha de leitura web).
+ */
+export const saveMercadoPagoAdminConfig = functions
+  .region("us-central1")
+  .https.onCall(async (data, context) => {
+    if (!context.auth?.uid) {
+      throw new functions.https.HttpsError("unauthenticated", "Login necessário.");
+    }
+    const email = String(context.auth.token?.email || "").trim().toLowerCase();
+    const ok = await isAdminPanelActor(
+      context.auth.uid,
+      context.auth.token?.role,
+      email,
+    );
+    if (!ok) {
+      throw new functions.https.HttpsError("permission-denied", "Sem permissão.");
+    }
+    const payload =
+      data && typeof data === "object"
+        ? (data as Record<string, unknown>)
+        : {};
+    const incoming =
+      payload.config && typeof payload.config === "object"
+        ? (payload.config as Record<string, unknown>)
+        : payload;
+    const ref = db.collection("config").doc("mercado_pago");
+    const existingSnap = await ref.get();
+    const existing = existingSnap.exists ? existingSnap.data() || {} : {};
+    const secretKeys = new Set([
+      "publicKey",
+      "clientId",
+      "clientSecret",
+      "accessToken",
+      "publicKeyTest",
+      "clientIdTest",
+      "clientSecretTest",
+      "accessTokenTest",
+    ]);
+    const merged: Record<string, unknown> = { ...existing };
+    for (const [k, v] of Object.entries(incoming)) {
+      if (v == null || k === "updatedAt") continue;
+      const s = String(v).trim();
+      if (secretKeys.has(k)) {
+        if (s.length > 0) merged[k] = s;
+      } else if (k === "mode" || k === "modo") {
+        merged.mode = s || merged.mode || "production";
+      } else {
+        merged[k] = s;
+      }
+    }
+    merged.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+    await ref.set(merged, { merge: true });
+    return { ok: true, config: merged };
   });
 
 /**
@@ -7041,6 +7202,7 @@ export {
 
 export { pruneExpiredChurchChatMessages } from "./churchChatRetention";
 export { purgeChurchChatMessagesAdmin } from "./churchChatAdminPurge";
+export { purgeAnonymousAuthUsers } from "./purgeAnonymousAuthUsers";
 export { onChurchChatMessageCreated } from "./churchChatNotify";
 export { onIgrejaMembroWriteChatPeerProfile } from "./churchChatPeerProfileSync";
 

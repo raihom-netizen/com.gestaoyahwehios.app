@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_web_lazy_logo_image.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Markdown mínimo (sem dependência): `**negrito**`, `*itálico*` ou `_itálico_`.
@@ -382,7 +383,9 @@ class _MarketingClientesShowcaseSectionState
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: MarketingClientesShowcaseSection._docRef.snapshots(),
+      stream: FirestoreStreamUtils.documentWatchBootstrap(
+        MarketingClientesShowcaseSection._docRef,
+      ),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const Center(

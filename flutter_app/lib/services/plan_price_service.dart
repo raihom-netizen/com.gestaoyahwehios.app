@@ -1,5 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 
 /// Configuração efetiva de um plano: Firestore `config/plans/items/{planId}` sobrescreve [planosOficiais].
 class EffectivePlanConfig {
@@ -96,22 +99,34 @@ class PlanPriceService {
 
   /// Emite o catálogo sempre que `config/plans/items` muda (Painel Master ou outro cliente).
   static Stream<Map<String, EffectivePlanConfig>> watchEffectivePlanConfigs() {
-    return _firestore
+    final q = _firestore
         .collection('config')
         .doc('plans')
-        .collection('items')
-        .snapshots()
+        .collection('items');
+    if (kIsWeb) {
+      return FirestoreStreamUtils.queryOneShot(q).asyncMap((snap) async {
+        try {
+          return _mergeCatalogFromQuerySnap(snap);
+        } catch (_) {
+          final fb = await getEffectivePlanConfigs();
+          return fb;
+        }
+      });
+    }
+    return FirestoreStreamUtils.queryWatchBootstrap(q)
         .map(_mergeCatalogFromQuerySnap);
   }
 
   /// Leitura única (ex.: limites de membros). Para ecrãs com preços visíveis, prefira [watchEffectivePlanConfigs].
   static Future<Map<String, EffectivePlanConfig>> getEffectivePlanConfigs() async {
     try {
-      final snap = await _firestore
-          .collection('config')
-          .doc('plans')
-          .collection('items')
-          .get(const GetOptions(source: Source.serverAndCache));
+      final snap = await FirestoreReadResilience.getQuery(
+        _firestore
+            .collection('config')
+            .doc('plans')
+            .collection('items'),
+        cacheKey: 'config_plans_items',
+      );
       return _mergeCatalogFromQuerySnap(snap);
     } catch (_) {
       final fallback = <String, EffectivePlanConfig>{

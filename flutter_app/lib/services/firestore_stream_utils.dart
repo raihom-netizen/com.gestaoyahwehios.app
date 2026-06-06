@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -60,6 +61,17 @@ class FirestoreStreamUtils {
     return source.asBroadcastStream();
   }
 
+  /// Listeners nativos Firestore — centralizados aqui; UI usa `.watchSafe()` / `.watchBootstrap()`.
+  static Stream<QuerySnapshot<Map<String, dynamic>>> _nativeQuerySnapshots(
+    Query<Map<String, dynamic>> query,
+  ) =>
+      query.snapshots();
+
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> _nativeDocumentSnapshots(
+    DocumentReference<Map<String, dynamic>> ref,
+  ) =>
+      ref.snapshots();
+
   static void _scheduleWebRecovery(Object error) {
     if (!FirestoreWebGuard.isInternalAssertionError(error) &&
         !FirestoreWebGuard.isClientTerminated(error) &&
@@ -108,7 +120,8 @@ class FirestoreStreamUtils {
       yield const MergedFirestoreQuerySnapshot([]);
     }
     if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
-    yield* resilientQuery(query.snapshots(), broadcast: broadcast);
+    // Único uso intencional de `.snapshots()` no app — mobile pós-bootstrap.
+    yield* resilientQuery(_nativeQuerySnapshots(query), broadcast: broadcast);
   }
 
   /// Documento com 1.º snapshot via `.get()` — pintura instantânea no painel master.
@@ -130,7 +143,63 @@ class FirestoreStreamUtils {
       yield _emptyDocumentSnapshot;
     }
     if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
-    yield* resilientDocument(ref.snapshots(), broadcast: broadcast);
+    // Único uso intencional de `.snapshots()` no app — mobile pós-bootstrap.
+    yield* resilientDocument(_nativeDocumentSnapshots(ref), broadcast: broadcast);
+  }
+
+  /// Web / painel master: só `.get()` — nunca abre listener `snapshots()`.
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> documentOneShot(
+    DocumentReference<Map<String, dynamic>> ref,
+  ) async* {
+    try {
+      yield await FirestoreWebGuard.runWithWebRecovery(() async {
+        try {
+          return await ref
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {
+          return await ref.get().timeout(const Duration(seconds: 16));
+        }
+      });
+    } catch (_) {
+      yield _emptyDocumentSnapshot;
+    }
+  }
+
+  /// Web / painel master: só `.get()` em queries.
+  static Stream<QuerySnapshot<Map<String, dynamic>>> queryOneShot(
+    Query<Map<String, dynamic>> query,
+  ) async* {
+    try {
+      yield await FirestoreWebGuard.runWithWebRecovery(() async {
+        try {
+          return await query
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 4));
+        } catch (_) {
+          return await query.get().timeout(const Duration(seconds: 16));
+        }
+      });
+    } catch (_) {
+      yield const MergedFirestoreQuerySnapshot([]);
+    }
+  }
+
+  /// Painel master web: one-shot; mobile: bootstrap + live quando seguro.
+  static Stream<DocumentSnapshot<Map<String, dynamic>>> documentWatchSafe(
+    DocumentReference<Map<String, dynamic>> ref, {
+    bool broadcast = true,
+  }) {
+    if (kIsWeb) return documentOneShot(ref);
+    return documentWatchBootstrap(ref, broadcast: broadcast);
+  }
+
+  static Stream<QuerySnapshot<Map<String, dynamic>>> queryWatchSafe(
+    Query<Map<String, dynamic>> query, {
+    bool broadcast = true,
+  }) {
+    if (kIsWeb) return queryOneShot(query);
+    return queryWatchBootstrap(query, broadcast: broadcast);
   }
 
   /// Em falha transitória, emite snapshot vazio e agenda recuperação Web.
@@ -186,6 +255,31 @@ class FirestoreStreamUtils {
   static Future<void> refreshAuthTokenIfNeeded({bool force = false}) async {
     await FirebaseAuthTokenGuard.refreshIfStale(force: force);
   }
+}
+
+/// Streams Firestore seguros — substituem `.snapshots()` directo (web Firestore 11.x).
+extension SafeFirestoreDocumentStream on DocumentReference<Map<String, dynamic>> {
+  Stream<DocumentSnapshot<Map<String, dynamic>>> watchSafe({
+    bool broadcast = true,
+  }) =>
+      FirestoreStreamUtils.documentWatchSafe(this, broadcast: broadcast);
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> watchBootstrap({
+    bool broadcast = true,
+  }) =>
+      FirestoreStreamUtils.documentWatchBootstrap(this, broadcast: broadcast);
+}
+
+extension SafeFirestoreQueryStream on Query<Map<String, dynamic>> {
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchSafe({
+    bool broadcast = true,
+  }) =>
+      FirestoreStreamUtils.queryWatchSafe(this, broadcast: broadcast);
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> watchBootstrap({
+    bool broadcast = true,
+  }) =>
+      FirestoreStreamUtils.queryWatchBootstrap(this, broadcast: broadcast);
 }
 
 /// Snapshot vazio para fallback UI quando regras bloqueiam leitura momentânea.

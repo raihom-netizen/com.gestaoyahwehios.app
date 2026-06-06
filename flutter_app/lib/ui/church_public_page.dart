@@ -1,4 +1,4 @@
-﻿import 'dart:async' show Stream, StreamSubscription, unawaited;
+import 'dart:async' show Stream, StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -88,6 +88,7 @@ import 'package:gestao_yahweh/ui/pages/legal_pages.dart'
         kDeveloperPublicName;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Capa para site público — mesma lógica centralizada em [eventNoticiaFeedCoverHintUrl].
 String _churchPublicNoticiaCoverUrl(Map<String, dynamic> p) =>
@@ -209,7 +210,7 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
         .where('publicSite', isEqualTo: true)
         .orderBy('createdAt', descending: true)
         .limit(limit)
-        .snapshots()
+        .watchSafe()
         .listen((s) {
       snapNoticias = s;
       emit();
@@ -222,7 +223,7 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
         .where('publicSite', isEqualTo: true)
         .orderBy('createdAt', descending: true)
         .limit(limit)
-        .snapshots()
+        .watchSafe()
         .listen((s) {
       snapAvisos = s;
       emit();
@@ -1547,7 +1548,7 @@ Stream<_ChurchPublicTenantResolved?> _churchPublicTenantBySlugStream(
         .collection('igrejas')
         .where('slug', isEqualTo: slugClean)
         .limit(1)
-        .snapshots()
+        .watchSafe()
         .listen(
       (snap) {
         bySlug = snap;
@@ -1559,7 +1560,7 @@ Stream<_ChurchPublicTenantResolved?> _churchPublicTenantBySlugStream(
     final subId = FirebaseFirestore.instance
         .collection('igrejas')
         .doc(slugClean)
-        .snapshots()
+        .watchSafe()
         .listen(
       (snap) {
         byId = snap;
@@ -2408,7 +2409,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                                     Map<String, dynamic>>>(
                                               stream: FirebaseFirestore.instance
                                                   .doc('config/appDownloads')
-                                                  .snapshots(),
+                                                  .watchSafe(),
                                               builder: (context, dlSnap) {
                                                 final data =
                                                     dlSnap.data?.data() ?? {};
@@ -4962,7 +4963,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                   StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                     stream: FirebaseFirestore.instance
                         .doc('config/appDownloads')
-                        .snapshots(),
+                        .watchSafe(),
                     builder: (context, dlSnap) {
                       final data = dlSnap.data?.data() ?? {};
                       final androidEff = AppConstants

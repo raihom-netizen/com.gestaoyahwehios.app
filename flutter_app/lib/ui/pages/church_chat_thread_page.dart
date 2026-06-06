@@ -239,17 +239,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         threadId: widget.threadId,
       ),
     );
-    unawaited(
-      ImmediateMediaWarm.warmFeed().catchError((_) {}),
-    );
-    unawaited(
-      ensureFirebaseReadyForChatSend().catchError((_) {}),
-    );
-    unawaited(
-      FastMediaPublishBootstrap.warmForChatSend()
-          .timeout(const Duration(seconds: 4))
-          .catchError((_) {}),
-    );
+    unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
@@ -309,7 +299,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           threadId: widget.threadId,
         ),
       );
-      unawaited(_bootstrapThreadUploads());
+      Future<void>.delayed(const Duration(seconds: 4), () {
+        if (mounted) unawaited(_bootstrapThreadUploads());
+      });
     });
   }
 
@@ -642,78 +634,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }
 
   Widget _buildTypingStrip(String myUid) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: ChurchChatService.typingCol(_tid, widget.threadId)
-          .snapshots(),
-      builder: (context, snap) {
-        if (!snap.hasData) return const SizedBox.shrink();
-        final now = DateTime.now();
-        final names = <String>[];
-        var unnamed = 0;
-        var recording = 0;
-        for (final d in snap.data!.docs) {
-          if (d.id == myUid) continue;
-          final data = d.data();
-          final ts = data['updatedAt'];
-          if (ts is! Timestamp) continue;
-          if (now.difference(ts.toDate()).inSeconds > 5) continue;
-          final lb = (data['label'] ?? '').toString().trim();
-          if (lb == ChurchChatService.typingLabelRecording) {
-            recording++;
-          } else if (lb.isNotEmpty) {
-            names.add(lb);
-          } else {
-            unnamed++;
-          }
-        }
-        if (names.isEmpty && unnamed == 0 && recording == 0) {
-          return const SizedBox.shrink();
-        }
-        final text = () {
-          if (recording > 0 && names.isEmpty && unnamed == 0) {
-            return recording == 1
-                ? 'A gravar áudio…'
-                : '$recording pessoas a gravar áudio…';
-          }
-          if (names.isEmpty) {
-            return unnamed == 1
-                ? 'A digitar…'
-                : '$unnamed pessoas a digitar…';
-          }
-          if (unnamed == 0) {
-            return names.length == 1
-                ? '${names.first} está a digitar…'
-                : '${names.join(', ')} estão a digitar…';
-          }
-          return '${names.join(', ')} e mais $unnamed a digitar…';
-        }();
-        return Material(
-          color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.edit_rounded,
-                  size: 18,
-                  color: ThemeCleanPremium.primary,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    text,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontStyle: FontStyle.italic,
-                      color: ThemeCleanPremium.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    return _ChurchChatTypingPollStrip(
+      tenantId: _tid,
+      threadId: widget.threadId,
+      myUid: myUid,
     );
   }
 
@@ -1682,6 +1606,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   void _warmChatFirebaseForPicker() {
     unawaited(FirestoreWebGuard.prepareForChatWrite().catchError((_) {}));
     unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
+    unawaited(ImmediateMediaWarm.warmFeed().catchError((_) {}));
     unawaited(
       FastMediaPublishBootstrap.warmForChatSend()
           .timeout(const Duration(seconds: 3))
@@ -3606,7 +3531,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           ChurchChatPendingStatusBanner(
             tenantId: _tid,
             compact: true,
-            alwaysOfferClear: true,
+            alwaysOfferClear: false,
             role: widget.memberRole,
           ),
           Expanded(
@@ -3670,7 +3595,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               ),
             RepaintBoundary(child: _buildTypingStrip(uid)),
             Expanded(
-              child: RepaintBoundary(
+              child: MediaQuery.removeViewInsets(
+                context: context,
+                removeBottom: true,
+                child: RepaintBoundary(
                 child: Builder(
                   builder: (context) {
                     if (!_messagesStreamReady && _latestRecentDocs.isEmpty) {
@@ -3767,6 +3695,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                     return ListView.builder(
                       controller: _scroll,
                       reverse: true,
+                      cacheExtent: 480,
+                      addAutomaticKeepAlives: false,
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 10),
                       itemCount: docs.length + pendingCount + historyTail,
@@ -4045,6 +3975,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 ),
               ),
             ),
+            ),
           RepaintBoundary(
           child: AbsorbPointer(
             absorbing: blockedDm,
@@ -4284,6 +4215,101 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
     }
     return scaffold;
+  }
+}
+
+/// «A digitar…» por polling (~2,5 s) — sem listener Firestore extra na conversa.
+class _ChurchChatTypingPollStrip extends StatefulWidget {
+  const _ChurchChatTypingPollStrip({
+    required this.tenantId,
+    required this.threadId,
+    required this.myUid,
+  });
+
+  final String tenantId;
+  final String threadId;
+  final String myUid;
+
+  @override
+  State<_ChurchChatTypingPollStrip> createState() =>
+      _ChurchChatTypingPollStripState();
+}
+
+class _ChurchChatTypingPollStripState extends State<_ChurchChatTypingPollStrip> {
+  Timer? _pollTimer;
+  ChurchChatTypingActivity _activity = const ChurchChatTypingActivity();
+  bool _pollInFlight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_poll());
+      _pollTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
+        unawaited(_poll());
+      });
+    });
+  }
+
+  Future<void> _poll() async {
+    if (_pollInFlight || !mounted) return;
+    _pollInFlight = true;
+    try {
+      final next = await ChurchChatService.fetchActiveTyping(
+        tenantId: widget.tenantId,
+        threadId: widget.threadId,
+        myUid: widget.myUid,
+      );
+      if (!mounted) return;
+      if (next.isEmpty && _activity.isEmpty) return;
+      if (next.names.length == _activity.names.length &&
+          next.unnamed == _activity.unnamed &&
+          next.recording == _activity.recording &&
+          next.names.every(_activity.names.contains)) {
+        return;
+      }
+      setState(() => _activity = next);
+    } finally {
+      _pollInFlight = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_activity.isEmpty) return const SizedBox.shrink();
+    return Material(
+      color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Row(
+          children: [
+            Icon(
+              Icons.edit_rounded,
+              size: 18,
+              color: ThemeCleanPremium.primary,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _activity.label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontStyle: FontStyle.italic,
+                  color: ThemeCleanPremium.onSurface,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

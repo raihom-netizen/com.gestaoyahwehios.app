@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Escolha enviada ao chat (logo institucional ou figurinha da biblioteca).
 class ChurchStickerPick {
@@ -591,7 +592,7 @@ class _StickerLibraryTabState extends State<_StickerLibraryTab> {
           stream: FirebaseFirestore.instance
               .collection('igrejas')
               .doc(widget.tenantId)
-              .snapshots(),
+              .watchSafe(),
           builder: (context, snap) {
             final logoUrl = churchTenantLogoUrl(snap.data?.data());
             if (logoUrl.isEmpty) {
@@ -771,7 +772,7 @@ class _StickerLibraryTabState extends State<_StickerLibraryTab> {
           stream: ChurchChatService.stickersCol(widget.tenantId)
               .orderBy('createdAt', descending: true)
               .limit(72)
-              .snapshots(),
+              .watchSafe(),
           builder: (context, stickerSnap) {
             if (stickerSnap.connectionState == ConnectionState.waiting) {
               return const Padding(

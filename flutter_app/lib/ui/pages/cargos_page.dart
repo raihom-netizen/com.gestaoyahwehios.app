@@ -14,8 +14,8 @@ import 'package:gestao_yahweh/ui/pages/lideranca_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/pages/members_page.dart' show MembersPage;
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
-import 'members_page.dart' show MembersPage;
 
 /// Mesma faixa dourada dos cards em [DepartmentsPage] — identidade visual alinhada.
 const Color _kCargoListGoldAccent = Color(0xFFF5C518);
@@ -41,6 +41,58 @@ Future<List<String>> _cargoMemberMergeTenantIds(String seed) async {
   if (ids.isEmpty) ids = [seed];
   _cargoMergeTenantIdsCache[seed] = (at: now, ids: List<String>.from(ids));
   return ids;
+}
+
+/// Chave principal de cargo/função — alinhado a [MembersPage] (`FUNCAO`, `FUNCAO_PERMISSOES`, `CARGO`).
+String _memberPrimaryCargoKey(Map<String, dynamic> d) {
+  return (d['FUNCAO'] ??
+          d['FUNCAO_PERMISSOES'] ??
+          d['CARGO'] ??
+          d['cargo'] ??
+          d['funcao'] ??
+          d['role'] ??
+          '')
+      .toString()
+      .trim()
+      .toLowerCase();
+}
+
+bool _memberMatchesCargo(
+  Map<String, dynamic> d,
+  String cargoKeyNorm,
+  String cargoNameNorm,
+) {
+  final funcoes = d['FUNCOES'] ?? d['funcoes'];
+  if (funcoes is List) {
+    for (final f in funcoes) {
+      final s = (f ?? '').toString().trim().toLowerCase();
+      if (s == cargoKeyNorm || s == cargoNameNorm) return true;
+    }
+  }
+  final primary = _memberPrimaryCargoKey(d);
+  return primary == cargoKeyNorm || primary == cargoNameNorm;
+}
+
+Future<Map<String, dynamic>> _memberRolePatchForFuncao({
+  required String tenantId,
+  required String funcaoFinal,
+  required List<String> funcoes,
+}) async {
+  var permBase = funcaoFinal.toLowerCase();
+  try {
+    permBase = await ChurchFuncoesControleService.resolvePermissionBase(
+      tenantId,
+      funcaoFinal,
+    );
+  } catch (_) {}
+  return {
+    'FUNCAO': funcaoFinal,
+    'FUNCAO_PERMISSOES': permBase,
+    'FUNCOES': funcoes,
+    'CARGO': funcaoFinal,
+    'funcao': funcaoFinal,
+    'role': permBase,
+  };
 }
 
 class _WelcomeCargoRow {
@@ -2060,21 +2112,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         for (final doc in snap.docs) {
           if (seen.contains(doc.id)) continue;
           final d = doc.data();
-          final funcoes = d['FUNCOES'] ?? d['funcoes'];
-          final cargo =
-              (d['CARGO'] ?? d['cargo'] ?? d['funcao'] ?? d['role'] ?? '').toString().trim().toLowerCase();
-          var hasCargo = false;
-          if (funcoes is List) {
-            for (final f in funcoes) {
-              final s = (f ?? '').toString().trim().toLowerCase();
-              if (s == cargoKeyNorm || s == cargoNameNorm) {
-                hasCargo = true;
-                break;
-              }
-            }
-          }
-          if (!hasCargo && (cargo == cargoKeyNorm || cargo == cargoNameNorm)) hasCargo = true;
-          if (hasCargo) {
+          if (_memberMatchesCargo(d, cargoKeyNorm, cargoNameNorm)) {
             seen.add(doc.id);
             list.add(_MemberWithRef(id: doc.id, data: d, ref: doc.reference));
           }
@@ -2101,16 +2139,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
   bool _memberHasCargo(Map<String, dynamic> d) {
     final cargoKeyNorm = widget.cargoKey.toLowerCase().trim();
     final cargoNameNorm = widget.cargoName.toLowerCase().trim();
-    final funcoes = d['FUNCOES'] ?? d['funcoes'];
-    if (funcoes is List) {
-      for (final f in funcoes) {
-        final s = (f ?? '').toString().trim().toLowerCase();
-        if (s == cargoKeyNorm || s == cargoNameNorm) return true;
-      }
-    }
-    final cargo =
-        (d['CARGO'] ?? d['cargo'] ?? d['funcao'] ?? d['role'] ?? '').toString().trim().toLowerCase();
-    return cargo == cargoKeyNorm || cargo == cargoNameNorm;
+    return _memberMatchesCargo(d, cargoKeyNorm, cargoNameNorm);
   }
 
   Future<List<_MemberWithRef>> _fetchAllMembersForPicker() async {
@@ -2173,13 +2202,16 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     funcoes = [...funcoes, cargoKey];
 
     final updates = <String, dynamic>{'FUNCOES': funcoes};
-    final hadEmptyPrimary = (m.data['CARGO'] ?? m.data['cargo'] ?? '').toString().trim().isEmpty &&
-        (m.data['funcao'] ?? '').toString().trim().isEmpty;
+    final hadEmptyPrimary = _memberPrimaryCargoKey(m.data).isEmpty;
     if (hadEmptyPrimary && funcoes.isNotEmpty) {
       final primary = funcoes.first;
-      updates['CARGO'] = primary;
-      updates['funcao'] = primary;
-      updates['role'] = primary.toLowerCase();
+      updates.addAll(
+        await _memberRolePatchForFuncao(
+          tenantId: widget.tenantId,
+          funcaoFinal: primary,
+          funcoes: funcoes,
+        ),
+      );
     }
 
     List<String> allIds;
@@ -2206,6 +2238,18 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       try {
         final uref = db.collection('users').doc(authUid);
         final userPatch = <String, dynamic>{'FUNCOES': funcoes};
+        if (hadEmptyPrimary && funcoes.isNotEmpty) {
+          final rolePatch = await _memberRolePatchForFuncao(
+            tenantId: widget.tenantId,
+            funcaoFinal: funcoes.first,
+            funcoes: funcoes,
+          );
+          userPatch['role'] = rolePatch['role'];
+          userPatch['funcao'] = rolePatch['FUNCAO'];
+          userPatch['cargo'] = rolePatch['CARGO'];
+          userPatch['FUNCAO'] = rolePatch['FUNCAO'];
+          userPatch['FUNCAO_PERMISSOES'] = rolePatch['FUNCAO_PERMISSOES'];
+        }
         if (extraMods.isNotEmpty) {
           final us = await uref.get();
           final cur = AppPermissions.normalizePermissions(us.data()?['permissions']);
@@ -2286,14 +2330,18 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         final s = f.toLowerCase();
         return s == cargoKeyNorm || s == cargoNameNorm;
       });
+      final primary = _memberPrimaryCargoKey(m.data);
+      if (funcoes.isEmpty &&
+          (primary == cargoKeyNorm || primary == cargoNameNorm)) {
+        funcoes = ['membro'];
+      }
       if (funcoes.isEmpty) funcoes = ['membro'];
       final funcaoFinal = funcoes.first;
-      final updates = <String, dynamic>{
-        'FUNCOES': funcoes,
-        'CARGO': funcaoFinal,
-        'funcao': funcaoFinal,
-        'role': funcaoFinal.toLowerCase(),
-      };
+      final updates = await _memberRolePatchForFuncao(
+        tenantId: widget.tenantId,
+        funcaoFinal: funcaoFinal,
+        funcoes: funcoes,
+      );
       List<String> allIds;
       try {
         allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
@@ -2310,11 +2358,13 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       if (authUid.isNotEmpty) {
         try {
           await FirebaseFirestore.instance.collection('users').doc(authUid).set({
-            'role': funcaoFinal.toLowerCase(),
-            'funcao': funcaoFinal,
-            'cargo': funcaoFinal,
+            'role': updates['role'],
+            'funcao': updates['FUNCAO'],
+            'cargo': updates['CARGO'],
+            'FUNCAO': updates['FUNCAO'],
+            'FUNCAO_PERMISSOES': updates['FUNCAO_PERMISSOES'],
             'FUNCOES': funcoes,
-            'CARGO': funcaoFinal,
+            'CARGO': updates['CARGO'],
           }, SetOptions(merge: true));
         } catch (_) {}
       }
@@ -2329,12 +2379,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
 
   Future<void> _changeCargo(_MemberWithRef m) async {
     if (!_canWrite) return;
-    final cargosSnap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
-        .collection('cargos')
-        .orderBy('name')
-        .get();
+    final cargosSnap = await ChurchTenantResilientReads.cargos(widget.tenantId);
     final cargos = cargosSnap.docs
         .map((d) => (key: (d.data()['key'] ?? d.id).toString(), name: (d.data()['name'] ?? d.id).toString()))
         .where((c) => c.key != widget.cargoKey)
@@ -2392,12 +2437,11 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       funcoes.removeWhere((f) => f.toLowerCase() == cargoKeyNorm);
       funcoes.add(selectedKey!);
       final funcaoFinal = selectedKey!;
-      final updates = <String, dynamic>{
-        'FUNCOES': funcoes,
-        'CARGO': funcaoFinal,
-        'funcao': funcaoFinal,
-        'role': funcaoFinal.toLowerCase(),
-      };
+      final updates = await _memberRolePatchForFuncao(
+        tenantId: widget.tenantId,
+        funcaoFinal: funcaoFinal,
+        funcoes: funcoes,
+      );
       List<String> allIds;
       try {
         allIds = await _cargoMemberMergeTenantIds(widget.tenantId);
@@ -2414,11 +2458,13 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       if (authUid.isNotEmpty) {
         try {
           await FirebaseFirestore.instance.collection('users').doc(authUid).set({
-            'role': funcaoFinal.toLowerCase(),
-            'funcao': funcaoFinal,
-            'cargo': funcaoFinal,
+            'role': updates['role'],
+            'funcao': updates['FUNCAO'],
+            'cargo': updates['CARGO'],
+            'FUNCAO': updates['FUNCAO'],
+            'FUNCAO_PERMISSOES': updates['FUNCAO_PERMISSOES'],
             'FUNCOES': funcoes,
-            'CARGO': funcaoFinal,
+            'CARGO': updates['CARGO'],
           }, SetOptions(merge: true));
         } catch (_) {}
       }
@@ -2573,6 +2619,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
                                           builder: (_) => MembersPage(
                                             tenantId: widget.tenantId,
                                             role: widget.role,
+                                            initialOpenMemberDocId: m.id,
                                           ),
                                         ),
                                       ),

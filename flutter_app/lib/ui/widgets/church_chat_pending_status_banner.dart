@@ -42,8 +42,13 @@ class _ChurchChatPendingStatusBannerState
   @override
   void initState() {
     super.initState();
-    _refreshCounts();
-    unawaited(_purgeLegacyOnce());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future<void>.delayed(const Duration(milliseconds: 1500), () {
+        if (!mounted) return;
+        unawaited(_refreshCounts());
+        unawaited(_purgeLegacyOnce());
+      });
+    });
   }
 
   Future<void> _purgeLegacyOnce() async {

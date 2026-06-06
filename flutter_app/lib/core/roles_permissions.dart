@@ -415,18 +415,15 @@ class ChurchRolePermissions {
         if (_hasGranularModule(permissions, 'membros')) return true;
         return s.approvePendingMembers;
       case 19:
-        return !s.restrictedNav &&
-            (s.editChurchProfile || s.editSchedulesAll || s.approvePendingMembers || s.editDepartments);
-      case 20:
         return fin();
-      case 21:
+      case 20:
         return pat();
-      case 22:
+      case 21:
         return fornec();
-      case 23:
+      case 22:
         // Dízimos e ofertas (PIX MP): todos os utilizadores com acesso ao painel da igreja.
         return true;
-      case 24:
+      case 23:
         // Chat - Igreja (membros / departamentos).
         return true;
       default:

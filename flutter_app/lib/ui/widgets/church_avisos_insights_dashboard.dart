@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Painel premium de métricas do mural de **avisos** (curtidas e comentários).
 class ChurchAvisosInsightsDashboard extends StatefulWidget {
@@ -873,7 +874,7 @@ class _AvisoEngagementSheetState extends State<_AvisoEngagementSheet> {
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 key: ValueKey(_commentsKey),
                 stream:
-                    widget.aviso.ref.collection('comentarios').snapshots(),
+                    widget.aviso.ref.collection('comentarios').watchSafe(),
                 builder: (context, snap) {
                   if (snap.hasError) {
                     return ChurchPanelErrorBody(

@@ -3082,7 +3082,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                   // Só stream de departamentos — hub mais leve (sem escutar `membros`).
                   return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     key: ValueKey<String>('dept_stream_$_tid'),
-                    stream: FirestoreStreamUtils.resilientQuery(_col.snapshots()),
+                    stream: FirestoreStreamUtils.queryWatchBootstrap(
+                      _col.limit(120),
+                    ),
                     builder: (context, deptSnap) {
                       final streamFailed = deptSnap.hasError;
                       final hasHydratedNonEmpty = _hydratedDeptDocs != null &&
@@ -3955,9 +3957,7 @@ class _DepartmentHubSheet extends StatelessWidget {
               const SizedBox(height: 4),
               Expanded(
                 child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  stream: FirestoreStreamUtils.resilientDocument(
-                    deptRef.snapshots(),
-                  ),
+                  stream: deptRef.watchSafe(),
                   builder: (context, dSnap) {
                     if (dSnap.hasError) {
                       return Center(child: Text('Erro: ${dSnap.error}'));
@@ -3966,11 +3966,9 @@ class _DepartmentHubSheet extends StatelessWidget {
                     final leaderCpfs = ChurchDepartmentLeaders.cpfsFromDepartmentData(
                         deptData);
                     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: FirestoreStreamUtils.resilientQuery(
-                        membersCol
-                            .where('DEPARTAMENTOS', arrayContains: deptId)
-                            .snapshots(),
-                      ),
+                      stream: membersCol
+                          .where('DEPARTAMENTOS', arrayContains: deptId)
+                          .watchSafe(),
                       builder: (context, mSnap) {
                         if (mSnap.hasError) {
                           return Center(child: Text('Erro: ${mSnap.error}'));

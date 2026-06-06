@@ -107,6 +107,7 @@ import '../theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Diagnóstico no Console (F12): prefixo pedido para filtrar falhas de Storage/CORS/decode.
 /// Leitura rápida: [SafeNetworkImage] / [StableStorageImage] = cache disco+RAM (CDN Storage).
@@ -1652,7 +1653,7 @@ class _PostCardState extends State<_PostCard>
                           stream: commentsRef
                               .orderBy('createdAt', descending: true)
                               .limit(60)
-                              .snapshots(),
+                              .watchSafe(),
                           builder: (context, snap) {
                             final docs = snap.data?.docs ?? const [];
                             if (docs.isEmpty) {
@@ -3331,6 +3332,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   DocumentReference<Map<String, dynamic>>? _lazyPostRef;
   bool _draftStubEnsured = false;
   int _inFlightPhotoUploads = 0;
+  final ValueNotifier<int> _addressPreviewTick = ValueNotifier(0);
+
+  void _notifyAddressPreview() => _addressPreviewTick.value++;
 
   DocumentReference<Map<String, dynamic>> get _editorPostRef =>
       widget.doc?.reference ?? (_lazyPostRef ??= widget.postsCollection.doc());
@@ -3523,7 +3527,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(ImmediateMediaWarm.warmFeed());
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
     _bodyDescription = TextEditingController(
@@ -3888,6 +3891,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   @override
   void dispose() {
+    _addressPreviewTick.dispose();
     _title.dispose();
     _bodyDescription.dispose();
     _videoUrl.dispose();
@@ -4934,7 +4938,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                                 controller: _cep,
                                 keyboardType: TextInputType.number,
                                 maxLength: 9,
-                                onChanged: (_) => setState(() {}),
+                                onChanged: (_) => _notifyAddressPreview(),
                                 decoration: InputDecoration(
                                   labelText: 'CEP',
                                   hintText: '00000-000',
@@ -4979,7 +4983,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: _logradouro,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => _notifyAddressPreview(),
                           decoration: InputDecoration(
                             labelText: 'Logradouro (rua, avenida…)',
                             prefixIcon: const Icon(Icons.signpost_outlined),
@@ -4990,7 +4994,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: _numero,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => _notifyAddressPreview(),
                           decoration: InputDecoration(
                             labelText: 'Número',
                             prefixIcon: const Icon(Icons.numbers_rounded),
@@ -5001,7 +5005,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: _bairro,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => _notifyAddressPreview(),
                           decoration: InputDecoration(
                             labelText: 'Bairro',
                             prefixIcon: const Icon(Icons.apartment_rounded),
@@ -5017,7 +5021,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                               flex: 3,
                               child: TextField(
                                 controller: _cidade,
-                                onChanged: (_) => setState(() {}),
+                                onChanged: (_) => _notifyAddressPreview(),
                                 decoration: InputDecoration(
                                   labelText: 'Cidade',
                                   prefixIcon:
@@ -5032,7 +5036,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                               width: 88,
                               child: TextField(
                                 controller: _uf,
-                                onChanged: (_) => setState(() {}),
+                                onChanged: (_) => _notifyAddressPreview(),
                                 textCapitalization:
                                     TextCapitalization.characters,
                                 maxLength: 2,
@@ -5049,7 +5053,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: _quadraLote,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => _notifyAddressPreview(),
                           decoration: InputDecoration(
                             labelText: 'Quadra e lote (opcional)',
                             hintText: 'Ex.: Qd 5 Lt 12',
@@ -5061,7 +5065,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                         const SizedBox(height: 12),
                         TextField(
                           controller: _referencia,
-                          onChanged: (_) => setState(() {}),
+                          onChanged: (_) => _notifyAddressPreview(),
                           maxLines: 2,
                           decoration: InputDecoration(
                             labelText: 'Ponto de referência (opcional)',
@@ -5080,7 +5084,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: Colors.grey.shade200),
                           ),
-                          child: Column(
+                          child: ValueListenableBuilder<int>(
+                            valueListenable: _addressPreviewTick,
+                            builder: (context, _, __) {
+                              final resumo = _montarEnderecoManual();
+                              final empty = resumo.isEmpty;
+                              return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text('Resumo do local',
@@ -5090,18 +5099,20 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                                       color: Colors.grey.shade700)),
                               const SizedBox(height: 6),
                               Text(
-                                _montarEnderecoManual().isEmpty
+                                empty
                                     ? '(preencha os campos acima)'
-                                    : _montarEnderecoManual(),
+                                    : resumo,
                                 style: TextStyle(
                                   fontSize: 13.5,
                                   height: 1.4,
-                                  color: _montarEnderecoManual().isEmpty
+                                  color: empty
                                       ? Colors.grey.shade500
                                       : Colors.grey.shade900,
                                 ),
                               ),
                             ],
+                          );
+                            },
                           ),
                         ),
                       ],

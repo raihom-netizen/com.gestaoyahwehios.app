@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Resumo mensal em `igrejas/{tid}/_panel_cache/finance_summary` (Cloud Function).
 class PanelFinanceMonthTotals {
@@ -84,7 +85,7 @@ class PanelFinanceSnapshotService {
       yield const PanelFinanceSnapshot();
     }
     await for (final snap
-        in FirestoreStreamUtils.resilientDocument(cacheRef(tenantId).snapshots())) {
+        in cacheRef(tenantId).watchSafe()) {
       yield PanelFinanceSnapshot.fromMap(snap.data());
     }
   }

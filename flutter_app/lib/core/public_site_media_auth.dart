@@ -1,55 +1,26 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
-/// Site público (Flutter Web): visitantes sem login precisam de uma sessão Firebase
-/// para o SDK do Storage (`putData` / `getData` / `getDownloadURL`) carregar e enviar
-/// logo, fotos e vídeos de forma estável. Sem isso, o pipeline cai em CORS/`Image.network` e quebra.
+/// Site público: mídia via HTTP / regras Storage — **sem** login anónimo.
 ///
-/// No Console Firebase, habilite **Authentication → Sign-in method → Anonymous**
-/// (obrigatório: site da igreja, cadastro público de membro, mural e vídeo institucional na web).
+/// O provedor Anonymous foi desligado no Firebase (só Gmail, Apple, e-mail/senha).
+/// Visitantes do site não precisam de sessão Auth para ver conteúdo público.
 class PublicSiteMediaAuth {
   PublicSiteMediaAuth._();
 
-  static Future<void>? _ongoing;
-
-  /// Sessão de visitante (anónima) para logo/foto no site público e cadastro de membro.
-  /// Web + app nativo (Android/iOS) quando o link abre dentro do Gestão YAHWEH.
+  /// No-op — compatível com chamadas existentes antes do upload/leitura de mídia.
   static Future<void> ensurePublicVisitorMediaAccess() async {
     final u = FirebaseAuth.instance.currentUser;
     if (u != null && !u.isAnonymous) return;
-    if (u != null && u.isAnonymous) return;
-
-    if (_ongoing != null) {
-      await _ongoing;
-      return;
-    }
-    _ongoing = _signInAnonymously();
-    try {
-      await _ongoing;
-    } finally {
-      _ongoing = null;
+    if (u != null && u.isAnonymous) {
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {}
     }
   }
 
-  /// Idempotente; seguro chamar antes de cada download de mídia na web.
   static Future<void> ensureWebAnonymousForStorage() async {
     if (!kIsWeb) return;
     await ensurePublicVisitorMediaAccess();
-  }
-
-  static Future<void> _signInAnonymously() async {
-    for (var attempt = 0; attempt < 2; attempt++) {
-      try {
-        await FirebaseAuth.instance
-            .signInAnonymously()
-            .timeout(const Duration(seconds: 10));
-        return;
-      } catch (_) {
-        if (attempt == 0) {
-          await Future<void>.delayed(const Duration(milliseconds: 400));
-        }
-      }
-    }
-    // Provedor anônimo desligado ou falha de rede: Storage público ainda pode responder via HTTP.
   }
 }

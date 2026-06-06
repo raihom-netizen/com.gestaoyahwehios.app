@@ -1,8 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 class MercadoPagoAdminPage extends StatefulWidget {
   /// Quando aberto dentro do painel master (drawer), evita conflito de [PrimaryScrollController].
@@ -30,6 +33,7 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
   bool _saving = false;
   bool _modoProducao = true; // padrão: produção
   String? _loadError;
+  Map<String, dynamic>? _loadedFromServer;
 
   /// URL recomendada do webhook (Cloud Function `mpWebhook` — igual ao painel Mercado Pago).
   static const String _defaultWebhookUrl =
@@ -48,6 +52,81 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
     return s.replaceAllMapped(RegExp(r'[A-Z]'), (m) => '_${m.group(0)!.toLowerCase()}');
   }
 
+  bool _configHasCredentials(Map<String, dynamic>? data) {
+    if (data == null || data.isEmpty) return false;
+    for (final k in const [
+      'accessToken',
+      'publicKey',
+      'clientId',
+      'clientSecret',
+    ]) {
+      if (_str(data, k).isNotEmpty) return true;
+    }
+    return false;
+  }
+
+  void _applyConfigToForm(Map<String, dynamic> data) {
+    _loadedFromServer = Map<String, dynamic>.from(data);
+    _publicKeyController.text = _str(data, 'publicKey');
+    _clientIdController.text = _str(data, 'clientId');
+    _clientSecretController.text = _str(data, 'clientSecret');
+    _accessTokenController.text = _str(data, 'accessToken');
+    _publicKeyTestController.text = _str(data, 'publicKeyTest');
+    _clientIdTestController.text = _str(data, 'clientIdTest');
+    _clientSecretTestController.text = _str(data, 'clientSecretTest');
+    _accessTokenTestController.text = _str(data, 'accessTokenTest');
+    _webhookUrlController.text = _str(data, 'webhookUrl');
+    if (_webhookUrlController.text.isEmpty) {
+      _webhookUrlController.text = _str(data, 'webhook_url');
+    }
+    _backUrlController.text = _str(data, 'backUrl');
+    if (_backUrlController.text.isEmpty) {
+      _backUrlController.text = _str(data, 'back_url');
+    }
+    if (_backUrlController.text.isEmpty) {
+      _backUrlController.text = _str(data, 'returnUrl');
+    }
+    final mode = (data['mode'] ?? data['modo'] ?? 'production').toString().toLowerCase();
+    _modoProducao = mode != 'test' && mode != 'teste';
+  }
+
+  Future<Map<String, dynamic>?> _loadViaCallable() async {
+    final fn = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(
+      'getMercadoPagoAdminConfig',
+      options: HttpsCallableOptions(timeout: const Duration(seconds: 20)),
+    );
+    final res = await fn.call<Map<dynamic, dynamic>>({});
+    final cfg = res.data['config'];
+    if (cfg is! Map) return null;
+    return Map<String, dynamic>.from(cfg);
+  }
+
+  Map<String, dynamic> _buildSavePayload() {
+    String field(TextEditingController c, String key) {
+      final v = c.text.trim();
+      if (v.isNotEmpty) return v;
+      return _str(_loadedFromServer, key);
+    }
+
+    return {
+      'publicKey': field(_publicKeyController, 'publicKey'),
+      'clientId': field(_clientIdController, 'clientId'),
+      'clientSecret': field(_clientSecretController, 'clientSecret'),
+      'accessToken': field(_accessTokenController, 'accessToken'),
+      'publicKeyTest': field(_publicKeyTestController, 'publicKeyTest'),
+      'clientIdTest': field(_clientIdTestController, 'clientIdTest'),
+      'clientSecretTest': field(_clientSecretTestController, 'clientSecretTest'),
+      'accessTokenTest': field(_accessTokenTestController, 'accessTokenTest'),
+      'webhookUrl': _webhookUrlController.text.trim().isNotEmpty
+          ? _webhookUrlController.text.trim()
+          : _str(_loadedFromServer, 'webhookUrl'),
+      'backUrl': _backUrlController.text.trim().isNotEmpty
+          ? _backUrlController.text.trim()
+          : _str(_loadedFromServer, 'backUrl'),
+      'mode': _modoProducao ? 'production' : 'test',
+    };
+  }
+
   @override
   void initState() {
     super.initState();
@@ -57,34 +136,54 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
   Future<void> _loadCredenciais() async {
     setState(() { _loading = true; _loadError = null; });
     try {
-      // Atualiza o token para garantir claims mais recentes (role ADMIN/MASTER)
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final doc = await FirebaseFirestore.instance.collection('config').doc('mercado_pago').get();
-      final data = doc.data();
-      if (data != null && data.isNotEmpty) {
-        _publicKeyController.text = _str(data, 'publicKey');
-        _clientIdController.text = _str(data, 'clientId');
-        _clientSecretController.text = _str(data, 'clientSecret');
-        _accessTokenController.text = _str(data, 'accessToken');
-        _publicKeyTestController.text = _str(data, 'publicKeyTest');
-        _clientIdTestController.text = _str(data, 'clientIdTest');
-        _clientSecretTestController.text = _str(data, 'clientSecretTest');
-        _accessTokenTestController.text = _str(data, 'accessTokenTest');
-        _webhookUrlController.text = _str(data, 'webhookUrl');
-        if (_webhookUrlController.text.isEmpty) {
-          _webhookUrlController.text = _str(data, 'webhook_url');
+      Map<String, dynamic>? data;
+      Object? firestoreError;
+
+      try {
+        final ref = FirebaseFirestore.instance.collection('config').doc('mercado_pago');
+        final doc = await FirestoreReadResilience.getDocument(
+          ref,
+          cacheKey: 'config_mercado_pago',
+          maxAttempts: 3,
+        );
+        if (doc.exists) {
+          final raw = doc.data();
+          if (raw != null && raw.isNotEmpty) {
+            data = Map<String, dynamic>.from(raw);
+          }
         }
-        _backUrlController.text = _str(data, 'backUrl');
-        if (_backUrlController.text.isEmpty) {
-          _backUrlController.text = _str(data, 'back_url');
-        }
-        if (_backUrlController.text.isEmpty) {
-          _backUrlController.text = _str(data, 'returnUrl');
-        }
-        final mode = (data['mode'] ?? data['modo'] ?? 'production').toString().toLowerCase();
-        _modoProducao = mode != 'test' && mode != 'teste';
+      } catch (e) {
+        firestoreError = e;
       }
-      if (mounted) setState(() { _loading = false; _loadError = null; });
+
+      if (!_configHasCredentials(data)) {
+        try {
+          final fromFn = await _loadViaCallable();
+          if (_configHasCredentials(fromFn)) {
+            data = fromFn;
+          } else if (fromFn != null && fromFn.isNotEmpty) {
+            data = fromFn;
+          }
+        } catch (e) {
+          firestoreError ??= e;
+        }
+      }
+
+      if (data != null && data.isNotEmpty) {
+        _applyConfigToForm(data);
+        if (mounted) setState(() { _loading = false; _loadError = null; });
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadError = firestoreError != null
+              ? 'Não foi possível carregar do Firestore. Use Recarregar ou preencha e salve (o servidor preserva tokens já gravados).'
+              : 'Nenhuma credencial encontrada em config/mercado_pago. Preencha e salve.';
+        });
+      }
     } catch (e) {
       final msg = e.toString();
       final isPermissionDenied = msg.contains('permission-denied') || msg.contains('PERMISSION_DENIED');
@@ -99,59 +198,76 @@ class _MercadoPagoAdminPageState extends State<MercadoPagoAdminPage> {
 
   Future<void> _salvarCredenciais() async {
     setState(() => _saving = true);
-    final data = {
-      'publicKey': _publicKeyController.text.trim(),
-      'clientId': _clientIdController.text.trim(),
-      'clientSecret': _clientSecretController.text.trim(),
-      'accessToken': _accessTokenController.text.trim(),
-      'publicKeyTest': _publicKeyTestController.text.trim(),
-      'clientIdTest': _clientIdTestController.text.trim(),
-      'clientSecretTest': _clientSecretTestController.text.trim(),
-      'accessTokenTest': _accessTokenTestController.text.trim(),
-      'webhookUrl': _webhookUrlController.text.trim(),
-      'backUrl': _backUrlController.text.trim(),
-      'mode': _modoProducao ? 'production' : 'test',
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-    final ref = FirebaseFirestore.instance.collection('config').doc('mercado_pago');
+    final data = _buildSavePayload();
+    if (!_configHasCredentials(data)) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Preencha ao menos Public Key e Access Token (produção), ou recarregue as credenciais existentes antes de salvar.',
+            ),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
+      return;
+    }
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      await Future.delayed(const Duration(milliseconds: 300));
-      await ref.set(data);
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1').httpsCallable(
+        'saveMercadoPagoAdminConfig',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 25)),
+      );
+      final res = await fn.call<Map<dynamic, dynamic>>({'config': data});
+      final saved = res.data['config'];
+      if (saved is Map) {
+        _applyConfigToForm(Map<String, dynamic>.from(saved));
+      } else {
+        _loadedFromServer = Map<String, dynamic>.from(data);
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Configurações do Mercado Pago salvas com sucesso!'),
         );
       }
+    } on FirebaseFunctionsException catch (e) {
+      if (e.code == 'not-found' || e.code == 'unavailable') {
+        await _salvarCredenciaisFirestoreFallback(data);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao salvar: ${e.message ?? e.code}'), backgroundColor: ThemeCleanPremium.error),
+        );
+      }
     } catch (e) {
-      final isPermissionDenied = e.toString().contains('permission-denied') || e.toString().contains('PERMISSION_DENIED');
-      if (isPermissionDenied) {
-        try {
-          await Future.delayed(const Duration(milliseconds: 500));
-          await FirebaseAuth.instance.currentUser?.getIdToken(true);
-          await Future.delayed(const Duration(milliseconds: 300));
-          await ref.set(data);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar('Configurações do Mercado Pago salvas com sucesso!'),
-            );
-          }
-        } catch (e2) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Erro ao salvar: $e2'), backgroundColor: ThemeCleanPremium.error),
-            );
-          }
-        }
-      } else {
+      try {
+        await _salvarCredenciaisFirestoreFallback(data);
+      } catch (e2) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erro ao salvar: $e'), backgroundColor: ThemeCleanPremium.error),
+            SnackBar(content: Text('Erro ao salvar: $e2'), backgroundColor: ThemeCleanPremium.error),
           );
         }
       }
     }
     if (mounted) setState(() => _saving = false);
+  }
+
+  Future<void> _salvarCredenciaisFirestoreFallback(Map<String, dynamic> data) async {
+    final ref = FirebaseFirestore.instance.collection('config').doc('mercado_pago');
+    await ref.set(
+      {
+        ...data,
+        'updatedAt': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+    _loadedFromServer = Map<String, dynamic>.from(data);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar('Configurações do Mercado Pago salvas com sucesso!'),
+      );
+    }
   }
 
   @override
@@ -561,7 +677,7 @@ class _SalesList extends StatelessWidget {
           .collection('sales')
           .orderBy('createdAt', descending: true)
           .limit(50)
-          .snapshots(),
+          .watchSafe(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return MasterPremiumCard(
@@ -649,7 +765,7 @@ class _LicensesSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('igrejas').limit(100).snapshots(),
+      stream: FirebaseFirestore.instance.collection('igrejas').limit(100).watchSafe(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           return MasterPremiumCard(

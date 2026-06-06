@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Recebimentos de licenças — sales (Mercado Pago) + status por tenant. Super Premium, responsivo.
 class AdminRecebimentosPage extends StatelessWidget {
@@ -331,7 +332,7 @@ class _SalesList extends StatelessWidget {
           .collection('sales')
           .orderBy('createdAt', descending: true)
           .limit(80)
-          .snapshots(),
+          .watchSafe(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           final err = snapshot.error.toString();
@@ -452,7 +453,7 @@ class _LicensesSummary extends StatelessWidget {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final minTouch = ThemeCleanPremium.minTouchTarget;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('igrejas').limit(150).snapshots(),
+      stream: FirebaseFirestore.instance.collection('igrejas').limit(150).watchSafe(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           final err = snapshot.error.toString();

@@ -57,7 +57,6 @@ import 'pages/configuracoes_page.dart';
 import 'pages/church_chat_hub_page.dart';
 import 'pages/relatorios_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
-import 'pages/pastoral_comunicacao_page.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
 import 'pages/church_donations_page.dart';
 import '../services/app_permissions.dart';
@@ -260,7 +259,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _ChurchShellFooterShortcut(
         shellIndex: ChurchShellIndices.chatIgreja,
         shortLabel: 'Chat',
-        accent: kChurchShellNavEntries[24].accent,
+        accent: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
       ),
     ];
 
@@ -384,7 +383,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         context,
         _moduleTenantId,
       ));
-      unawaited(_bootstrapChatPresenceHeartbeat());
+      Future<void>.delayed(const Duration(seconds: 12), () {
+        if (mounted) unawaited(_bootstrapChatPresenceHeartbeat());
+      });
       if (_shellBootstrapOpenMemberId != null && mounted) {
         setState(() => _selectedIndex = ChurchShellIndices.membros);
       } else {
@@ -1001,14 +1002,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   static const List<({String title, List<int> indices})> _menuSections = [
-    (title: 'Geral', indices: [0, 1, 2, 23]),
+    (title: 'Geral', indices: [0, 1, 2, 22]),
     (title: 'Pessoas', indices: [3, 4, 5, 6]),
-    // Pastoral (19) e Chat - Igreja (24) em Comunicação, não em Financeiro.
-    (title: 'Comunicação', indices: [7, 8, 9, 10, 18, 19, 24]),
+    (title: 'Comunicação', indices: [7, 8, 9, 10, 18, 23]),
     (title: 'Agenda', indices: [11, 12]),
     (title: 'Documentos', indices: [13, 14, 15]),
     (title: 'Sistema', indices: [16, 17]),
-    (title: 'Financeiro e patrimônio', indices: [20, 21, 22]),
+    (title: 'Financeiro e patrimônio', indices: [19, 20, 21]),
   ];
 
   List<({String title, List<int> indices})> _menuSectionsForRole(String role) {
@@ -1018,9 +1018,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         title: 'Minha conta',
         indices: [ChurchShellIndices.configuracoes],
       ),
-      (title: 'Geral', indices: [0, 23]),
+      (title: 'Geral', indices: [0, 22]),
       (title: 'Pessoas', indices: [3]),
-      (title: 'Comunicação', indices: [7, 8, 9, 10, 24]),
+      (title: 'Comunicação', indices: [7, 8, 9, 10, 23]),
       (title: 'Agenda', indices: [11, 12]),
       (title: 'Documentos', indices: [13]),
     ];
@@ -2135,15 +2135,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           embeddedInShell: true,
         );
       case 19:
-        return PastoralComunicacaoPage(
-          key: const ValueKey('page_19'),
-          tenantId: _moduleTenantId,
-          role: widget.role,
-          embeddedInShell: true,
-        );
-      case 20:
         return FinancePage(
-          key: const ValueKey('page_20'),
+          key: const ValueKey('page_19'),
           tenantId: _moduleTenantId,
           role: widget.role,
           cpf: widget.cpf,
@@ -2151,7 +2144,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           permissions: widget.permissions,
           embeddedInShell: true,
         );
-      case 21:
+      case 20:
         final bootPat = _shellBootstrapPatrimonioSearch;
         final bootPatDoc = _shellBootstrapOpenPatrimonioDocId;
         if (bootPat != null || bootPatDoc != null) {
@@ -2165,7 +2158,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           });
         }
         return PatrimonioPage(
-          key: const ValueKey('page_21'),
+          key: const ValueKey('page_20'),
           tenantId: _moduleTenantId,
           role: widget.role,
           podeVerPatrimonio: widget.podeVerPatrimonio,
@@ -2174,9 +2167,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           initialOpenPatrimonioDocId: bootPatDoc,
           embeddedInShell: true,
         );
-      case 22:
+      case 21:
         return FornecedoresPage(
-          key: const ValueKey('page_22'),
+          key: const ValueKey('page_21'),
           tenantId: _moduleTenantId,
           role: widget.role,
           podeVerFinanceiro: widget.podeVerFinanceiro,
@@ -2184,24 +2177,24 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           permissions: widget.permissions,
           embeddedInShell: true,
         );
-      case 23:
+      case 22:
         if (IosPaymentsGate.isIosNative) {
           return IosDonationReaderView(
-            key: const ValueKey('page_23_ios_donation'),
+            key: const ValueKey('page_22_ios_donation'),
             tenantId: _moduleTenantId,
             embeddedInShell: true,
           );
         }
         return ChurchDonationsPage(
-          key: const ValueKey('page_23'),
+          key: const ValueKey('page_22'),
           tenantId: _moduleTenantId,
           role: widget.role,
           cpf: widget.cpf,
           embeddedInShell: true,
         );
-      case 24:
+      case 23:
         return ChurchChatHubPage(
-          key: const ValueKey('page_24'),
+          key: const ValueKey('page_23'),
           tenantId: _moduleTenantId,
           cpf: widget.cpf,
           role: widget.role,
@@ -2259,35 +2252,17 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       );
     }
 
-    /// Mobile: rodapé (Painel/Membros/Eventos/Avisos/Chat) em [IndexedStack];
-    /// módulos só do drawer desmontam ao sair (menos RAM que desktop).
+    /// Mobile: só a aba ativa do rodapé — evita 5 módulos pesados em paralelo.
     final footerTab =
         ChurchShellLazyModulePolicy.isMobileFooterTab(_selectedIndex);
     if (footerTab) {
       _pageCache[_selectedIndex] ??= _buildPageForIndex(_selectedIndex);
       for (var i = 0; i < _pageCache.length; i++) {
-        if (!ChurchShellLazyModulePolicy.isMobileFooterTab(i)) {
+        if (i != _selectedIndex) {
           _pageCache[i] = null;
         }
       }
-      return RepaintBoundary(
-        child: IndexedStack(
-          index: _selectedIndex,
-          sizing: StackFit.expand,
-          children: List.generate(_pageCache.length, (i) {
-            if (!ChurchShellLazyModulePolicy.isMobileFooterTab(i)) {
-              return const SizedBox.shrink();
-            }
-            if (_pageCache[i] == null && i != _selectedIndex) {
-              return const SizedBox.shrink();
-            }
-            if (_pageCache[i] == null) {
-              _pageCache[i] = _buildPageForIndex(i);
-            }
-            return _pageCache[i]!;
-          }),
-        ),
-      );
+      return RepaintBoundary(child: _pageCache[_selectedIndex]!);
     }
     _pageCache[_selectedIndex] ??= _buildPageForIndex(_selectedIndex);
     return RepaintBoundary(
@@ -2415,12 +2390,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       },
       child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         key: ValueKey('tenant_stream_$_tenantStreamRetry'),
-        stream: FirestoreStreamUtils.resilientDocument(
-          firebaseDefaultFirestore
+        stream: firebaseDefaultFirestore
               .collection('igrejas')
               .doc(widget.tenantId)
-              .snapshots(),
-        ),
+              .watchSafe(),
         builder: (context, tenantSnap) {
           if (tenantSnap.hasData && tenantSnap.data != null) {
             _lastGoodTenantDoc = tenantSnap.data;
@@ -2644,12 +2617,10 @@ class _HeaderLocalizacao extends StatelessWidget {
   Widget build(BuildContext context) {
     if (tenantId.isEmpty) return const SizedBox.shrink();
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirestoreStreamUtils.resilientDocument(
-        firebaseDefaultFirestore
+      stream: firebaseDefaultFirestore
             .collection('igrejas')
             .doc(tenantId)
-            .snapshots(),
-      ),
+            .watchSafe(),
       builder: (context, snap) {
         final line = _lineFromChurch(snap.data?.data());
         if (line == null || line.isEmpty) return const SizedBox.shrink();
@@ -2694,12 +2665,10 @@ class _HeaderVencimento extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirestoreStreamUtils.resilientDocument(
-        firebaseDefaultFirestore
+      stream: firebaseDefaultFirestore
             .collection('igrejas')
             .doc(tenantId)
-            .snapshots(),
-      ),
+            .watchSafe(),
       builder: (context, snap) {
         final textColor = light ? Colors.white70 : const Color(0xFF64748B);
         if (!snap.hasData)

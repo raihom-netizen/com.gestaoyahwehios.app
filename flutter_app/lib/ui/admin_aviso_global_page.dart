@@ -8,6 +8,8 @@ import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/global_announcement_overlay.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:intl/intl.dart';
 
 /// Painel Master — Aviso global / manutenção / promoção temporária para todas as igrejas.
@@ -41,6 +43,10 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
   /// `info` | `maintenance` | `promotion` — define cores e título padrão no painel.
   String _kind = 'info';
 
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _auditDocs = [];
+  bool _auditLoading = true;
+  String? _auditError;
+
   @override
   void dispose() {
     _messageCtrl.dispose();
@@ -58,12 +64,40 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
   void initState() {
     super.initState();
     _load();
+    _loadAudit();
+  }
+
+  Future<void> _loadAudit() async {
+    setState(() {
+      _auditLoading = true;
+      _auditError = null;
+    });
+    try {
+      final snap = await FirestoreReadResilience.getQuery(
+        _audit.orderBy('savedAt', descending: true).limit(25),
+        cacheKey: 'global_announcement_audit',
+      );
+      if (!mounted) return;
+      setState(() {
+        _auditDocs = snap.docs;
+        _auditLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _auditLoading = false;
+        _auditError = e.toString();
+      });
+    }
   }
 
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final snap = await _ref.get();
+      final snap = await FirestoreReadResilience.getDocument(
+        _ref,
+        cacheKey: 'config_global_announcement',
+      );
       if (snap.exists && snap.data() != null) {
         final d = snap.data()!;
         Timestamp? v = d['validUntil'] as Timestamp?;
@@ -111,7 +145,8 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
     }
     setState(() => _saving = true);
     try {
-      await _ref.set({
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => _ref.set({
         'message': msg,
         'title': _titleCtrl.text.trim().isEmpty
             ? FieldValue.delete()
@@ -139,8 +174,12 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         'active': _active,
         'updatedAt': FieldValue.serverTimestamp(),
         'revision': FieldValue.increment(1),
-      }, SetOptions(merge: true));
-      final snap = await _ref.get();
+      }, SetOptions(merge: true)),
+      );
+      final snap = await FirestoreReadResilience.getDocument(
+        _ref,
+        cacheKey: 'config_global_announcement',
+      );
       final rev = (snap.data()?['revision'] as num?)?.toInt() ?? 0;
       final email =
           (FirebaseAuth.instance.currentUser?.email ?? '').trim();
@@ -173,6 +212,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
               'Aviso salvo (revisão $rev). Todos verão ao entrar no painel; quem já tinha fechado verá de novo nesta revisão.'),
         );
         _load();
+        _loadAudit();
       }
     } catch (e) {
       if (mounted) {
@@ -222,7 +262,10 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         'updatedAt': FieldValue.serverTimestamp(),
         'revision': FieldValue.increment(1),
       }, SetOptions(merge: true));
-      final snap = await _ref.get();
+      final snap = await FirestoreReadResilience.getDocument(
+        _ref,
+        cacheKey: 'config_global_announcement',
+      );
       final rev = (snap.data()?['revision'] as num?)?.toInt() ?? 0;
       final email =
           (FirebaseAuth.instance.currentUser?.email ?? '').trim();
@@ -240,6 +283,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
           ThemeCleanPremium.successSnackBar('Aviso removido.'),
         );
         _load();
+        _loadAudit();
       }
     } catch (e) {
       if (mounted) {
@@ -298,7 +342,10 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         'updatedAt': FieldValue.serverTimestamp(),
         'revision': FieldValue.increment(1),
       }, SetOptions(merge: true));
-      final snap = await _ref.get();
+      final snap = await FirestoreReadResilience.getDocument(
+        _ref,
+        cacheKey: 'config_global_announcement',
+      );
       final rev = (snap.data()?['revision'] as num?)?.toInt() ?? 0;
       final email =
           (FirebaseAuth.instance.currentUser?.email ?? '').trim();
@@ -318,6 +365,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
               'Validade prorrogada até ${DateFormat('dd/MM/yyyy').format(date)} (revisão $rev).'),
         );
         _load();
+        _loadAudit();
       }
     } catch (e) {
       if (mounted) {
@@ -864,43 +912,50 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
               ),
             ),
             const SizedBox(height: ThemeCleanPremium.spaceMd),
-            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirestoreStreamUtils.resilientQuery(
-                _audit
-                    .orderBy('savedAt', descending: true)
-                    .limit(25)
-                    .snapshots(),
-              ),
-              builder: (context, snap) {
-                if (snap.hasError) {
-                  return MasterPremiumCard(
-                    child: Text(
-                      'Não foi possível carregar o histórico. Se for índice, faça deploy do firestore.indexes ou aguarde propagação.\n${snap.error}',
+            if (_auditLoading)
+              const MasterPremiumCard(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              )
+            else if (_auditError != null)
+              MasterPremiumCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Não foi possível carregar o histórico.\n$_auditError',
                       style: TextStyle(color: ThemeCleanPremium.error, fontSize: 13),
                     ),
-                  );
-                }
-                if (snap.connectionState == ConnectionState.waiting &&
-                    !snap.hasData) {
-                  return const MasterPremiumCard(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Center(child: CircularProgressIndicator()),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _loadAudit,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Tentar de novo'),
                     ),
-                  );
-                }
-                final docs = snap.data?.docs ?? [];
-                if (docs.isEmpty) {
-                  return MasterPremiumCard(
-                    child: Text(
-                      'Nenhum registro ainda. Ao salvar ou remover um aviso, aparece aqui.',
-                      style: TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
+                  ],
+                ),
+              )
+            else if (_auditDocs.isEmpty)
+              MasterPremiumCard(
+                child: Text(
+                  'Nenhum registro ainda. Ao salvar ou remover um aviso, aparece aqui.',
+                  style: TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
+                ),
+              )
+            else
+              Column(
+                children: [
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: _loadAudit,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Atualizar histórico'),
                     ),
-                  );
-                }
-                return Column(
-                  children: [
-                    for (final d in docs)
+                  ),
+                  for (final d in _auditDocs)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: MasterPremiumCard(
@@ -1013,9 +1068,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
                         ),
                       ),
                   ],
-                );
-              },
-            ),
+                ),
           ],
         ),
       ),

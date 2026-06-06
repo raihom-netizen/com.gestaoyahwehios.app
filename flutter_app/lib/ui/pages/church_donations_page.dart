@@ -24,6 +24,8 @@ import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
 import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/search_input_debounce.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Dízimos, ofertas e contribuições via PIX ou cartão (Checkout Pro Mercado Pago da igreja).
 /// Só contas tesouraria **Mercado Pago** (323) entram na conciliação desta tela.
@@ -1259,6 +1261,11 @@ class _DonationHistoryTab extends StatefulWidget {
 
 class _DonationHistoryTabState extends State<_DonationHistoryTab> {
   final _searchCtrl = TextEditingController();
+  late final SearchInputDebounce _searchDebounce = SearchInputDebounce(
+    onDebounced: (_) {
+      if (mounted) setState(() {});
+    },
+  );
   String? _methodFilter;
   /// null = todos, `dizimo`, `oferta`
   String? _kindFilter;
@@ -1266,6 +1273,7 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
 
   @override
   void dispose() {
+    _searchDebounce.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -1302,7 +1310,7 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
         .limit(400);
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: q.snapshots(),
+      stream: q.watchSafe(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const Center(child: CircularProgressIndicator());
@@ -1418,7 +1426,7 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
               ),
             TextField(
               controller: _searchCtrl,
-              onChanged: (_) => setState(() {}),
+              onChanged: _searchDebounce.schedule,
               decoration: InputDecoration(
                 labelText: 'Buscar por nome ou ID Mercado Pago',
                 prefixIcon: const Icon(Icons.search_rounded),

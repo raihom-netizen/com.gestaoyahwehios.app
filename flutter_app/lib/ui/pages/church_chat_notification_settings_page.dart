@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Personalização de alertas (foreground) por conta, DM, grupo, departamento, pessoa e conversa — estilo Super Premium.
 class ChurchChatNotificationSettingsPage extends StatefulWidget {
@@ -831,7 +832,7 @@ class _ChurchChatNotificationSettingsPageState
                               .collection('igrejas')
                               .doc(_tid)
                               .collection('departamentos')
-                              .snapshots(),
+                              .watchSafe(),
                           builder: (context, dSnap) {
                             if (dSnap.hasError) {
                               return Padding(

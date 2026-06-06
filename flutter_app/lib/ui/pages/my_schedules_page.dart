@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Agrupa documentos de escala por dia civil (ordenados por horário dentro do dia).
 Map<DateTime, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupSchedulesByDay(
@@ -1281,7 +1282,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
               .doc(tid)
               .collection('escala_trocas')
               .where('alvoCpf', isEqualTo: _cpfDigits)
-              .snapshots(),
+              .watchSafe(),
           builder: (context, tSnap) {
             if (!tSnap.hasData) return const SizedBox.shrink();
             final items = tSnap.data!.docs

@@ -87,7 +87,7 @@ abstract final class ChurchDashboardCurrentService {
   }
 
   static Stream<ChurchDashboardCurrent> watch(String tenantId) {
-    return FirestoreStreamUtils.resilientDocument(ref(tenantId).snapshots())
+    return ref(tenantId).watchSafe()
         .map((s) => ChurchDashboardCurrent.fromMap(s.data()));
   }
 }

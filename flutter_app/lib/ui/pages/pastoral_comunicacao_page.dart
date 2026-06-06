@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
@@ -8,6 +8,8 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_push_responses_section.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 
 InputDecoration _pastoralInputDecoration(
   String label, {
@@ -1414,6 +1416,11 @@ class _DevocionalTabState extends State<_DevocionalTab> {
   final _textoCtrl = TextEditingController();
   final _refCtrl = TextEditingController();
   final _devHistorySearchCtrl = TextEditingController();
+  late final SearchInputDebounce _devHistorySearchDebounce = SearchInputDebounce(
+    onDebounced: (_) {
+      if (mounted) setState(() {});
+    },
+  );
   final ScrollController _devScrollCtrl = ScrollController();
   bool _enabled = false;
   int _hora = 7;
@@ -1436,7 +1443,9 @@ class _DevocionalTabState extends State<_DevocionalTab> {
   @override
   void initState() {
     super.initState();
-    _devHistorySearchCtrl.addListener(() => setState(() {}));
+    _devHistorySearchCtrl.addListener(
+      () => _devHistorySearchDebounce.schedule(_devHistorySearchCtrl.text),
+    );
     _load();
   }
 
@@ -1455,6 +1464,7 @@ class _DevocionalTabState extends State<_DevocionalTab> {
 
   @override
   void dispose() {
+    _devHistorySearchDebounce.dispose();
     _devHistorySearchCtrl.dispose();
     _devScrollCtrl.dispose();
     _tituloCtrl.dispose();
@@ -1974,7 +1984,7 @@ class _DevocionalTabState extends State<_DevocionalTab> {
                     .doc(widget.tenantId)
                     .collection('devocional_envios')
                     .limit(200)
-                    .snapshots(),
+                    .watchSafe(),
                 builder: (context, snap) {
                   if (snap.hasError) {
                     return Padding(

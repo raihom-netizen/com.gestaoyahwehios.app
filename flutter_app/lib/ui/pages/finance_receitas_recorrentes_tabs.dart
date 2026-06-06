@@ -1326,7 +1326,7 @@ class _FinanceConciliacaoReceitasTabState
             stream: _fin
                 .where('pendenteConciliacaoRecorrencia', isEqualTo: true)
                 .where('competencia', isEqualTo: _competencia)
-                .snapshots(),
+                .watchSafe(),
             builder: (context, snap) {
               if (snap.hasError) {
                 return ChurchPanelErrorBody(

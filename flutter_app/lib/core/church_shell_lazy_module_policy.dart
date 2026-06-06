@@ -3,8 +3,8 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 
 /// Política de módulos do painel — carregar sob demanda (menos RAM / arranque rápido).
 ///
-/// **Mobile:** atalhos do rodapé (Painel, Membros, Eventos, Avisos, Chat) permanecem
-/// montados no [IndexedStack] — troca instantânea (padrão Controle Total).
+/// **Mobile:** só o atalho **ativo** do rodapé fica montado — liberta RAM e streams
+/// dos outros módulos (teclado fluido em Eventos/Avisos/Chat).
 /// Módulos só do menu lateral desmontam ao sair.
 ///
 /// **Desktop:** [IndexedStack] mantém só páginas já visitadas (cache por índice).
@@ -34,8 +34,7 @@ abstract final class ChurchShellLazyModulePolicy {
   static bool shouldPrefetchOnHover(int index) =>
       !kIsWeb && heavyModuleIndices.contains(index);
 
-  static bool keepMountedOnMobile(int index) =>
-      mobileFooterIndices.contains(index);
+  static bool keepMountedOnMobile(int index) => false;
 
   static bool isMobileFooterTab(int index) =>
       mobileFooterIndices.contains(index);

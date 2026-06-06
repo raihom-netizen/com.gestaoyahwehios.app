@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/core/marketing_official_config.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Barra de canais oficiais Gestão YAHWEH (site de divulgação, login app).
 /// Lê `config/marketing_official` em tempo real; se ausente ou campo vazio, usa [AppConstants].
@@ -62,7 +63,7 @@ class YahwehOfficialSocialChannelsBar extends StatelessWidget {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .doc(MarketingOfficialConfig.firestoreDocPath)
-          .snapshots(),
+          .watchSafe(),
       builder: (context, snap) {
         final data = snap.data?.data();
         final instagram =

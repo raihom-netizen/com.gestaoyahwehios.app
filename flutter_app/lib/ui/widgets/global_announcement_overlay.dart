@@ -7,6 +7,7 @@ import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Opções compartilhadas: http(s), URLs «soltas» (domínio com ponto) e e-mail.
 const LinkifyOptions kGlobalAnnouncementLinkifyOptions = LinkifyOptions(
@@ -49,7 +50,7 @@ class _GlobalAnnouncementOverlayState extends State<GlobalAnnouncementOverlay> {
     super.initState();
     _annSub = FirebaseFirestore.instance
         .doc('config/global_announcement')
-        .snapshots()
+        .watchSafe()
         .listen(_onAnnouncementSnap, onError: (_) {});
   }
 

@@ -24,6 +24,7 @@ import '../../widgets/mp_checkout_embed.dart';
 import '../../widgets/primary_button.dart';
 import 'package:gestao_yahweh/utils/mp_web_checkout_redirect.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 String _money(double v) =>
     'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
@@ -454,7 +455,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     _churchBillingSub = FirebaseFirestore.instance
         .collection('igrejas')
         .doc(tenantId)
-        .snapshots()
+        .watchSafe()
         .listen((snap) {
       _applyChurchBillingSnapshot(snap.data());
     }, onError: (_) {});

@@ -9,6 +9,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:gestao_yahweh/jimsabores_frota/core/frota_firestore_paths.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 class RelatoriosPage extends StatefulWidget {
   const RelatoriosPage({super.key});
@@ -281,7 +282,7 @@ class _RelatoriosPageState extends State<RelatoriosPage> {
                 child: StreamBuilder<QuerySnapshot>(
                   stream: FrotaFirestorePaths.abastecimentos()
                       .orderBy('data_hora', descending: true)
-                      .snapshots(),
+                      .watchSafe(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                     

@@ -23,12 +23,11 @@ abstract final class ChurchShellIndices {
   static const int relatorios = 16;
   static const int informacoes = 17;
   static const int aprovacoesRapidas = 18;
-  static const int pastoralComunicacao = 19;
-  static const int financeiro = 20;
-  static const int patrimonio = 21;
-  static const int fornecedores = 22;
-  static const int doacao = 23;
-  static const int chatIgreja = 24;
+  static const int financeiro = 19;
+  static const int patrimonio = 20;
+  static const int fornecedores = 21;
+  static const int doacao = 22;
+  static const int chatIgreja = 23;
 }
 
 /// Compatibilidade com código que importava constantes soltas.

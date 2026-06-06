@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/app_version.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Tela de informações do sistema, resumo geral e sugestões/críticas.
 class SistemaInformacoesPage extends StatefulWidget {
@@ -275,7 +276,7 @@ class _MinhasSugestoesState extends State<_MinhasSugestoes> {
           .collection('suggestions')
           .where('userId', isEqualTo: uid)
           .limit(20)
-          .snapshots(),
+          .watchSafe(),
       builder: (context, snap) {
         if (snap.hasError) {
           return ChurchPanelErrorBody(

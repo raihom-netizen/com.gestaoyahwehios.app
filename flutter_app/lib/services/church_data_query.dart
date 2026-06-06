@@ -51,7 +51,7 @@ abstract final class ChurchDataQuery {
       orderField: orderField,
       descending: descending,
       limit: limit,
-    ).snapshots();
+    ).watchSafe();
   }
 
   /// Stream resiliente (broadcast + último bom) para painel / mural.
@@ -63,13 +63,11 @@ abstract final class ChurchDataQuery {
     int limit = ChurchTenantListLimits.defaultPageSize,
   }) {
     final col = ChurchDataService.tenantCollection(tenantId, collection);
-    return FirestoreStreamUtils.resilientQuery(
-      watchRecentPage(
-        collection: col,
-        orderField: orderField,
-        descending: descending,
-        limit: limit,
-      ),
+    return watchRecentPage(
+      collection: col,
+      orderField: orderField,
+      descending: descending,
+      limit: limit,
     );
   }
 }

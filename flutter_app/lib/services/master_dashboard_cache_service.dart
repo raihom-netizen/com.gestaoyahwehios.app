@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/ui/admin_menu_lateral.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Item da fila de ações do Command Center.
 class MasterActionItem {
@@ -240,7 +241,7 @@ abstract final class MasterDashboardCacheService {
   }
 
   static Stream<MasterDashboardSummary> watchFirestore() {
-    return _firestoreRef.snapshots().map((snap) {
+    return _firestoreRef.watchSafe().map((snap) {
       final data = snap.data();
       if (data == null || data.isEmpty) {
         return const MasterDashboardSummary();

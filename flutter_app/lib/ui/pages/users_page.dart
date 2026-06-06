@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 class UsersPage extends StatefulWidget {
   final String tenantId;
@@ -119,7 +120,7 @@ class _UsersPageState extends State<UsersPage> {
           ),
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: col.snapshots(),
+              stream: col.watchSafe(),
               builder: (context, snap) {
                 if (!snap.hasData) {
                   return const Center(child: CircularProgressIndicator());
