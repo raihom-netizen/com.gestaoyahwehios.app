@@ -74,6 +74,7 @@ import 'package:gestao_yahweh/services/yahweh_observability.dart';
 import 'package:gestao_yahweh/services/domain_daily_hit_service.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_alert_notification_service.dart';
+import 'package:gestao_yahweh/services/panel_notification_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'ui/widgets/ios_payment_unavailable_view.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
@@ -468,17 +469,27 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS)) {
-    try {
-      await ChurchChatAlertNotificationService.instance
-          .registerFcmChatAndroidChannelsForBoot();
-    } catch (_) {}
+    unawaited(
+      PanelNotificationService.instance
+          .registerAndroidChannelsForBoot()
+          .catchError((_) {}),
+    );
+    unawaited(
+      ChurchChatAlertNotificationService.instance
+          .registerFcmChatAndroidChannelsForBoot()
+          .catchError((Object e, StackTrace st) {
+        if (kDebugMode) {
+          debugPrint('FCM chat channels boot: $e\n$st');
+        }
+      }),
+    );
   }
   ensureBrasiliaTimeZoneInitialized();
-  if (kIsWeb) {
-    unawaited(YahwehObservability.ensureInitialized());
-  } else {
-    await YahwehObservability.ensureInitialized();
-  }
+  unawaited(
+    YahwehObservability.ensureInitialized().catchError((Object e, StackTrace st) {
+      if (kDebugMode) debugPrint('YahwehObservability: $e\n$st');
+    }),
+  );
   // Crashlytics: só Android/iOS (evita desktop/web onde o plugin não aplica).
   final crashlyticsOk = !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
@@ -674,13 +685,14 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
     final painelReopen = initialRoute == '/painel' ||
         initialRoute.startsWith('/painel/');
     if (shellFast && painelReopen && !kIsWeb) {
-      try {
-        await PanelPreheatCoordinator.preheatOnce().timeout(
+      unawaited(
+        PanelPreheatCoordinator.preheatOnce().timeout(
           const Duration(seconds: 2),
-        );
-      } on TimeoutException {
-        // UI abre com cache local; callable continua em background.
-      } catch (_) {}
+          onTimeout: () {},
+        ).catchError((Object e, StackTrace st) {
+          if (kDebugMode) debugPrint('PanelPreheatCoordinator: $e\n$st');
+        }),
+      );
     } else if (painelReopen &&
         (kIsWeb ||
             (AppStartupRoute.isNativeMobile &&

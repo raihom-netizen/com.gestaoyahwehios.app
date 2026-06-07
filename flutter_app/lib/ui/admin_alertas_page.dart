@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
@@ -26,11 +27,13 @@ class _AdminAlertasPageState extends State<AdminAlertasPage> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('alertas')
-          .orderBy('data', descending: true)
-          .limit(200)
-          .get();
+      final snap = await MasterAdminFirestore.query(
+        FirebaseFirestore.instance
+            .collection('alertas')
+            .orderBy('data', descending: true)
+            .limit(200),
+        cacheKey: 'master_alertas',
+      );
       if (mounted) {
         _alertas = snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
         setState(() { _loading = false; _error = null; });
@@ -42,7 +45,7 @@ class _AdminAlertasPageState extends State<AdminAlertasPage> {
           _loading = false;
           _error = e.toString().contains('permission-denied') || e.toString().contains('PERMISSION_DENIED')
               ? 'Sem permissão para acessar alertas. Confirme as regras do Firestore.'
-              : 'Erro ao carregar: $e';
+              : 'Erro ao carregar: ${MasterAdminFirestore.formatLoadError(e)}';
         });
       }
     }
@@ -52,7 +55,10 @@ class _AdminAlertasPageState extends State<AdminAlertasPage> {
     final id = alerta['id'] as String?;
     if (id == null || id.isEmpty) return;
     try {
-      await FirebaseFirestore.instance.collection('alertas').doc(id).update({'lido': true});
+      await MasterAdminFirestore.write(() => FirebaseFirestore.instance
+          .collection('alertas')
+          .doc(id)
+          .update({'lido': true}));
       if (mounted) _load();
     } catch (_) {}
   }

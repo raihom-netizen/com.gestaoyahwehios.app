@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/internal_notification_inbox_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_foreground_notification_snackbar.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 class NotificationsPage extends StatefulWidget {
@@ -288,8 +289,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (_, i) {
         final m = docs[i].data();
-        final title = (m['title'] ?? 'Notificacao').toString();
+        final title = (m['title'] ?? 'Notificação').toString();
         final body = (m['body'] ?? '').toString();
+        final type = (m['type'] ?? '').toString();
+        final module = _moduleFromType(type);
+        final accent = gyModuleAccentColor(module);
         DateTime? dt;
         try {
           dt = (m['createdAt'] as Timestamp).toDate();
@@ -298,16 +302,86 @@ class _NotificationsPageState extends State<NotificationsPage> {
             ? ''
             : '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
         return Card(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: accent.withValues(alpha: 0.22)),
+          ),
           child: ListTile(
-            title: Text(title,
-                style: const TextStyle(fontWeight: FontWeight.w700)),
-            subtitle: Text(
-                [body, dateTxt].where((e) => e.isNotEmpty).join(' • ')),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            leading: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(_iconForType(type), color: accent),
+            ),
+            title: Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (body.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(body, maxLines: 3, overflow: TextOverflow.ellipsis),
+                ],
+                if (dateTxt.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '${gyModuleLabel(module)} • $dateTxt',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         );
       },
     );
+  }
+
+  String _moduleFromType(String type) {
+    switch (type) {
+      case 'novo_aviso':
+        return 'aviso';
+      case 'novo_evento':
+        return 'evento';
+      case 'nova_escala':
+      case 'escala_publicada':
+        return 'escala';
+      case 'aniversariantes_dia':
+        return 'aniversario';
+      case 'novo_membro':
+        return 'membro';
+      default:
+        return 'generico';
+    }
+  }
+
+  IconData _iconForType(String type) {
+    switch (type) {
+      case 'novo_aviso':
+        return Icons.campaign_rounded;
+      case 'novo_evento':
+        return Icons.event_rounded;
+      case 'nova_escala':
+      case 'escala_publicada':
+        return Icons.calendar_month_rounded;
+      case 'aniversariantes_dia':
+        return Icons.cake_rounded;
+      case 'novo_membro':
+        return Icons.person_add_alt_1_rounded;
+      default:
+        return Icons.notifications_active_rounded;
+    }
   }
 }

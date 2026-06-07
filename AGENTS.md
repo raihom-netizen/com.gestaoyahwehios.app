@@ -8,6 +8,7 @@ Este repositório usa **regras persistentes** em `.cursor/rules/` e o manual **`
 2. Aplicar sempre a regra **`prompt-mestre-arquitetura.mdc`** (`alwaysApply: true`).
 3. Evoluir serviços existentes — **não** criar duplicatas (`regra-mestra-projeto.mdc`).
 4. Responder em **português**; alterações **focadas** e mínimas.
+5. **Build/deploy só com pedido explícito ao final** — não publicar nem rodar `deploy_completo.ps1` / hosting / regras por iniciativa própria (`sem-deploy-sem-pedido-explicito.mdc`, `deploy-so-ao-final.mdc`).
 
 ## Referência rápida
 

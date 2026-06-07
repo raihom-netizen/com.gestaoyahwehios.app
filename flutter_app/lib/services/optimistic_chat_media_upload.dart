@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 
 import 'package:gestao_yahweh/services/church_chat_media_prepare.dart';
 
+import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
@@ -933,6 +934,8 @@ abstract final class OptimisticChatMediaUpload {
 
     String? thumbUrl,
 
+    int? fileSize,
+
     String? uploadDocId,
 
     required void Function(double progress) reportProgress,
@@ -942,6 +945,8 @@ abstract final class OptimisticChatMediaUpload {
   }) async {
 
     reportProgress(0.94);
+
+    final resolvedSize = fileSize ?? _byteSizeForPending(pending);
 
     await ChurchChatService.completeMediaUploadMessageWithRetry(
 
@@ -955,9 +960,13 @@ abstract final class OptimisticChatMediaUpload {
 
       storagePath: storagePath,
 
-      fileName: pending.kind == 'document' ? pending.fileName : null,
+      fileName: ChurchChatMessageFields.isDocumentType(pending.kind)
+          ? pending.fileName
+          : null,
 
       thumbUrl: thumbUrl,
+
+      fileSize: resolvedSize,
 
     );
     ChurchPublishFlowLog.chatFileUploaded();
@@ -980,6 +989,19 @@ abstract final class OptimisticChatMediaUpload {
 
     onSuccess();
 
+  }
+
+  static int? _byteSizeForPending(ChurchChatOutboundPending pending) {
+    final preview = pending.previewBytes;
+    if (preview != null && preview.isNotEmpty) return preview.length;
+    if (kIsWeb) return null;
+    final path = pending.localPath?.trim() ?? '';
+    if (path.isEmpty) return null;
+    try {
+      return File(path).lengthSync();
+    } catch (_) {
+      return null;
+    }
   }
 
 

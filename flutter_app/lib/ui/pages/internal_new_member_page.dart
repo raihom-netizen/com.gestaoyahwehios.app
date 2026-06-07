@@ -5,13 +5,11 @@ import 'package:cloud_functions/cloud_functions.dart'
     show FirebaseFunctions, FirebaseFunctionsException;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
-import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
@@ -230,33 +228,6 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     });
   }
 
-  /// Path canónico `foto_perfil.jpg` (sobrescreve). Novo membro: sem artefactos antigos.
-  Future<String> _uploadPhoto(String tenantId, String memberDocId, XFile file) async {
-    final raw = await file.readAsBytes();
-    final bytes = await ImageHelper.compressMemberProfileForUpload(raw);
-    final mid = memberDocId.trim().isEmpty
-        ? 'membro_${DateTime.now().millisecondsSinceEpoch}'
-        : memberDocId.trim();
-    final full = ChurchStorageLayout.memberCanonicalProfilePhotoPath(tenantId, mid);
-    final slash = full.lastIndexOf('/');
-    final folder = full.substring(0, slash);
-    final fileName = full.substring(slash + 1);
-    final uploaded = await FirebaseStorageService.instance.uploadBytes(
-      folder,
-      bytes,
-      fileName: fileName,
-      contentType: file.mimeType ?? 'image/jpeg',
-    );
-    if (uploaded == null || uploaded.isEmpty) {
-      throw Exception('Falha ao enviar foto para o Storage.');
-    }
-    FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload(
-      tenantId: tenantId,
-      memberId: mid,
-    );
-    return uploaded;
-  }
-
   /// Avatar automático quando não há upload de foto.
   String _buildAutoAvatarUrl(String docId) {
     final name = _nameCtrl.text.trim().isEmpty ? 'Membro' : _nameCtrl.text.trim();
@@ -425,14 +396,11 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       }
 
       final ref = col.doc(uid);
-      String? photoStoragePathField;
-      final photoUrl = _photoFile != null
-          ? await _uploadPhoto(widget.tenantId, ref.id, _photoFile!)
+      final photoBytes =
+          _photoFile != null ? await _photoFile!.readAsBytes() : null;
+      final photoUrl = photoBytes != null
+          ? ''
           : _buildAutoAvatarUrl(ref.id);
-      if (_photoFile != null) {
-        photoStoragePathField = ChurchStorageLayout.memberCanonicalProfilePhotoPath(
-            widget.tenantId, ref.id);
-      }
       final age = _calcAge(birthParsed) ?? 0;
       final ageRange = _ageRange(age);
       final alias = _tenantAlias.isNotEmpty ? _tenantAlias : widget.tenantId;
@@ -467,13 +435,13 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         'PROFISSAO': _profissaoCtrl.text.trim(),
         'NOME_CONJUGE': _conjugeCtrl.text.trim(),
         'DEPARTAMENTOS': <String>[],
-        'foto_url': photoUrl,
-        'FOTO_URL_OU_ID': photoUrl,
-        'fotoUrl': photoUrl,
-        'photoURL': photoUrl,
-        'avatarUrl': photoUrl,
-        if (photoStoragePathField != null)
-          'photoStoragePath': photoStoragePathField,
+        'foto_url': photoUrl.isNotEmpty ? photoUrl : null,
+        'FOTO_URL_OU_ID': photoUrl.isNotEmpty ? photoUrl : null,
+        'fotoUrl': photoUrl.isNotEmpty ? photoUrl : null,
+        'photoURL': photoUrl.isNotEmpty ? photoUrl : null,
+        'avatarUrl': photoUrl.isNotEmpty ? photoUrl : _buildAutoAvatarUrl(ref.id),
+        if (photoBytes != null)
+          ...MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
         'PUBLIC_SIGNUP': false,
         'STATUS': 'ativo',
         'status': 'ativo',
@@ -489,6 +457,14 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       };
 
       await ref.set(data);
+      if (photoBytes != null && photoBytes.isNotEmpty) {
+        MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
+          tenantId: widget.tenantId,
+          memberDocId: ref.id,
+          memberData: data,
+          rawBytes: photoBytes,
+        );
+      }
       unawaited(DashboardStatsCounterService.onMemberCreated(widget.tenantId));
       FirebaseStorageService.invalidateMemberPhotoCache(
         tenantId: widget.tenantId,

@@ -55,7 +55,7 @@ if (-not $SkipFunctions) {
     }
     npm run build 2>&1 | ForEach-Object { Write-Host $_ }
     Pop-Location
-    firebase deploy --only functions:ensureBrasilParaCristoAccess,functions:syncGestorBrasilParaCristo,functions:seedGestorBrasilParaCristo,functions:getChurchPanelSnapshot,functions:getMasterDashboardSnapshot,functions:getMasterChurchesList,functions:scheduledRefreshMasterChurchesList,functions:scheduledRefreshMasterDashboard,functions:resolveStorageDisplayUrls --force 2>&1 | ForEach-Object { Write-Host $_ }
+    firebase deploy --only functions:ensureBrasilParaCristoAccess,functions:syncChurchClusterDataFromRichest,functions:syncChurchMercadoPagoFromCluster,functions:syncGestorBrasilParaCristo,functions:seedGestorBrasilParaCristo,functions:getChurchPanelSnapshot,functions:getMasterDashboardSnapshot,functions:getMasterChurchesList,functions:scheduledRefreshMasterChurchesList,functions:scheduledRefreshMasterDashboard,functions:resolveStorageDisplayUrls --force 2>&1 | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) { Note-StepFailure 'Functions parciais: verifique login firebase.' }
 }
 

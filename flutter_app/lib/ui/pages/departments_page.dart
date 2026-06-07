@@ -42,6 +42,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 
 class DepartmentsPage extends StatefulWidget {
   final String tenantId;
@@ -164,7 +165,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       final snap = await ChurchTenantResilientReads.departamentos(
         seed,
         limit: 120,
-      ).timeout(const Duration(milliseconds: 1800));
+      ).timeout(
+        const Duration(seconds: 6),
+        onTimeout: () => const MergedFirestoreQuerySnapshot([]),
+      );
       if (!mounted) return;
       if (snap.docs.isNotEmpty) {
         _DepartmentsRamCache.put(seed, snap.docs);
@@ -3701,9 +3705,15 @@ class _DepartmentHubSheet extends StatelessWidget {
             ),
             IconButton(
               tooltip: 'WhatsApp',
-              onPressed: () => onWhatsApp(data),
-              icon: const FaIcon(FontAwesomeIcons.whatsapp,
-                  color: Color(0xFF25D366), size: 22),
+              onPressed: () => unawaited(
+                ChurchMemberContactChat.openWhatsAppFaleComigo(
+                  context,
+                  data,
+                  tenantId: tenantId,
+                  memberDocId: doc.id,
+                ),
+              ),
+              icon: const WhatsappBrandIcon(size: 22),
             ),
             if (canWrite && cpf.length == 11)
               IconButton(
@@ -3793,22 +3803,29 @@ class _DepartmentHubSheet extends StatelessWidget {
           children: [
             IconButton(
               tooltip: 'Chat Igreja',
-              onPressed: () => ChurchMemberContactChat.openChatIgreja(
+              onPressed: () => ChurchMemberContactChat.openChatIgrejaUnawaited(
                 context: context,
                 tenantId: tenantId,
                 memberRole: memberRole,
                 viewerCpfDigits: '',
                 memberData: data,
                 displayName: _nomeMembro(doc),
+                memberDocId: doc.id,
               ),
               icon: Icon(Icons.forum_rounded,
                   color: ThemeCleanPremium.primary, size: 20),
             ),
             IconButton(
               tooltip: 'WhatsApp',
-              onPressed: () => onWhatsApp(data),
-              icon: const FaIcon(FontAwesomeIcons.whatsapp,
-                  color: Color(0xFF25D366), size: 20),
+              onPressed: () => unawaited(
+                ChurchMemberContactChat.openWhatsAppFaleComigo(
+                  context,
+                  data,
+                  tenantId: tenantId,
+                  memberDocId: doc.id,
+                ),
+              ),
+              icon: const WhatsappBrandIcon(size: 20),
             ),
             if (canWrite)
               IconButton(

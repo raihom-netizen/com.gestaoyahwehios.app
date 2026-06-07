@@ -28,6 +28,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
+import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
@@ -279,11 +280,18 @@ List<String> _fotoUrlsFromData(Map<String, dynamic> m) {
   return (urls: outUrls, paths: outPaths);
 }
 
-/// Miniatura na lista/galeria: prefere o primeiro slot com URL http(s) (evita `getDownloadURL` só com path).
+/// Miniatura na lista/galeria: prefere campo [thumbnail], depois 1.ª URL http(s).
 ({String url, String? path}) _patrimonioThumbFromSlots(
   List<String> urls,
-  List<String?> paths,
-) {
+  List<String?> paths, {
+  String? thumbnailUrl,
+}) {
+  final thumbField = sanitizeImageUrl((thumbnailUrl ?? '').trim());
+  if (thumbField.isNotEmpty &&
+      isValidImageUrl(thumbField) &&
+      (thumbField.startsWith('https://') || thumbField.startsWith('http://'))) {
+    return (url: thumbField, path: null);
+  }
   if (urls.isEmpty) return (url: '', path: null);
   for (var i = 0; i < urls.length; i++) {
     final pu = sanitizeImageUrl(urls[i]);
@@ -2349,7 +2357,11 @@ class _BensTabState extends State<_BensTab> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
   /// Lista compacta por padrão; galeria em grade se o utilizador alternar.
   bool _galleryView = false;
-  int _patrimonioFetchLimit = YahwehPerformanceV4.patrimonioListPageSize;
+  static const int _pageSize = YahwehPerformanceV4.patrimonioListPageSize;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> _loadedDocs = [];
+  DocumentSnapshot<Map<String, dynamic>>? _lastCursor;
+  bool _hasMorePages = true;
+  bool _isLoadingMore = false;
 
   /// `nome` — ordem alfabética; `aquisicao` / `conferencia` — mais recente primeiro (sem data por último).
   String _sortMode = 'nome';
@@ -2428,25 +2440,66 @@ class _BensTabState extends State<_BensTab> {
 
   String get _tenantId => widget.col.parent?.id ?? '';
 
-  /// Leitura resiliente (Controle Total) — evita `client has already been terminated` na web.
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioResilient() async {
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioInitial() async {
     final tid = _tenantId;
     if (tid.isEmpty) {
       return const MergedFirestoreQuerySnapshot([]);
     }
-    return FirestoreWebGuard.runWithWebRecovery(
+    final snap = await FirestoreWebGuard.runWithWebRecovery(
       () => ChurchTenantResilientReads.patrimonio(
         tid,
-        limit: _patrimonioFetchLimit,
+        limit: _pageSize,
       ),
     );
+    final docs =
+        snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
+    _loadedDocs
+      ..clear()
+      ..addAll(docs);
+    _lastCursor = docs.isNotEmpty ? docs.last : null;
+    _hasMorePages = docs.length >= _pageSize;
+    return MergedFirestoreQuerySnapshot(_loadedDocs);
   }
 
-  void _loadMorePatrimonio() {
-    setState(() {
-      _patrimonioFetchLimit += YahwehPerformanceV4.patrimonioListPageSize;
-      _future = _loadPatrimonioResilient();
-    });
+  /// Leitura resiliente (Controle Total) — evita `client has already been terminated` na web.
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioResilient() async {
+    return _loadPatrimonioInitial();
+  }
+
+  Future<void> _loadMorePatrimonio() async {
+    if (_isLoadingMore || !_hasMorePages || _lastCursor == null) return;
+    final tid = _tenantId;
+    if (tid.isEmpty) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final page = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchTenantResilientReads.patrimonioPage(
+          tid,
+          limit: _pageSize,
+          startAfter: _lastCursor,
+        ),
+      );
+      if (!mounted) return;
+      final idSeen = {for (final d in _loadedDocs) d.id};
+      for (final d in page.docs) {
+        if (idSeen.add(d.id)) {
+          _loadedDocs.add(d);
+        }
+      }
+      _lastCursor =
+          page.docs.isNotEmpty ? page.docs.last : _lastCursor;
+      _hasMorePages = page.docs.length >= _pageSize;
+      _PatrimonioRamCache.store(tid, MergedFirestoreQuerySnapshot(_loadedDocs));
+      setState(() {
+        _future = Future.value(MergedFirestoreQuerySnapshot(_loadedDocs));
+      });
+    } catch (e, st) {
+      unawaited(
+        CrashlyticsService.record(e, st, reason: 'patrimonio_load_more'),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoadingMore = false);
+    }
   }
 
   /// Cache Hive/rede — primeira pintura rápida; refresh em background.
@@ -3087,11 +3140,13 @@ class _BensTabState extends State<_BensTab> {
                   ),
                 ),
               );
-              if (allDocs.length >= _patrimonioFetchLimit && q.isEmpty) {
+              if (_hasMorePages && q.isEmpty) {
                 contentSlivers.add(
                   SliverToBoxAdapter(
                     child: LazyLoadMoreFooter(
                       label: 'Carregar mais bens',
+                      loading: _isLoadingMore,
+                      visible: _hasMorePages,
                       onLoadMore: _loadMorePatrimonio,
                     ),
                   ),
@@ -3132,6 +3187,18 @@ class _BensTabState extends State<_BensTab> {
                   ),
                 ),
               );
+              if (_hasMorePages && q.isEmpty) {
+                contentSlivers.add(
+                  SliverToBoxAdapter(
+                    child: LazyLoadMoreFooter(
+                      label: 'Carregar mais bens',
+                      loading: _isLoadingMore,
+                      visible: _hasMorePages,
+                      onLoadMore: _loadMorePatrimonio,
+                    ),
+                  ),
+                );
+              }
             }
 
             return CustomScrollView(
@@ -3194,7 +3261,11 @@ class _PatrimonioCard extends StatelessWidget {
     final stColor = statusColor(status);
     final slots = _patrimonioCarouselSlotsFromData(m);
     final hasPhoto = slots.urls.isNotEmpty;
-    final thumb = _patrimonioThumbFromSlots(slots.urls, slots.paths);
+    final thumb = _patrimonioThumbFromSlots(
+      slots.urls,
+      slots.paths,
+      thumbnailUrl: (m['thumbnail'] ?? '').toString(),
+    );
     final thumbUrl = thumb.url;
     final thumbPath = thumb.path;
     final dprList = MediaQuery.devicePixelRatioOf(context);
@@ -3527,7 +3598,11 @@ class _PatrimonioGalleryTile extends StatelessWidget {
     final stColor = statusColor(status);
     final slots = _patrimonioCarouselSlotsFromData(m);
     final hasPhoto = slots.urls.isNotEmpty;
-    final thumb = _patrimonioThumbFromSlots(slots.urls, slots.paths);
+    final thumb = _patrimonioThumbFromSlots(
+      slots.urls,
+      slots.paths,
+      thumbnailUrl: (m['thumbnail'] ?? '').toString(),
+    );
     final thumbUrl = thumb.url;
     final thumbPath = thumb.path;
     final dpr = MediaQuery.devicePixelRatioOf(context);
@@ -7578,6 +7653,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           if (paths.isNotEmpty) 'fotoStoragePaths': paths,
           if (urls.isNotEmpty) 'imageUrl': urls.first,
           if (urls.isNotEmpty) 'defaultImageUrl': urls.first,
+          if (urls.isNotEmpty) 'thumbnail': urls.first,
           if (paths.isNotEmpty) 'imageStoragePath': paths.first,
           'atualizadoEm': FieldValue.serverTimestamp(),
         };

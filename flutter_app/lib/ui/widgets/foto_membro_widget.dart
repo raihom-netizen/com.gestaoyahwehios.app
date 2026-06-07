@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -62,7 +63,16 @@ class FotoMembroWidget extends StatelessWidget {
     this.preferListThumbnail = false,
   });
 
-  static String? _mergedMemberImageUrl(String? imageUrl, Map<String, dynamic> d) {
+  static String? _mergedMemberImageUrl(
+    String? imageUrl,
+    Map<String, dynamic> d, {
+    bool preferThumb = false,
+  }) {
+    if (preferThumb) {
+      final t = MemberProfileVariantsService.listPhotoUrl(d);
+      if (t != null && t.isNotEmpty) return t;
+      return null;
+    }
     final u = imageUrl?.trim();
     if (u != null && u.isNotEmpty) return u;
     final m = imageUrlFromMap(d);
@@ -119,8 +129,13 @@ class FotoMembroWidget extends StatelessWidget {
               .trim()
           : '';
       final nomeOpt = nomeCompletoMd.isEmpty ? null : nomeCompletoMd;
-      final merged =
-          md != null ? _mergedMemberImageUrl(imageUrl, md) : imageUrl?.trim();
+      final merged = md != null
+          ? _mergedMemberImageUrl(
+              imageUrl,
+              md,
+              preferThumb: preferListThumbnail,
+            )
+          : (preferListThumbnail ? null : imageUrl?.trim());
       final authRaw =
           md != null ? _authUidFromData(md, authUid) : authUid?.trim();
       final authOpt =

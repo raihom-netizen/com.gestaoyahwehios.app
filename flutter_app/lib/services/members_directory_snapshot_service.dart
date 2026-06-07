@@ -10,6 +10,7 @@ class MemberDirectoryEntry {
     required this.memberDocId,
     required this.displayName,
     this.photoUrl,
+    this.photoThumbUrl,
     this.fotoUrlCacheRevision = 0,
     this.authUid,
     this.cpfDigits,
@@ -28,6 +29,7 @@ class MemberDirectoryEntry {
   final String memberDocId;
   final String displayName;
   final String? photoUrl;
+  final String? photoThumbUrl;
   final int fotoUrlCacheRevision;
   final String? authUid;
   final String? cpfDigits;
@@ -50,12 +52,17 @@ class MemberDirectoryEntry {
     }
 
     Timestamp? ts(dynamic v) => v is Timestamp ? v : null;
-    final photo = (raw['photoUrl'] ?? '').toString().trim();
+    final photo = (raw['photoUrl'] ?? raw['fotoUrl'] ?? '').toString().trim();
+    final thumb =
+        (raw['photoThumbUrl'] ?? raw['fotoThumbUrl'] ?? raw['photoThumb'] ?? '')
+            .toString()
+            .trim();
 
     return MemberDirectoryEntry(
       memberDocId: (raw['memberDocId'] ?? '').toString(),
       displayName: (raw['displayName'] ?? 'Membro').toString(),
       photoUrl: photo.isEmpty ? null : photo,
+      photoThumbUrl: thumb.isEmpty ? null : thumb,
       fotoUrlCacheRevision: n(raw['fotoUrlCacheRevision']),
       authUid: (raw['authUid'] ?? '').toString().trim().isEmpty
           ? null
@@ -86,12 +93,18 @@ class MemberDirectoryEntry {
 
   /// Mapa compatível com filtros / [FotoMembroWidget] da lista de membros.
   Map<String, dynamic> toMemberDataMap() {
+    final thumb = (photoThumbUrl != null && photoThumbUrl!.isNotEmpty)
+        ? photoThumbUrl
+        : photoUrl;
     return <String, dynamic>{
       'NOME_COMPLETO': displayName,
       if (photoUrl != null && photoUrl!.isNotEmpty) ...{
         'fotoUrl': photoUrl,
-        'photoThumb': photoUrl,
-        'photoMedium': photoUrl,
+        'FOTO_URL_OU_ID': photoUrl,
+      },
+      if (thumb != null && thumb.isNotEmpty) ...{
+        'fotoThumbUrl': thumb,
+        'photoThumb': thumb,
       },
       if (fotoUrlCacheRevision > 0)
         'fotoUrlCacheRevision': fotoUrlCacheRevision,

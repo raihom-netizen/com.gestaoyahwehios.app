@@ -402,61 +402,65 @@ class FirebaseStorageService {
     }
 
     final paths = <String>[];
+    void addThumbForStem(String stem) {
+      final s = stem.trim();
+      if (s.isEmpty) return;
+      paths.addAll([
+        ChurchStorageLayout.memberProfileThumbPath(tid, s),
+        ChurchStorageLayout.memberProfileThumbWebpPathLegacy(tid, s),
+        ChurchStorageLayout.memberProfileResizeThumbPath(tid, s),
+        'igrejas/$tid/membros/$s/thumb_foto_perfil_thumb.jpg',
+        'igrejas/$tid/membros/$s/thumb_foto_perfil_card.jpg',
+      ]);
+    }
+
     if (preferListThumbnail) {
-      void addThumbForStem(String stem) {
-        final s = stem.trim();
-        if (s.isEmpty) return;
-        paths.addAll([
-          ChurchStorageLayout.memberProfileResizeThumbPath(tid, s),
-          'igrejas/$tid/membros/$s/thumb_foto_perfil_thumb.jpg',
-          'igrejas/$tid/membros/$s/thumb_foto_perfil_card.jpg',
-        ]);
-      }
       for (final stem in orderedStems) {
         addThumbForStem(stem);
       }
       addThumbForStem(mid);
       if (cpf.length == 11) addThumbForStem(cpf);
       if (authNorm.isNotEmpty) addThumbForStem(authNorm);
-    }
-    if (authNorm.isNotEmpty) {
-      final cAuth = ChurchStorageLayout.memberCanonicalProfilePhotoPath(tid, authNorm);
-      final base = cAuth.substring(0, cAuth.length - 4);
-      paths.addAll([
-        cAuth,
-        '$base.jpeg',
-        '$base.png',
-        '$base.webp',
-      ]);
-    }
-    final canon = ChurchStorageLayout.memberCanonicalProfilePhotoPath(tid, mid);
-    final canonBase = canon.substring(0, canon.length - 4);
-    paths.addAll([
-      canon,
-      '$canonBase.jpeg',
-      '$canonBase.png',
-      '$canonBase.webp',
-    ]);
-    for (final stem in orderedStems) {
-      paths.addAll([
-        'igrejas/$tid/membros/$stem/foto_perfil.jpg',
-        'igrejas/$tid/membros/$stem/foto_perfil.webp',
-        'igrejas/$tid/membros/$stem/foto_perfil.jpeg',
-        'igrejas/$tid/membros/$stem/foto_perfil.png',
-        'igrejas/$tid/membros/$stem/foto_perfil_full.jpg',
-        'igrejas/$tid/membros/$stem/foto_perfil_card.jpg',
-        'igrejas/$tid/membros/$stem/foto_perfil_thumb.jpg',
-        'igrejas/$tid/membros/${stem}_gestor.jpg',
-        'igrejas/$tid/membros/$stem.jpg',
-        'igrejas/$tid/membros/$stem.jpeg',
-        'igrejas/$tid/membros/$stem.png',
-        'igrejas/$tid/membros/${stem}_full.jpg',
-        'igrejas/$tid/membros/${stem}_card.jpg',
-        'igrejas/$tid/membros/${stem}_thumb.jpg',
-        'igrejas/$tid/members/$stem.jpg',
-        'igrejas/$tid/members/$stem.jpeg',
-        'igrejas/$tid/members/$stem.png',
-      ]);
+    } else {
+      void addFullForStem(String stem) {
+        final s = stem.trim();
+        if (s.isEmpty) return;
+        paths.add(ChurchStorageLayout.memberProfilePhotoPath(tid, s));
+        final legacy =
+            ChurchStorageLayout.memberCanonicalProfilePhotoPathLegacy(tid, s);
+        paths.add(legacy);
+        final base = legacy.substring(0, legacy.length - 4);
+        paths.addAll([
+          '$base.jpeg',
+          '$base.png',
+          '$base.webp',
+        ]);
+      }
+      if (authNorm.isNotEmpty) {
+        addFullForStem(authNorm);
+      }
+      addFullForStem(mid);
+      for (final stem in orderedStems) {
+        paths.addAll([
+          'igrejas/$tid/membros/$stem/foto_perfil.jpg',
+          'igrejas/$tid/membros/$stem/foto_perfil.webp',
+          'igrejas/$tid/membros/$stem/foto_perfil.jpeg',
+          'igrejas/$tid/membros/$stem/foto_perfil.png',
+          'igrejas/$tid/membros/$stem/foto_perfil_full.jpg',
+          'igrejas/$tid/membros/$stem/foto_perfil_card.jpg',
+          'igrejas/$tid/membros/$stem/foto_perfil_thumb.jpg',
+          'igrejas/$tid/membros/${stem}_gestor.jpg',
+          'igrejas/$tid/membros/$stem.jpg',
+          'igrejas/$tid/membros/$stem.jpeg',
+          'igrejas/$tid/membros/$stem.png',
+          'igrejas/$tid/membros/${stem}_full.jpg',
+          'igrejas/$tid/membros/${stem}_card.jpg',
+          'igrejas/$tid/membros/${stem}_thumb.jpg',
+          'igrejas/$tid/members/$stem.jpg',
+          'igrejas/$tid/members/$stem.jpeg',
+          'igrejas/$tid/members/$stem.png',
+        ]);
+      }
     }
     // Vários caminhos legados: falha (objeto inexistente) costuma ser rápida — timeout curto.
     // Lotes em paralelo reduzem espera na lista de membros (antes: sequencial × 8s).

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Igreja leve para o Painel Master (Lista Igrejas).
@@ -161,6 +162,7 @@ abstract final class MasterChurchesListService {
 
   /// Índice → callable → query directa (servidor). Memória compartilhada entre telas.
   static Future<List<MasterChurchListItem>> loadFast({bool force = false}) async {
+    await MasterAdminFirestore.ensureReady();
     if (force) invalidateMemory();
 
     if (!force &&
@@ -168,6 +170,12 @@ abstract final class MasterChurchesListService {
         _memCachedAt != null &&
         DateTime.now().difference(_memCachedAt!) < _memTtl) {
       return _memCache!;
+    }
+
+    // Após licença/bloqueio: ler documentos reais (índice pode estar defasado).
+    if (force) {
+      final direct = await _loadDirectFallback(forceServer: true);
+      if (direct.isNotEmpty) return direct;
     }
 
     var indexed = await readFirestoreIndex(forceServer: force);

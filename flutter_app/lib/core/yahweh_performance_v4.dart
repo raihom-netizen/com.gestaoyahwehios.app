@@ -14,11 +14,17 @@ abstract final class YahwehPerformanceV4 {
   static const int webpQuality = 80;
   static const int uploadMaxEdgePx = 1200;
 
-  // ——— Fotos de perfil ———
+  // ——— Fotos de perfil (membros) ———
+  static const int profileFullEdge = 1024;
   static const int profileThumbEdge = 200;
-  static const int profileMediumEdge = 500;
-  static const String profileThumbField = 'photoThumb';
-  static const String profileMediumField = 'photoMedium';
+  static const int profileFullQuality = 80;
+  static const int profileThumbQuality = 70;
+  /// Campos canónicos Firestore.
+  static const String profileThumbField = 'fotoThumbUrl';
+  static const String profileFullField = 'fotoUrl';
+  /// Legado (leitura).
+  static const String profileThumbFieldLegacy = 'photoThumb';
+  static const String profileMediumFieldLegacy = 'photoMedium';
   static const String profileThumbFile = 'profile_thumb.webp';
   static const String profileMediumFile = 'profile_medium.webp';
 
@@ -37,7 +43,7 @@ abstract final class YahwehPerformanceV4 {
   static const int financeListInitialLimit = 250;
   static const int financeListPageStep = 100;
   static const int publicFeedPageSize = 20;
-  static const int chatMessagesPageSize = 20;
+  static const int chatMessagesPageSize = 30;
   static const int chatThreadsListLimit = 50;
   static const int chatThreadsFallbackLimit = 30;
   static const int upcomingEventsLimit = 20;
@@ -58,7 +64,7 @@ abstract final class YahwehPerformanceV4 {
   static const int memberCardListPageSize = 40;
   static const int memberCardSignatoryQueryLimit = 24;
   static const int memberCardPdfPhotoParallel = 8;
-  static const int patrimonioListPageSize = 40;
+  static const int patrimonioListPageSize = 20;
   static const int financeSummaryFirstLimit = 20;
 
   // ——— Pré-carregamento ———

@@ -7,7 +7,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
+import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
@@ -86,31 +87,29 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
       _loadError = null;
     });
     try {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-      final igSnap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .orderBy('nome')
-          .limit(YahwehPerformanceV4.masterChurchesListLimit)
-          .get();
+      final churches = await MasterChurchesListService.loadFast();
       final map = <String, String>{};
-      for (final d in igSnap.docs) {
-        final n =
-            (d.data()['name'] ?? d.data()['nome'] ?? d.id).toString().trim();
-        map[d.id] = n.isEmpty ? d.id : n;
+      for (final c in churches) {
+        final n = (c.data['name'] ?? c.data['nome'] ?? c.id).toString().trim();
+        map[c.id] = n.isEmpty ? c.id : n;
       }
 
       QuerySnapshot<Map<String, dynamic>> usersSnap;
       try {
-        usersSnap = await FirebaseFirestore.instance
-            .collection('users')
-            .orderBy('lastClientPlatformAt', descending: true)
-            .limit(_usersQueryLimit)
-            .get();
+        usersSnap = await MasterAdminFirestore.query(
+          FirebaseFirestore.instance
+              .collection('users')
+              .orderBy('lastClientPlatformAt', descending: true)
+              .limit(_usersQueryLimit),
+          cacheKey: 'master_users_360',
+        );
       } catch (_) {
-        usersSnap = await FirebaseFirestore.instance
-            .collection('users')
-            .limit(_usersQueryLimit)
-            .get();
+        usersSnap = await MasterAdminFirestore.query(
+          FirebaseFirestore.instance
+              .collection('users')
+              .limit(_usersQueryLimit),
+          cacheKey: 'master_users_360_fallback',
+        );
       }
       final list = usersSnap.docs
           .map((d) => _User360Row(d.id, d.data()))
@@ -136,13 +135,11 @@ class _MasterUsuariosControle360PageState extends State<MasterUsuariosControle36
       });
     } catch (e) {
       if (!mounted) return;
-      final msg = e.toString();
       setState(() {
         _rows = [];
         _usersHasMore = false;
         _loading = false;
-        _loadError =
-            msg.length > 280 ? '${msg.substring(0, 280)}…' : msg;
+        _loadError = MasterAdminFirestore.formatLoadError(e);
       });
     }
   }

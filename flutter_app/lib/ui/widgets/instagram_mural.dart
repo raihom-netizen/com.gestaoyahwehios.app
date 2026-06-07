@@ -4178,11 +4178,71 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   }
 
   Future<void> _waitForInFlightPhotoUploads() async {
-    const maxWait = Duration(seconds: 22);
+    const maxWait = Duration(seconds: 2);
     final deadline = DateTime.now().add(maxWait);
     while (_inFlightPhotoUploads > 0 && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await Future<void>.delayed(const Duration(milliseconds: 80));
     }
+  }
+
+  Future<void> _retryPublishFirestoreFirst() async {
+    await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
+    final docRef = _editorPostRef;
+    final isNewDoc = widget.doc == null && !_draftStubEnsured;
+    final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+    final hasNewImages = _newPhotoCount > 0;
+    var aspectRatio = 1.0;
+    if (!hasNewImages && existingUrls.isNotEmpty) {
+      final prev = widget.doc?.data()?['media_info'];
+      if (prev is Map) {
+        final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+        if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
+      }
+    }
+    if (hasNewImages) {
+      List<Uint8List>? bytes;
+      List<String>? paths;
+      if (kIsWeb) {
+        bytes = await _copyNewImagesForPublish();
+      } else {
+        paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
+      }
+      final n = bytes?.length ?? paths?.length ?? 0;
+      if (n == 0) {
+        throw StateError('Não foi possível ler as fotos para enviar.');
+      }
+      await FeedMediaPublishService.publish(
+        docRef: docRef,
+        tenantId: _editorTenantId,
+        postId: docRef.id,
+        postType: widget.type,
+        corePayload: _buildCorePayload(
+          allUrls: existingUrls,
+          aspectRatio: aspectRatio,
+          isNewDoc: isNewDoc,
+        ),
+        isNewDoc: isNewDoc,
+        existingUrls: existingUrls,
+        startSlotIndex: existingUrls.length,
+        hasVideo: widget.type != kChurchPostTypeAviso &&
+            _videoUrl.text.trim().isNotEmpty,
+        newImagesBytes: bytes,
+        newImagePaths: paths,
+        publicSite: _publicSite,
+      );
+      return;
+    }
+    await FeedMediaPublishService.publishNow(
+      docRef: docRef,
+      payload: _buildCorePayload(
+        allUrls: existingUrls,
+        aspectRatio: aspectRatio,
+        isNewDoc: isNewDoc,
+      ),
+      isNewDoc: isNewDoc,
+      postType: widget.type,
+      publicSite: _publicSite,
+    );
   }
 
   Future<void> _save() async {
@@ -4287,6 +4347,35 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     } catch (e, st) {
       ChurchPublishFlowLog.logCatch(e, st, label: 'mural_save');
       await CrashlyticsService.record(e, st, reason: 'avisos_publish');
+      final msg = e.toString();
+      final isAssertionOrPerm = msg.contains('INTERNAL ASSERTION') ||
+          msg.contains('permission-denied') ||
+          msg.contains('WatchChangeAggregator') ||
+          msg.contains('PersistentListenStream') ||
+          msg.contains('Unexpected state');
+      if (mounted && isAssertionOrPerm) {
+        try {
+          await _retryPublishFirestoreFirst();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
+            );
+            Navigator.pop(context, true);
+          }
+          return;
+        } catch (e2, st2) {
+          ChurchPublishFlowLog.logCatch(e2, st2, label: 'mural_retry');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.errorSnackBarWithRetry(
+                formatUploadErrorForUser(e2),
+                onRetry: _save,
+              ),
+            );
+          }
+          return;
+        }
+      }
       try {
         final failRef = widget.doc?.reference ?? widget.postsCollection.doc();
         await FeedMediaPublishService.markPublishFailed(

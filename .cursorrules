@@ -38,7 +38,13 @@
 - **Melhorias:** quando houver alternativa mais simples, rápida ou alinhada ao stack atual, mencionar brevemente.
 - **Comentários:** apenas onde a lógica não for óbvia; evitar ruído.
 
+### Build e deploy (política permanente do usuário)
+
+- **Não** fazer build nem deploy (parcial ou total) por iniciativa própria durante correções incrementais.
+- **Build parcial** (web, regras, functions, etc.) ou **deploy completo** — **somente** quando o usuário pedir **explicitamente**, de preferência **ao final** de todas as correções da sessão/lista.
+- Regras: `.cursor/rules/sem-deploy-sem-pedido-explicito.mdc` e `deploy-so-ao-final.mdc`.
+
 ### Coerência com o que já existe
 
 - Manter o código modular e limpo; respeitar `.cursor/rules/` (Firebase/imagens, deploy, versão) quando aplicável.
-- **Deploy completo** (pedido explícito): seguir `.cursor/rules/deploy-completo-producao.mdc` — `.\scripts\deploy_completo.ps1` na raiz (Firebase + functions + web + AAB em `D:\Temporarios` + ZIP iOS + `git push` para Codemagic).
+- **Deploy completo** (pedido explícito ao final): seguir `.cursor/rules/deploy-completo-producao.mdc` — `.\scripts\deploy_completo.ps1` na raiz (Firebase + functions + web + AAB em `D:\Temporarios` + ZIP iOS + `git push` para Codemagic).

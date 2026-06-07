@@ -71,9 +71,11 @@ service firebase.storage {
         || request.resource.contentType == '';
     }
 
-    // Cadastro público (web): path canónico `membros/{id}/foto_perfil.jpg` — um segmento + nome fixo
+    // Cadastro público (web): `membros/fotos/{id}.webp` ou legado `foto_perfil.jpg`
     function isMemberCanonicalProfilePhotoPath(p) {
-      return p.matches('^[^/]+/foto_perfil\\.jpg$');
+      return p.matches('^fotos/[^/]+\\.webp$')
+        || p.matches('^thumbs/[^/]+\\.webp$')
+        || p.matches('^[^/]+/foto_perfil\\.jpg$');
     }
 
     // Comprovantes: imagem ou PDF + blob

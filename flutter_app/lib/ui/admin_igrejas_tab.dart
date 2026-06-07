@@ -171,9 +171,14 @@ class _IgrejasTabState extends State<_IgrejasTab> {
   }
 
   Color _paymentChipColor(SubscriptionGuardState s) {
+    if (s.isFree) {
+      if (s.adminBlocked) return const Color(0xFF7C3AED);
+      return const Color(0xFF0D9488);
+    }
     if (s.adminBlocked || s.blocked) return const Color(0xFFDC2626);
-    if (s.inGrace || s.statusAssinatura == 'overdue')
+    if (s.inGrace || s.statusAssinatura == 'overdue') {
       return const Color(0xFFD97706);
+    }
     return const Color(0xFF16A34A);
   }
 
@@ -329,17 +334,95 @@ class _IgrejasTabState extends State<_IgrejasTab> {
     final lic = ig['license'] is Map
         ? Map<String, dynamic>.from(ig['license'] as Map)
         : <String, dynamic>{};
-    final adminBlocked =
+    final guard = SubscriptionGuard.evaluate(church: ig);
+    final planKey = (ig['planId'] ?? ig['plano'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
+    final initialBlocked =
         ig['adminBlocked'] == true || lic['adminBlocked'] == true;
-    final isFree = lic['isFree'] == true ||
-        ig['isFree'] == true ||
-        (ig['plano'] ?? ig['planId'] ?? '').toString().toLowerCase() == 'free';
+    var adminBlocked = initialBlocked;
+    var modoFree = planKey == 'free' ||
+        (planKey.isEmpty &&
+            (ig['isFree'] == true || lic['isFree'] == true));
+    if (planKey.isNotEmpty && planKey != 'free') {
+      modoFree = false;
+    }
+    final initialModoFree = modoFree;
     String planoSel = (ig['planId'] ?? ig['plano'] ?? 'essencial').toString();
-    if (!planosOficiais.any((p) => p.id == planoSel))
+    if (planoSel == 'free' || !planosOficiais.any((p) => p.id == planoSel)) {
       planoSel = planosOficiais.first.id;
+    }
     DateTime? venc = LicenseAccessPolicy.churchAccessEnd(ig);
+    final initialVenc = venc;
+    final initialPlanoSel = planoSel == 'free' || planoSel.isEmpty
+        ? planosOficiais.first.id
+        : planoSel;
     String ciclo = (ig['billingCycle'] ?? 'monthly').toString();
     if (ciclo != 'annual') ciclo = 'monthly';
+    final initialCiclo = ciclo;
+    var saving = false;
+
+    Future<void> persistLicense(
+      BuildContext sheetCtx,
+      void Function(void Function()) setModal,
+    ) async {
+      if (saving) return;
+      setModal(() => saving = true);
+      try {
+        final blockChanged = adminBlocked != initialBlocked;
+        final licenseChanged = modoFree != initialModoFree ||
+            (!modoFree &&
+                (planoSel != initialPlanoSel ||
+                    venc != initialVenc ||
+                    ciclo != initialCiclo));
+
+        if (blockChanged && !licenseChanged) {
+          await billing.applyMasterLicenseConfig(
+            igrejaId,
+            isFreeMode: null,
+            adminBlocked: adminBlocked,
+            touchBlockOnly: true,
+          );
+        } else {
+          await billing.applyMasterLicenseConfig(
+            igrejaId,
+            isFreeMode: modoFree,
+            planId: modoFree ? null : planoSel,
+            licenseExpiresAt: modoFree ? null : venc,
+            billingCycle: ciclo,
+            adminBlocked: adminBlocked,
+          );
+        }
+        MasterChurchesListService.invalidateMemory();
+        if (context.mounted) {
+          Navigator.pop(sheetCtx);
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+              blockChanged && !licenseChanged
+                  ? (adminBlocked
+                      ? 'Igreja bloqueada pelo master.'
+                      : 'Igreja liberada — bloqueio removido.')
+                  : modoFree
+                      ? 'Igreja configurada como FREE.'
+                      : 'Plano e licença salvos com sucesso.',
+            ),
+          );
+          await _loadChurchesList(force: true);
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$e'),
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+          );
+        }
+      } finally {
+        if (sheetCtx.mounted) setModal(() => saving = false);
+      }
+    }
 
     await showModalBottomSheet<void>(
       context: context,
@@ -348,6 +431,26 @@ class _IgrejasTabState extends State<_IgrejasTab> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setModal) {
+            final previewGuard = SubscriptionGuard.evaluate(
+              church: {
+                ...ig,
+                'plano': modoFree ? 'free' : planoSel,
+                'planId': modoFree ? 'free' : planoSel,
+                'isFree': modoFree,
+                'adminBlocked': adminBlocked,
+                'billingCycle': ciclo,
+                if (!modoFree && venc != null) ...{
+                  'licenseExpiresAt': Timestamp.fromDate(venc!),
+                  'data_vencimento': Timestamp.fromDate(venc!),
+                },
+                'license': {
+                  ...lic,
+                  'isFree': modoFree,
+                  'adminBlocked': adminBlocked,
+                },
+              },
+            );
+
             return Padding(
               padding:
                   EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
@@ -365,52 +468,110 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        nome,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w800, fontSize: 18),
-                      ),
-                      Text('ID: $igrejaId',
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.grey.shade600)),
-                      const SizedBox(height: 16),
-                      Text('Plano manual',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: ThemeCleanPremium.onSurfaceVariant)),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        value: planoSel,
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm)),
-                          filled: true,
-                          fillColor: Colors.white,
-                        ),
-                        items: planosOficiais
-                            .map((p) => DropdownMenuItem(
-                                value: p.id, child: Text(p.name)))
-                            .toList(),
-                        onChanged: widget.canEdit
-                            ? (v) => setModal(() => planoSel = v ?? planoSel)
-                            : null,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  nome,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 18,
+                                  ),
+                                ),
+                                Text(
+                                  'ID: $igrejaId',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
-                      Text('Ciclo (informação)',
-                          style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: ThemeCleanPremium.onSurfaceVariant)),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: _paymentChipColor(previewGuard).withOpacity(0.08),
+                          borderRadius:
+                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                          border: Border.all(
+                            color: _paymentChipColor(previewGuard).withOpacity(0.25),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              modoFree
+                                  ? Icons.volunteer_activism_rounded
+                                  : Icons.verified_rounded,
+                              color: _paymentChipColor(previewGuard),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    previewGuard.masterBadgeLabel,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: _paymentChipColor(previewGuard),
+                                    ),
+                                  ),
+                                  Text(
+                                    modoFree
+                                        ? 'Acesso gratuito — sem cobrança automática.'
+                                        : venc != null
+                                            ? 'Vencimento: ${DateFormat('dd/MM/yyyy').format(venc!)}'
+                                            : 'Defina a data de vencimento.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: ThemeCleanPremium.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        'Tipo de licença',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: ThemeCleanPremium.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
                             child: ChoiceChip(
-                              label: const Text('Mensal'),
-                              selected: ciclo == 'monthly',
+                              avatar: Icon(
+                                Icons.volunteer_activism_rounded,
+                                size: 18,
+                                color: modoFree
+                                    ? ThemeCleanPremium.primary
+                                    : Colors.grey,
+                              ),
+                              label: const Text('FREE'),
+                              selected: modoFree,
                               onSelected: widget.canEdit
                                   ? (sel) {
-                                      if (sel)
-                                        setModal(() => ciclo = 'monthly');
+                                      if (sel) {
+                                        setModal(() => modoFree = true);
+                                      }
                                     }
                                   : null,
                             ),
@@ -418,154 +579,252 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: ChoiceChip(
-                              label: const Text('Anual'),
-                              selected: ciclo == 'annual',
+                              avatar: Icon(
+                                Icons.payments_rounded,
+                                size: 18,
+                                color: !modoFree
+                                    ? ThemeCleanPremium.primary
+                                    : Colors.grey,
+                              ),
+                              label: const Text('Plano pago'),
+                              selected: !modoFree,
                               onSelected: widget.canEdit
                                   ? (sel) {
-                                      if (sel) setModal(() => ciclo = 'annual');
+                                      if (sel) {
+                                        setModal(() {
+                                          modoFree = false;
+                                          venc ??= BillingLicenseService
+                                              .licensePeriodEndFrom(
+                                            DateTime.now(),
+                                            ciclo,
+                                          );
+                                        });
+                                      }
                                     }
                                   : null,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Data de vencimento da licença'),
-                        subtitle: Text(venc != null
-                            ? DateFormat('dd/MM/yyyy').format(venc!)
-                            : 'Não definida'),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.calendar_month_rounded),
-                          onPressed: widget.canEdit
-                              ? () async {
-                                  final d = await showDatePicker(
-                                    context: ctx,
-                                    initialDate: venc ??
-                                        DateTime.now()
-                                            .add(const Duration(days: 30)),
-                                    firstDate: DateTime(2020),
-                                    lastDate: DateTime(2040),
-                                  );
-                                  if (d != null) setModal(() => venc = d);
-                                }
-                              : null,
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: widget.canEdit
-                            ? () => setModal(() => venc = null)
-                            : null,
-                        icon: const Icon(Icons.clear_rounded, size: 18),
-                        label: const Text('Remover data de vencimento'),
-                      ),
-                      const Divider(height: 28),
-                      if (!isFree)
-                        FilledButton.tonalIcon(
-                          onPressed: widget.canEdit
-                              ? () async {
-                                  try {
-                                    await billing.setTenantFreeMaster(igrejaId);
-                                    if (context.mounted) {
-                                      Navigator.pop(ctx);
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        ThemeCleanPremium.successSnackBar(
-                                            'Igreja marcada como FREE.'),
-                                      );
-                                      setState(() {});
-                                    }
-                                  } catch (e) {
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        SnackBar(
-                                            content: Text('$e'),
-                                            backgroundColor:
-                                                ThemeCleanPremium.error),
-                                      );
-                                    }
-                                  }
-                                }
-                              : null,
-                          icon: const Icon(Icons.money_off_csred_rounded),
-                          label: const Text('Marcar igreja como FREE'),
-                        )
-                      else
+                      if (!modoFree) ...[
+                        const SizedBox(height: 16),
                         Text(
-                          'Esta igreja está em modo FREE. Use "Aplicar plano" para cobrança normal.',
+                          'Plano manual',
                           style: TextStyle(
-                              fontSize: 13,
-                              color: ThemeCleanPremium.onSurfaceVariant),
+                            fontWeight: FontWeight.w600,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                          ),
                         ),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<String>(
+                          value: planoSel,
+                          decoration: InputDecoration(
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusSm,
+                              ),
+                            ),
+                            filled: true,
+                            fillColor: Colors.white,
+                          ),
+                          items: planosOficiais
+                              .map(
+                                (p) => DropdownMenuItem(
+                                  value: p.id,
+                                  child: Text(p.name),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: widget.canEdit
+                              ? (v) => setModal(() => planoSel = v ?? planoSel)
+                              : null,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Ciclo de cobrança',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ChoiceChip(
+                                label: Text(
+                                    'Mensal (${BillingLicenseService.licensePeriodDaysMonthly}d)'),
+                                selected: ciclo == 'monthly',
+                                onSelected: widget.canEdit
+                                    ? (sel) {
+                                        if (sel) {
+                                          setModal(() => ciclo = 'monthly');
+                                        }
+                                      }
+                                    : null,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ChoiceChip(
+                                label: Text(
+                                    'Anual (${BillingLicenseService.licensePeriodDaysAnnual}d)'),
+                                selected: ciclo == 'annual',
+                                onSelected: widget.canEdit
+                                    ? (sel) {
+                                        if (sel) {
+                                          setModal(() => ciclo = 'annual');
+                                        }
+                                      }
+                                    : null,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusSm,
+                            ),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Data de vencimento',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    Text(
+                                      venc != null
+                                          ? DateFormat('dd/MM/yyyy')
+                                              .format(venc!)
+                                          : 'Obrigatória para plano pago',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: venc != null
+                                            ? ThemeCleanPremium.onSurface
+                                            : ThemeCleanPremium.error,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Escolher data',
+                                icon: const Icon(Icons.calendar_month_rounded),
+                                onPressed: widget.canEdit
+                                    ? () async {
+                                        final d = await showDatePicker(
+                                          context: ctx,
+                                          initialDate: venc ??
+                                              BillingLicenseService
+                                                  .licensePeriodEndFrom(
+                                                DateTime.now(),
+                                                ciclo,
+                                              ),
+                                          firstDate: DateTime.now(),
+                                          lastDate: DateTime(2040),
+                                        );
+                                        if (d != null) {
+                                          setModal(() => venc = d);
+                                        }
+                                      }
+                                    : null,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
+                            TextButton.icon(
+                              onPressed: widget.canEdit
+                                  ? () {
+                                      setModal(() {
+                                        venc = BillingLicenseService
+                                            .licensePeriodEndFrom(
+                                          DateTime.now(),
+                                          ciclo,
+                                        );
+                                      });
+                                    }
+                                  : null,
+                              icon: const Icon(Icons.today_rounded, size: 18),
+                              label: Text(
+                                ciclo == 'annual'
+                                    ? '+${BillingLicenseService.licensePeriodDaysAnnual} dias'
+                                    : '+${BillingLicenseService.licensePeriodDaysMonthly} dias',
+                              ),
+                            ),
+                            TextButton.icon(
+                              onPressed: widget.canEdit
+                                  ? () => setModal(() => venc = null)
+                                  : null,
+                              icon: const Icon(Icons.clear_rounded, size: 18),
+                              label: const Text('Limpar data'),
+                            ),
+                          ],
+                        ),
+                      ] else ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Igreja gratuita: sem vencimento nem cobrança Mercado Pago. '
+                          'O gestor usa o painel normalmente (salvo bloqueio manual).',
+                          style: TextStyle(
+                            fontSize: 13,
+                            height: 1.35,
+                            color: ThemeCleanPremium.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                      const Divider(height: 28),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Bloquear igreja (master)'),
-                        subtitle:
-                            const Text('Gestor vê apenas tela de renovação'),
+                        subtitle: const Text(
+                          'Gestor vê apenas tela de renovação',
+                        ),
                         value: adminBlocked,
                         onChanged: widget.canEdit
-                            ? (v) async {
-                                try {
-                                  await billing.setTenantAdminBlocked(
-                                      igrejaId, v);
-                                  if (context.mounted) {
-                                    Navigator.pop(ctx);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      ThemeCleanPremium.successSnackBar(v
-                                          ? 'Igreja bloqueada.'
-                                          : 'Bloqueio removido.'),
-                                    );
-                                    setState(() {});
-                                  }
-                                } catch (e) {
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                          content: Text('$e'),
-                                          backgroundColor:
-                                              ThemeCleanPremium.error),
-                                    );
-                                  }
-                                }
-                              }
+                            ? (v) => setModal(() => adminBlocked = v)
                             : null,
                       ),
                       const SizedBox(height: 12),
                       FilledButton.icon(
-                        onPressed: widget.canEdit
-                            ? () async {
-                                try {
-                                  await billing.setTenantPlanAndLicenseExpiry(
-                                    igrejaId,
-                                    planoSel,
-                                    licenseExpiresAt: venc,
-                                    billingCycle: ciclo,
-                                  );
-                                  if (context.mounted) {
-                                    Navigator.pop(ctx);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      ThemeCleanPremium.successSnackBar(
-                                          'Plano e licença atualizados.'),
-                                    );
-                                    setState(() {});
-                                  }
-                                } catch (e) {
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                          content: Text('$e'),
-                                          backgroundColor:
-                                              ThemeCleanPremium.error),
-                                    );
-                                  }
-                                }
-                              }
+                        onPressed: widget.canEdit && !saving
+                            ? () => persistLicense(ctx, setModal)
                             : null,
-                        icon: const Icon(Icons.save_rounded),
-                        label: const Text('Aplicar plano / vencimento'),
+                        icon: saving
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.save_rounded),
+                        label: Text(
+                          saving
+                              ? 'Salvando…'
+                              : modoFree
+                                  ? 'Salvar licença FREE'
+                                  : 'Salvar plano e vencimento',
+                        ),
                       ),
                       const SizedBox(height: 8),
                       OutlinedButton.icon(

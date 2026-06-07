@@ -94,6 +94,7 @@ import 'internal_new_member_page.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
+import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'aprovar_membros_pendentes_page.dart';
 import 'funcoes_permissoes_page.dart';
@@ -2404,7 +2405,7 @@ class _MembersPageState extends State<MembersPage> {
                       color: const Color(0xFF0D9488),
                       onTap: () {
                         ChurchMemberContactChat.openChatIgrejaUnawaited(
-                          context: ctx,
+                          context: context,
                           tenantId: _effectiveTenantId,
                           memberRole: widget.role,
                           viewerCpfDigits:
@@ -2418,17 +2419,16 @@ class _MembersPageState extends State<MembersPage> {
                       },
                     ),
                     _ActionChip(
-                      iconWidget: FaIcon(
-                        FontAwesomeIcons.whatsapp,
-                        size: 18,
-                        color: const Color(0xFF25D366),
-                      ),
+                      iconWidget: const WhatsappBrandIcon(size: 18),
                       label: 'WhatsApp',
                       color: const Color(0xFF25D366),
                       onTap: () {
+                        Navigator.of(ctx).pop();
                         unawaited(ChurchMemberContactChat.openWhatsAppFaleComigo(
-                          ctx,
+                          context,
                           member.data,
+                          tenantId: _effectiveTenantId,
+                          memberDocId: member.id,
                         ));
                       },
                     ),

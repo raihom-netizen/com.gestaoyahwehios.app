@@ -708,15 +708,12 @@ async function upsertSubscription(
   }
 }
 
-/** Vencimento da licença paga: +1 mês ou +1 ano (mesmo dia do mês quando possível). */
+/** Vencimento da licença paga: +30 dias (mensal) ou +365 dias (anual). */
 function computeLicensePeriodEnd(from: Date, billingCycleRaw: string): Date {
   const cycle = (billingCycleRaw || "monthly").toLowerCase();
   const d = new Date(from.getTime());
-  if (cycle === "annual" || cycle === "yearly") {
-    d.setFullYear(d.getFullYear() + 1);
-    return d;
-  }
-  d.setMonth(d.getMonth() + 1);
+  const days = cycle === "annual" || cycle === "yearly" ? 365 : 30;
+  d.setDate(d.getDate() + days);
   return d;
 }
 
@@ -4228,7 +4225,8 @@ async function ensureMemberFirebaseAuth(
           legacyMemberDocId: curId,
           // Mantém URLs legadas para evitar "sumiço" da foto se a cópia
           // de Storage atrasar/falhar em algum ambiente.
-          photoStoragePath: `igrejas/${tenantId}/membros/${u.uid}/foto_perfil.jpg`,
+          photoStoragePath: `igrejas/${tenantId}/membros/fotos/${u.uid}.webp`,
+          photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${u.uid}.webp`,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         const newRef = memberRef.parent.doc(u.uid);
@@ -4301,7 +4299,8 @@ async function ensureMemberFirebaseAuth(
       MEMBER_ID: authUid,
       legacyMemberDocId: oldDocId,
       // Mantém URLs legadas para evitar perder foto/avatar durante migração de docId.
-      photoStoragePath: `igrejas/${tenantId}/membros/${authUid}/foto_perfil.jpg`,
+      photoStoragePath: `igrejas/${tenantId}/membros/fotos/${authUid}.webp`,
+      photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${authUid}.webp`,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     const newRef = memberRef.parent.doc(authUid);
@@ -4670,7 +4669,8 @@ export const recreateMemberAuthForNewEmail = functions
       EMAIL: newEmailRaw,
       email: newEmailRaw,
       // Mantém URLs legadas para evitar perder foto/avatar durante migração de UID.
-      photoStoragePath: `igrejas/${tenantId}/membros/${newUid}/foto_perfil.jpg`,
+      photoStoragePath: `igrejas/${tenantId}/membros/fotos/${newUid}.webp`,
+      photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${newUid}.webp`,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
@@ -5085,7 +5085,8 @@ export const masterRelinkMembroAuthUid = functions.region("us-central1").https.o
     authUid: newAuthUid,
     MEMBER_ID: newAuthUid,
     legacyMemberDocId: oldDocId,
-    photoStoragePath: `igrejas/${tenantId}/membros/${newAuthUid}/foto_perfil.jpg`,
+    photoStoragePath: `igrejas/${tenantId}/membros/fotos/${newAuthUid}.webp`,
+    photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${newAuthUid}.webp`,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
   await newRef.set(payload, { merge: true });
@@ -5477,12 +5478,34 @@ export const ensureBrasilParaCristoAccess = functions
       });
     }
 
+    let mpSync: Record<string, unknown> = { skipped: true };
+    try {
+      const { runSyncChurchMercadoPagoFromCluster } = await import(
+        "./syncChurchMercadoPagoCluster"
+      );
+      mpSync = await runSyncChurchMercadoPagoFromCluster(tenantId);
+    } catch (mpErr) {
+      console.warn("ensureBrasilParaCristoAccess mpSync", mpErr);
+    }
+
+    let clusterSync: Record<string, unknown> = { skipped: true };
+    try {
+      const { runSyncChurchClusterDataFromRichest } = await import(
+        "./syncChurchClusterData"
+      );
+      clusterSync = await runSyncChurchClusterDataFromRichest(tenantId);
+    } catch (clusterErr) {
+      console.warn("ensureBrasilParaCristoAccess clusterSync", clusterErr);
+    }
+
     return {
       ok: true,
       tenantId,
       cpf,
       email,
       uid: authUser?.uid ?? null,
+      mpSync,
+      clusterSync,
       message: authUser
         ? "Acesso garantido. Use CPF 94536368191 ou e-mail raihom@gmail.com em 'Carregar igreja' e faça login."
         : "Igreja e índice CPF criados. Crie o usuário Auth com seedGestorBrasilParaCristo (senha) para poder fazer login.",
@@ -7223,6 +7246,16 @@ export {
   migrateTenantFirestoreCollections,
   migrateAllTenantsFirestoreCollections,
 } from "./migrateTenantFirestoreCollections";
+
+export { syncChurchMercadoPagoFromCluster } from "./syncChurchMercadoPagoCluster";
+export { syncChurchClusterDataFromRichest } from "./syncChurchClusterData";
+
+export { masterApplyTenantLicense } from "./masterTenantLicense";
+
+export {
+  migrateStorageConsolidated,
+  runStorageConsolidationMigration,
+} from "./migrateStorageConsolidated";
 
 export {
   optimizeImage,

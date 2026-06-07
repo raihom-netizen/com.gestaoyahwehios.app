@@ -60,13 +60,14 @@ abstract final class TenantStaleWhileRevalidate {
       try {
         if (kIsWeb) {
           if (attempt == 0) {
-            await FirestoreWebGuard.prepareForCriticalWrite();
+            // Leitura: sessão leve — NÃO prepareForCriticalWrite (desliga rede e trava o painel).
+            await FirestoreWebGuard.ensurePanelReadReady();
           } else {
             await FirestoreWebGuard.recoverFirestoreWebSession(
-              allowHardReconnect: true,
+              allowHardReconnect: attempt >= 2,
             );
             await Future<void>.delayed(
-              Duration(milliseconds: 280 + attempt * 320),
+              Duration(milliseconds: 120 + attempt * 180),
             );
           }
         }
@@ -132,7 +133,7 @@ abstract final class TenantStaleWhileRevalidate {
   }) async {
     try {
       if (kIsWeb) {
-        await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       final snap = await networkFetch().timeout(
         kIsWeb ? const Duration(seconds: 16) : const Duration(seconds: 22),

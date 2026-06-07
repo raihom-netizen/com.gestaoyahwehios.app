@@ -17,12 +17,29 @@ function pickPhotoUrl(data: Record<string, unknown>): string {
     "fotoUrl",
     "fotoURL",
     "FOTO_URL",
+    "FOTO_URL_OU_ID",
     "imageUrl",
     "photoUrl",
     "foto",
     "FOTO",
     "avatarUrl",
     "profilePhotoUrl",
+  ];
+  for (const k of keys) {
+    const v = data[k];
+    if (typeof v === "string" && v.trim().startsWith("http")) {
+      return v.trim();
+    }
+  }
+  return "";
+}
+
+function pickPhotoThumbUrl(data: Record<string, unknown>): string {
+  const keys = [
+    "fotoThumbUrl",
+    "photoThumbUrl",
+    "photoThumb",
+    "thumbUrl",
   ];
   for (const k of keys) {
     const v = data[k];
@@ -68,11 +85,14 @@ function directoryEntry(
     }
   }
   const status = pickString(d, ["STATUS", "status"]).toLowerCase() || "ativo";
+  const fullPhoto = pickPhotoUrl(d);
+  const thumbPhoto = pickPhotoThumbUrl(d) || fullPhoto || null;
   return {
     memberDocId: doc.id,
     displayName:
       pickString(d, ["NOME_COMPLETO", "nome", "name"]) || "Membro",
-    photoUrl: pickPhotoUrl(d) || null,
+    photoUrl: fullPhoto || null,
+    photoThumbUrl: thumbPhoto,
     fotoUrlCacheRevision,
     authUid:
       pickString(d, ["authUid", "firebaseUid", "uid", "userId"]) || null,

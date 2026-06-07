@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_warmup_service.dart';
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
+import 'package:gestao_yahweh/services/church_cluster_sync_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
@@ -433,17 +434,20 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         forceRefresh: forceRefresh,
       ).timeout(const Duration(seconds: 16));
       if (!mounted) return;
-      if (tid.isEmpty || tid == _operationalTenantId) return;
-      TenantResolverService.invalidateOperationalChurchDocCache(
-        seedId: raw,
-        userUid: uid,
-      );
-      setState(() {
-        _operationalTenantId = tid;
-        for (var i = 0; i < _pageCache.length; i++) {
-          _pageCache[i] = null;
-        }
-      });
+      final effective = tid.isEmpty ? raw : tid;
+      if (tid.isNotEmpty && tid != _operationalTenantId) {
+        TenantResolverService.invalidateOperationalChurchDocCache(
+          seedId: raw,
+          userUid: uid,
+        );
+        setState(() {
+          _operationalTenantId = tid;
+          for (var i = 0; i < _pageCache.length; i++) {
+            _pageCache[i] = null;
+          }
+        });
+      }
+      ChurchClusterSyncService.syncForOperationalTenant(effective);
     } catch (_) {}
   }
 

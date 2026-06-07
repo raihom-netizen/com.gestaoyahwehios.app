@@ -18,7 +18,7 @@ function pickString(data: Record<string, unknown>, keys: string[]): string {
   return "";
 }
 
-function lightChurchRow(
+export function lightChurchRow(
   id: string,
   data: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -70,6 +70,52 @@ function lightChurchRow(
     removedByAdminAt: data.removedByAdminAt ?? null,
     license: lic && typeof lic === "object" ? lic : null,
   };
+}
+
+/** Atualiza uma igreja no índice leve após alteração de licença/bloqueio. */
+export async function patchMasterChurchesIndexForTenant(
+  tenantId: string,
+  churchData?: Record<string, unknown>,
+): Promise<void> {
+  const db = admin.firestore();
+  const id = String(tenantId || "").trim();
+  if (!id) return;
+
+  let data = churchData;
+  if (!data) {
+    const snap = await db.collection("igrejas").doc(id).get();
+    if (!snap.exists) return;
+    data = snap.data() as Record<string, unknown>;
+  }
+
+  const row = lightChurchRow(id, data);
+  const indexRef = db.collection("config").doc("master_churches_index");
+  const indexSnap = await indexRef.get();
+  if (!indexSnap.exists) {
+    await recomputeMasterChurchesIndex();
+    return;
+  }
+
+  const raw = indexSnap.data() ?? {};
+  const churches = Array.isArray(raw.churches)
+    ? [...(raw.churches as Record<string, unknown>[])]
+    : [];
+  const idx = churches.findIndex((c) => String(c.id) === id);
+  if (idx >= 0) {
+    churches[idx] = row;
+  } else {
+    churches.unshift(row);
+  }
+
+  await indexRef.set(
+    {
+      churches,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      total: raw.total ?? churches.length,
+      schemaVersion: raw.schemaVersion ?? 1,
+    },
+    { merge: true },
+  );
 }
 
 /** Índice leve para Lista Igrejas — `config/master_churches_index`. */

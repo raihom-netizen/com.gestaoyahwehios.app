@@ -69,6 +69,12 @@ class FirestoreWebGuard {
   static Future<void> recoverFirestoreWebSession({bool allowHardReconnect = false}) async {
     if (!kIsWeb) return;
     await stabilizeAfterWebSignIn();
+    if (allowHardReconnect) {
+      try {
+        await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+        applyWebFirestoreSettings();
+      } catch (_) {}
+    }
     try {
       await firebaseDefaultFirestore.disableNetwork();
       await Future<void>.delayed(const Duration(milliseconds: 80));
@@ -79,6 +85,26 @@ class FirestoreWebGuard {
       }
     }
     await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+
+  /// Painel igreja (web/mobile) — leitura rápida sem desligar a rede.
+  static Future<void> ensurePanelReadReady() async {
+    if (!kIsWeb) return;
+    applyWebFirestoreSettings();
+    await ensureWebDatabaseConnected(refreshAuth: false);
+  }
+
+  /// Painel Master web — sessão estável antes de qualquer leitura/gravação.
+  static Future<void> ensureMasterPanelReady() async {
+    if (!kIsWeb) return;
+    applyWebFirestoreSettings();
+    await ensureWebDatabaseConnected(refreshAuth: true);
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null && !user.isAnonymous) {
+        await user.getIdToken(true);
+      }
+    } catch (_) {}
   }
 
   /// Só quando o cliente já foi terminado — `reconnect` do bootstrap (sem `terminate` de novo).
@@ -106,11 +132,13 @@ class FirestoreWebGuard {
       try {
         if (attempt > 0) {
           debugPrint('FirestoreWebGuard: retry $attempt/$maxAttempts…');
-          await recoverFirestoreWebSession(
-            allowHardReconnect: lastError != null &&
-                (isClientTerminated(lastError!) ||
-                    isInternalAssertionError(lastError!)),
-          );
+          final hard = lastError != null &&
+              (isClientTerminated(lastError!) ||
+                  isInternalAssertionError(lastError!));
+          if (kIsWeb && attempt == 1) {
+            await ensureMasterPanelReady();
+          }
+          await recoverFirestoreWebSession(allowHardReconnect: hard);
           await Future<void>.delayed(
             Duration(milliseconds: 100 + attempt * 160),
           );

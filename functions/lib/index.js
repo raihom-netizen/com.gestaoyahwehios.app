@@ -35,7 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.bootstrapAdmin = exports.saveMercadoPagoAdminConfig = exports.getMercadoPagoAdminConfig = exports.getAdminCheck = exports.getUserProfile = exports.seedFrotaMasterHttp = exports.seedFrotaMaster = exports.migrateFrotaToFrotasveiculo = exports.corrigirBancoFrota = exports.cleanFrotaFromDefault = exports.ensureBrasilParaCristoAccess = exports.getMemberEmailForReset = exports.bulkEnsureMembersAuth = exports.setMemberApproved = exports.masterRelinkMembroAuthUid = exports.purgeMemberFirebaseLogin = exports.setMemberPassword = exports.recreateMemberAuthForNewEmail = exports.alignMemberDocToAuthUid = exports.createMemberLoginFromPublic = exports.createMemberAuthAccountForGestor = exports.syncGestorBrasilParaCristo = exports.seedGestorBrasilParaCristo = exports.createChurchForOnboardingGestor = exports.registerGestorProfile = exports.createChurchAndGestorWithGoogle = exports.consumeUserSignupInvite = exports.getUserSignupInviteInfo = exports.createUserSignupInvite = exports.upsertTenantUser = exports.setUserActive = exports.setUserRole = exports.resolveCpfToEmail = exports.syncMemberRoleClaims = exports.repairMyChurchBinding = exports.resolveEmailToChurchPublic = exports.mpWebhook = exports.mercadoPagoWebhook = exports.createMpPixPayment = exports.createMpPreapproval = exports.backupDailyToGcs = exports.testDriveWriteForChurch = exports.getChurchStorageUsage = exports.archiveChurchMediaNow = exports.archiveChurchMediaToDrive = exports.backupDailyToDrive = exports.ensureGlobalDownloads = exports.ensureDriveFolders = exports.onTenantCreate = exports.resolveCpfToChurchPublic = void 0;
 exports.createChurchDonationPix = exports.ensureChurchTreasuryAccountPresets = exports.saveChurchMercadoPagoCredentials = exports.scheduledFinanceVencimento24h = exports.scheduledFinanceDailyDigest = exports.scheduledFornecedorAgendaReminders = exports.onNovoEventoNoticiaPublishedPush = exports.onNovoEventoNoticiaPush = exports.onNovoAvisoMuralPublishedPush = exports.onNovoAvisoMuralPush = exports.onIgrejaChatMessageDeleteCleanupStorage = exports.onIgrejaPatrimonioDeleteCleanupStorage = exports.onIgrejaNoticiaDeleteCleanupStorage = exports.onIgrejaMembroDeleteCleanupStorage = exports.hourlyDevotionalBroadcast = exports.rollingScaleRemindersConfirmed = exports.dayBeforeScaleReminder = exports.dailyBirthdayTopicPush = exports.onEscalaTrocaInviteTarget = exports.respondScheduleSwap = exports.onEscalaImpedimentoNotifyLeaders = exports.notifySchedulePublished = exports.deleteDevotionalEnvio = exports.resendDevotionalEnvio = exports.resendPastoralMessage = exports.updatePastoralMessage = exports.archivePastoralMessage = exports.sendSegmentedPush = exports.processarCertificadosLote = exports.gerarCertificadosEmLote = exports.shareEvento = exports.recordDomainDailyHit = exports.generateThumbnail = exports.onNewMemberLegacy = exports.onNewMember = exports.validateCarteirinhaPublic = exports.refreshCarteiraSignatoriesIndex = exports.carteirinhaValidarHttp = exports.migrateAllIgrejasMembersToMembros = exports.scheduledGerarReceitasRecorrentesPendentes = exports.scheduledMigrateIgrejaMembersToMembros = exports.ensureMigrateMembersToMembros = exports.migrateMembersFull = exports.syncMembersFromUsers = exports.autoGenerateEvents = exports.onScheduleCreate = exports.resolveCpfToChurchPublicFinal = exports.resolveCpfToChurchPublicHttp = exports.seedPublicCpfIndex = exports.reportSecurityEvent = void 0;
-exports.scheduledPurgeStalePendingUploads = exports.backfillMemberCodigos = exports.resolveStorageDisplayUrls = exports.getChurchMembersDirectory = exports.scheduledRefreshMasterChurchesList = exports.getMasterChurchesList = exports.scheduledRefreshMasterDashboard = exports.warmChurchPanelFromMaster = exports.getMasterDashboardSnapshot = exports.scheduledRefreshPanelCaches = exports.warmChurchTenantCaches = exports.getChurchPanelSnapshot = exports.onChurchPedidoOracaoWritePanelDashboard = exports.onChurchVisitanteWritePanelDashboard = exports.onChurchDepartamentoWritePanelDashboard = exports.onChurchNoticiaWritePanelDashboard = exports.onChurchAvisoWritePanelDashboard = exports.onChurchMembroWritePanelDashboard = exports.onChurchMembroWriteSyncBirthIndex = exports.recomputePublicSiteMediaPrefetch = exports.warmPublicSiteFeedCache = exports.warmChurchPublicFeedCache = exports.refreshPublicFeedCacheOnNoticiaWrite = exports.refreshPublicFeedCacheOnAvisoWrite = exports.generatePublicFeedCache = exports.generateBirthdayCache = exports.compressVideo = exports.optimizeImage = exports.migrateAllTenantsFirestoreCollections = exports.migrateTenantFirestoreCollections = exports.onChurchFinanceWritePanelSummary = exports.repairChurchChatDmThreads = exports.backfillChurchChatDmThreads = exports.onChurchChatMessageIndexThread = exports.onChurchChatDmThreadWrite = exports.scheduledSyncMembroSessions = exports.onMembroWriteSyncSession = exports.onIgrejaMembroWriteChatPeerProfile = exports.onChurchChatMessageCreated = exports.purgeAnonymousAuthUsers = exports.purgeChurchChatMessagesAdmin = exports.pruneExpiredChurchChatMessages = exports.pruneContribuicoesDizimoHistorico = exports.createChurchDonationPreference = void 0;
+exports.scheduledPurgeStalePendingUploads = exports.backfillMemberCodigos = exports.resolveStorageDisplayUrls = exports.getChurchMembersDirectory = exports.scheduledRefreshMasterChurchesList = exports.getMasterChurchesList = exports.scheduledRefreshMasterDashboard = exports.warmChurchPanelFromMaster = exports.getMasterDashboardSnapshot = exports.scheduledRefreshPanelCaches = exports.warmChurchTenantCaches = exports.getChurchPanelSnapshot = exports.onChurchPedidoOracaoWritePanelDashboard = exports.onChurchVisitanteWritePanelDashboard = exports.onChurchDepartamentoWritePanelDashboard = exports.onChurchNoticiaWritePanelDashboard = exports.onChurchAvisoWritePanelDashboard = exports.onChurchMembroWritePanelDashboard = exports.onChurchMembroWriteSyncBirthIndex = exports.recomputePublicSiteMediaPrefetch = exports.warmPublicSiteFeedCache = exports.warmChurchPublicFeedCache = exports.refreshPublicFeedCacheOnNoticiaWrite = exports.refreshPublicFeedCacheOnAvisoWrite = exports.generatePublicFeedCache = exports.generateBirthdayCache = exports.compressVideo = exports.optimizeImage = exports.runStorageConsolidationMigration = exports.migrateStorageConsolidated = exports.masterApplyTenantLicense = exports.syncChurchClusterDataFromRichest = exports.syncChurchMercadoPagoFromCluster = exports.migrateAllTenantsFirestoreCollections = exports.migrateTenantFirestoreCollections = exports.onChurchFinanceWritePanelSummary = exports.repairChurchChatDmThreads = exports.backfillChurchChatDmThreads = exports.onChurchChatMessageIndexThread = exports.onChurchChatDmThreadWrite = exports.scheduledSyncMembroSessions = exports.onMembroWriteSyncSession = exports.onIgrejaMembroWriteChatPeerProfile = exports.onChurchChatMessageCreated = exports.purgeAnonymousAuthUsers = exports.purgeChurchChatMessagesAdmin = exports.pruneExpiredChurchChatMessages = exports.pruneContribuicoesDizimoHistorico = exports.createChurchDonationPreference = void 0;
 const functions = __importStar(require("firebase-functions/v1"));
 const params_1 = require("firebase-functions/params");
 const admin = __importStar(require("firebase-admin"));
@@ -671,15 +671,12 @@ async function upsertSubscription(tenantId, planId, status, trialEndsAt, extras)
         await subQs.docs[0].ref.set(payload, { merge: true });
     }
 }
-/** Vencimento da licença paga: +1 mês ou +1 ano (mesmo dia do mês quando possível). */
+/** Vencimento da licença paga: +30 dias (mensal) ou +365 dias (anual). */
 function computeLicensePeriodEnd(from, billingCycleRaw) {
     const cycle = (billingCycleRaw || "monthly").toLowerCase();
     const d = new Date(from.getTime());
-    if (cycle === "annual" || cycle === "yearly") {
-        d.setFullYear(d.getFullYear() + 1);
-        return d;
-    }
-    d.setMonth(d.getMonth() + 1);
+    const days = cycle === "annual" || cycle === "yearly" ? 365 : 30;
+    d.setDate(d.getDate() + days);
     return d;
 }
 function computeGraceBlockDate(from) {
@@ -3552,7 +3549,8 @@ async function ensureMemberFirebaseAuth(tenantId, memberId, memberRef, memberDat
                     legacyMemberDocId: curId,
                     // Mantém URLs legadas para evitar "sumiço" da foto se a cópia
                     // de Storage atrasar/falhar em algum ambiente.
-                    photoStoragePath: `igrejas/${tenantId}/membros/${u.uid}/foto_perfil.jpg`,
+                    photoStoragePath: `igrejas/${tenantId}/membros/fotos/${u.uid}.webp`,
+                    photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${u.uid}.webp`,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                 };
                 const newRef = memberRef.parent.doc(u.uid);
@@ -3616,7 +3614,8 @@ async function ensureMemberFirebaseAuth(tenantId, memberId, memberRef, memberDat
             MEMBER_ID: authUid,
             legacyMemberDocId: oldDocId,
             // Mantém URLs legadas para evitar perder foto/avatar durante migração de docId.
-            photoStoragePath: `igrejas/${tenantId}/membros/${authUid}/foto_perfil.jpg`,
+            photoStoragePath: `igrejas/${tenantId}/membros/fotos/${authUid}.webp`,
+            photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${authUid}.webp`,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         const newRef = memberRef.parent.doc(authUid);
@@ -3913,7 +3912,8 @@ exports.recreateMemberAuthForNewEmail = functions
         EMAIL: newEmailRaw,
         email: newEmailRaw,
         // Mantém URLs legadas para evitar perder foto/avatar durante migração de UID.
-        photoStoragePath: `igrejas/${tenantId}/membros/${newUid}/foto_perfil.jpg`,
+        photoStoragePath: `igrejas/${tenantId}/membros/fotos/${newUid}.webp`,
+        photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${newUid}.webp`,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     const newMembroRef = db.collection("igrejas").doc(tenantId).collection("membros").doc(newUid);
@@ -4277,7 +4277,8 @@ exports.masterRelinkMembroAuthUid = functions.region("us-central1").https.onCall
         authUid: newAuthUid,
         MEMBER_ID: newAuthUid,
         legacyMemberDocId: oldDocId,
-        photoStoragePath: `igrejas/${tenantId}/membros/${newAuthUid}/foto_perfil.jpg`,
+        photoStoragePath: `igrejas/${tenantId}/membros/fotos/${newAuthUid}.webp`,
+        photoThumbStoragePath: `igrejas/${tenantId}/membros/thumbs/${newAuthUid}.webp`,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     await newRef.set(payload, { merge: true });
@@ -4646,12 +4647,30 @@ exports.ensureBrasilParaCristoAccess = functions
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
         }
+        let mpSync = { skipped: true };
+        try {
+            const { runSyncChurchMercadoPagoFromCluster } = await Promise.resolve().then(() => __importStar(require("./syncChurchMercadoPagoCluster")));
+            mpSync = await runSyncChurchMercadoPagoFromCluster(tenantId);
+        }
+        catch (mpErr) {
+            console.warn("ensureBrasilParaCristoAccess mpSync", mpErr);
+        }
+        let clusterSync = { skipped: true };
+        try {
+            const { runSyncChurchClusterDataFromRichest } = await Promise.resolve().then(() => __importStar(require("./syncChurchClusterData")));
+            clusterSync = await runSyncChurchClusterDataFromRichest(tenantId);
+        }
+        catch (clusterErr) {
+            console.warn("ensureBrasilParaCristoAccess clusterSync", clusterErr);
+        }
         return {
             ok: true,
             tenantId,
             cpf,
             email,
             uid: authUser?.uid ?? null,
+            mpSync,
+            clusterSync,
             message: authUser
                 ? "Acesso garantido. Use CPF 94536368191 ou e-mail raihom@gmail.com em 'Carregar igreja' e faça login."
                 : "Igreja e índice CPF criados. Crie o usuário Auth com seedGestorBrasilParaCristo (senha) para poder fazer login.",
@@ -6251,6 +6270,15 @@ Object.defineProperty(exports, "onChurchFinanceWritePanelSummary", { enumerable:
 var migrateTenantFirestoreCollections_1 = require("./migrateTenantFirestoreCollections");
 Object.defineProperty(exports, "migrateTenantFirestoreCollections", { enumerable: true, get: function () { return migrateTenantFirestoreCollections_1.migrateTenantFirestoreCollections; } });
 Object.defineProperty(exports, "migrateAllTenantsFirestoreCollections", { enumerable: true, get: function () { return migrateTenantFirestoreCollections_1.migrateAllTenantsFirestoreCollections; } });
+var syncChurchMercadoPagoCluster_1 = require("./syncChurchMercadoPagoCluster");
+Object.defineProperty(exports, "syncChurchMercadoPagoFromCluster", { enumerable: true, get: function () { return syncChurchMercadoPagoCluster_1.syncChurchMercadoPagoFromCluster; } });
+var syncChurchClusterData_1 = require("./syncChurchClusterData");
+Object.defineProperty(exports, "syncChurchClusterDataFromRichest", { enumerable: true, get: function () { return syncChurchClusterData_1.syncChurchClusterDataFromRichest; } });
+var masterTenantLicense_1 = require("./masterTenantLicense");
+Object.defineProperty(exports, "masterApplyTenantLicense", { enumerable: true, get: function () { return masterTenantLicense_1.masterApplyTenantLicense; } });
+var migrateStorageConsolidated_1 = require("./migrateStorageConsolidated");
+Object.defineProperty(exports, "migrateStorageConsolidated", { enumerable: true, get: function () { return migrateStorageConsolidated_1.migrateStorageConsolidated; } });
+Object.defineProperty(exports, "runStorageConsolidationMigration", { enumerable: true, get: function () { return migrateStorageConsolidated_1.runStorageConsolidationMigration; } });
 var churchPerformancePack_1 = require("./churchPerformancePack");
 Object.defineProperty(exports, "optimizeImage", { enumerable: true, get: function () { return churchPerformancePack_1.optimizeImage; } });
 Object.defineProperty(exports, "compressVideo", { enumerable: true, get: function () { return churchPerformancePack_1.compressVideo; } });

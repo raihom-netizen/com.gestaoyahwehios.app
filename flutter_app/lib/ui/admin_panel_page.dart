@@ -53,6 +53,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/core/marketing_official_config.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 part 'admin_igrejas_tab.dart';
@@ -163,6 +164,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         return ok;
       });
     }
+    AppSessionStability.bindSessionKeepalive();
+    unawaited(MasterAdminFirestore.ensureReady());
     unawaited(_loadMasterRbac());
     unawaited(MasterChurchesListService.loadFast());
     unawaited(() async {
@@ -1818,19 +1821,46 @@ class _EditIgrejaDialogState extends State<_EditIgrejaDialog> {
     }
   }
 
+  bool get _adminBlocked {
+    final ig = widget.igreja;
+    if (ig == null) return false;
+    if (ig['adminBlocked'] == true) return true;
+    final lic = ig['license'];
+    return lic is Map && lic['adminBlocked'] == true;
+  }
+
   Future<void> _salvar() async {
     final tenantId = widget.tenantId;
     if (tenantId == null || tenantId.isEmpty) {
       Navigator.pop(context);
       return;
     }
+    if (_plano != 'free' && _vencimento == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Informe a data de vencimento para planos pagos.'),
+        ),
+      );
+      return;
+    }
     setState(() => _saving = true);
     try {
       final billing = BillingLicenseService();
-      await billing.setTenantPlano(tenantId, _plano,
-          licenseExpiresAt: _plano == 'free' ? null : _vencimento);
-      if (_plano != 'free' && _vencimento != null) {
-        await billing.setTenantLicenseExpiresAt(tenantId, _vencimento);
+      if (_plano == 'free') {
+        await billing.applyMasterLicenseConfig(
+          tenantId,
+          isFreeMode: true,
+          adminBlocked: _adminBlocked,
+        );
+      } else {
+        await billing.applyMasterLicenseConfig(
+          tenantId,
+          isFreeMode: false,
+          planId: 'inicial',
+          licenseExpiresAt: _vencimento,
+          billingCycle: 'monthly',
+          adminBlocked: _adminBlocked,
+        );
       }
       if (!mounted) return;
       Navigator.pop(context, true);

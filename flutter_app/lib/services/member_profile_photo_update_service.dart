@@ -239,35 +239,55 @@ class MemberProfilePhotoUpdateService {
     YahwehFlowLog.uploadStart('member_profile');
     ChurchPublishFlowLog.uploadStart('member_profile');
     final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
+    final previousThumb = sanitizeImageUrl(
+      MemberProfileVariantsService.listPhotoUrl(memberData) ?? '',
+    );
     final authUid = (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
         .toString()
         .trim();
+
+    try {
+      await FirebaseStorageCleanupService.deleteMemberProfilePhotoArtifactsBeforeReplace(
+        tenantId: tenantId,
+        memberId: memberDocId,
+        data: memberData,
+      );
+    } catch (e, st) {
+      YahwehFlowLog.error('MEMBROS', e, st);
+    }
+
     final tiers = await MemberProfileVariantsService.encodeProfileTiers(rawBytes);
     final uploaded = await MemberProfileVariantsService.uploadProfileVariants(
       tenantId: tenantId,
       memberDocId: memberDocId,
       thumbBytes: tiers.thumb,
-      mediumBytes: tiers.medium,
       fullBytes: tiers.full,
     );
     final photoUrl = sanitizeImageUrl(uploaded.photoFull);
+    final thumbUrl = sanitizeImageUrl(uploaded.photoThumb);
     if (!isValidImageUrl(photoUrl)) {
       throw StateError('URL da foto inválida após upload.');
     }
+    if (!isValidImageUrl(thumbUrl)) {
+      throw StateError('URL da miniatura inválida após upload.');
+    }
     final revision = DateTime.now().millisecondsSinceEpoch;
     final updates = <String, dynamic>{
+      YahwehPerformanceV4.profileFullField: photoUrl,
+      YahwehPerformanceV4.profileThumbField: thumbUrl,
       'foto_url': photoUrl,
       'FOTO_URL_OU_ID': photoUrl,
-      'fotoUrl': photoUrl,
       'photoURL': photoUrl,
+      YahwehPerformanceV4.profileThumbFieldLegacy: thumbUrl,
       'photoVariants': FieldValue.delete(),
-      YahwehPerformanceV4.profileThumbField: uploaded.photoThumb,
-      YahwehPerformanceV4.profileMediumField: uploaded.photoMedium,
+      YahwehPerformanceV4.profileMediumFieldLegacy: FieldValue.delete(),
       'fotoUrlCacheRevision': revision,
       'photoStoragePath': uploaded.fullStoragePath,
+      'photoThumbStoragePath': uploaded.thumbStoragePath,
       photoUploadStateField: statePublished,
       'photoUploadError': FieldValue.delete(),
       'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
     };
     YahwehFlowLog.memberPhotoUploadOk();
     ChurchPublishFlowLog.memberPhotoUploadOk();
@@ -299,11 +319,11 @@ class MemberProfilePhotoUpdateService {
     if (authUid.isNotEmpty) {
       try {
         await db.collection('users').doc(authUid).set({
+          YahwehPerformanceV4.profileFullField: photoUrl,
+          YahwehPerformanceV4.profileThumbField: thumbUrl,
           'foto_url': photoUrl,
           'photoURL': photoUrl,
-          'fotoUrl': photoUrl,
-          YahwehPerformanceV4.profileThumbField: uploaded.photoThumb,
-          YahwehPerformanceV4.profileMediumField: uploaded.photoMedium,
+          YahwehPerformanceV4.profileThumbFieldLegacy: thumbUrl,
           'fotoUrlCacheRevision': revision,
         }, SetOptions(merge: true));
       } catch (e, st) {
@@ -324,6 +344,13 @@ class MemberProfilePhotoUpdateService {
       newDownloadUrl: photoUrl,
       storagePath: uploaded.fullStoragePath,
     );
+    if (previousThumb.isNotEmpty) {
+      invalidateDisplayCaches(
+        previousDownloadUrl: previousThumb,
+        newDownloadUrl: thumbUrl,
+        storagePath: uploaded.thumbStoragePath,
+      );
+    }
 
     final mergedMember = Map<String, dynamic>.from(memberData)..addAll(updates);
     await syncChatPeerProfilesAfterPhotoUpdate(
@@ -331,6 +358,7 @@ class MemberProfilePhotoUpdateService {
       memberDocId: memberDocId,
       memberData: mergedMember,
       photoUrl: photoUrl,
+      photoThumbUrl: thumbUrl,
       cacheRevision: revision,
     );
 
@@ -347,6 +375,7 @@ class MemberProfilePhotoUpdateService {
     required String memberDocId,
     required Map<String, dynamic> memberData,
     required String photoUrl,
+    String? photoThumbUrl,
     required int cacheRevision,
   }) async {
     final authUid = (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
@@ -361,6 +390,11 @@ class MemberProfilePhotoUpdateService {
         .toString()
         .trim();
     final url = sanitizeImageUrl(photoUrl);
+    final thumb = sanitizeImageUrl(
+      photoThumbUrl ??
+          MemberProfileVariantsService.listPhotoUrl(memberData) ??
+          '',
+    );
 
     var tenantIds =
         await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
@@ -372,7 +406,10 @@ class MemberProfilePhotoUpdateService {
       'authUid': authUid,
       'memberDocId': memberDocId,
       'displayName': displayName.isEmpty ? 'Membro' : displayName,
-      'photoUrl': url.isEmpty ? null : url,
+      'photoUrl': thumb.isNotEmpty ? thumb : (url.isEmpty ? null : url),
+      'photoThumbUrl': thumb.isEmpty ? null : thumb,
+      'fotoUrl': url.isEmpty ? null : url,
+      'fotoThumbUrl': thumb.isEmpty ? null : thumb,
       'fotoUrlCacheRevision': cacheRevision,
       'updatedAt': FieldValue.serverTimestamp(),
     };
@@ -386,11 +423,15 @@ class MemberProfilePhotoUpdateService {
       memberRefData['foto_url'] = url;
       memberRefData['photoURL'] = url;
     }
+    if (thumb.isNotEmpty) {
+      memberRefData['fotoThumbUrl'] = thumb;
+      memberRefData[YahwehPerformanceV4.profileThumbFieldLegacy] = thumb;
+    }
     final chatRef = ChurchChatMemberRef(
       memberId: memberDocId,
       data: memberRefData,
       authUid: authUid,
-      photoUrl: url.isEmpty ? null : url,
+      photoUrl: thumb.isNotEmpty ? thumb : (url.isEmpty ? null : url),
     );
 
     for (final tid in tenantIds) {

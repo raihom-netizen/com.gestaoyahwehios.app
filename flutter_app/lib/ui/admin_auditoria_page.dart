@@ -6,8 +6,7 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
-import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 
 /// Logs de uso de banco, Google Drive etc. Master vê todos; Gestor local vê só da sua igreja. Super Premium, responsivo.
 class AdminAuditoriaPage extends StatefulWidget {
@@ -46,12 +45,10 @@ class _AdminAuditoriaPageState extends State<AdminAuditoriaPage> {
       if (!isMaster && igrejaId.isNotEmpty) {
         q = q.where('igrejaId', isEqualTo: igrejaId);
       }
-      final snap = await FirestoreWebGuard.runWithWebRecovery(() {
-        return FirestoreReadResilience.getQuery(
-          q,
-          cacheKey: isMaster ? 'master_auditoria' : 'auditoria_$igrejaId',
-        );
-      });
+      final snap = await MasterAdminFirestore.query(
+        q,
+        cacheKey: isMaster ? 'master_auditoria' : 'auditoria_$igrejaId',
+      );
       if (mounted) {
         _logs = snap.docs.map((d) => d.data()).toList();
         setState(() { _loading = false; _error = null; });

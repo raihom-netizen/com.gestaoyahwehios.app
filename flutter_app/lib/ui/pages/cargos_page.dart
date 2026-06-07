@@ -671,7 +671,10 @@ class _CargosPageState extends State<CargosPage> {
       }
       return snap;
     }
-    return ChurchTenantResilientReads.cargos(tid);
+    return ChurchTenantResilientReads.cargos(tid).timeout(
+      const Duration(seconds: 14),
+      onTimeout: () => const MergedFirestoreQuerySnapshot([]),
+    );
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadCargos() {
@@ -1642,8 +1645,9 @@ class _CargosPageState extends State<CargosPage> {
                 future: _cargosFuture,
                 builder: (context, snap) {
                   if (snap.connectionState == ConnectionState.waiting &&
-                      !snap.hasData) {
-                    return const ChurchPanelLoadingBody();
+                      !snap.hasData &&
+                      !snap.hasError) {
+                    return const ChurchPanelLoadingBody(itemCount: 4);
                   }
                   if (snap.hasError) {
                     return Padding(

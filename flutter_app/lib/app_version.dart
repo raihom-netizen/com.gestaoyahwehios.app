@@ -1,4 +1,9 @@
-/// Single source of app version used everywhere.
+﻿/// Single source of app version used everywhere.
+/// 11.2.295+1833: BPC — cluster ancorado, sync dados/MP servidor, tenant canónico _sistema, fallback irmãos priorizado.
+/// 11.2.295+1832: Membros — ícone WhatsApp vetorial, chat abre directo, wa.me/whatsapp:// em todos os atalhos.
+/// 11.2.295+1831: Doação MP — migração cluster (O Brasil), contas 323 em docs irmãos, bootstrap tenant-first.
+/// 11.2.295+1830: Painel igreja — agenda/cultos tenant operacional + sibling fallback; leituras leves; cartão membro resiliente.
+/// 11.2.295+1829: Deploy — licença master, notificações FCM (avisos/eventos/cadastros/aniversários), storage canónico.
 /// 11.2.295+1828: Deploy — Pastoral removido, transmissão Chat Igreja, Cargos alinhado FUNCAO, site divulgação ícones.
 /// 11.2.295+1823: Paths Firestore/Storage — avisos/eventos sibling fallback, mural tenant operacional, busca global igrejas/, prefetch shell, cartão configDoc.
 /// 11.2.295+1822: pending_uploads só em igrejas/{tenantId}/pending_uploads — sem raiz pendingUploads.
@@ -312,7 +317,7 @@ const String appVersion = '11.2.295';
 /// 11.2.295+1803: Aprovações rápidas — pendentes cache-first; sem preparePanelRead.
 /// 11.2.295+1804: Chat Igreja — grupos instantâneos, layout web WhatsApp, mensagens/upload rápidos.
 /// 11.2.295+1805: Minha Escala + Escala Geral — cache-first instantâneo; sem preparePanelRead.
-const String appBuildNumber = '1828';
+const String appBuildNumber = '1833';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

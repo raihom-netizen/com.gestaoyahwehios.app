@@ -5,34 +5,31 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 
 /// Layout canônico do **Firebase Storage** por igreja (tenant = id do doc em `igrejas/{id}`).
 ///
-/// ## Padrão
-/// Toda mídia da igreja fica sob **`igrejas/{igrejaDocId}/`**, com estas pastas (PT-BR):
-/// - **[membros]/{idDocumentoMembro}/foto_perfil.jpg** — foto de perfil canónica (id = doc em `igrejas/{tenant}/membros/`, ex. CPF); **sempre este nome** (novo upload substitui o objeto; pode ser WebP com `contentType: image/webp`). Outros ficheiros: gestor, assinatura, digital, variantes legadas.
-/// - **[noticias]** — legado Storage + **Firestore** `igrejas/{id}/noticias` (eventos no mural).
-/// - **[avisos]** — canónico Storage `avisos/{postId}/…` + **Firestore** `igrejas/{id}/avisos` (só avisos do mural).
-/// - **[eventos]** — canónico: `eventos/{postId}/banner_evento.jpg` (+ `galeria_XX.jpg`); vídeos hospedados só em `eventos/videos/` (`{postId}_v0.mp4` + `{postId}_v0_thumb.jpg`, slots 0–1); **templates** em `eventos/templates/`.
-/// - **[patrimonio]** — canónico: pasta por bem `patrimonio/{itemId}/` com até **5** fotos:
-///   só `galeria_01.jpg` … `galeria_05.jpg` (sem `foto_item` nem `thumb_*` no modelo).
-/// Padrão geral: `igrejas/{id_igreja}/{modulo}/{id_item}/arquivo.jpg` (IDs estáveis do Firestore quando aplicável).
-/// - **[configuracoes]** — identidade: `configuracoes/logo_igreja.png` (único, sobrescrito ao trocar; sem `thumb_*`);
-///   assinatura do pastor em `assinatura.png` / `.jpg`.
-/// - **[cartao_membro]** — logo dedicada da carteirinha: `logo.jpg` (substitui o legado `carteira_logos/{tenant}/`).
-/// - **[certificados]** — logo dedicada dos certificados PDF (`logo_atual.jpg` etc.; substitui `certificado_logos/{tenant}/`).
-/// - **[templates/certificados]** — fundos de certificado em alta resolução: `modelo_*.png` ou `.jpg`.
-/// - **[logo]** — legado: `logo/logo_{nomeIgreja}_{id}.jpg`, `logo_principal.jpg`, `branding/` (migração).
+/// ## Árvore consolidada (novos uploads)
+/// ```
+/// igrejas/{churchId}/
+/// ├── membros/fotos/ + membros/thumbs/
+/// ├── avisos/imagens/
+/// ├── eventos/imagens/ + eventos/videos/ + eventos/thumbs/
+/// ├── patrimonio/imagens/ + patrimonio/thumbs/
+/// └── chat_media/{images|videos|audio|docs}/ + chat_media/thumbs/
+/// ```
 ///
-/// Outros nós sob `igrejas/{id}/` (ex.: `comprovantes`, `departamentos`, `certificados_gestor`) são
-/// módulos operacionais; continuam **dentro** do prefixo da igreja.
+/// Firestore guarda **só URLs**; listas usam **thumbs**; full só quando necessário.
+/// Ver `.cursor/rules/igrejas-arquitetura-final.mdc`.
 ///
-  /// ## Gestão YAHWEH (institucional / divulgação)
-  /// Galeria institucional e PDFs do produto ficam em `public/gestao_yahweh/…` (sem `igrejas/`).
-  /// A **capa «cliente em destaque»** no site de divulgação usa [kSegMarketingDestaque] **dentro** de `igrejas/{tenantId}/`
-  /// (ID do documento em `igrejas/`), alinhado ao restante Storage da igreja.
+/// ## Módulos de mídia
+/// | Módulo | Storage canónico |
+/// |--------|------------------|
+/// | membros | `membros/fotos/{id}.webp`, `membros/thumbs/{id}.webp` |
+/// | avisos | `avisos/imagens/{postId}_*.webp` |
+/// | eventos | `eventos/imagens/`, `eventos/videos/`, `eventos/thumbs/` |
+/// | patrimonio | `patrimonio/imagens/`, `patrimonio/thumbs/` |
+/// | chat_media | `chat_media/{tipo}/`, `chat_media/thumbs/` |
 ///
-/// ## Pastas virtuais (GCS / Firebase Storage)
-/// Não existem diretórios vazios: `configuracoes/` só aparece no console após o primeiro objeto
-/// (ex.: `logo_igreja.png`). O app pode materializar um PNG mínimo transparente só quando ainda não há
-/// ficheiro canónico — o upload real **substitui** no mesmo path.
+/// Legado (leitura): `membros/{id}/foto_perfil.jpg`, pastas por post/item — helpers `*Legacy()`.
+///
+/// Outros nós: `configuracoes/`, `logo/`, `cartao_membro/`, `certificados/`, `eventos/templates/`.
 abstract final class ChurchStorageLayout {
   ChurchStorageLayout._();
 
@@ -70,6 +67,10 @@ abstract final class ChurchStorageLayout {
   static const String kSegCertificadosMidia = 'certificados';
   static const String kSegEventos = 'eventos';
   static const String kSegPatrimonio = 'patrimonio';
+  static const String kSegChatMedia = 'chat_media';
+  static const String kSegImagens = 'imagens';
+  static const String kSegVideos = 'videos';
+  static const String kSegThumbs = 'thumbs';
   static const String kSegLogo = 'logo';
 
   /// Configurações diversas (ex.: assinatura do pastor para carteirinha digital).
@@ -111,16 +112,41 @@ abstract final class ChurchStorageLayout {
     return s.isEmpty ? 'doc' : s;
   }
 
-  /// Foto de perfil canónica: `membros/{memberDocId}/foto_perfil.jpg` (mesmo path em cada troca — sobrescreve).
+  /// Foto principal canónica: `membros/fotos/{memberId}.webp` (1024×1024 @ 80%).
+  static String memberProfilePhotoPath(
+      String tenantId, String memberDocId) {
+    final tid = tenantId.trim();
+    final mid = _safeDocId(memberDocId);
+    return '${churchRoot(tid)}/$kSegMembros/fotos/$mid.webp';
+  }
+
+  /// Miniatura canónica: `membros/thumbs/{memberId}.webp` (200×200 @ 70%).
+  static String memberProfileThumbPath(
+      String tenantId, String memberDocId) {
+    final tid = tenantId.trim();
+    final mid = _safeDocId(memberDocId);
+    return '${churchRoot(tid)}/$kSegMembros/thumbs/$mid.webp';
+  }
+
+  /// Alias — use [memberProfilePhotoPath].
   static String memberCanonicalProfilePhotoPath(
+          String tenantId, String memberDocId) =>
+      memberProfilePhotoPath(tenantId, memberDocId);
+
+  /// Alias — use [memberProfileThumbPath].
+  static String memberProfileThumbWebpPath(
+          String tenantId, String memberDocId) =>
+      memberProfileThumbPath(tenantId, memberDocId);
+
+  /// Legado: `membros/{memberDocId}/foto_perfil.jpg`.
+  static String memberCanonicalProfilePhotoPathLegacy(
       String tenantId, String memberDocId) {
     final tid = tenantId.trim();
     final mid = _safeDocId(memberDocId);
     return '${churchRoot(tid)}/$kSegMembros/$mid/foto_perfil.jpg';
   }
 
-  /// Miniatura típica da extensão **Resize Images** (se ativada no projeto): mesma pasta do membro.
-  /// O painel prioriza decode pequeno na lista (`memCache`); pode passar a usar esta URL quando existir.
+  /// Miniatura típica da extensão **Resize Images** (legado).
   static String memberProfileResizeThumbPath(
       String tenantId, String memberDocId) {
     final tid = tenantId.trim();
@@ -128,15 +154,15 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegMembros/$mid/thumb_foto_perfil.jpg';
   }
 
-  /// V4: miniatura WebP para listas (`photoThumb`).
-  static String memberProfileThumbWebpPath(
+  /// Legado V4: `membros/{id}/profile_thumb.webp`.
+  static String memberProfileThumbWebpPathLegacy(
       String tenantId, String memberDocId) {
     final tid = tenantId.trim();
     final mid = _safeDocId(memberDocId);
     return '${churchRoot(tid)}/$kSegMembros/$mid/${YahwehPerformanceV4.profileThumbFile}';
   }
 
-  /// V4: média WebP para perfil (`photoMedium`).
+  /// Legado V4: `membros/{id}/profile_medium.webp`.
   static String memberProfileMediumWebpPath(
       String tenantId, String memberDocId) {
     final tid = tenantId.trim();
@@ -144,8 +170,19 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegMembros/$mid/${YahwehPerformanceV4.profileMediumFile}';
   }
 
-  /// Post **evento** em [noticias]: capa `banner_evento.jpg`, mais fotos `galeria_01.jpg`…
+  /// Post **evento** — canónico: `eventos/imagens/{postId}_banner.webp` (+ `galeria_XX`).
   static String eventPostPhotoPath(
+      String tenantId, String postDocId, int slotIndex) {
+    final tid = tenantId.trim();
+    final pid = _safeDocId(postDocId);
+    final root = '${churchRoot(tid)}/$kSegEventos/$kSegImagens';
+    if (slotIndex <= 0) return '$root/${pid}_banner.webp';
+    final n = slotIndex.toString().padLeft(2, '0');
+    return '$root/${pid}_galeria_$n.webp';
+  }
+
+  /// Legado: `eventos/{postId}/banner_evento.jpg` …
+  static String eventPostPhotoPathLegacy(
       String tenantId, String postDocId, int slotIndex) {
     final tid = tenantId.trim();
     final pid = _safeDocId(postDocId);
@@ -155,8 +192,7 @@ abstract final class ChurchStorageLayout {
     return '$root/galeria_$n.jpg';
   }
 
-  /// Vídeo MP4 no Storage ligado ao doc do evento em [noticias] — [videoSlot] 0 ou 1 (máx. 2 vídeos).
-  /// Sobrescreve o mesmo path ao trocar o ficheiro (evita “cemitério” de objetos).
+  /// Vídeo MP4 — `eventos/videos/{postId}_v0.mp4` (slot 0 ou 1).
   static String eventHostedVideoMp4Path(
       String tenantId, String postDocId, int videoSlot) {
     final tid = tenantId.trim();
@@ -165,17 +201,37 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegEventos/videos/${pid}_v$s.mp4';
   }
 
-  /// Miniatura JPEG do vídeo — mesmo prefixo `eventos/videos/` (sem pasta `thumbs/`).
+  /// Miniatura do vídeo — `eventos/thumbs/{postId}_v0.webp`.
   static String eventHostedVideoThumbPath(
       String tenantId, String postDocId, int videoSlot) {
     final tid = tenantId.trim();
     final pid = _safeDocId(postDocId);
     final s = videoSlot.clamp(0, 1);
-    return '${churchRoot(tid)}/$kSegEventos/videos/${pid}_v${s}_thumb.jpg';
+    return '${churchRoot(tid)}/$kSegEventos/$kSegThumbs/${pid}_v$s.webp';
   }
 
-  /// Post **aviso**: capa canónica `capa_aviso.jpg` (legado) ou variantes WebP `capa_aviso_full_1920.webp`.
+  /// Legado: thumb junto ao vídeo em `eventos/videos/`.
+  static String eventHostedVideoThumbPathLegacy(
+      String tenantId, String postDocId, int videoSlot) {
+    final tid = tenantId.trim();
+    final pid = _safeDocId(postDocId);
+    final s = videoSlot.clamp(0, 1);
+    return '${churchRoot(tid)}/$kSegEventos/$kSegVideos/${pid}_v${s}_thumb.jpg';
+  }
+
+  /// Post **aviso** — canónico: `avisos/imagens/{postId}_capa.webp` (+ galeria).
   static String avisoPostPhotoPath(
+      String tenantId, String postDocId, int slotIndex) {
+    final tid = tenantId.trim();
+    final pid = _safeDocId(postDocId);
+    final root = '${churchRoot(tid)}/$kSegAvisos/$kSegImagens';
+    if (slotIndex <= 0) return '$root/${pid}_capa.webp';
+    final n = slotIndex.toString().padLeft(2, '0');
+    return '$root/${pid}_galeria_$n.webp';
+  }
+
+  /// Legado: `avisos/{postId}/capa_aviso.jpg` …
+  static String avisoPostPhotoPathLegacy(
       String tenantId, String postDocId, int slotIndex) {
     final tid = tenantId.trim();
     final pid = _safeDocId(postDocId);
@@ -189,10 +245,10 @@ abstract final class ChurchStorageLayout {
       String tenantId, String postDocId, int slotIndex) {
     final tid = tenantId.trim();
     final pid = _safeDocId(postDocId);
-    final root = '${churchRoot(tid)}/$kSegAvisos/$pid';
-    if (slotIndex <= 0) return '$root/capa_aviso';
+    final root = '${churchRoot(tid)}/$kSegAvisos/$kSegImagens';
+    if (slotIndex <= 0) return '$root/${pid}_capa';
     final n = slotIndex.toString().padLeft(2, '0');
-    return '$root/galeria_$n';
+    return '$root/${pid}_galeria_$n';
   }
 
   /// Variante WebP do mural aviso (`thumb_200`, `medium_800`, `full_1920`).
@@ -212,8 +268,10 @@ abstract final class ChurchStorageLayout {
   ) {
     final tid = tenantId.trim();
     final pid = _safeDocId(postDocId);
-    final root = '${churchRoot(tid)}/$kSegEventos/$pid';
-    final base = slotIndex <= 0 ? '$root/banner_evento' : '$root/galeria_${slotIndex.toString().padLeft(2, '0')}';
+    final root = '${churchRoot(tid)}/$kSegEventos/$kSegImagens';
+    final base = slotIndex <= 0
+        ? '$root/${pid}_banner'
+        : '$root/${pid}_galeria_${slotIndex.toString().padLeft(2, '0')}';
     return '${base}_${tier.trim()}.webp';
   }
 
@@ -226,15 +284,16 @@ abstract final class ChurchStorageLayout {
   ) =>
       '${churchRoot(tenantId)}/chat_media/${threadId.trim()}/${fileNameStem}_${tier.trim()}.webp';
 
-  /// Subpasta por tipo: `images` | `videos` | `audio` | `documents`.
+  /// Subpasta por tipo: `images` | `videos` | `audio` | `docs` (legado: `documents`).
   static String chatMediaFolderForKind(String kind) => switch (kind) {
         'image' => 'images',
         'video' => 'videos',
         'audio' => 'audio',
-        _ => 'documents',
+        'pdf' || 'doc' || 'xls' || 'zip' || 'document' => 'docs',
+        _ => 'docs',
       };
 
-  /// `igrejas/{tenant}/chat_media/{threadId}/images/{uid}_{ts}_{name}.webp`
+  /// `igrejas/{tenant}/chat_media/{folder}/{uid}_{ts}_{name}` — sem threadId (estilo WhatsApp).
   static String buildChatMediaObjectPath({
     required String tenantId,
     required String threadId,
@@ -245,26 +304,45 @@ abstract final class ChurchStorageLayout {
   }) {
     final folder = chatMediaFolderForKind(kind);
     final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-    return '${churchRoot(tenantId)}/chat_media/${threadId.trim()}/$folder/${uid}_${timestampMs}_$safeName';
+    return '${churchRoot(tenantId)}/chat_media/$folder/${uid}_${timestampMs}_$safeName';
   }
 
-  /// Miniatura de vídeo no mesmo diretório `videos/`.
+  /// Miniatura centralizada: `igrejas/{tenant}/chat_media/thumbs/{uid}_{ts}_{suffix}.webp`
+  static String buildChatMediaThumbPath({
+    required String tenantId,
+    required String uid,
+    required int timestampMs,
+    String suffix = 'thumb',
+  }) =>
+      '${churchRoot(tenantId)}/chat_media/thumbs/${uid}_${timestampMs}_$suffix.webp';
+
+  /// @deprecated Use [buildChatMediaThumbPath]. Mantido para URLs legadas.
   static String buildChatVideoThumbPath({
     required String tenantId,
     required String threadId,
     required String uid,
     required int timestampMs,
   }) =>
-      '${churchRoot(tenantId)}/chat_media/${threadId.trim()}/videos/${uid}_${timestampMs}_thumb.webp';
+      buildChatMediaThumbPath(
+        tenantId: tenantId,
+        uid: uid,
+        timestampMs: timestampMs,
+        suffix: 'video',
+      );
 
-  /// Miniatura de foto: `{uid}_{ts}_thumb.webp` em `images/`.
+  /// @deprecated Use [buildChatMediaThumbPath]. Mantido para URLs legadas.
   static String buildChatImageThumbPath({
     required String tenantId,
     required String threadId,
     required String uid,
     required int timestampMs,
   }) =>
-      '${churchRoot(tenantId)}/chat_media/${threadId.trim()}/images/${uid}_${timestampMs}_thumb.webp';
+      buildChatMediaThumbPath(
+        tenantId: tenantId,
+        uid: uid,
+        timestampMs: timestampMs,
+        suffix: 'image',
+      );
 
   /// Caminhos tentados para assinatura institucional (`assinatura.png` / `.jpg`).
   static List<String> pastorSignatureConfigPaths(String tenantId) {
@@ -378,9 +456,17 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
   }
 
-  /// Foto do patrimônio por **slot** (0–4 = [kMaxPatrimonioPhotosPerItem] fotos): `galeria_01.webp` … `galeria_05.webp`.
-  /// Ficheiros legados `.jpg` na mesma pasta continuam válidos até substituição.
+  /// Foto full: `patrimonio/imagens/{safeId}_01.webp` … `_05.webp`.
   static String patrimonioPhotoPath(String tenantId, String itemDocId, int slot) {
+    final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
+    final safeId = _safeDocId(itemDocId);
+    final n = (s + 1).toString().padLeft(2, '0');
+    return '${churchRoot(tenantId)}/$kSegPatrimonio/$kSegImagens/${safeId}_$n.webp';
+  }
+
+  /// Legado: `patrimonio/{itemId}/galeria_01.webp`.
+  static String patrimonioPhotoPathLegacy(
+      String tenantId, String itemDocId, int slot) {
     final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
     final safeId = _safeDocId(itemDocId);
     final root = '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
@@ -388,8 +474,46 @@ abstract final class ChurchStorageLayout {
     return '$root/galeria_$n.webp';
   }
 
-  /// Base sem extensão (limpeza de variantes `_thumb` / `_card` / `_full` e legado `id_slot`).
+  /// Miniatura: `patrimonio/thumbs/{safeId}_01.webp`.
+  static String patrimonioThumbPath(String tenantId, String itemDocId, int slot) {
+    final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
+    final safeId = _safeDocId(itemDocId);
+    final n = (s + 1).toString().padLeft(2, '0');
+    return '${churchRoot(tenantId)}/$kSegPatrimonio/thumbs/${safeId}_$n.webp';
+  }
+
+  /// Base sem extensão (limpeza) — path canónico em `patrimonio/imagens/`.
   static String patrimonioPhotoBaseWithoutExt(
+      String tenantId, String itemDocId, int slot) {
+    final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
+    final safeId = _safeDocId(itemDocId);
+    final n = (s + 1).toString().padLeft(2, '0');
+    return '${churchRoot(tenantId)}/$kSegPatrimonio/$kSegImagens/${safeId}_$n';
+  }
+
+  /// Paths a apagar ao substituir slot (canónico + legado).
+  static List<String> patrimonioSlotDeletionPaths(
+    String tenantId,
+    String itemDocId,
+    int slot,
+  ) {
+    final canonical = patrimonioPhotoPath(tenantId, itemDocId, slot);
+    final thumb = patrimonioThumbPath(tenantId, itemDocId, slot);
+    final legacy = patrimonioPhotoPathLegacy(tenantId, itemDocId, slot);
+    final legacyBase =
+        patrimonioPhotoBaseWithoutExtLegacy(tenantId, itemDocId, slot);
+    return [
+      canonical,
+      thumb,
+      legacy,
+      '$legacyBase.jpg',
+      '$legacyBase.webp',
+      '${legacyBase}_thumb.jpg',
+      '${legacyBase}_thumb.webp',
+    ];
+  }
+
+  static String patrimonioPhotoBaseWithoutExtLegacy(
       String tenantId, String itemDocId, int slot) {
     final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
     final safeId = _safeDocId(itemDocId);

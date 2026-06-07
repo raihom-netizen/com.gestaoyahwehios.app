@@ -16,6 +16,9 @@ class AdminMigrarMembrosPage extends StatefulWidget {
 
 class _AdminMigrarMembrosPageState extends State<AdminMigrarMembrosPage> {
   bool _loading = false;
+  bool _storageMigrating = false;
+  String? _storageResultMessage;
+  String? _storageErrorMessage;
   String? _resultMessage;
   String? _errorMessage;
 
@@ -196,6 +199,67 @@ class _AdminMigrarMembrosPageState extends State<AdminMigrarMembrosPage> {
     }
   }
 
+  /// Migra Storage + Firestore → arquitetura consolidada (membros/fotos/thumbs, etc.).
+  Future<void> _executarMigracaoStorage({required bool execute, bool allTenants = true}) async {
+    ThemeCleanPremium.hapticAction();
+    setState(() {
+      _storageMigrating = true;
+      _storageResultMessage = null;
+      _storageErrorMessage = null;
+    });
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('migrateStorageConsolidated');
+      final res = await _callWithTimeoutAndRetry(
+        () => callable.call<Map<String, dynamic>>({
+          'execute': execute,
+          'allTenants': allTenants,
+          'modules': ['all'],
+        }),
+      );
+      final data = res.data is Map ? Map<String, dynamic>.from(res.data as Map) : <String, dynamic>{};
+      final msg = (data['message'] ?? '').toString();
+      final summary =
+          'Igrejas: ${data['tenantsProcessed'] ?? 0} · Membros: ${data['membros'] ?? 0} · '
+          'Avisos: ${data['avisos'] ?? 0} · Eventos: ${data['eventos'] ?? 0} · '
+          'Património slots: ${data['patrimonio'] ?? 0}';
+      if (mounted) {
+        setState(() {
+          _storageMigrating = false;
+          _storageResultMessage = execute
+              ? 'Migração Storage aplicada.\n$summary'
+              : 'Simulação (dry-run).\n$summary\n\nToque em «Aplicar migração Storage» para gravar.';
+          _storageErrorMessage = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            execute ? 'Storage consolidado.' : 'Simulação concluída.',
+          ),
+        );
+      }
+      if (msg.isNotEmpty && !execute && mounted) {
+        setState(() => _storageResultMessage = '${_storageResultMessage ?? ''}\n$msg');
+      }
+    } on FirebaseFunctionsException catch (e) {
+      if (mounted) {
+        setState(() {
+          _storageMigrating = false;
+          _storageErrorMessage = e.message ?? e.code;
+          _storageResultMessage = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _storageMigrating = false;
+          _storageErrorMessage = e.toString();
+          _storageResultMessage = null;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final pad = ThemeCleanPremium.pagePadding(context);
@@ -251,6 +315,71 @@ class _AdminMigrarMembrosPageState extends State<AdminMigrarMembrosPage> {
                         backgroundColor: Colors.deepPurple.shade600,
                       ),
                     ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              MasterPremiumCard(
+                padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Icon(Icons.cloud_sync_rounded, size: 48, color: Colors.teal.shade700),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Migração Storage (arquitetura consolidada)',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Move fotos legadas para membros/fotos + thumbs, avisos/imagens, eventos/imagens|videos|thumbs, patrimonio/imagens|thumbs. '
+                      'Atualiza fotoUrl e fotoThumbUrl no Firestore e refresca members_directory.',
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: _storageMigrating ? null : () => _executarMigracaoStorage(execute: false),
+                      icon: const Icon(Icons.preview_rounded),
+                      label: const Text('Simular (dry-run)'),
+                    ),
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: _storageMigrating ? null : () => _executarMigracaoStorage(execute: true),
+                      icon: _storageMigrating
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.storage_rounded),
+                      label: Text(_storageMigrating ? 'Migrando Storage...' : 'Aplicar migração Storage (todas igrejas)'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        backgroundColor: Colors.teal.shade700,
+                      ),
+                    ),
+                    if (_storageResultMessage != null) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.teal.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.teal.shade200),
+                        ),
+                        child: Text(_storageResultMessage!, style: TextStyle(fontSize: 13, color: Colors.teal.shade900)),
+                      ),
+                    ],
+                    if (_storageErrorMessage != null) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.red.shade200),
+                        ),
+                        child: Text(_storageErrorMessage!, style: TextStyle(fontSize: 13, color: Colors.red.shade900)),
+                      ),
+                    ],
                   ],
                 ),
               ),

@@ -56,14 +56,15 @@ async function processMemberProfile(
   const [buf] = await bucket.file(srcPath).download();
   if (!buf || buf.length < 32) return;
 
-  const base = `igrejas/${tenantId}/membros/${memberId}`;
-  const [thumbBuf, mediumBuf] = await Promise.all([
-    sharp(buf).rotate().resize(200, 200, { fit: "inside", withoutEnlargement: true }).webp({ quality: WEBP_Q }).toBuffer(),
-    sharp(buf).rotate().resize(500, 500, { fit: "inside", withoutEnlargement: true }).webp({ quality: WEBP_Q }).toBuffer(),
+  const fullPath = `igrejas/${tenantId}/membros/fotos/${memberId}.webp`;
+  const thumbPath = `igrejas/${tenantId}/membros/thumbs/${memberId}.webp`;
+  const [fullBuf, thumbBuf] = await Promise.all([
+    sharp(buf).rotate().resize(1024, 1024, { fit: "cover" }).webp({ quality: 80 }).toBuffer(),
+    sharp(buf).rotate().resize(200, 200, { fit: "cover" }).webp({ quality: 70 }).toBuffer(),
   ]);
-  const [thumbUrl, mediumUrl] = await Promise.all([
-    saveWebp(`${base}/profile_thumb.webp`, thumbBuf),
-    saveWebp(`${base}/profile_medium.webp`, mediumBuf),
+  const [fotoUrl, fotoThumbUrl] = await Promise.all([
+    saveWebp(fullPath, fullBuf),
+    saveWebp(thumbPath, thumbBuf),
   ]);
   await db
     .collection("igrejas")
@@ -72,8 +73,13 @@ async function processMemberProfile(
     .doc(memberId)
     .set(
       {
-        photoThumb: thumbUrl,
-        photoMedium: mediumUrl,
+        fotoUrl,
+        fotoThumbUrl,
+        FOTO_URL_OU_ID: fotoUrl,
+        photoThumb: fotoThumbUrl,
+        photoStoragePath: fullPath,
+        photoThumbStoragePath: thumbPath,
+        photoMedium: admin.firestore.FieldValue.delete(),
         photoVariantsGeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true },
@@ -91,31 +97,29 @@ async function processFeedImage(
   if (!buf || buf.length < 32) return;
 
   const folder = collection === "avisos" ? "avisos" : "eventos";
-  const root = `igrejas/${tenantId}/${folder}/${postId}`;
-  const variants: Record<string, { url: string; storagePath: string; contentType: string }> = {};
-
-  for (const tier of TIERS) {
-    const out = await sharp(buf)
-      .rotate()
-      .resize(tier.edge, tier.edge, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: WEBP_Q })
-      .toBuffer();
-    const dest = `${root}/${baseName}_${tier.key}.webp`;
-    const url = await saveWebp(dest, out);
-    variants[tier.key] = { url, storagePath: dest, contentType: "image/webp" };
-  }
+  const fileStem =
+    baseName === "capa_aviso"
+      ? `${postId}_capa`
+      : baseName === "banner_evento"
+        ? `${postId}_banner`
+        : `${postId}_${baseName}`;
+  const dest = `igrejas/${tenantId}/${folder}/imagens/${fileStem}.webp`;
+  const out = await sharp(buf)
+    .rotate()
+    .resize(1920, 1920, { fit: "inside", withoutEnlargement: true })
+    .webp({ quality: 78 })
+    .toBuffer();
+  const primary = await saveWebp(dest, out);
 
   const col = collection === "avisos" ? "avisos" : "eventos";
   const ref = db.collection("igrejas").doc(tenantId).collection(col).doc(postId);
   const snap = await ref.get();
   if (!snap.exists) return;
 
-  const primary = variants.full_1920?.url ?? variants.medium_800?.url ?? "";
   await ref.set(
     {
-      imageVariants: variants,
-      imagem_url: primary || admin.firestore.FieldValue.delete(),
-      imageUrl: primary || admin.firestore.FieldValue.delete(),
+      imagem_url: primary,
+      imageUrl: primary,
       serverVariantsGeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
     },
     { merge: true },
@@ -127,9 +131,27 @@ function parseUpload(name: string):
   | { kind: "feed"; tenantId: string; collection: "avisos" | "eventos"; postId: string; baseName: string }
   | null {
   let m = name.match(
+    /^igrejas\/([^/]+)\/membros\/fotos\/([^/]+)\.webp$/i,
+  );
+  if (m) return { kind: "member", tenantId: m[1], memberId: m[2] };
+
+  m = name.match(
     /^igrejas\/([^/]+)\/membros\/([^/]+)\/foto_perfil\.(jpg|jpeg|png|webp)$/i,
   );
   if (m) return { kind: "member", tenantId: m[1], memberId: m[2] };
+
+  m = name.match(
+    /^igrejas\/([^/]+)\/avisos\/imagens\/([^_]+)_capa\.webp$/i,
+  );
+  if (m) {
+    return {
+      kind: "feed",
+      tenantId: m[1],
+      collection: "avisos",
+      postId: m[2],
+      baseName: "capa_aviso",
+    };
+  }
 
   m = name.match(
     /^igrejas\/([^/]+)\/avisos\/([^/]+)\/(capa_aviso|galeria_\d+)\.(jpg|jpeg|png)$/i,
@@ -141,6 +163,19 @@ function parseUpload(name: string):
       collection: "avisos",
       postId: m[2],
       baseName: m[3],
+    };
+  }
+
+  m = name.match(
+    /^igrejas\/([^/]+)\/eventos\/imagens\/([^_]+)_banner\.webp$/i,
+  );
+  if (m) {
+    return {
+      kind: "feed",
+      tenantId: m[1],
+      collection: "eventos",
+      postId: m[2],
+      baseName: "banner_evento",
     };
   }
 
@@ -227,7 +262,7 @@ export const compressVideo = functions
     const tenantId = m[1];
     const postId = m[2];
     const slot = Number(m[3]);
-    const thumbPath = `igrejas/${tenantId}/eventos/videos/${postId}_v${slot}_thumb.jpg`;
+    const thumbPath = `igrejas/${tenantId}/eventos/thumbs/${postId}_v${slot}.webp`;
 
     await db
       .collection("igrejas")
@@ -307,7 +342,7 @@ export const generateBirthdayCache = functions
           birthdays.push({
             memberDocId: doc.id,
             displayName: String(d.NOME_COMPLETO ?? d.nome ?? "Membro"),
-            photoThumb: d.photoThumb ?? d.fotoUrl ?? null,
+            photoThumb: d.fotoThumbUrl ?? d.photoThumb ?? d.fotoUrl ?? null,
             birthMonth: birth.month,
             birthDay: birth.day,
           });

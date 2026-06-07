@@ -42,6 +42,7 @@ const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const memberNotificationEmail_1 = require("./memberNotificationEmail");
 const notificationBranding_1 = require("./notificationBranding");
+const pushNovoConteudo_1 = require("./pushNovoConteudo");
 const db = admin.firestore();
 function normalizeRole(value) {
     return String(value || "").trim().toUpperCase();
@@ -926,7 +927,7 @@ function parseMemberBirthDate(data) {
     return null;
 }
 /**
- * Todo dia 8h (SP): push no tópico `igreja_{tenantId}` com aniversariantes do dia (todos os usuários inscritos no tópico).
+ * Todo dia 8h (SP): push no tópico `gypush_{tenant}_aniversario` (preferência no app).
  */
 exports.dailyBirthdayTopicPush = functions
     .region("us-central1")
@@ -1004,7 +1005,7 @@ exports.dailyBirthdayTopicPush = functions
                 : `Aniversariantes de hoje: ${names.slice(0, 8).join(", ")}${names.length > 8 ? "…" : ""}.`;
             const bodyOut = body.length > 200 ? `${body.slice(0, 197)}…` : body;
             await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
-                topic: `igreja_${tenantId}`,
+                topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "aniversario"),
                 title: "🎂 Aniversariantes de hoje",
                 body: bodyOut,
                 data: {

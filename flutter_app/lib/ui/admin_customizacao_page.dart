@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
@@ -39,10 +40,11 @@ class _AdminCustomizacaoPageState extends State<AdminCustomizacaoPage> {
     setState(() { _loading = true; _error = null; });
     try {
       // Server-first evita estados inconsistentes do cache/listeners no Firestore web (SDK 11.x).
-      final snap = await FirebaseFirestore.instance
-          .collection('config')
-          .doc('sistema')
-          .get(const GetOptions(source: Source.server));
+      final snap = await MasterAdminFirestore.document(
+        FirebaseFirestore.instance.collection('config').doc('sistema'),
+        cacheKey: 'master_config_sistema',
+        source: Source.server,
+      );
       final data = snap.data() ?? {};
       if (mounted) {
         _titulo.text = (data['titulo'] ?? '').toString();
@@ -60,7 +62,7 @@ class _AdminCustomizacaoPageState extends State<AdminCustomizacaoPage> {
           _loading = false;
           _error = isDenied
               ? 'Sem permissão para config/sistema. Use usuário com role ADMIN/MASTER ou documento em admins/{seuUid}. Depois: firebase deploy --only firestore:rules'
-              : 'Não foi possível carregar. Publique as regras do Firestore (inclui config/sistema), recarregue com Ctrl+F5 e tente de novo.\n\n$msg';
+              : 'Não foi possível carregar. ${MasterAdminFirestore.formatLoadError(e)}';
         });
       }
     }
@@ -69,11 +71,14 @@ class _AdminCustomizacaoPageState extends State<AdminCustomizacaoPage> {
   Future<void> _salvar() async {
     setState(() => _loading = true);
     try {
-      await FirebaseFirestore.instance.collection('config').doc('sistema').set({
-        'titulo': _titulo.text.trim(),
-        'mensagemBoasVindas': _mensagemBoasVindas.text.trim(),
-        'temaCor': _temaCor.text.trim(),
-      }, SetOptions(merge: true));
+      await MasterAdminFirestore.write(() => FirebaseFirestore.instance
+          .collection('config')
+          .doc('sistema')
+          .set({
+            'titulo': _titulo.text.trim(),
+            'mensagemBoasVindas': _mensagemBoasVindas.text.trim(),
+            'temaCor': _temaCor.text.trim(),
+          }, SetOptions(merge: true)));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Configurações salvas!'));
         _load();

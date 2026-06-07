@@ -202,6 +202,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   bool _resumeChatThreadAttempted = false;
   bool _conversasSkeletonTimedOut = false;
   Timer? _conversasSkeletonTimer;
+  Timer? _lazyMemberWarmupTimer;
   final Map<String, int> _unreadCountByThreadId = {};
   String? _unreadCountsLoadKey;
 
@@ -270,6 +271,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   @override
   void dispose() {
+    _lazyMemberWarmupTimer?.cancel();
     ChurchChatLocalConversations.revision.removeListener(_localConvListener);
     MemberProfilePhotoSyncNotifier.instance.removeListener(_photoSyncListener);
     WidgetsBinding.instance.removeObserver(this);
@@ -347,7 +349,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     });
   }
 
-  /// Pull-to-refresh: sincroniza em segundo plano sem substituir o stream nem esvaziar a lista.
+  void _scheduleLazyMemberWarmup(String tenantId) {
+    _lazyMemberWarmupTimer?.cancel();
+    _lazyMemberWarmupTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      unawaited(_warmMemberDirectoryForChat(tenantId));
+    });
+  }
+
   Future<void> _pullRefreshConversas() async {
     final tid = _resolvedTenantId;
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
@@ -900,12 +909,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     unawaited(ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tid));
     unawaited(_loadChatNotifPrefs());
     unawaited(_pruneStaleChatUploads(tid));
-    unawaited(_warmMemberDirectoryForChat(tid));
-    unawaited(
-      MembersDirectorySnapshotService.warmFromCallableIfStale(tid)
-          .timeout(const Duration(seconds: 18))
-          .catchError((_) => const MembersDirectorySnapshot()),
-    );
+    _scheduleLazyMemberWarmup(tid);
     unawaited(_primeConversasListFromFallback(tid));
     unawaited(_reloadLocalConversations());
     unawaited(

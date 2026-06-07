@@ -68,6 +68,7 @@ function buildGyTopicMessage(params) {
             notification: {
                 imageUrl: img,
                 color,
+                channelId: "gy_fcm_panel_default",
             },
         },
         apns: {

@@ -12,6 +12,96 @@ class TenantResolverService {
   static FirebaseFirestore get _firestore => firebaseDefaultFirestore;
   static const int _scanLimit = 350;
 
+  /// Clusters conhecidos cujo slug/alias não bate (ex.: BPC legado vs `_sistema`).
+  static const Map<String, List<String>> _anchoredChurchClusters = {
+    'brasilparacristo_sistema': [
+      'brasilparacristo_sistema',
+      'brasilparacristo',
+      'igreja_o_brasil_para_cristo_jardim_goiano',
+      'iobpc-jardim-goiano',
+    ],
+  };
+
+  static void _addAnchoredClusterMembers(String raw, Set<String> result) {
+    final t = raw.trim();
+    if (t.isEmpty) return;
+    for (final entry in _anchoredChurchClusters.entries) {
+      if (entry.key == t || entry.value.contains(t)) {
+        result.add(entry.key);
+        result.addAll(entry.value);
+      }
+    }
+  }
+
+  /// Irmãos para leitura com fallback — `_sistema` e cluster ancorado primeiro; teto evita N× queries lentas.
+  static List<String> orderedSiblingsForReadFallback(
+    String primary,
+    List<String> siblings, {
+    int maxExtra = 8,
+  }) {
+    final p = primary.trim();
+    if (p.isEmpty || siblings.isEmpty || maxExtra <= 0) return const [];
+
+    final priority = <String>[];
+    final rest = <String>[];
+
+    void addUnique(List<String> bucket, String id) {
+      final t = id.trim();
+      if (t.isEmpty || t == p) return;
+      if (priority.contains(t) || rest.contains(t)) return;
+      bucket.add(t);
+    }
+
+    for (final s in siblings) {
+      if (s.trim().endsWith('_sistema')) addUnique(priority, s);
+    }
+    for (final members in _anchoredChurchClusters.values) {
+      for (final id in members) {
+        addUnique(priority, id);
+      }
+    }
+    for (final s in siblings) {
+      addUnique(rest, s);
+    }
+
+    return <String>[...priority, ...rest].take(maxExtra).toList();
+  }
+
+  /// Doc canónico para **escritas** e Storage — prefere vínculo do utilizador e variante `_sistema`.
+  static Future<String> _resolveCanonicalOperationalId(
+    String bound,
+    String claimId,
+    List<String> siblings,
+  ) async {
+    final candidates = <String>{bound.trim()};
+    if (claimId.trim().isNotEmpty) candidates.add(claimId.trim());
+    for (final s in siblings) {
+      final t = s.trim();
+      if (t.isNotEmpty) candidates.add(t);
+    }
+
+    if (claimId.trim().isNotEmpty && candidates.contains(claimId.trim())) {
+      return claimId.trim();
+    }
+
+    for (final c in candidates) {
+      if (c.endsWith('_sistema')) return c;
+    }
+
+    if (candidates.contains('brasilparacristo_sistema')) {
+      return 'brasilparacristo_sistema';
+    }
+
+    try {
+      return await resolveChurchDocIdPreferringRichestCluster(
+        bound,
+        preferId: claimId.trim().isEmpty ? null : claimId.trim(),
+      );
+    } catch (_) {
+      return bound.trim().isEmpty ? claimId.trim() : bound.trim();
+    }
+  }
+
   static Future<void> _ensureFirestore() => ensureFirebaseReadyForPanelRead();
 
   static String _normalize(String s) {
@@ -174,13 +264,19 @@ class TenantResolverService {
       } catch (_) {}
     }
 
+    List<String> siblings = const [];
+    try {
+      siblings = await getAllRelatedIgrejaDocIds(bound)
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {}
+
     String operational = bound;
     try {
-      final prefer = claimId.isNotEmpty ? claimId : null;
-      operational = await resolveChurchDocIdPreferringRichestCluster(
+      operational = await _resolveCanonicalOperationalId(
         bound,
-        preferId: prefer,
-      ).timeout(const Duration(seconds: 22));
+        claimId,
+        siblings,
+      ).timeout(const Duration(seconds: 14));
     } catch (_) {}
 
     _operationalByKey[cacheKey] =
@@ -458,6 +554,7 @@ class TenantResolverService {
 
     await _ensureFirestore();
     final result = <String>{raw};
+    _addAnchoredClusterMembers(raw, result);
 
     Map<String, dynamic>? data;
     try {
@@ -527,6 +624,10 @@ class TenantResolverService {
           if (d.exists) result.add(d.id);
         }
       } catch (_) {}
+    }
+
+    for (final id in List<String>.from(result)) {
+      _addAnchoredClusterMembers(id, result);
     }
 
     return result.toList();

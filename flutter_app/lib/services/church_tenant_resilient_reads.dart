@@ -1,10 +1,14 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
 import 'package:gestao_yahweh/core/church_tenant_list_limits.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/member_document_resolve.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -22,16 +26,36 @@ abstract final class ChurchTenantResilientReads {
   static DocumentReference<Map<String, dynamic>> _church(String tenantId) =>
       firebaseDefaultFirestore.collection('igrejas').doc(tenantId.trim());
 
-  /// Token + Firestore pronto (leitura do painel, sem health check de upload).
+  /// Token + Firestore pronto (leitura do painel, sem desligar rede).
   static Future<void> preparePanelRead({bool refreshToken = false}) async {
     await ensureFirebaseReadyForPanelRead().catchError((_) {});
     if (kIsWeb) {
-      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
     if (refreshToken) {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true)
           .timeout(const Duration(seconds: 6))
           .catchError((_) {});
+    }
+  }
+
+  /// Doc operacional da igreja (slug → id + vínculo do utilizador).
+  static Future<String> operationalTenantId(
+    String seed, {
+    String? userUid,
+  }) async {
+    final s = seed.trim();
+    if (s.isEmpty) return s;
+    try {
+      return await TenantResolverService.resolveOperationalChurchDocId(
+        s,
+        userUid: userUid,
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 8) : const Duration(seconds: 12),
+        onTimeout: () => s,
+      );
+    } catch (_) {
+      return s;
     }
   }
 
@@ -45,7 +69,7 @@ abstract final class ChurchTenantResilientReads {
   }) async {
     await ensureFirebaseReadyForPanelRead().catchError((_) {});
     if (kIsWeb) {
-      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
     final tid =
         await TenantResolverService.resolveOperationalChurchDocId(
@@ -243,7 +267,7 @@ abstract final class ChurchTenantResilientReads {
   }) async {
     await ensureFirebaseReadyForPanelRead().catchError((_) {});
     if (kIsWeb) {
-      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
     final tid = await TenantResolverService.resolveOperationalChurchDocId(
       tenantIdHint,
@@ -307,10 +331,15 @@ abstract final class ChurchTenantResilientReads {
     } catch (_) {
       siblings = const [];
     }
-    for (final sid in siblings) {
-      if (sid == primary) continue;
+    final ordered = TenantResolverService.orderedSiblingsForReadFallback(
+      primary,
+      siblings,
+    );
+    for (final sid in ordered) {
       try {
-        final alt = await loadFor(sid);
+        final alt = await loadFor(sid).timeout(
+          kIsWeb ? const Duration(seconds: 8) : const Duration(seconds: 14),
+        );
         if (alt.docs.isNotEmpty) return alt;
       } catch (_) {}
     }
@@ -698,8 +727,10 @@ abstract final class ChurchTenantResilientReads {
     } catch (_) {
       siblings = const [];
     }
-    for (final sid in siblings) {
-      if (sid == primary) continue;
+    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
+      primary,
+      siblings,
+    )) {
       try {
         final alt = await loadFor(sid);
         if (alt.exists) return alt;
@@ -729,8 +760,10 @@ abstract final class ChurchTenantResilientReads {
     } catch (_) {
       siblings = const [];
     }
-    for (final sid in siblings) {
-      if (sid == primary) continue;
+    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
+      primary,
+      siblings,
+    )) {
       try {
         final alt = await loadFor(sid);
         if ((alt.data() ?? {}).isNotEmpty) return alt;
@@ -761,8 +794,10 @@ abstract final class ChurchTenantResilientReads {
     } catch (_) {
       siblings = const [];
     }
-    for (final sid in siblings) {
-      if (sid == primary) continue;
+    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
+      primary,
+      siblings,
+    )) {
       try {
         final alt = await loadFor(sid);
         if (alt.exists && (alt.data() ?? {}).isNotEmpty) return alt;
@@ -799,20 +834,109 @@ abstract final class ChurchTenantResilientReads {
         }
       });
 
-  /// Doação / Financeiro — mesma coleção `contas`, leitura rápida (evita timeout 16s).
+  static bool _isMercadoPagoContaData(Map<String, dynamic> data) {
+    if (data['ativo'] == false) return false;
+    final cod = (data['bancoCodigo'] ?? '').toString().trim();
+    if (cod == '323') return true;
+    final bn = (data['bancoNome'] ?? '').toString().toLowerCase();
+    if (bn.contains('mercado pago')) return true;
+    if ((data['seedPreset'] ?? '').toString() == 'tesouraria_mercado_pago') {
+      return true;
+    }
+    final nome = (data['nome'] ?? '').toString().toLowerCase();
+    return nome.contains('mercado pago');
+  }
+
+  /// Contas MP no tenant — se o doc operacional só tiver BB/Nubank, busca nos irmãos.
+  static Future<QuerySnapshot<Map<String, dynamic>>> _contasMercadoPagoWithSiblingFallback(
+    String tenantId, {
+    int limit = 80,
+  }) async {
+    final primary = tenantId.trim();
+    if (primary.isEmpty) return const MergedFirestoreQuerySnapshot([]);
+
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> mpFor(
+      String tid,
+    ) async {
+      final snap = await _contasQueryResilient(tid, limit: limit);
+      return snap.docs
+          .where((d) => _isMercadoPagoContaData(d.data()))
+          .toList();
+    }
+
+    try {
+      final hit = await mpFor(primary);
+      if (hit.isNotEmpty) return MergedFirestoreQuerySnapshot(hit);
+    } catch (_) {}
+
+    List<String> siblings;
+    try {
+      siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(primary);
+    } catch (_) {
+      siblings = const [];
+    }
+    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
+      primary,
+      siblings,
+    )) {
+      try {
+        final alt = await mpFor(sid).timeout(
+          kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 14),
+        );
+        if (alt.isNotEmpty) return MergedFirestoreQuerySnapshot(alt);
+      } catch (_) {}
+    }
+    return const MergedFirestoreQuerySnapshot([]);
+  }
+
+  /// Doação — só contas Mercado Pago (323), com fallback em docs irmãos do cluster.
   static Future<QuerySnapshot<Map<String, dynamic>>> contasDonation(
     String tenantId, {
     int limit = 80,
-  }) =>
-      TenantStaleWhileRevalidate.loadQuery(
-        tenantId: tenantId,
-        module: TenantModuleKeys.financeiro,
-        firestoreCacheKey: _key(tenantId, 'contas_donation_$limit'),
-        networkFetch: () => _queryWithSiblingFallback(
-          tenantId,
-          (tid) => _contasQueryResilient(tid, limit: limit),
-        ),
-      );
+  }) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return const MergedFirestoreQuerySnapshot([]);
+
+    final memKey = _key(tid, 'contas_mp_donation_$limit');
+    final mem = FirestoreReadResilience.peekLastGoodQuery(memKey);
+    if (mem != null && mem.docs.isNotEmpty) {
+      unawaited(_contasMercadoPagoWithSiblingFallback(tid, limit: limit).then((snap) {
+        if (snap.docs.isNotEmpty) {
+          FirestoreReadResilience.forgetKey(memKey);
+        }
+      }).catchError((_) {}));
+      return mem;
+    }
+
+    final hive = await TenantModuleHiveCache.readDocs(tid, TenantModuleKeys.financeiro);
+    if (hive.isNotEmpty) {
+      final mpHive = TenantModuleHiveCache.toQueryDocuments(hive)
+          .where((d) => _isMercadoPagoContaData(d.data()))
+          .toList();
+      if (mpHive.isNotEmpty) {
+        unawaited(_contasMercadoPagoWithSiblingFallback(tid, limit: limit).catchError((_) {}));
+        return MergedFirestoreQuerySnapshot(mpHive);
+      }
+    }
+
+    try {
+      final snap = await _contasMercadoPagoWithSiblingFallback(tid, limit: limit);
+      if (snap.docs.isNotEmpty) {
+        unawaited(
+          TenantModuleHiveCache.saveFromQuerySnapshot(
+            tid,
+            TenantModuleKeys.financeiro,
+            snap,
+          ),
+        );
+      }
+      return snap;
+    } catch (e) {
+      final fallback = FirestoreReadResilience.peekLastGoodQuery(memKey);
+      if (fallback != null && fallback.docs.isNotEmpty) return fallback;
+      rethrow;
+    }
+  }
 
   /// Membro vinculado ao login — tenant + irmãos.
   static Future<({String docId, String nome})?> memberByAuthUid(
@@ -857,8 +981,10 @@ abstract final class ChurchTenantResilientReads {
     } catch (_) {
       siblings = const [];
     }
-    for (final sid in siblings) {
-      if (sid == primary) continue;
+    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
+      primary,
+      siblings,
+    )) {
       try {
         final hit = await loadFor(sid);
         if (hit != null) return hit;
@@ -1082,14 +1208,250 @@ abstract final class ChurchTenantResilientReads {
     required bool descending,
     required int limit,
     required String cacheSuffix,
+  }) =>
+      FirestoreReadResilience.getQuery(
+        _church(tenantId)
+            .collection(subcollection)
+            .orderBy(orderField, descending: descending)
+            .limit(limit),
+        cacheKey: _key(tenantId, cacheSuffix),
+      );
+
+  static String _rangeCacheSuffix(Timestamp start, Timestamp end) =>
+      '${start.seconds}_${end.seconds}';
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> _rangeQueryResilient({
+    required String tenantId,
+    required String collection,
+    required String dateField,
+    required Timestamp start,
+    required Timestamp end,
+    required String cacheSuffix,
+    int plainLimit = 500,
+  }) =>
+      FirestoreWebGuard.runWithWebRecovery(() async {
+        final church = _church(tenantId);
+        try {
+          return await FirestoreReadResilience.getQuery(
+            church
+                .collection(collection)
+                .where(dateField, isGreaterThanOrEqualTo: start)
+                .where(dateField, isLessThanOrEqualTo: end),
+            cacheKey: _key(tenantId, cacheSuffix),
+            maxAttempts: kIsWeb ? 2 : 3,
+            attemptTimeout: kIsWeb
+                ? const Duration(seconds: 10)
+                : const Duration(seconds: 16),
+          );
+        } catch (_) {
+          final plain = await FirestoreReadResilience.getQuery(
+            church.collection(collection).limit(plainLimit),
+            cacheKey: _key(tenantId, '${cacheSuffix}_plain'),
+          );
+          final startDate = start.toDate();
+          final endDate = end.toDate();
+          final filtered = plain.docs.where((d) {
+            final raw = d.data()[dateField];
+            if (raw is! Timestamp) return false;
+            final dt = raw.toDate();
+            return !dt.isBefore(startDate) && !dt.isAfter(endDate);
+          }).toList();
+          return MergedFirestoreQuerySnapshot(filtered);
+        }
+      });
+
+  /// Cultos no intervalo — doc operacional + irmãos.
+  static Future<QuerySnapshot<Map<String, dynamic>>> cultosByDateRange(
+    String tenantId, {
+    required Timestamp start,
+    required Timestamp end,
+  }) =>
+      _queryWithSiblingFallback(
+        tenantId,
+        (tid) => _rangeQueryResilient(
+          tenantId: tid,
+          collection: 'cultos',
+          dateField: 'data',
+          start: start,
+          end: end,
+          cacheSuffix: 'cultos_${_rangeCacheSuffix(start, end)}',
+        ),
+      );
+
+  /// Eventos/mural por `dataEvento` no intervalo.
+  static Future<QuerySnapshot<Map<String, dynamic>>> eventosByDataEventoRange(
+    String tenantId, {
+    required Timestamp start,
+    required Timestamp end,
+  }) =>
+      _queryWithSiblingFallback(
+        tenantId,
+        (tid) => _rangeQueryResilient(
+          tenantId: tid,
+          collection: 'eventos',
+          dateField: 'dataEvento',
+          start: start,
+          end: end,
+          cacheSuffix: 'eventos_dataEvento_${_rangeCacheSuffix(start, end)}',
+        ),
+      );
+
+  /// Posts `type: evento` com `startAt` no intervalo.
+  static Future<QuerySnapshot<Map<String, dynamic>>> muralEventosByStartAtRange(
+    String tenantId, {
+    required Timestamp start,
+    required Timestamp end,
+  }) =>
+      _queryWithSiblingFallback(
+        tenantId,
+        (tid) => FirestoreWebGuard.runWithWebRecovery(() async {
+          final church = _church(tid);
+          final suffix = 'mural_startAt_${_rangeCacheSuffix(start, end)}';
+          try {
+            return await FirestoreReadResilience.getQuery(
+              church
+                  .collection('eventos')
+                  .where('type', isEqualTo: 'evento')
+                  .where('startAt', isGreaterThanOrEqualTo: start)
+                  .where('startAt', isLessThanOrEqualTo: end),
+              cacheKey: _key(tid, suffix),
+              maxAttempts: kIsWeb ? 2 : 3,
+              attemptTimeout: kIsWeb
+                  ? const Duration(seconds: 10)
+                  : const Duration(seconds: 16),
+            );
+          } catch (_) {
+            final plain = await FirestoreReadResilience.getQuery(
+              church.collection('eventos').limit(400),
+              cacheKey: _key(tid, '${suffix}_plain'),
+            );
+            final startDate = start.toDate();
+            final endDate = end.toDate();
+            final filtered = plain.docs.where((d) {
+              final m = d.data();
+              if ((m['type'] ?? '').toString() != 'evento') return false;
+              final raw = m['startAt'];
+              if (raw is! Timestamp) return false;
+              final dt = raw.toDate();
+              return !dt.isBefore(startDate) && !dt.isAfter(endDate);
+            }).toList();
+            return MergedFirestoreQuerySnapshot(filtered);
+          }
+        }),
+      );
+
+  /// Escalas no intervalo.
+  static Future<QuerySnapshot<Map<String, dynamic>>> escalasByDateRange(
+    String tenantId, {
+    required Timestamp start,
+    required Timestamp end,
+  }) =>
+      _queryWithSiblingFallback(
+        tenantId,
+        (tid) => _rangeQueryResilient(
+          tenantId: tid,
+          collection: 'escalas',
+          dateField: 'date',
+          start: start,
+          end: end,
+          cacheSuffix: 'escalas_${_rangeCacheSuffix(start, end)}',
+        ),
+      );
+
+  /// Itens da coleção `agenda` no intervalo.
+  static Future<QuerySnapshot<Map<String, dynamic>>> agendaByStartTimeRange(
+    String tenantId, {
+    required Timestamp start,
+    required Timestamp end,
+  }) =>
+      _queryWithSiblingFallback(
+        tenantId,
+        (tid) => _rangeQueryResilient(
+          tenantId: tid,
+          collection: 'agenda',
+          dateField: 'startTime',
+          start: start,
+          end: end,
+          cacheSuffix: 'agenda_${_rangeCacheSuffix(start, end)}',
+        ),
+      );
+
+  /// Membro por id/CPF/código — doc operacional + irmãos (carteirinha, certificados).
+  static Future<DocumentSnapshot<Map<String, dynamic>>?> membroByHint(
+    String tenantId,
+    String hint, {
+    String? cpfDigits,
   }) async {
     await preparePanelRead();
-    return FirestoreReadResilience.getQuery(
-      _church(tenantId)
-          .collection(subcollection)
-          .orderBy(orderField, descending: descending)
-          .limit(limit),
-      cacheKey: _key(tenantId, cacheSuffix),
+    final h = hint.trim();
+    if (h.isEmpty) return null;
+    final primary = tenantId.trim();
+    if (primary.isEmpty) return null;
+
+    Future<DocumentSnapshot<Map<String, dynamic>>?> tryTenant(String tid) =>
+        MemberDocumentResolve.findByHint(
+          MemberDocumentResolve.membrosCol(firebaseDefaultFirestore, tid),
+          h,
+          cpfDigits: cpfDigits,
+        );
+
+    try {
+      final snap = await tryTenant(primary);
+      if (snap != null && snap.exists) return snap;
+    } catch (_) {}
+
+    List<String> siblings;
+    try {
+      siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(primary);
+    } catch (_) {
+      siblings = const [];
+    }
+    final ordered = TenantResolverService.orderedSiblingsForReadFallback(
+      primary,
+      siblings,
     );
+    for (final sid in ordered) {
+      try {
+        final alt = await tryTenant(sid).timeout(
+          kIsWeb ? const Duration(seconds: 8) : const Duration(seconds: 12),
+        );
+        if (alt != null && alt.exists) return alt;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  /// Carteirinha / perfil do membro logado — vários hints + doc irmão.
+  static Future<DocumentSnapshot<Map<String, dynamic>>?> resolveSelfMember(
+    String tenantId, {
+    String? memberId,
+    String? cpfDigits,
+    String? authUid,
+    String? email,
+  }) async {
+    await preparePanelRead();
+    final cpf = (cpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
+    final cpfArg = cpf.length >= 11 ? cpf : null;
+    final tried = <String>{};
+
+    Future<DocumentSnapshot<Map<String, dynamic>>?> tryHint(String raw) async {
+      final h = raw.trim();
+      if (h.isEmpty || tried.contains(h)) return null;
+      tried.add(h);
+      return membroByHint(tenantId, h, cpfDigits: cpfArg);
+    }
+
+    for (final raw in [
+      memberId,
+      cpfArg,
+      authUid,
+      email,
+      email?.toLowerCase(),
+    ]) {
+      if (raw == null) continue;
+      final snap = await tryHint(raw);
+      if (snap != null && snap.exists) return snap;
+    }
+    return null;
   }
 }

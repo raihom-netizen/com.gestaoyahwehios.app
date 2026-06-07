@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:intl/intl.dart';
@@ -46,10 +47,10 @@ class _AdminSuportePageState extends State<AdminSuportePage> {
     });
     try {
       // Sem orderBy no servidor: evita índice composto + reduz bugs do listener/cache no Firestore Web (SDK 11.x).
-      final snap = await FirebaseFirestore.instance
-          .collection('suporte')
-          .limit(200)
-          .get(const GetOptions(source: Source.server));
+      final snap = await MasterAdminFirestore.query(
+        FirebaseFirestore.instance.collection('suporte').limit(200),
+        cacheKey: 'master_suporte',
+      );
 
       final list = snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
       list.sort((a, b) => _dataChamado(b['data'] ?? b['createdAt']).compareTo(_dataChamado(a['data'] ?? a['createdAt'])));
@@ -72,7 +73,7 @@ class _AdminSuportePageState extends State<AdminSuportePage> {
           _loading = false;
           _error = isDenied
               ? 'Sem permissão na coleção suporte. Publique as regras do Firestore (match /suporte/{id}) e faça deploy: firebase deploy --only firestore:rules'
-              : 'Não foi possível carregar. Publique as regras, recarregue com Ctrl+F5.\n\n$msg';
+              : 'Não foi possível carregar. ${MasterAdminFirestore.formatLoadError(e)}';
         });
       }
     }
@@ -90,11 +91,14 @@ class _AdminSuportePageState extends State<AdminSuportePage> {
     );
     if (resposta != null && resposta.isNotEmpty) {
       try {
-        await FirebaseFirestore.instance.collection('suporte').doc(id).update({
-          'resposta': resposta,
-          'respondido': true,
-          'respondidoEm': FieldValue.serverTimestamp(),
-        });
+        await MasterAdminFirestore.write(() => FirebaseFirestore.instance
+            .collection('suporte')
+            .doc(id)
+            .update({
+              'resposta': resposta,
+              'respondido': true,
+              'respondidoEm': FieldValue.serverTimestamp(),
+            }));
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('Resposta registrada.'),

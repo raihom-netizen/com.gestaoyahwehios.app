@@ -3,7 +3,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
+import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -114,7 +115,7 @@ class _StorageUsagePageState extends State<StorageUsagePage> {
       _usingLocalFirestoreEstimate = false;
     });
     try {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
+      await MasterAdminFirestore.ensureReady();
       final callable = _functions.httpsCallable('getChurchStorageUsage');
       final result = await callable.call<Map<dynamic, dynamic>>(
           {'tenantId': widget.tenantId});
@@ -942,7 +943,8 @@ class StorageUsageMasterPage extends StatefulWidget {
 
 class _StorageUsageMasterPageState extends State<StorageUsageMasterPage> {
   String? _selectedTenantId;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _tenants = [];
+  List<MasterChurchListItem> _tenants = [];
+  String? _tenantsError;
   bool _loadingTenants = true;
 
   @override
@@ -952,24 +954,15 @@ class _StorageUsageMasterPageState extends State<StorageUsageMasterPage> {
   }
 
   Future<void> _loadTenants() async {
-    setState(() => _loadingTenants = true);
+    setState(() {
+      _loadingTenants = true;
+      _tenantsError = null;
+    });
     try {
-      QuerySnapshot<Map<String, dynamic>> snap;
-      try {
-        snap = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .orderBy('nome')
-            .limit(YahwehPerformanceV4.masterChurchesListLimit)
-            .get();
-      } catch (_) {
-        snap = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .limit(YahwehPerformanceV4.masterChurchesListLimit)
-            .get();
-      }
+      final list = await MasterChurchesListService.loadFast(force: true);
       if (mounted) {
         setState(() {
-          _tenants = snap.docs;
+          _tenants = list;
           _loadingTenants = false;
           if (_selectedTenantId == null && _tenants.isNotEmpty) {
             _selectedTenantId = _tenants.first.id;
@@ -977,7 +970,12 @@ class _StorageUsageMasterPageState extends State<StorageUsageMasterPage> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _loadingTenants = false);
+      if (mounted) {
+        setState(() {
+          _loadingTenants = false;
+          _tenantsError = MasterAdminFirestore.formatLoadError(e);
+        });
+      }
     }
   }
 
@@ -1009,9 +1007,19 @@ class _StorageUsageMasterPageState extends State<StorageUsageMasterPage> {
                       size: 56, color: Colors.grey.shade400),
                   const SizedBox(height: 16),
                   Text(
-                    'Nenhuma igreja cadastrada',
+                    _tenantsError ??
+                        'Nenhuma igreja cadastrada',
+                    textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
                   ),
+                  if (_tenantsError != null) ...[
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: _loadTenants,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Tentar novamente'),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1076,7 +1084,7 @@ class _StorageUsageMasterPageState extends State<StorageUsageMasterPage> {
                       fillColor: const Color(0xFFF8FAFC),
                     ),
                     items: _tenants.map((d) {
-                      final data = d.data();
+                      final data = d.data;
                       final nome =
                           (data['nome'] ?? data['razaoSocial'] ?? d.id)
                               .toString();

@@ -2,6 +2,8 @@
 /// Não altera documentos existentes; apenas centraliza leitura para UI e uploads.
 library;
 
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+
 /// Logo / identidade visual da igreja.
 abstract final class ChurchImageFields {
   ChurchImageFields._();
@@ -45,10 +47,31 @@ abstract final class MemberImageFields {
     return null;
   }
 
-  /// URL de download (https com token) — gravada no upload; UI usa `imageUrlFromMap` em `safe_network_image.dart`.
+  /// URL de download full (https) — carteirinha / PDF.
   static String? photoDownloadUrl(Map<String, dynamic>? m) {
     if (m == null) return null;
-    for (final k in ['foto_url', 'FOTO_URL_OU_ID', 'fotoUrl', 'photoURL', 'photoUrl']) {
+    for (final k in [
+      YahwehPerformanceV4.profileFullField,
+      'foto_url',
+      'FOTO_URL_OU_ID',
+      'fotoUrl',
+      'photoURL',
+      'photoUrl',
+    ]) {
+      final v = (m[k] ?? '').toString().trim();
+      if (v.startsWith('https://') || v.startsWith('http://')) return v;
+    }
+    return null;
+  }
+
+  /// Miniatura para listas — nunca usar full na UI de galeria.
+  static String? photoThumbDownloadUrl(Map<String, dynamic>? m) {
+    if (m == null) return null;
+    for (final k in [
+      YahwehPerformanceV4.profileThumbField,
+      YahwehPerformanceV4.profileThumbFieldLegacy,
+      'photoThumbUrl',
+    ]) {
       final v = (m[k] ?? '').toString().trim();
       if (v.startsWith('https://') || v.startsWith('http://')) return v;
     }

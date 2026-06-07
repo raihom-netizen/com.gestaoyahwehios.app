@@ -796,6 +796,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
           final snap = await ChurchTenantResilientReads.departamentos(
             id,
             limit: _dashboardDepartmentsLimit,
+          ).timeout(
+            const Duration(seconds: 10),
+            onTimeout: () => const MergedFirestoreQuerySnapshot([]),
           );
           for (final d in snap.docs) {
             if (seen.add(d.id)) merged.add(d);
@@ -4200,6 +4203,9 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
               return _buildFromCacheCorpo(context);
             }
             if (membersSnap.connectionState == ConnectionState.waiting) {
+              if (panelCache.homeCorpoAdmin.isNotEmpty) {
+                return _buildFromCacheCorpo(context);
+              }
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
                 child: Center(

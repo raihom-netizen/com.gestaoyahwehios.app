@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_firestore_collection_migration_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Pré-carrega leituras frequentes no **cache do Firestore** (mobile/web)
 /// após o login — painel, mural, membros, finanças, etc. (padrão Controle Total).
@@ -65,7 +66,7 @@ class ChurchTenantOfflineWarmupService {
     try {
       await FirebaseBootstrap.ensureInitialized();
       FirebaseBootstrapService.refreshCachedApp();
-      await ChurchTenantResilientReads.preparePanelRead();
+      await FirestoreWebGuard.ensurePanelReadReady();
 
       String tenantId = tenantIdRaw;
       try {
@@ -118,6 +119,10 @@ class ChurchTenantOfflineWarmupService {
             tenantId,
             limit: eventosLimit,
           ),
+        ),
+        safe(
+          'event_templates',
+          () => ChurchTenantResilientReads.eventTemplates(tenantId),
         ),
       ];
 

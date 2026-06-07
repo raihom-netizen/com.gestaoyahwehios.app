@@ -95,6 +95,8 @@ function memberStoragePaths(
   const paths: string[] = [];
   for (const stem of stems) {
     paths.push(
+      `igrejas/${tid}/membros/thumbs/${stem}.webp`,
+      `igrejas/${tid}/membros/fotos/${stem}.webp`,
       `igrejas/${tid}/membros/${stem}/thumb_foto_perfil.jpg`,
       `igrejas/${tid}/membros/${stem}/foto_perfil_thumb.jpg`,
       `igrejas/${tid}/membros/${stem}/foto_perfil.jpg`,

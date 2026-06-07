@@ -148,6 +148,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     var ev = prefs.getBool(_keyNotifEventos) ?? true;
     var es = prefs.getBool(_keyNotifEscalas) ?? true;
     var ch = prefs.getBool(ChurchChatNotificationPrefs.sharedPrefsKey) ?? true;
+    var aniv = prefs.getBool(_keyNotifAniversariantes) ?? true;
     var chatAlertMode = ChurchChatNotificationPrefs.normalizeAlertMode(
       prefs.getString(ChurchChatNotificationPrefs.sharedPrefsAlertModeKey) ??
           ChurchChatNotificationPrefs.alertModeSound,
@@ -166,6 +167,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           if (d['pushEventos'] is bool) ev = d['pushEventos'] as bool;
           if (d['pushEscalas'] is bool) es = d['pushEscalas'] as bool;
           if (d['pushChat'] is bool) ch = d['pushChat'] as bool;
+          if (d['pushAniversariantes'] is bool) {
+            aniv = d['pushAniversariantes'] as bool;
+          }
           final rawAlertMode = d['pushChatAlertMode'];
           if (rawAlertMode is String && rawAlertMode.trim().isNotEmpty) {
             chatAlertMode =
@@ -178,6 +182,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     await prefs.setBool(_keyNotifEventos, ev);
     await prefs.setBool(_keyNotifEscalas, es);
     await prefs.setBool(ChurchChatNotificationPrefs.sharedPrefsKey, ch);
+    await prefs.setBool(_keyNotifAniversariantes, aniv);
     await prefs.setString(
       ChurchChatNotificationPrefs.sharedPrefsAlertModeKey,
       chatAlertMode,
@@ -189,6 +194,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       _notifEscalas = es;
       _notifEventos = ev;
       _notifChat = ch;
+      _notifAniversariantes = aniv;
       _notifChatAlertMode = chatAlertMode;
     });
   }
@@ -1013,28 +1019,123 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SwitchRow('Avisos', _notifAvisos, (v) {
-            setState(() => _notifAvisos = v);
-            unawaited(_savePushPref(_keyNotifAvisos, 'pushAvisos', v));
-          }),
-          _SwitchRow('Escalas', _notifEscalas, (v) {
-            setState(() => _notifEscalas = v);
-            unawaited(_savePushPref(_keyNotifEscalas, 'pushEscalas', v));
-          }),
-          _SwitchRow('Eventos', _notifEventos, (v) {
-            setState(() => _notifEventos = v);
-            unawaited(_savePushPref(_keyNotifEventos, 'pushEventos', v));
-          }),
-          _SwitchRow('Chat da igreja', _notifChat, (v) {
-            setState(() => _notifChat = v);
-            unawaited(_savePushPref(
-              ChurchChatNotificationPrefs.sharedPrefsKey,
-              'pushChat',
-              v,
-            ));
-          }),
+          Text(
+            'Push no celular (Android e iPhone)',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Escolha o que deseja receber. Pastoral e devocional usam o tópico geral da igreja.',
+            style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, height: 1.35),
+          ),
+          const SizedBox(height: 14),
+          _PushPrefTile(
+            icon: Icons.campaign_rounded,
+            color: const Color(0xFF0EA5E9),
+            title: 'Avisos do mural',
+            subtitle: 'Novidades publicadas no mural da igreja',
+            value: _notifAvisos,
+            onChanged: (v) {
+              setState(() => _notifAvisos = v);
+              unawaited(_savePushPref(_keyNotifAvisos, 'pushAvisos', v));
+            },
+          ),
+          _PushPrefTile(
+            icon: Icons.event_rounded,
+            color: const Color(0xFFF97316),
+            title: 'Eventos',
+            subtitle: 'Agenda, cultos e atividades',
+            value: _notifEventos,
+            onChanged: (v) {
+              setState(() => _notifEventos = v);
+              unawaited(_savePushPref(_keyNotifEventos, 'pushEventos', v));
+            },
+          ),
+          _PushPrefTile(
+            icon: Icons.calendar_month_rounded,
+            color: const Color(0xFF14B8A6),
+            title: 'Escalas',
+            subtitle: 'Publicação e lembretes de escala',
+            value: _notifEscalas,
+            onChanged: (v) {
+              setState(() => _notifEscalas = v);
+              unawaited(_savePushPref(_keyNotifEscalas, 'pushEscalas', v));
+            },
+          ),
+          _PushPrefTile(
+            icon: Icons.cake_rounded,
+            color: const Color(0xFFE11D48),
+            title: 'Aniversariantes',
+            subtitle: 'Lembrete diário às 8h (horário de Brasília)',
+            value: _notifAniversariantes,
+            onChanged: (v) {
+              setState(() => _notifAniversariantes = v);
+              unawaited(_savePushPref(
+                _keyNotifAniversariantes,
+                'pushAniversariantes',
+                v,
+              ));
+            },
+          ),
+          _PushPrefTile(
+            icon: Icons.chat_bubble_rounded,
+            color: const Color(0xFF8B5CF6),
+            title: 'Chat da igreja',
+            subtitle: 'Mensagens e menções',
+            value: _notifChat,
+            onChanged: (v) {
+              setState(() => _notifChat = v);
+              unawaited(_savePushPref(
+                ChurchChatNotificationPrefs.sharedPrefsKey,
+                'pushChat',
+                v,
+              ));
+            },
+          ),
           if (!_restrictedMemberSettings) ...[
-            const Divider(height: 20),
+            const Divider(height: 24),
+            Text(
+              'Cadastros (gestores)',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2563EB).withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.18),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.person_add_alt_1_rounded,
+                      color: Color(0xFF2563EB)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Pastores, gestores e secretários recebem push automático '
+                      'quando há novo membro ou cadastro pelo site.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.35,
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 24),
             _SwitchRow('E-mail', _notifEmail, (v) {
               setState(() => _notifEmail = v);
               _saveNotif(_keyNotifEmail, v);
@@ -1488,6 +1589,60 @@ class _ChatAlertModeRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PushPrefTile extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _PushPrefTile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.14)),
+        ),
+        child: SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+          secondary: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+          ),
+          subtitle: Text(
+            subtitle,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          ),
+          value: value,
+          onChanged: onChanged,
+        ),
       ),
     );
   }

@@ -11,25 +11,21 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
+import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:fl_chart/fl_chart.dart';
 
-/// Abre WhatsApp (app ou web) com o número informado. Normaliza para DDI 55 quando faltar.
+/// Abre WhatsApp (app ou web) com o número informado.
 Future<void> launchWhatsAppContact(
   String rawPhone, {
   String? prefilledMessage,
 }) async {
-  var d = rawPhone.replaceAll(RegExp(r'\D'), '');
+  final d = rawPhone.replaceAll(RegExp(r'\D'), '');
   if (d.isEmpty) return;
-  if (d.length <= 11 && !d.startsWith('55')) {
-    d = '55$d';
-  }
-  final msg = prefilledMessage?.trim();
-  final uri = (msg != null && msg.isNotEmpty)
-      ? Uri.parse('https://wa.me/$d?text=${Uri.encodeComponent(msg)}')
-      : Uri.parse('https://wa.me/$d');
-  await launchUrl(uri, mode: LaunchMode.externalApplication);
+  await ChurchMemberContactChat.launchWhatsAppDigits(
+    d,
+    message: prefilledMessage ?? ChurchMemberContactChat.faleComigoDraft,
+  );
 }
 
 class VisitorsPage extends StatefulWidget {
@@ -1658,7 +1654,7 @@ class _VisitorCard extends StatelessWidget {
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      FaIcon(FontAwesomeIcons.whatsapp, size: 14, color: Colors.white),
+                                      WhatsappBrandIcon(size: 14, color: Colors.white),
                                       SizedBox(width: 5),
                                       Text(
                                         'WhatsApp',
@@ -2320,8 +2316,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const FaIcon(FontAwesomeIcons.whatsapp,
-                        size: 20, color: Colors.white),
+                    const WhatsappBrandIcon(size: 20, color: Colors.white),
                     const SizedBox(width: 10),
                     Text(
                       'WhatsApp',

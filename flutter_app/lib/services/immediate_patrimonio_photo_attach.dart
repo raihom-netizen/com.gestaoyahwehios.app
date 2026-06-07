@@ -49,6 +49,11 @@ abstract final class ImmediatePatrimonioPhotoAttach {
       final result = await PatrimonioMediaUpload.uploadGalleryPhoto(
         storagePath: path,
         rawBytes: rawBytes,
+        thumbStoragePath: PatrimonioMediaUpload.thumbPathForSlot(
+          tenantId: tenantId,
+          itemDocId: itemDocId,
+          slotIndex: slotIndex,
+        ),
       );
       final url = result.downloadUrl.trim();
       if (url.isEmpty) {

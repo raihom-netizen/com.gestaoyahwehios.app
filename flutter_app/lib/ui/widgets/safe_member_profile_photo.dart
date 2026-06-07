@@ -118,20 +118,27 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
   Future<void> _resolveDisplayUrl() async {
     final hint = widget.memberFirestoreHint;
     final primary = sanitizeImageUrl(widget.imageUrl);
-    final variantUrl = widget.preferListThumbnail
-        ? MemberProfileVariantsService.listPhotoUrl(hint)
-        : MemberProfileVariantsService.profilePhotoUrl(hint);
-    final fromVariant = sanitizeImageUrl(variantUrl);
-    // URL principal (fotoUrl) antes de variantes WebP — thumbs inexistentes ou
-    // gravados no doc/pasta errada deixavam listas e perfil sem foto.
-    final norm = isValidImageUrl(primary)
-        ? primary
-        : (isValidImageUrl(fromVariant) ? fromVariant : '');
-    _variantFallbackUrl = isValidImageUrl(fromVariant) &&
-            isValidImageUrl(primary) &&
-            fromVariant != primary
-        ? fromVariant
-        : null;
+    final thumbUrl = sanitizeImageUrl(
+      MemberProfileVariantsService.listPhotoUrl(hint) ?? '',
+    );
+    final fullUrl = sanitizeImageUrl(
+      MemberProfileVariantsService.profilePhotoUrl(hint) ?? '',
+    );
+
+    final String norm;
+    if (widget.preferListThumbnail) {
+      norm = isValidImageUrl(thumbUrl) ? thumbUrl : '';
+      _variantFallbackUrl = null;
+    } else {
+      norm = isValidImageUrl(fullUrl)
+          ? fullUrl
+          : (isValidImageUrl(primary) ? primary : '');
+      _variantFallbackUrl = isValidImageUrl(thumbUrl) &&
+              isValidImageUrl(norm) &&
+              thumbUrl != norm
+          ? thumbUrl
+          : null;
+    }
     if (!isValidImageUrl(norm)) {
       if (mounted) {
         setState(() {

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'church_panel_navigation_bridge.dart';
+import 'panel_notification_service.dart';
 import 'yahweh_push_cache_refresh.dart';
 
 class FcmService {
@@ -12,13 +13,17 @@ class FcmService {
   static final FcmService instance = FcmService._();
 
   bool _configured = false;
+  String? _lastUid;
+  String? _lastTenantId;
 
-  /// Alinhado a Cloud Functions [topicPushNovo] (`gypush_{tenant}_{aviso|evento|escala|gestores|financeiro|…}`).
+  /// Alinhado a Cloud Functions [topicPushNovo] (`gypush_{tenant}_{aviso|evento|…}`).
   static String fcmTenantSafe(String tenantId) =>
       tenantId.replaceAll(RegExp(r'[^a-zA-Z0-9\-_.~%]'), '_');
 
   static String topicPushNovo(String tenantId, String kind) =>
       'gypush_${fcmTenantSafe(tenantId)}_$kind';
+
+  static String topicIgrejaBroadcast(String tenantId) => 'igreja_$tenantId';
 
   Future<void> configure({
     required String uid,
@@ -27,19 +32,25 @@ class FcmService {
     required String role,
     void Function(RemoteMessage message)? onForegroundMessage,
   }) async {
-    if (_configured || kIsWeb) return;
+    if (kIsWeb) return;
+    final tid = tenantId.trim();
+    if (tid.isEmpty || uid.trim().isEmpty) return;
+
+    if (_configured && _lastUid == uid && _lastTenantId == tid) return;
+
+    _lastUid = uid;
+    _lastTenantId = tid;
     _configured = true;
 
     try {
       await _configureImpl(
         uid: uid,
-        tenantId: tenantId,
+        tenantId: tid,
         cpf: cpf,
         role: role,
         onForegroundMessage: onForegroundMessage,
       );
     } catch (e, st) {
-      // Evita Future rejeitado não tratado (Crashlytics fatal) se Firestore/rede falhar.
       debugPrint('FcmService.configure: $e\n$st');
     }
   }
@@ -51,8 +62,17 @@ class FcmService {
     required String role,
     void Function(RemoteMessage message)? onForegroundMessage,
   }) async {
+    await PanelNotificationService.instance.registerAndroidChannelsForBoot();
+    await PanelNotificationService.instance
+        .ensureAndroidPostNotificationsPermission();
+
     final messaging = FirebaseMessaging.instance;
-    await messaging.requestPermission();
+    await messaging.setAutoInitEnabled(true);
+    await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
 
     final token = await messaging.getToken();
     if (token != null && token.isNotEmpty) {
@@ -64,11 +84,12 @@ class FcmService {
             .doc(token)
             .set({
           'token': token,
+          'tenantId': tenantId,
+          'platform': defaultTargetPlatform.name,
+          'updatedAt': FieldValue.serverTimestamp(),
           'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-      } catch (_) {
-        // Regras/permissão ou offline: notificações ainda podem funcionar parcialmente.
-      }
+      } catch (_) {}
     }
 
     List<String> deptIds = <String>[];
@@ -76,16 +97,15 @@ class FcmService {
     try {
       deptIds = await _loadMemberDepartments(tenantId, cpf);
       cargoLabel = await _loadMemberCargoLabel(tenantId, cpf);
-    } catch (_) {
-      // Firestore offline/regras: ainda inscreve em tópicos da igreja/admin abaixo.
-    }
+    } catch (_) {}
+
     final cargoSlug = slugTopicPart(cargoLabel);
     final tid = tenantId.trim();
     final deptTopics = deptIds.map((id) => 'dept_$id').toList();
     final nextTopics = <String>[
       ...deptTopics,
       if (cargoSlug.isNotEmpty) 'cargo_$cargoSlug',
-      if (tid.isNotEmpty) 'igreja_$tid',
+      if (tid.isNotEmpty) topicIgrejaBroadcast(tid),
     ];
 
     final prefs = await SharedPreferences.getInstance();
@@ -95,12 +115,16 @@ class FcmService {
 
     for (final t in prevTopics) {
       if (!nextTopics.contains(t)) {
-        await messaging.unsubscribeFromTopic(t);
+        try {
+          await messaging.unsubscribeFromTopic(t);
+        } catch (_) {}
       }
     }
     for (final t in nextTopics) {
       if (!prevTopics.contains(t)) {
-        await messaging.subscribeToTopic(t);
+        try {
+          await messaging.subscribeToTopic(t);
+        } catch (_) {}
       }
     }
 
@@ -115,50 +139,65 @@ class FcmService {
       await messaging.unsubscribeFromTopic('admin');
     } catch (_) {}
 
-    if (isGestoresStaff) {
-      await messaging.subscribeToTopic(topicPushNovo(tid, 'gestores'));
-    } else {
-      try {
-        await messaging.unsubscribeFromTopic(topicPushNovo(tid, 'gestores'));
-      } catch (_) {}
-    }
+    await _setTopicSubscribed(
+      messaging,
+      topicPushNovo(tid, 'gestores'),
+      isGestoresStaff,
+    );
 
     if (isFinanceStaff) {
-      await messaging.subscribeToTopic(topicPushNovo(tid, 'financeiro'));
-      await messaging.subscribeToTopic(topicPushNovo(tid, 'fornecedor_agenda'));
+      await _setTopicSubscribed(messaging, topicPushNovo(tid, 'financeiro'), true);
+      await _setTopicSubscribed(
+        messaging,
+        topicPushNovo(tid, 'fornecedor_agenda'),
+        true,
+      );
     } else if (isFornecedorStaff) {
-      await messaging.subscribeToTopic(topicPushNovo(tid, 'fornecedor_agenda'));
-      try {
-        await messaging.unsubscribeFromTopic(topicPushNovo(tid, 'financeiro'));
-      } catch (_) {}
+      await _setTopicSubscribed(
+        messaging,
+        topicPushNovo(tid, 'fornecedor_agenda'),
+        true,
+      );
+      await _setTopicSubscribed(messaging, topicPushNovo(tid, 'financeiro'), false);
     } else {
-      try {
-        await messaging.unsubscribeFromTopic(topicPushNovo(tid, 'financeiro'));
-        await messaging.unsubscribeFromTopic(topicPushNovo(tid, 'fornecedor_agenda'));
-      } catch (_) {}
+      await _setTopicSubscribed(messaging, topicPushNovo(tid, 'financeiro'), false);
+      await _setTopicSubscribed(
+        messaging,
+        topicPushNovo(tid, 'fornecedor_agenda'),
+        false,
+      );
     }
 
     FirebaseMessaging.onMessage.listen((message) {
       YahwehPushCacheRefresh.handleMessage(message);
-      if (onForegroundMessage != null) {
-        onForegroundMessage(message);
-      }
+      onForegroundMessage?.call(message);
     });
 
-    FirebaseMessaging.onMessageOpenedApp.listen(_routeEscalaNotificationIfAny);
+    FirebaseMessaging.onMessageOpenedApp.listen(routeNotificationTap);
     final initialOpen = await FirebaseMessaging.instance.getInitialMessage();
     if (initialOpen != null) {
-      _routeEscalaNotificationIfAny(initialOpen);
+      routeNotificationTap(initialOpen);
     }
 
     await prefs.setStringList('church_fcm_topics', nextTopics);
-
     await syncPreferencePushTopics(uid: uid, tenantId: tid);
   }
 
-  /// Inscreve nos tópicos de novidade (avisos / eventos / escalas / chat) conforme
-  /// [users/{uid}.pushAvisos], [pushEventos], [pushEscalas], [pushChat] (padrão true).
-  /// Também chamado a partir de Configurações ao alterar os interruptores.
+  static Future<void> _setTopicSubscribed(
+    FirebaseMessaging messaging,
+    String topic,
+    bool subscribe,
+  ) async {
+    try {
+      if (subscribe) {
+        await messaging.subscribeToTopic(topic);
+      } else {
+        await messaging.unsubscribeFromTopic(topic);
+      }
+    } catch (_) {}
+  }
+
+  /// Inscreve nos tópicos conforme preferências em `users/{uid}`.
   Future<void> syncPreferencePushTopics({
     required String uid,
     required String tenantId,
@@ -168,17 +207,20 @@ class FcmService {
     if (tid.isEmpty) return;
 
     final messaging = FirebaseMessaging.instance;
-    final topics = <String>[
-      topicPushNovo(tid, 'aviso'),
-      topicPushNovo(tid, 'evento'),
-      topicPushNovo(tid, 'escala'),
-      topicPushNovo(tid, 'chat'),
-    ];
+    final topics = <String, String>{
+      'pushAvisos': topicPushNovo(tid, 'aviso'),
+      'pushEventos': topicPushNovo(tid, 'evento'),
+      'pushEscalas': topicPushNovo(tid, 'escala'),
+      'pushChat': topicPushNovo(tid, 'chat'),
+      'pushAniversariantes': topicPushNovo(tid, 'aniversario'),
+    };
 
     var pushAvisos = true;
     var pushEventos = true;
     var pushEscalas = true;
     var pushChat = true;
+    var pushAniversariantes = true;
+
     try {
       final doc =
           await FirebaseFirestore.instance.collection('users').doc(uid).get();
@@ -188,6 +230,9 @@ class FcmService {
         if (d['pushEventos'] is bool) pushEventos = d['pushEventos'] as bool;
         if (d['pushEscalas'] is bool) pushEscalas = d['pushEscalas'] as bool;
         if (d['pushChat'] is bool) pushChat = d['pushChat'] as bool;
+        if (d['pushAniversariantes'] is bool) {
+          pushAniversariantes = d['pushAniversariantes'] as bool;
+        }
       }
     } catch (_) {
       try {
@@ -196,24 +241,34 @@ class FcmService {
         pushEventos = prefs.getBool('notif_eventos') ?? true;
         pushEscalas = prefs.getBool('notif_escalas') ?? true;
         pushChat = prefs.getBool('notif_chat') ?? true;
+        pushAniversariantes = prefs.getBool('notif_aniversariantes') ?? true;
       } catch (_) {}
     }
 
-    final flags = [pushAvisos, pushEventos, pushEscalas, pushChat];
-    for (var i = 0; i < topics.length; i++) {
-      final t = topics[i];
-      if (flags[i]) {
-        await messaging.subscribeToTopic(t);
-      } else {
-        await messaging.unsubscribeFromTopic(t);
-      }
+    final flags = {
+      'pushAvisos': pushAvisos,
+      'pushEventos': pushEventos,
+      'pushEscalas': pushEscalas,
+      'pushChat': pushChat,
+      'pushAniversariantes': pushAniversariantes,
+    };
+
+    for (final entry in topics.entries) {
+      await _setTopicSubscribed(
+        messaging,
+        entry.value,
+        flags[entry.key] ?? true,
+      );
     }
 
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(
         'church_fcm_pref_topics',
-        [for (var j = 0; j < topics.length; j++) if (flags[j]) topics[j]],
+        [
+          for (final entry in topics.entries)
+            if (flags[entry.key] == true) entry.value,
+        ],
       );
     } catch (_) {}
   }
@@ -227,7 +282,9 @@ class FcmService {
         roleNorm == 'pastor' ||
         roleNorm == 'pastora' ||
         roleNorm == 'secretario' ||
-        roleNorm == 'secretaria';
+        roleNorm == 'secretaria' ||
+        roleNorm == 'lider' ||
+        roleNorm == 'líder';
   }
 
   static bool _isFinanceStaffRole(String roleNorm) {
@@ -242,7 +299,7 @@ class FcmService {
         roleNorm == 'tesoureira';
   }
 
-  void _routeEscalaNotificationIfAny(RemoteMessage message) {
+  void routeNotificationTap(RemoteMessage message) {
     final raw = message.data['type'];
     final type = raw is String ? raw : raw?.toString();
     final t = (type ?? '').trim();

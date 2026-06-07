@@ -8,8 +8,6 @@ import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
-import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart'
-    show imageAspectRatioFromBytes;
 import 'package:gestao_yahweh/services/church_data_service.dart';
 import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_doc_service.dart';
@@ -19,6 +17,7 @@ import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity;
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Tipos de conteúdo publicável — **único motor** (avisos, eventos, mural, feed público).
@@ -122,14 +121,19 @@ abstract final class PublicationEngine {
 
   static Future<String> saveFirestore(PublicationSaveRequest request) async {
     await ensureFirebaseCore(requireAuth: true);
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+    }
     final patch = _buildFirestorePatch(request);
     final merge = request.merge ?? !request.isNewDoc;
     try {
-      await ChurchDataService.instance.setTenantDocument(
-        ref: request.docRef,
-        data: patch,
-        merge: merge,
-        module: request.postType,
+      await runFirestorePublishWithRecovery(
+        () => ChurchDataService.instance.setTenantDocument(
+          ref: request.docRef,
+          data: patch,
+          merge: merge,
+          module: request.postType,
+        ),
       );
     } catch (e, st) {
       ChurchPublishFlowLog.firestoreError(e, st);
@@ -231,26 +235,6 @@ abstract final class PublicationEngine {
       );
     }
 
-    if (kIsWeb) {
-      final images = newImagesBytes ?? const <Uint8List>[];
-      if (images.isEmpty) {
-        throw StateError('Não foi possível ler as fotos para enviar.');
-      }
-      return _publishWebPhotosFirstThenFirestore(
-        docRef: docRef,
-        tenantId: tenantId,
-        kind: kind,
-        corePayload: corePayload,
-        isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: startSlotIndex,
-        hasVideo: hasVideo,
-        publicSite: publicSite,
-        images: images,
-        postId: docRef.id,
-      );
-    }
-
     final request = PublicationSaveRequest(
       docRef: docRef,
       tenantId: tenantId,
@@ -277,6 +261,35 @@ abstract final class PublicationEngine {
     ChurchPublishFlowLog.uploadStart('${request.postType} $postId');
 
     final postType = request.postType;
+
+    if (kIsWeb) {
+      final images = newImagesBytes ?? const <Uint8List>[];
+      if (images.isEmpty) {
+        throw StateError('Não foi possível ler as fotos para enviar.');
+      }
+      MuralFastPublishService.scheduleBackgroundImageFinalize(
+        docRef: docRef,
+        tenantId: tenantId,
+        postId: postId,
+        postType: postType,
+        newImages: images,
+        existingUrls: existingUrls,
+        startSlotIndex: startSlotIndex,
+        hasVideo: hasVideo,
+        uploadSlot: (bytes, slot, report) => MuralPostMediaPayload.uploadPhotoSlot(
+          tenantId: tenantId,
+          postType: postType,
+          postId: postId,
+          bytes: bytes,
+          slotIndex: slot,
+          onProgress: report,
+        ),
+        buildMediaFields: MuralPostMediaPayload.buildMediaFields,
+        onPublished: onMediaDone,
+      );
+      return postId;
+    }
+
     final paths = newImagePaths
             ?.map((p) => p.trim())
             .where((p) => p.isNotEmpty)
@@ -306,78 +319,6 @@ abstract final class PublicationEngine {
       onPublished: onMediaDone,
     );
     return postId;
-  }
-
-  /// Web: Storage primeiro, depois **uma** gravação Firestore `published` (menos assert SDK 11.x).
-  static Future<String> _publishWebPhotosFirstThenFirestore({
-    required DocumentReference<Map<String, dynamic>> docRef,
-    required String tenantId,
-    required PublicationKind kind,
-    required Map<String, dynamic> corePayload,
-    required bool isNewDoc,
-    required List<String> existingUrls,
-    required int startSlotIndex,
-    required bool hasVideo,
-    required bool publicSite,
-    required List<Uint8List> images,
-    required String postId,
-  }) async {
-    await FirestoreWebGuard.prepareForChatWrite();
-    final postType = PublicationSaveRequest(
-      docRef: docRef,
-      tenantId: tenantId,
-      kind: kind,
-      payload: corePayload,
-      isNewDoc: isNewDoc,
-    ).postType;
-
-    final uploaded = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
-      tenantId: tenantId,
-      postType: postType,
-      postId: postId,
-      newImages: images,
-      startSlotIndex: startSlotIndex,
-    );
-    final allUrls = dedupeImageRefsByStorageIdentity([
-      ...existingUrls,
-      ...uploaded,
-    ]);
-
-    var aspectRatio = 1.0;
-    if (images.isNotEmpty) {
-      aspectRatio =
-          (await imageAspectRatioFromBytes(images.first))?.clamp(0.4, 2.3) ??
-              1.0;
-    } else if (allUrls.isNotEmpty) {
-      final prev = corePayload['media_info'];
-      if (prev is Map) {
-        final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
-        if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
-      }
-    }
-
-    final payload = Map<String, dynamic>.from(corePayload);
-    payload.addAll(
-      MuralPostMediaPayload.buildMediaFields(
-        allUrls: allUrls,
-        aspectRatio: aspectRatio,
-        hasVideo: hasVideo,
-        allowDeleteSentinels: !isNewDoc,
-      ),
-    );
-
-    return publishFirestoreFirst(
-      request: PublicationSaveRequest(
-        docRef: docRef,
-        tenantId: tenantId,
-        kind: kind,
-        payload: payload,
-        isNewDoc: isNewDoc,
-        publicSite: publicSite,
-        pendingPhotoCount: 0,
-      ),
-      distributionPhase: PublicationDistributionPhase.afterMediaFinalized,
-    );
   }
 
   /// Distribuição pós-publicação — **nunca** reverte o documento Firestore.

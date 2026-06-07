@@ -81,6 +81,12 @@ abstract final class TenantIntelligentPreload {
           tenantId: tenantId,
           module: TenantModuleKeys.agenda,
           networkFetch: () =>
+              ChurchTenantResilientReads.eventTemplates(tenantId),
+        );
+        await TenantStaleWhileRevalidate.warmModule(
+          tenantId: tenantId,
+          module: TenantModuleKeys.agenda,
+          networkFetch: () =>
               ChurchTenantResilientReads.escalasRecent(tenantId, limit: 40),
         );
       });

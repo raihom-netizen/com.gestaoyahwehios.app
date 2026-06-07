@@ -103,7 +103,7 @@ class FirestoreReadResilience {
   static Future<QuerySnapshot<Map<String, dynamic>>> getQuery(
     Query<Map<String, dynamic>> query, {
     required String cacheKey,
-    int maxAttempts = 5,
+    int maxAttempts = kIsWeb ? 3 : 5,
     Duration attemptTimeout = const Duration(seconds: 22),
   }) async {
     final key = cacheKey.trim();
@@ -136,7 +136,7 @@ class FirestoreReadResilience {
             } catch (_) {}
           }
         } else if (kIsWeb) {
-          await FirestoreWebGuard.prepareForChatWrite();
+          await FirestoreWebGuard.ensurePanelReadReady();
         }
         final snap = kIsWeb
             ? await firestoreQueryGetReliable(query).timeout(attemptTimeout)

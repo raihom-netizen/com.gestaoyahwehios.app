@@ -24,7 +24,10 @@ class SubscriptionGuardState {
   });
 
   String get masterBadgeLabel {
-    if (isFree) return 'FREE';
+    if (isFree) {
+      if (adminBlocked) return 'FREE · Bloq.';
+      return 'FREE';
+    }
     if (adminBlocked || blocked) return 'Bloqueada';
     if (inGrace) return 'Em carência';
     if (statusAssinatura == 'trialing') return 'Trial';

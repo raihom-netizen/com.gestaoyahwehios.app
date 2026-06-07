@@ -7,6 +7,7 @@ import 'package:flutter/painting.dart';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/member_photo_storage_naming.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         imageUrlsFromVariantMap,
@@ -156,6 +157,10 @@ class FirebaseStorageCleanupService {
       'photo',
       'photoStoragePath',
       'fotoStoragePath',
+      YahwehPerformanceV4.profileThumbField,
+      YahwehPerformanceV4.profileThumbFieldLegacy,
+      'photoThumbUrl',
+      'photoThumbStoragePath',
     ]) {
       addRaw(data[k]?.toString());
     }
@@ -168,6 +173,10 @@ class FirebaseStorageCleanupService {
         (data['CPF'] ?? data['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
 
     Iterable<String> membrosFixedPaths(String stem) => <String>[
+      ChurchStorageLayout.memberProfilePhotoPath(tid, stem),
+      ChurchStorageLayout.memberProfileThumbPath(tid, stem),
+      'igrejas/$tid/membros/fotos/$stem.webp',
+      'igrejas/$tid/membros/thumbs/$stem.webp',
       'igrejas/$tid/membros/$stem/foto_perfil.jpg',
       'igrejas/$tid/membros/$stem/foto_perfil.webp',
       'igrejas/$tid/membros/$stem/foto_perfil.jpeg',
@@ -789,6 +798,7 @@ class FirebaseStorageCleanupService {
     final paths = <String>[
       ChurchStorageLayout.eventHostedVideoMp4Path(tid, pid, slot),
       ChurchStorageLayout.eventHostedVideoThumbPath(tid, pid, slot),
+      ChurchStorageLayout.eventHostedVideoThumbPathLegacy(tid, pid, slot),
     ];
     for (final p in paths) {
       try {
@@ -1011,7 +1021,7 @@ class FirebaseStorageCleanupService {
     }
   }
 
-  /// Remove foto principal + variantes do slot [0–4] de um bem de patrimônio (pasta `…/patrimonio/{id}/`).
+  /// Remove foto principal + thumb do slot [0–4] (canónico `imagens/` + legado por pasta).
   static Future<void> deletePatrimonioSlotArtifacts({
     required String tenantId,
     required String itemDocId,
@@ -1022,18 +1032,9 @@ class FirebaseStorageCleanupService {
     final iid = itemDocId.trim();
     if (tid.isEmpty || iid.isEmpty) return;
     final folder = ChurchStorageLayout.patrimonioItemFolderPrefix(tid, iid);
-    final base =
-        ChurchStorageLayout.patrimonioPhotoBaseWithoutExt(tid, iid, slot);
     final safe = ChurchStorageLayout.patrimonioStorageSafeItemId(iid);
     final paths = <String>[
-      '$base.jpg',
-      '$base.webp',
-      '${base}_thumb.jpg',
-      '${base}_thumb.webp',
-      '${base}_card.jpg',
-      '${base}_card.webp',
-      '${base}_full.jpg',
-      '${base}_full.webp',
+      ...ChurchStorageLayout.patrimonioSlotDeletionPaths(tid, iid, slot),
       // Legado: ficheiros planos `igrejas/.../patrimonio/{id}_{slot}*.jpg`
       'igrejas/$tid/patrimonio/${iid}_$slot.jpg',
       'igrejas/$tid/patrimonio/${iid}_${slot}_thumb.jpg',

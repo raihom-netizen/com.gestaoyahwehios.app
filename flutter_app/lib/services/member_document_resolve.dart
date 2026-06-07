@@ -36,6 +36,33 @@ abstract final class MemberDocumentResolve {
               );
       if (q.docs.isNotEmpty) return q.docs.first;
     } catch (_) {}
+    const authUidFields = <String>[
+      'firebaseUid',
+      'firebase_uid',
+      'userId',
+      'user_id',
+      'uid',
+      'USUARIO_UID',
+      'usuario_uid',
+    ];
+    for (final field in authUidFields) {
+      try {
+        final q = await membersCol.where(field, isEqualTo: h).limit(1).get(
+              const GetOptions(source: Source.serverAndCache),
+            );
+        if (q.docs.isNotEmpty) return q.docs.first;
+      } catch (_) {}
+    }
+    if (h.contains('@')) {
+      for (final field in ['email', 'EMAIL']) {
+        try {
+          final q = await membersCol.where(field, isEqualTo: h).limit(1).get(
+                const GetOptions(source: Source.serverAndCache),
+              );
+          if (q.docs.isNotEmpty) return q.docs.first;
+        } catch (_) {}
+      }
+    }
     final cpf = (cpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
     if (cpf.length >= 11) {
       try {

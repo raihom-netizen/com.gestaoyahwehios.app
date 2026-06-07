@@ -150,6 +150,18 @@ class ChurchChatAttachmentUtils {
     if (img.contains(ext)) return 'image';
     if (vid.contains(ext)) return 'video';
     if (aud.contains(ext)) return 'audio';
+    if (ext == '.pdf') return 'pdf';
+    if (ext == '.doc' || ext == '.docx' || ext == '.docm' || ext == '.odt') {
+      return 'doc';
+    }
+    if (ext == '.xls' ||
+        ext == '.xlsx' ||
+        ext == '.xlsm' ||
+        ext == '.ods' ||
+        ext == '.csv') {
+      return 'xls';
+    }
+    if (ext == '.zip' || ext == '.rar' || ext == '.7z') return 'zip';
     return 'document';
   }
 
@@ -167,11 +179,23 @@ class ChurchChatAttachmentUtils {
       case 'sticker':
         return '🎨 Figurinha';
       case 'document':
+      case 'pdf':
+      case 'doc':
+      case 'xls':
+      case 'zip':
         final n = (fileName ?? 'Documento').trim();
         if (n.isEmpty) return '📎 Documento';
         return n.length > 42 ? '📎 ${n.substring(0, 39)}…' : '📎 $n';
       default:
         return '📎 Ficheiro';
     }
+  }
+
+  static String formatFileSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(bytes < 10 * 1024 ? 1 : 0)} KB';
+    }
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }

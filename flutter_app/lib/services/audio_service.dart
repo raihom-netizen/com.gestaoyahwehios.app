@@ -38,7 +38,11 @@ class ChatAudioService {
 
     _encoder = AudioEncoder.aacLc;
     if (!await recorder.isEncoderSupported(AudioEncoder.aacLc)) {
-      _encoder = AudioEncoder.wav;
+      if (await recorder.isEncoderSupported(AudioEncoder.opus)) {
+        _encoder = AudioEncoder.opus;
+      } else if (await recorder.isEncoderSupported(AudioEncoder.aacHe)) {
+        _encoder = AudioEncoder.aacHe;
+      }
     }
     if (kIsWeb && !await recorder.isEncoderSupported(_encoder)) {
       _encoder = AudioEncoder.opus;
@@ -53,7 +57,7 @@ class ChatAudioService {
       );
     } else {
       final dir = await getTemporaryDirectory();
-      final ext = _encoder == AudioEncoder.wav ? 'wav' : 'm4a';
+      final ext = _encoder == AudioEncoder.opus ? 'opus' : 'm4a';
       path =
           '${dir.path}/chat_voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
       await recorder.start(

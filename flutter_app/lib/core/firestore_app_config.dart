@@ -50,11 +50,12 @@ void configureFirestoreForOfflineAndSpeed() {
 
   try {
 
+    // Web: sem IndexedDB — evita INTERNAL ASSERTION (Firestore JS 11.x) no painel master.
     db.settings = Settings(
 
-      persistenceEnabled: true,
+      persistenceEnabled: !kIsWeb,
 
-      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      cacheSizeBytes: kIsWeb ? 40 * 1024 * 1024 : Settings.CACHE_SIZE_UNLIMITED,
 
       ignoreUndefinedProperties: true,
 
@@ -62,9 +63,9 @@ void configureFirestoreForOfflineAndSpeed() {
 
     );
 
-    FirestoreOfflineConfig.persistenceEnabled = true;
+    FirestoreOfflineConfig.persistenceEnabled = !kIsWeb;
 
-    FirestoreOfflineConfig.webIndexedDbFallback = false;
+    FirestoreOfflineConfig.webIndexedDbFallback = kIsWeb;
 
   } catch (e, st) {
 

@@ -2,15 +2,16 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_navigator.dart';
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Contato por chat da igreja ou WhatsApp — web, iOS e Android.
@@ -87,10 +88,10 @@ abstract final class ChurchMemberContactChat {
 
     try {
       await ChurchTenantResilientReads.preparePanelRead();
-      final col = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('membros');
+      var operational = tid;
+      try {
+        operational = await ChurchTenantResilientReads.operationalTenantId(tid);
+      } catch (_) {}
 
       Future<void> mergeSnap(DocumentSnapshot<Map<String, dynamic>> snap) async {
         if (!snap.exists) return;
@@ -101,51 +102,26 @@ abstract final class ChurchMemberContactChat {
         }
       }
 
-      if (docId.isNotEmpty) {
+      final hints = <String>{
+        if (docId.isNotEmpty) docId,
+        if (cpf.length == 11) cpf,
+        (data['EMAIL'] ?? data['email'] ?? '').toString().trim(),
+      }..removeWhere((h) => h.isEmpty);
+
+      for (final hint in hints) {
         try {
-          final snap = await FirestoreReadResilience.getDocument(
-            col.doc(docId),
-            cacheKey: 'chat_open_peer_${tid}_$docId',
+          final snap = await ChurchTenantResilientReads.membroByHint(
+            operational,
+            hint,
+            cpfDigits: cpf.length == 11 ? cpf : null,
           );
+          if (snap == null || !snap.exists) continue;
           await mergeSnap(snap);
           peer = peerFromData();
           if (peer != null && peer.isNotEmpty) {
             return (data: data, memberDocId: docId, peerUid: peer);
           }
         } catch (_) {}
-      }
-
-      if (cpf.length == 11 && cpf != docId) {
-        try {
-          final snap = await FirestoreReadResilience.getDocument(
-            col.doc(cpf),
-            cacheKey: 'chat_open_peer_cpf_${tid}_$cpf',
-          );
-          await mergeSnap(snap);
-          peer = peerFromData();
-          if (peer != null && peer.isNotEmpty) {
-            return (data: data, memberDocId: docId, peerUid: peer);
-          }
-        } catch (_) {}
-      }
-
-      final email = (data['EMAIL'] ?? data['email'] ?? '').toString().trim();
-      if (email.isNotEmpty) {
-        for (final field in ['EMAIL', 'email']) {
-          try {
-            final q = await FirestoreReadResilience.getQuery(
-              col.where(field, isEqualTo: email).limit(1),
-              cacheKey: 'chat_open_peer_mail_${tid}_${field}_$email',
-            );
-            if (q.docs.isNotEmpty) {
-              await mergeSnap(q.docs.first);
-              peer = peerFromData();
-              if (peer != null && peer.isNotEmpty) {
-                return (data: data, memberDocId: docId, peerUid: peer);
-              }
-            }
-          } catch (_) {}
-        }
       }
     } catch (_) {}
 
@@ -243,19 +219,54 @@ abstract final class ChurchMemberContactChat {
     final mid = memberDocId.trim();
     if (tid.isEmpty || mid.isEmpty) return memberData;
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('membros')
-          .doc(mid)
-          .get();
-      if (!snap.exists) return memberData;
+      var operational = tid;
+      try {
+        operational = await ChurchTenantResilientReads.operationalTenantId(tid);
+      } catch (_) {}
+      final snap = await ChurchTenantResilientReads.membroByHint(
+        operational,
+        mid,
+        cpfDigits: _cpfDigitsFromMemberData(memberData),
+      );
+      if (snap == null || !snap.exists) return memberData;
       final fresh = snap.data();
       if (fresh == null || fresh.isEmpty) return memberData;
       return {...memberData, ...fresh};
     } catch (_) {
       return memberData;
     }
+  }
+
+  /// Abre WhatsApp (app nativo ou wa.me na web).
+  static Future<bool> launchWhatsAppDigits(
+    String rawDigits, {
+    String message = faleComigoDraft,
+  }) async {
+    var digits = rawDigits.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 10) return false;
+    if (digits.length <= 11 && !digits.startsWith('55')) {
+      digits = '55$digits';
+    }
+    final enc = Uri.encodeComponent(message.trim().isEmpty ? faleComigoDraft : message);
+    final uris = <Uri>[
+      if (!kIsWeb) Uri.parse('whatsapp://send?phone=$digits&text=$enc'),
+      Uri.parse('https://wa.me/$digits?text=$enc'),
+      Uri.parse('https://api.whatsapp.com/send?phone=$digits&text=$enc'),
+    ];
+    for (final uri in uris) {
+      try {
+        final launched = await launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,
+        );
+        if (launched) return true;
+      } catch (_) {}
+      try {
+        final launched = await launchUrl(uri, mode: LaunchMode.platformDefault);
+        if (launched) return true;
+      } catch (_) {}
+    }
+    return false;
   }
 
   static Future<void> openChatIgreja({
@@ -344,62 +355,41 @@ abstract final class ChurchMemberContactChat {
 
     final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
     final draft = draftText.trim();
-
-    ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
-      threadId: threadId,
-      tenantId: operationalTenant,
-      peerUid: peerUid,
-      displayName: titulo,
-      initialDraftText: draft.isEmpty ? null : draft,
-    );
-
-    unawaited(
-      _openChatThreadFallback(
-        operationalTenant: operationalTenant,
-        threadId: threadId,
-        peerUid: peerUid,
-        displayName: titulo,
-        memberRole: memberRole,
-        viewerCpfDigits: viewerCpfDigits,
-        initialDraftText: draft.isEmpty ? null : draft,
-      ),
-    );
-  }
-
-  /// Se o hub embutido não consumir o pending a tempo, abre a thread directamente.
-  static Future<void> _openChatThreadFallback({
-    required String operationalTenant,
-    required String threadId,
-    required String peerUid,
-    required String displayName,
-    required String memberRole,
-    required String viewerCpfDigits,
-    String? initialDraftText,
-  }) async {
-    await Future<void>.delayed(const Duration(milliseconds: 450));
-    final pending =
-        ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen();
-    if (pending == null || pending.threadId != threadId) return;
-
-    final nav = appRootNavigatorKey.currentState;
-    if (nav == null) return;
+    final cpfClean = viewerCpfDigits.replaceAll(RegExp(r'\D'), '');
 
     ChurchPanelNavigationBridge.instance.consumePendingChatThreadOpen();
-    await nav.push<void>(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => ChurchChatThreadPage(
-          tenantId: operationalTenant,
-          threadId: threadId,
-          title: displayName,
-          isDepartment: false,
-          peerUid: peerUid,
-          memberRole: memberRole,
-          memberCpfDigits: viewerCpfDigits.replaceAll(RegExp(r'\D'), ''),
-          initialDraftText: initialDraftText,
+
+    void pushThread(NavigatorState nav) {
+      unawaited(
+        nav.push<void>(
+          MaterialPageRoute<void>(
+            fullscreenDialog: true,
+            builder: (_) => ChurchChatThreadPage(
+              tenantId: operationalTenant,
+              threadId: threadId,
+              title: titulo,
+              isDepartment: false,
+              peerUid: peerUid,
+              memberRole: memberRole,
+              memberCpfDigits: cpfClean,
+              initialDraftText: draft.isEmpty ? null : draft,
+            ),
+          ),
         ),
-      ),
-    );
+      );
+    }
+
+    final rootNav = appRootNavigatorKey.currentState;
+    if (rootNav != null) {
+      pushThread(rootNav);
+      ChurchPanelNavigationBridge.instance
+          .requestNavigateToShellIndex(kChurchShellIndexChat);
+      return;
+    }
+
+    if (context.mounted) {
+      pushThread(Navigator.of(context));
+    }
   }
 
   static Future<void> openWhatsAppFaleComigo(
@@ -429,22 +419,13 @@ abstract final class ChurchMemberContactChat {
       );
       return;
     }
-    final phone = digits.startsWith('55') ? digits : '55$digits';
-    final uri = Uri.parse(
-      'https://wa.me/$phone?text=${Uri.encodeComponent(message)}',
-    );
-    try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(
-            'Não foi possível abrir o WhatsApp.',
-          ),
-        );
-      }
+    final ok = await launchWhatsAppDigits(digits, message: message);
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Não foi possível abrir o WhatsApp. Verifique se o app está instalado.',
+        ),
+      );
     }
   }
 }

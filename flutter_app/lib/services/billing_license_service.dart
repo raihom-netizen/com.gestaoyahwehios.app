@@ -1,193 +1,270 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Controle de licença no painel admin (Gestão Yahweh).
 /// Igrejas: prorrogar prazo, alterar plano, remover/reativar.
 /// Usuários (app): remover/reativar.
 class BillingLicenseService {
+  BillingLicenseService();
+
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+
+  static const int licensePeriodDaysMonthly = 30;
+  static const int licensePeriodDaysAnnual = 365;
+
+  /// Calcula vencimento após pagamento ou aplicação manual (30 ou 365 dias).
+  static DateTime licensePeriodEndFrom(DateTime from, String billingCycle) {
+    final cycle = billingCycle.toLowerCase().trim();
+    final days = cycle == 'annual' || cycle == 'yearly'
+        ? licensePeriodDaysAnnual
+        : licensePeriodDaysMonthly;
+    return from.add(Duration(days: days));
+  }
+
+  static DateTime _startOfDay(DateTime d) =>
+      DateTime(d.year, d.month, d.day);
+
+  static Timestamp _tsNow() => Timestamp.now();
+
+  Future<void> _runLicenseWrite(Future<void> Function() fn) async {
+    await FirestoreWebGuard.prepareForCriticalWrite();
+    await FirestoreWebGuard.runWithWebRecovery(fn, maxAttempts: 4);
+  }
 
   // --- IGREJAS (licença por igreja) ---
 
   /// Prorroga o prazo da licença da igreja em [dias].
   Future<void> prorrogarPrazoIgreja(String igrejaId, int dias) async {
-    final ref = _db.collection('igrejas').doc(igrejaId);
-    final doc = await ref.get();
-    final data = doc.data() ?? {};
-    DateTime base = DateTime.now();
-    final existing = data['licenseExpiresAt'];
-    if (existing is Timestamp) {
-      final dt = existing.toDate();
-      if (dt.isAfter(DateTime.now())) base = dt;
-    }
-    await ref.update({
-      'licenseExpiresAt': Timestamp.fromDate(base.add(Duration(days: dias))),
-      'status': 'ativa',
-      'updatedAt': FieldValue.serverTimestamp(),
+    await _runLicenseWrite(() async {
+      final ref = _db.collection('igrejas').doc(igrejaId);
+      final doc = await ref.get();
+      final data = doc.data() ?? {};
+      DateTime base = DateTime.now();
+      final existing = data['licenseExpiresAt'];
+      if (existing is Timestamp) {
+        final dt = existing.toDate();
+        if (dt.isAfter(DateTime.now())) base = dt;
+      }
+      await ref.update({
+        'licenseExpiresAt': Timestamp.fromDate(base.add(Duration(days: dias))),
+        'status': 'ativa',
+        'updatedAt': _tsNow(),
+      });
     });
   }
 
   /// Define o plano da igreja (free, premium, etc.).
   Future<void> setIgrejaPlano(String igrejaId, String plan) async {
-    final ref = _db.collection('igrejas').doc(igrejaId);
     if (plan == 'free') {
       await setTenantFreeMaster(igrejaId);
       return;
-    } else {
-      await ref.update({
+    }
+    await _runLicenseWrite(() async {
+      await _db.collection('igrejas').doc(igrejaId).update({
         'plano': plan,
         'status': 'ativa',
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': _tsNow(),
         'removedByAdminAt': FieldValue.delete(),
       });
-    }
+    });
   }
 
   /// Marca igreja como removida/desativada (perde acesso). Pode reativar depois.
   Future<void> removerIgreja(String igrejaId) async {
-    await _db.collection('igrejas').doc(igrejaId).update({
-      'status': 'inativa',
-      'updatedAt': FieldValue.serverTimestamp(),
-      'removedByAdminAt': FieldValue.serverTimestamp(),
+    await _runLicenseWrite(() async {
+      await _db.collection('igrejas').doc(igrejaId).update({
+        'status': 'inativa',
+        'updatedAt': _tsNow(),
+        'removedByAdminAt': _tsNow(),
+      });
     });
   }
 
-  /// Retorna referência da igreja (para recarregar lista após alteração).
   DocumentReference<Map<String, dynamic>> igrejaRef(String igrejaId) =>
       _db.collection('igrejas').doc(igrejaId);
 
-  /// Reativa igreja removida.
   Future<void> reativarIgreja(String igrejaId) async {
-    await _db.collection('igrejas').doc(igrejaId).update({
-      'status': 'ativa',
-      'updatedAt': FieldValue.serverTimestamp(),
-      'removedByAdminAt': FieldValue.delete(),
+    await _runLicenseWrite(() async {
+      await _db.collection('igrejas').doc(igrejaId).update({
+        'status': 'ativa',
+        'updatedAt': _tsNow(),
+        'removedByAdminAt': FieldValue.delete(),
+      });
     });
   }
 
-  // --- TENANTS (painel master: lista igrejas/gestores; edição de licença) ---
+  // --- TENANTS (painel master) ---
 
-  /// Retorna referência do tenant.
   DocumentReference<Map<String, dynamic>> tenantRef(String tenantId) =>
       _db.collection('igrejas').doc(tenantId);
 
-  /// Define plano do tenant (free, premium, etc.) e opcionalmente data de vencimento.
-  Future<void> setTenantPlano(String tenantId, String plan, {DateTime? licenseExpiresAt}) async {
-    final ref = _db.collection('igrejas').doc(tenantId);
+  Future<void> setTenantPlano(String tenantId, String plan,
+      {DateTime? licenseExpiresAt}) async {
     if (plan == 'free') {
       await setTenantFreeMaster(tenantId);
       return;
-    } else {
-      final data = <String, dynamic>{
-        'plano': plan,
-        'status': 'ativa',
-        'updatedAt': FieldValue.serverTimestamp(),
-        'removedByAdminAt': FieldValue.delete(),
-      };
-      if (licenseExpiresAt != null) data['licenseExpiresAt'] = Timestamp.fromDate(licenseExpiresAt);
-      await ref.set(data, SetOptions(merge: true));
     }
+    await setTenantPlanAndLicenseExpiry(
+      tenantId,
+      plan,
+      licenseExpiresAt: licenseExpiresAt,
+    );
   }
 
-  /// Define apenas a data de vencimento da licença do tenant.
   Future<void> setTenantLicenseExpiresAt(String tenantId, DateTime? date) async {
-    final ref = _db.collection('igrejas').doc(tenantId);
-    if (date == null) {
-      await ref.update({
-        'licenseExpiresAt': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } else {
-      await ref.set({
-        'licenseExpiresAt': Timestamp.fromDate(date),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    }
-    try {
-      await _db.collection('igrejas').doc(tenantId).set({
-        'licenseExpiresAt': date != null ? Timestamp.fromDate(date) : FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } catch (_) {}
+    await _runLicenseWrite(() async {
+      final ref = _db.collection('igrejas').doc(tenantId);
+      final patch = <String, dynamic>{
+        'updatedAt': _tsNow(),
+      };
+      if (date == null) {
+        patch['licenseExpiresAt'] = FieldValue.delete();
+        patch['expiresAt'] = FieldValue.delete();
+        patch['data_vencimento'] = FieldValue.delete();
+      } else {
+        final ts = Timestamp.fromDate(date);
+        patch['licenseExpiresAt'] = ts;
+        patch['expiresAt'] = ts;
+        patch['data_vencimento'] = ts;
+        patch['data_bloqueio'] = Timestamp.fromDate(
+          date.add(const Duration(days: AppConstants.subscriptionGraceDays)),
+        );
+      }
+      await ref.set(patch, SetOptions(merge: true));
+    });
   }
 
-  /// Marca tenant como removido (soft). Pode reativar depois.
   Future<void> removerTenant(String tenantId) async {
-    await _db.collection('igrejas').doc(tenantId).set({
-      'status': 'inativa',
-      'updatedAt': FieldValue.serverTimestamp(),
-      'removedByAdminAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await _runLicenseWrite(() async {
+      await _db.collection('igrejas').doc(tenantId).set({
+        'status': 'inativa',
+        'updatedAt': _tsNow(),
+        'removedByAdminAt': _tsNow(),
+      }, SetOptions(merge: true));
+    });
     try {
       await removerIgreja(tenantId);
     } catch (_) {}
   }
 
-  /// Reativa tenant removido.
   Future<void> reativarTenant(String tenantId) async {
-    await _db.collection('igrejas').doc(tenantId).set({
-      'status': 'ativa',
-      'updatedAt': FieldValue.serverTimestamp(),
-      'removedByAdminAt': FieldValue.delete(),
-    }, SetOptions(merge: true));
+    await _runLicenseWrite(() async {
+      await _db.collection('igrejas').doc(tenantId).set({
+        'status': 'ativa',
+        'updatedAt': _tsNow(),
+        'removedByAdminAt': FieldValue.delete(),
+      }, SetOptions(merge: true));
+    });
     try {
       await reativarIgreja(tenantId);
     } catch (_) {}
   }
 
-  /// Exclui permanentemente o documento do tenant (limpar banco quando igreja não quer mais). Use com confirmação.
   Future<void> excluirTenant(String tenantId) async {
-    await _db.collection('igrejas').doc(tenantId).delete();
+    await _runLicenseWrite(() async {
+      await _db.collection('igrejas').doc(tenantId).delete();
+    });
   }
 
-  /// Painel master: bloquear/desbloquear igreja (só tela de renovação no app).
   Future<void> setTenantAdminBlocked(String tenantId, bool blocked) async {
-    final ref = _db.collection('igrejas').doc(tenantId);
-    final snap = await ref.get();
-    final data = snap.data() ?? {};
-    final lic = Map<String, dynamic>.from(data['license'] is Map ? data['license'] as Map : {});
-    lic['adminBlocked'] = blocked;
-    lic['updatedAt'] = FieldValue.serverTimestamp();
-    await ref.set({
-      'adminBlocked': blocked,
-      'license': lic,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await applyMasterLicenseConfig(
+      tenantId,
+      isFreeMode: null,
+      adminBlocked: blocked,
+      touchBlockOnly: true,
+    );
   }
 
   /// Painel master: igreja gratuita (sem bloqueio por licença).
-  Future<void> setTenantFreeMaster(String tenantId) async {
-    final ref = _db.collection('igrejas').doc(tenantId);
-    await ref.set({
-      'plano': 'free',
-      'planId': 'free',
-      'isFree': true,
-      'adminBlocked': false,
-      'status': 'ativa',
-      'ativa': true,
-      'status_assinatura': 'active',
-      'data_bloqueio': FieldValue.delete(),
-      'data_vencimento': FieldValue.delete(),
-      'expiresAt': FieldValue.delete(),
-      'masterInactive': FieldValue.delete(),
-      'siteDisabled': FieldValue.delete(),
-      'license': {
-        'isFree': true,
-        'active': true,
-        'status': 'active',
-        'adminBlocked': false,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      'billing': {'status': 'paid', 'provider': 'master_manual'},
-      'licenseExpiresAt': FieldValue.delete(),
-      'trialEndsAt': FieldValue.delete(),
-      'removedByAdminAt': FieldValue.delete(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-    await _syncSubscriptionsForFreeTenant(tenantId);
+  Future<void> setTenantFreeMaster(String tenantId, {bool adminBlocked = false}) async {
+    await applyMasterLicenseConfig(
+      tenantId,
+      isFreeMode: true,
+      adminBlocked: adminBlocked,
+    );
   }
 
-  /// Alinha doc `subscriptions` para não manter status BLOCKED após FREE.
-  Future<void> _syncSubscriptionsForFreeTenant(String tenantId) async {
+  /// Painel master: plano pago manual + vencimento e ciclo.
+  Future<void> setTenantPlanAndLicenseExpiry(
+    String tenantId,
+    String planId, {
+    DateTime? licenseExpiresAt,
+    String? billingCycle,
+    bool adminBlocked = false,
+  }) async {
+    await applyMasterLicenseConfig(
+      tenantId,
+      isFreeMode: false,
+      planId: planId,
+      licenseExpiresAt: licenseExpiresAt,
+      billingCycle: billingCycle,
+      adminBlocked: adminBlocked,
+    );
+  }
+
+  /// Grava licença/plano/bloqueio via Cloud Function (Admin SDK — sem assert Firestore Web).
+  ///
+  /// [isFreeMode]: `true` = FREE, `false` = plano pago, `null` = só altera bloqueio.
+  Future<void> applyMasterLicenseConfig(
+    String tenantId, {
+    required bool? isFreeMode,
+    String? planId,
+    DateTime? licenseExpiresAt,
+    String? billingCycle,
+    required bool adminBlocked,
+    bool touchBlockOnly = false,
+  }) async {
+    final payload = <String, dynamic>{
+      'tenantId': tenantId,
+      'adminBlocked': adminBlocked,
+      'touchBlockOnly': touchBlockOnly,
+    };
+    if (!touchBlockOnly && isFreeMode != null) {
+      payload['isFreeMode'] = isFreeMode;
+    }
+    if (planId != null && planId.trim().isNotEmpty) {
+      payload['planId'] = planId.trim();
+    }
+    if (licenseExpiresAt != null) {
+      payload['licenseExpiresAtMs'] = licenseExpiresAt.millisecondsSinceEpoch;
+    }
+    if (billingCycle != null && billingCycle.trim().isNotEmpty) {
+      payload['billingCycle'] = billingCycle.trim();
+    }
+
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable('masterApplyTenantLicense');
+      await callable.call(payload);
+    } on FirebaseFunctionsException catch (e) {
+      throw ArgumentError(
+        e.message ?? 'Não foi possível salvar a licença da igreja.',
+      );
+    }
+  }
+
+  Future<void> _syncSubscriptionsBlockFlag(String tenantId, bool blocked) async {
+    try {
+      final snap = await _db
+          .collection('subscriptions')
+          .where('igrejaId', isEqualTo: tenantId)
+          .limit(8)
+          .get();
+      for (final doc in snap.docs) {
+        await doc.reference.set({
+          'adminBlocked': blocked,
+          'updatedAt': _tsNow(),
+        }, SetOptions(merge: true));
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _syncSubscriptionsForFreeTenant(
+    String tenantId, {
+    bool adminBlocked = false,
+  }) async {
     try {
       final snap = await _db
           .collection('subscriptions')
@@ -200,60 +277,64 @@ class BillingLicenseService {
           'status_assinatura': 'active',
           'planId': 'free',
           'plano': 'free',
-          'adminBlocked': false,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'isFree': true,
+          'adminBlocked': adminBlocked,
+          'updatedAt': _tsNow(),
         }, SetOptions(merge: true));
       }
     } catch (_) {}
   }
 
-  /// Painel master: plano pago manual + opcional vencimento e ciclo.
-  Future<void> setTenantPlanAndLicenseExpiry(
-    String tenantId,
-    String planId, {
-    DateTime? licenseExpiresAt,
-    String? billingCycle,
+  Future<void> _syncSubscriptionsForPaidTenant(
+    String tenantId, {
+    required String planId,
+    required DateTime expiresAt,
+    required String billingCycle,
+    bool adminBlocked = false,
   }) async {
-    final ref = _db.collection('igrejas').doc(tenantId);
-    final lic = <String, dynamic>{
-      'isFree': false,
-      'active': true,
-      'status': 'active',
-      'adminBlocked': false,
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-    final patch = <String, dynamic>{
-      'plano': planId,
-      'planId': planId,
-      'isFree': false,
-      'adminBlocked': false,
-      'status': 'ativa',
-      'license': lic,
-      'billing': {'status': 'paid', 'provider': 'master_manual'},
-      'updatedAt': FieldValue.serverTimestamp(),
-      'removedByAdminAt': FieldValue.delete(),
-    };
-    if (billingCycle != null && billingCycle.isNotEmpty) {
-      patch['billingCycle'] = billingCycle;
-    }
-    if (licenseExpiresAt != null) {
-      final ts = Timestamp.fromDate(licenseExpiresAt);
-      patch['licenseExpiresAt'] = ts;
-      patch['expiresAt'] = ts;
-      patch['data_vencimento'] = ts;
-      patch['status_assinatura'] = 'active';
-      patch['data_bloqueio'] = FieldValue.delete();
-      lic['expiresAt'] = ts;
-    }
-    await ref.set(patch, SetOptions(merge: true));
+    try {
+      final snap = await _db
+          .collection('subscriptions')
+          .where('igrejaId', isEqualTo: tenantId)
+          .limit(8)
+          .get();
+      final ts = Timestamp.fromDate(expiresAt);
+      final payload = {
+        'status': 'ACTIVE',
+        'status_assinatura': 'active',
+        'planId': planId,
+        'plano': planId,
+        'isFree': false,
+        'adminBlocked': adminBlocked,
+        'billingCycle': billingCycle,
+        'data_vencimento': ts,
+        'nextChargeAt': ts,
+        'currentPeriodEnd': ts,
+        'updatedAt': _tsNow(),
+      };
+      if (snap.docs.isEmpty) {
+        await _db.collection('subscriptions').add({
+          ...payload,
+          'igrejaId': tenantId,
+          'createdAt': _tsNow(),
+        });
+      } else {
+        for (final doc in snap.docs) {
+          await doc.reference.set(payload, SetOptions(merge: true));
+        }
+      }
+    } catch (_) {}
   }
 
-  /// Remove a igreja e limpa todos os dados vinculados (subcoleções do tenant) para liberar espaço no banco. Irreversível.
   Future<void> removerIgrejaELimparDados(String tenantId) async {
     final ref = _db.collection('igrejas').doc(tenantId);
     final batchLimit = 400;
 
-    Future<void> deleteCollection(CollectionReference<Map<String, dynamic>> col, {Future<void> Function(DocumentReference<Map<String, dynamic>>)? beforeDeleteDoc}) async {
+    Future<void> deleteCollection(
+      CollectionReference<Map<String, dynamic>> col, {
+      Future<void> Function(DocumentReference<Map<String, dynamic>>)?
+          beforeDeleteDoc,
+    }) async {
       QuerySnapshot<Map<String, dynamic>> snap;
       do {
         snap = await col.limit(batchLimit).get();
@@ -268,7 +349,8 @@ class BillingLicenseService {
 
     final root = ref;
 
-    Future<void> deleteNoticiasLike(CollectionReference<Map<String, dynamic>> col) async {
+    Future<void> deleteNoticiasLike(
+        CollectionReference<Map<String, dynamic>> col) async {
       await deleteCollection(col, beforeDeleteDoc: (docRef) async {
         await deleteCollection(docRef.collection('comentarios'));
         await deleteCollection(docRef.collection('comments'));
@@ -279,26 +361,47 @@ class BillingLicenseService {
 
     await deleteNoticiasLike(root.collection('eventos'));
     await deleteNoticiasLike(root.collection('avisos'));
-    await deleteCollection(root.collection('visitantes'), beforeDeleteDoc: (docRef) async {
+    await deleteCollection(root.collection('visitantes'),
+        beforeDeleteDoc: (docRef) async {
       await deleteCollection(docRef.collection('followups'));
     });
-    await deleteCollection(root.collection('cultos'), beforeDeleteDoc: (docRef) async {
+    await deleteCollection(root.collection('cultos'),
+        beforeDeleteDoc: (docRef) async {
       await deleteCollection(docRef.collection('presencas'));
     });
 
     for (final name in [
-      'members', 'membros', 'event_templates', 'config', 'departamentos', 'patrimonio',
-      'finance', 'categorias_receitas', 'categorias_despesas', 'contas', 'despesas_fixas',
+      'members',
+      'membros',
+      'event_templates',
+      'config',
+      'departamentos',
+      'patrimonio',
+      'finance',
+      'categorias_receitas',
+      'categorias_despesas',
+      'contas',
+      'despesas_fixas',
       'receitas_recorrentes',
-      'usersIndex', 'users', 'fleet_vehicles', 'fleet_fuelings', 'fleet_documents',
-      'eventos', 'pedidosOracao',
-      'abastecimentos', 'combustiveis', 'veiculos',
-      'certificados_emitidos', 'certificados_historico',
+      'usersIndex',
+      'users',
+      'fleet_vehicles',
+      'fleet_fuelings',
+      'fleet_documents',
+      'eventos',
+      'pedidosOracao',
+      'abastecimentos',
+      'combustiveis',
+      'veiculos',
+      'certificados_emitidos',
+      'certificados_historico',
     ]) {
       await deleteCollection(root.collection(name));
     }
 
-    await ref.delete();
+    await _runLicenseWrite(() async {
+      await ref.delete();
+    });
 
     try {
       final subRef = _db.collection('subscriptions');
@@ -309,47 +412,49 @@ class BillingLicenseService {
     } catch (_) {}
   }
 
-  /// Prorroga o prazo da licença do tenant em [dias].
   Future<void> prorrogarTenant(String tenantId, int dias) async {
-    final ref = _db.collection('igrejas').doc(tenantId);
-    final doc = await ref.get();
-    final data = doc.data() ?? {};
-    DateTime base = DateTime.now();
-    final existing = data['licenseExpiresAt'];
-    if (existing is Timestamp) {
-      final dt = existing.toDate();
-      if (dt.isAfter(DateTime.now())) base = dt;
-    }
-    final novaData = base.add(Duration(days: dias));
-    await ref.set({
-      'licenseExpiresAt': Timestamp.fromDate(novaData),
-      'status': 'ativa',
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-    try {
-      await _db.collection('igrejas').doc(tenantId).set({
-        'licenseExpiresAt': Timestamp.fromDate(novaData),
+    await _runLicenseWrite(() async {
+      final ref = _db.collection('igrejas').doc(tenantId);
+      final doc = await ref.get();
+      final data = doc.data() ?? {};
+      DateTime base = DateTime.now();
+      final existing = data['licenseExpiresAt'];
+      if (existing is Timestamp) {
+        final dt = existing.toDate();
+        if (dt.isAfter(DateTime.now())) base = dt;
+      }
+      final novaData = base.add(Duration(days: dias));
+      final ts = Timestamp.fromDate(novaData);
+      await ref.set({
+        'licenseExpiresAt': ts,
+        'expiresAt': ts,
+        'data_vencimento': ts,
+        'data_bloqueio': Timestamp.fromDate(
+          novaData.add(const Duration(days: AppConstants.subscriptionGraceDays)),
+        ),
         'status': 'ativa',
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': _tsNow(),
       }, SetOptions(merge: true));
-    } catch (_) {}
+    });
   }
 
   // --- USUÁRIOS (app: removido/reativar) ---
 
-  /// Marca usuário como removido (perde acesso ao app).
   Future<void> removerUsuario(String uid) async {
-    await _db.collection('usuarios').doc(uid).update({
-      'updatedAt': FieldValue.serverTimestamp(),
-      'removedByAdminAt': FieldValue.serverTimestamp(),
+    await _runLicenseWrite(() async {
+      await _db.collection('usuarios').doc(uid).update({
+        'updatedAt': _tsNow(),
+        'removedByAdminAt': _tsNow(),
+      });
     });
   }
 
-  /// Reativa usuário removido.
   Future<void> reativarUsuario(String uid) async {
-    await _db.collection('usuarios').doc(uid).update({
-      'updatedAt': FieldValue.serverTimestamp(),
-      'removedByAdminAt': FieldValue.delete(),
+    await _runLicenseWrite(() async {
+      await _db.collection('usuarios').doc(uid).update({
+        'updatedAt': _tsNow(),
+        'removedByAdminAt': FieldValue.delete(),
+      });
     });
   }
 }

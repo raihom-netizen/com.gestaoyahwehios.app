@@ -21,6 +21,9 @@ enum MediaImageProfile {
 
   /// Miniaturas / previews.
   thumb,
+
+  /// Patrimônio: WebP 1920px, quality ~78%.
+  patrimonio,
 }
 
 /// Resultado da preparação de vídeo antes do upload.
@@ -51,11 +54,15 @@ abstract final class MediaService {
   static const int feedWebpQuality = 70;
   static const int thumbJpegQuality = 78;
 
+  static const int patrimonioImageMaxEdge = 1920;
+  static const int patrimonioWebpQuality = 78;
+
   static int _edgeFor(MediaImageProfile profile) => switch (profile) {
         MediaImageProfile.chat => chatImageMaxEdge,
         MediaImageProfile.feed =>
           kEffectiveFeedEncodeMaxEdgePx.clamp(960, feedImageMaxEdge),
         MediaImageProfile.thumb => thumbMaxEdge,
+        MediaImageProfile.patrimonio => patrimonioImageMaxEdge,
       };
 
   static int _qualityFor(MediaImageProfile profile) => switch (profile) {
@@ -63,6 +70,7 @@ abstract final class MediaService {
         MediaImageProfile.feed =>
           kEffectiveMuralFeedWebpQuality.clamp(74, feedWebpQuality),
         MediaImageProfile.thumb => thumbJpegQuality,
+        MediaImageProfile.patrimonio => patrimonioWebpQuality,
       };
 
   static CompressFormat _formatFor(MediaImageProfile profile) {
@@ -71,7 +79,8 @@ abstract final class MediaService {
         defaultTargetPlatform == TargetPlatform.iOS) {
       return CompressFormat.jpeg;
     }
-    return profile == MediaImageProfile.feed
+    return profile == MediaImageProfile.feed ||
+            profile == MediaImageProfile.patrimonio
         ? CompressFormat.webp
         : CompressFormat.jpeg;
   }
@@ -82,7 +91,10 @@ abstract final class MediaService {
         defaultTargetPlatform == TargetPlatform.iOS) {
       return 'jpg';
     }
-    return profile == MediaImageProfile.feed ? 'webp' : 'jpg';
+    return profile == MediaImageProfile.feed ||
+            profile == MediaImageProfile.patrimonio
+        ? 'webp'
+        : 'jpg';
   }
 
   /// Comprime [File] de imagem — reduz ~6 MB para <400 KB mantendo nitidez em smartphones.

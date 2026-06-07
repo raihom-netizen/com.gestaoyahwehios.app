@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart' show StableChurchLogo;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show SafeCircleAvatarImage, churchTenantLogoUrl, imageUrlFromMap, isValidImageUrl, memCacheExtentForLogicalSize, sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/church_department_list.dart'
@@ -5957,6 +5958,8 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
           frequency: freq[cpf] ?? 0,
           memberDocId: m.id,
           unavailableYmds: ymds,
+          tenantId: widget.tenantId,
+          memberData: data,
         ));
       }
       deptMembers.sort((a, b) => b.frequency.compareTo(a.frequency));
@@ -6546,6 +6549,8 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
           frequency: freq[cpf] ?? 0,
           memberDocId: m.id,
           unavailableYmds: ymds,
+          tenantId: tid,
+          memberData: data,
         ));
       }
       deptMembers.sort((a, b) => b.frequency.compareTo(a.frequency));
@@ -6976,6 +6981,8 @@ class _MemberSelect {
   final int frequency;
   final String memberDocId;
   final List<String> unavailableYmds;
+  final String tenantId;
+  final Map<String, dynamic> memberData;
   const _MemberSelect({
     required this.cpf,
     required this.name,
@@ -6983,6 +6990,8 @@ class _MemberSelect {
     required this.frequency,
     this.memberDocId = '',
     this.unavailableYmds = const [],
+    this.tenantId = '',
+    this.memberData = const {},
   });
 }
 
@@ -7053,12 +7062,15 @@ class _MemberCheckTile extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                SafeCircleAvatarImage(
-                  imageUrl: isValidImageUrl(member.photoUrl) ? member.photoUrl : null,
-                  radius: 18,
-                  fallbackIcon: Icons.person_rounded,
-                  fallbackColor: Colors.blue.shade800,
-                  backgroundColor: Colors.blue.shade100,
+                FotoMembroWidget(
+                  size: 36,
+                  tenantId: member.tenantId,
+                  memberId: member.memberDocId.isNotEmpty
+                      ? member.memberDocId
+                      : member.cpf,
+                  cpfDigits: member.cpf,
+                  memberData: member.memberData,
+                  preferListThumbnail: true,
                 ),
                 const SizedBox(width: 12),
                 Expanded(

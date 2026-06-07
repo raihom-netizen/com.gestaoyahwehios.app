@@ -1,12 +1,27 @@
 import 'package:flutter/material.dart';
 
 /// Marca WhatsApp em **branco** para uso sobre fundo verde/gradiente (Canais oficiais, site público).
-/// Não usa Font Awesome nem círculo branco extra — o pai já aplica o gradiente tipo “squircle”;
-/// o ícone antigo (círculo branco + glifo pequeno) virava só um disco claro em cima do verde na web.
 class WhatsappChannelIcon extends StatelessWidget {
   final double size;
 
   const WhatsappChannelIcon({super.key, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return WhatsappBrandIcon(size: size, color: Colors.white);
+  }
+}
+
+/// Ícone WhatsApp vetorial — funciona na web (Font Awesome às vezes renderiza glifo errado).
+class WhatsappBrandIcon extends StatelessWidget {
+  final double size;
+  final Color color;
+
+  const WhatsappBrandIcon({
+    super.key,
+    required this.size,
+    this.color = const Color(0xFF25D366),
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -16,20 +31,24 @@ class WhatsappChannelIcon extends StatelessWidget {
       height: s,
       child: CustomPaint(
         size: Size(s, s),
-        painter: _WhatsAppMarkWhitePainter(),
+        painter: _WhatsAppMarkPainter(color: color),
       ),
     );
   }
 }
 
-/// Silhueta branca: balão + cauda + auricular (leitura clara ao lado de YouTube/Instagram).
-class _WhatsAppMarkWhitePainter extends CustomPainter {
+/// Silhueta: balão + cauda + auricular.
+class _WhatsAppMarkPainter extends CustomPainter {
+  final Color color;
+
+  const _WhatsAppMarkPainter({required this.color});
+
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
     final fill = Paint()
-      ..color = Colors.white
+      ..color = color
       ..style = PaintingStyle.fill
       ..isAntiAlias = true;
 
@@ -65,5 +84,6 @@ class _WhatsAppMarkWhitePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _WhatsAppMarkPainter oldDelegate) =>
+      oldDelegate.color != color;
 }

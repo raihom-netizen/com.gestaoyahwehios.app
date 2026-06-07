@@ -26,8 +26,9 @@ import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_fs.dart'
     show churchChatReadFileBytes;
 import 'package:gestao_yahweh/services/church_chat_pending_media_cache.dart';
-import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
+import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_moderation.dart';
+import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
@@ -64,7 +65,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_starred_messages_sheet.dart
 import 'package:gestao_yahweh/services/church_chat_stuck_cleanup_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_pending_status_banner.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_sender_palette.dart';
-import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_video_message_bubble.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
@@ -216,6 +217,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Map<String, ChurchChatMemberRef> _senderMemberByUid = {};
   bool _peerOnline = false;
   Timer? _peerPresencePoll;
+  Timer? _webMessagesPoll;
   int? _lastPeerReadSyncMs;
   late final VoidCallback _photoSyncListener;
   final List<ChurchChatOutboundPending> _pendingOutbound = [];
@@ -251,6 +253,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _ctrl.addListener(_onComposeTyping);
     _msgSearchCtrl.addListener(_onMessageSearchChanged);
     _bindChatFirestoreStreams(_tid);
+    _startWebMessagesPoll();
     unawaited(_primeRecentMessagesFromCacheOrServer());
     unawaited(_initChatThreadTenantAndStreams());
     _messagesPrimeFallbackTimer = Timer(const Duration(seconds: 3), () {
@@ -302,6 +305,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       Future<void>.delayed(const Duration(seconds: 4), () {
         if (mounted) unawaited(_bootstrapThreadUploads());
       });
+    });
+  }
+
+  void _startWebMessagesPoll() {
+    if (!kIsWeb) return;
+    _webMessagesPoll?.cancel();
+    _webMessagesPoll = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!mounted) return;
+      unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
     });
   }
 
@@ -372,6 +384,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _threadSub?.cancel();
     _deptSub?.cancel();
     _peerPresencePoll?.cancel();
+    _webMessagesPoll?.cancel();
     _messagesPrimeFallbackTimer?.cancel();
     _voiceTicker?.cancel();
     unawaited(_chatAudio.dispose());
@@ -718,7 +731,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     if (type == 'image') return '$prefix' 'imagem foto imagem';
     if (type == 'video') return '$prefix' 'vídeo video';
     if (type == 'audio') return '$prefix' 'áudio audio';
-    if (type == 'document') {
+    if (ChurchChatMessageFields.isDocumentType(type)) {
       final fn = (m['fileName'] ?? '').toString().toLowerCase();
       return '$prefix' 'documento pdf word excel ficheiro arquivo $fn';
     }
@@ -825,6 +838,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         if (!mounted) return;
         if (ok) {
           _removePending(localId);
+          unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
         } else {
           final i =
               _pendingOutbound.indexWhere((p) => p.localId == localId);
@@ -869,6 +883,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         if (!mounted) return;
         if (ok) {
           _removePending(p.localId);
+          unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
         } else if (mounted) {
           p.failed = true;
           p.errorMessage = 'Não foi possível enviar.';
@@ -2143,7 +2158,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       tenantId: _tid,
       threadId: widget.threadId,
       kind: pending.kind,
-      fileName: pending.kind == 'document' ? pending.fileName : null,
+      fileName: ChurchChatMessageFields.isDocumentType(pending.kind)
+          ? pending.fileName
+          : null,
       replyTo: pending.albumIndex == 0 ? _replyDraft?.toReplyPayload() : null,
       senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
       albumGroupId: pending.albumGroupId,
@@ -2507,6 +2524,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     ));
   }
 
+  Widget _pendingVideoPlaceholder() {
+    return Container(
+      width: 200,
+      height: 140,
+      color: Colors.grey.shade900,
+      child: Icon(
+        Icons.videocam_rounded,
+        size: 40,
+        color: Colors.white.withValues(alpha: 0.7),
+      ),
+    );
+  }
+
+  static String _formatChatFileSize(int bytes) =>
+      ChurchChatAttachmentUtils.formatFileSize(bytes);
+
   Widget _buildPendingOutboundBubble(
     ChurchChatOutboundPending p,
     String myUid,
@@ -2583,23 +2616,40 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         p.localPath != null &&
         p.localPath!.isNotEmpty &&
         (p.kind == 'image' || p.kind == 'video')) {
-      final f = File(p.localPath!);
+      final preview = p.previewBytes;
+      Widget previewWidget;
+      if (p.kind == 'video') {
+        if (preview != null && preview.isNotEmpty) {
+          previewWidget = Image.memory(
+            preview,
+            width: 200,
+            height: 140,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => _pendingVideoPlaceholder(),
+          );
+        } else {
+          previewWidget = _pendingVideoPlaceholder();
+        }
+      } else {
+        previewWidget = Image.file(
+          File(p.localPath!),
+          width: 200,
+          height: 200,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const SizedBox(
+            width: 200,
+            height: 120,
+            child: Icon(Icons.broken_image_outlined),
+          ),
+        );
+      }
       body = ClipRRect(
         borderRadius: BorderRadius.circular(14),
         child: Stack(
           alignment: Alignment.center,
           children: [
-            Image.file(
-              f,
-              width: 200,
-              height: p.kind == 'video' ? 140 : 200,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const SizedBox(
-                width: 200,
-                height: 120,
-                child: Icon(Icons.broken_image_outlined),
-              ),
-            ),
+            previewWidget,
             if (p.kind == 'video')
               Icon(
                 Icons.play_circle_fill_rounded,
@@ -4673,121 +4723,57 @@ class _MessageBody extends StatelessWidget {
       );
     }
     if (type == 'video') {
+      final thumb = ChurchChatMessageFields.thumbnailUrl(data);
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: ChurchHostedVideoSurface(
-                    videoUrl: url,
-                    autoPlay: false,
-                    layoutAspectRatio: 16 / 9,
-                  ),
-                ),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                      colors: [
-                        const Color(0xFF0F172A).withValues(alpha: 0.92),
-                        const Color(0xFF1E293B).withValues(alpha: 0.95),
-                      ],
-                    ),
-                  ),
-                  child: SafeArea(
-                    top: false,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 4, vertical: 2),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.only(left: 10),
-                              child: Text(
-                                'Toque no vídeo para reproduzir',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color:
-                                      Colors.white.withValues(alpha: 0.88),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                          TextButton.icon(
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            onPressed: () {
-                              showChurchHostedVideoTheater(
-                                context,
-                                videoUrl: url,
-                                title: 'Vídeo',
-                              );
-                            },
-                            icon: const Icon(Icons.fullscreen_rounded, size: 22),
-                            label: const Text(
-                              'Ampliar',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          TextButton.icon(
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            onPressed: () => churchChatShareDownloadVideo(
-                              context,
-                              url,
-                              fileName:
-                                  (data['fileName'] ?? '').toString(),
-                            ),
-                            icon: const Icon(Icons.download_rounded, size: 22),
-                            label: const Text(
-                              'Baixar',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+          ChurchChatVideoMessageBubble(
+            videoUrl: url,
+            thumbnailUrl: thumb.isEmpty ? null : thumb,
+            fileName: (data['fileName'] ?? '').toString(),
+            mine: mine,
+            onDownload: (videoUrl, {fileName = ''}) =>
+                churchChatShareDownloadVideo(
+              context,
+              videoUrl,
+              fileName: fileName,
             ),
           ),
         ],
       );
     }
-    if (type == 'document') {
-      final name = (data['fileName'] ?? 'Documento').toString().trim();
+    if (ChurchChatMessageFields.isDocumentType(type)) {
+      final name = ChurchChatMessageFields.fileName(data);
+      final displayName = name.isEmpty ? 'Documento' : name;
+      final size = ChurchChatMessageFields.fileSize(data);
       IconData ic = Icons.insert_drive_file_rounded;
-      final lower = name.toLowerCase();
-      if (lower.endsWith('.pdf')) {
-        ic = Icons.picture_as_pdf_rounded;
-      } else if (lower.endsWith('.doc') || lower.endsWith('.docx')) {
-        ic = Icons.description_rounded;
-      } else if (lower.endsWith('.xls') || lower.endsWith('.xlsx')) {
-        ic = Icons.table_chart_rounded;
+      switch (type) {
+        case 'pdf':
+          ic = Icons.picture_as_pdf_rounded;
+          break;
+        case 'doc':
+          ic = Icons.description_rounded;
+          break;
+        case 'xls':
+          ic = Icons.table_chart_rounded;
+          break;
+        case 'zip':
+          ic = Icons.folder_zip_rounded;
+          break;
+        default:
+          final lower = displayName.toLowerCase();
+          if (lower.endsWith('.pdf')) {
+            ic = Icons.picture_as_pdf_rounded;
+          } else if (lower.endsWith('.doc') || lower.endsWith('.docx')) {
+            ic = Icons.description_rounded;
+          } else if (lower.endsWith('.xls') || lower.endsWith('.xlsx')) {
+            ic = Icons.table_chart_rounded;
+          } else if (lower.endsWith('.zip')) {
+            ic = Icons.folder_zip_rounded;
+          }
       }
       return Column(
         crossAxisAlignment:
@@ -4795,27 +4781,61 @@ class _MessageBody extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
-          InkWell(
-            onTap: () async {
-              await onOpenAttachment?.call(url);
-            },
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(ic, color: const Color(0xFF128C7E)),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    name.isEmpty ? 'Documento' : name,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+          Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            elevation: 0,
+            shadowColor: Colors.black.withValues(alpha: 0.04),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () async {
+                await onOpenAttachment?.call(url);
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
                 ),
-              ],
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(ic, color: const Color(0xFF128C7E), size: 28),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            displayName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (size != null && size > 0)
+                            Text(
+                              ChurchChatAttachmentUtils.formatFileSize(size),
+                              style: TextStyle(
+                                color: ThemeCleanPremium.onSurfaceVariant,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.open_in_new_rounded,
+                      size: 18,
+                      color: ThemeCleanPremium.onSurfaceVariant,
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],

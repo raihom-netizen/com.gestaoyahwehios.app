@@ -447,6 +447,40 @@ sem regressões de quota Auth. Responda em português; diff mínimo.
 
 ---
 
+---
+
+## 22. Storage consolidado e migração
+
+### Árvore canónica (`igrejas/{churchId}/`)
+
+```
+membros/fotos/ + membros/thumbs/
+avisos/imagens/
+eventos/imagens/ + videos/ + thumbs/
+patrimonio/imagens/ + thumbs/
+chat_media/{images|videos|audio|docs}/ + thumbs/
+```
+
+Firestore: **só URLs** (`fotoUrl`, `fotoThumbUrl`, `thumbUrl`). Listas usam **miniaturas**; full só carteirinha/PDF/player.
+
+### Novos uploads (código)
+
+- `ChurchStorageLayout` — paths canónicos + helpers `*Legacy()` para leitura
+- Membros: `MemberProfileVariantsService` (1024 + thumb 200)
+- Mural: `FeedTenantStorageMap` → `avisos/imagens/`, `eventos/…`
+- Património: `patrimonio_media_upload.dart`
+- Chat: `church_chat_service.dart` → `chat_media/`
+
+### Migrar dados legados
+
+1. **Painel Master** → Migrar membros → **Migração Storage** (dry-run → aplicar)
+2. **CLI:** `.\scripts\run_migrate_storage_consolidado.ps1 -Execute`
+3. **Function:** `migrateStorageConsolidated` (deploy functions)
+
+Regra: `.cursor/rules/migracao-storage-consolidada.mdc`
+
+---
+
 ## 23. Veredicto de conformidade (build 11.2.295+1764)
 
 | § | Requisito | Estado | Implementação |

@@ -888,9 +888,14 @@ class _CalendarPageState extends State<CalendarPage>
       duration: const Duration(milliseconds: 300),
     );
     _hydrateAgendaFromRam();
-    unawaited(_loadEvents());
     _restartAgendaSubscription();
-    unawaited(_bootstrapAgendaTenant());
+    unawaited(_bootstrapAndLoadEvents());
+  }
+
+  /// Resolve tenant operacional **antes** da 1.ª leitura (evita agenda vazia).
+  Future<void> _bootstrapAndLoadEvents() async {
+    await _bootstrapAgendaTenant();
+    if (mounted) await _loadEvents();
   }
 
   @override
@@ -1840,9 +1845,6 @@ class _CalendarPageState extends State<CalendarPage>
     final seenNoticiaIds = <String>{};
     String? err;
 
-    const getOpts = GetOptions(source: Source.serverAndCache);
-    const timeoutDuration = Duration(seconds: 8);
-
     void addNoticias(QuerySnapshot<Map<String, dynamic>> snap,
         {bool allowStartAtFallback = false}) {
       for (final doc in snap.docs) {
@@ -1923,62 +1925,41 @@ class _CalendarPageState extends State<CalendarPage>
 
     Future<QuerySnapshot<Map<String, dynamic>>> loadNoticiasPorData() async {
       try {
-        return await _noticias
-            .where('dataEvento', isGreaterThanOrEqualTo: start)
-            .where('dataEvento', isLessThanOrEqualTo: end)
-            .get(getOpts)
-            .timeout(timeoutDuration);
+        return await ChurchTenantResilientReads.eventosByDataEventoRange(
+          _tid,
+          start: start,
+          end: end,
+        ).timeout(const Duration(seconds: 12));
       } catch (e) {
         err ??= e is TimeoutException
             ? 'Tempo esgotado ao carregar eventos.'
             : e.toString();
-        try {
-          final snap = await _noticiasIgrejas
-              .where('dataEvento', isGreaterThanOrEqualTo: start)
-              .where('dataEvento', isLessThanOrEqualTo: end)
-              .get(getOpts)
-              .timeout(timeoutDuration);
-          err = null;
-          return snap;
-        } catch (_) {
-          return await _noticias.limit(0).get();
-        }
+        return const MergedFirestoreQuerySnapshot([]);
       }
     }
 
     Future<QuerySnapshot<Map<String, dynamic>>> loadCultosPorData() async {
       try {
-        return await _cultos
-            .where('data', isGreaterThanOrEqualTo: start)
-            .where('data', isLessThanOrEqualTo: end)
-            .get(getOpts)
-            .timeout(timeoutDuration);
+        return await ChurchTenantResilientReads.cultosByDateRange(
+          _tid,
+          start: start,
+          end: end,
+        ).timeout(const Duration(seconds: 12));
       } catch (e) {
         err ??= e is TimeoutException
             ? 'Tempo esgotado ao carregar eventos.'
             : e.toString();
-        try {
-          final snap = await _cultosIgrejas
-              .where('data', isGreaterThanOrEqualTo: start)
-              .where('data', isLessThanOrEqualTo: end)
-              .get(getOpts)
-              .timeout(timeoutDuration);
-          err = null;
-          return snap;
-        } catch (_) {
-          return await _cultos.limit(0).get();
-        }
+        return const MergedFirestoreQuerySnapshot([]);
       }
     }
 
     Future<QuerySnapshot<Map<String, dynamic>>?> loadMuralEventos() async {
       try {
-        return await _noticias
-            .where('type', isEqualTo: 'evento')
-            .where('startAt', isGreaterThanOrEqualTo: start)
-            .where('startAt', isLessThanOrEqualTo: end)
-            .get(getOpts)
-            .timeout(timeoutDuration);
+        return await ChurchTenantResilientReads.muralEventosByStartAtRange(
+          _tid,
+          start: start,
+          end: end,
+        ).timeout(const Duration(seconds: 12));
       } catch (_) {
         return null;
       }
@@ -1986,14 +1967,11 @@ class _CalendarPageState extends State<CalendarPage>
 
     Future<QuerySnapshot<Map<String, dynamic>>?> loadEscalasNoPeriodo() async {
       try {
-        return await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(_tid)
-            .collection('escalas')
-            .where('date', isGreaterThanOrEqualTo: start)
-            .where('date', isLessThanOrEqualTo: end)
-            .get(getOpts)
-            .timeout(timeoutDuration);
+        return await ChurchTenantResilientReads.escalasByDateRange(
+          _tid,
+          start: start,
+          end: end,
+        ).timeout(const Duration(seconds: 12));
       } catch (_) {
         return null;
       }

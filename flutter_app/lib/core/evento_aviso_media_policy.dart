@@ -8,8 +8,8 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 const String kChurchPostTypeAviso = 'aviso';
 const String kChurchPostTypeEvento = 'evento';
 
-/// Eventos — até 2 vídeos hospedados (90 s cada).
-const int kMaxEventFeedVideosPerPost = 2;
+/// Eventos — 1 vídeo hospedado (90 s, 720p).
+const int kMaxEventFeedVideosPerPost = 1;
 
 bool churchPostTypeAllowsHostedVideo(String postType) =>
     postType.trim() != kChurchPostTypeAviso;
@@ -47,9 +47,9 @@ Map<String, dynamic> stripVideoFieldsForAvisoPayload(
 
 /// Eventos + avisos — upload e leitura ultrarrápidos.
 ///
-/// Compressão feed avisos/eventos — máx. 1024px, qualidade 70–75% (spec produção).
-const int kEventoAvisoFeedEncodeMaxEdgePx = 1024;
-const int kEventoAvisoFeedWebpQuality = 75;
+/// Compressão feed avisos/eventos — máx. 1920px, qualidade 75–80% (spec produção).
+const int kEventoAvisoFeedEncodeMaxEdgePx = 1920;
+const int kEventoAvisoFeedWebpQuality = 78;
 
 /// Teto de decode em RAM no feed (equivalente prático ao `memCacheWidth: 800` do CachedNetworkImage).
 const int kEventoAvisoFeedMemCacheMaxPx = 800;

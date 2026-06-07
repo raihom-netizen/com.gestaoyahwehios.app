@@ -9,6 +9,7 @@ import {
   sendGestaoYahwehHtmlEmail,
 } from "./memberNotificationEmail";
 import { buildGyTopicMessage, buildGyTokenMessage } from "./notificationBranding";
+import { topicPushNovo } from "./pushNovoConteudo";
 const db = admin.firestore();
 
 function normalizeRole(value: unknown): string {
@@ -1009,7 +1010,7 @@ function parseMemberBirthDate(data: Record<string, unknown>): Date | null {
 }
 
 /**
- * Todo dia 8h (SP): push no tópico `igreja_{tenantId}` com aniversariantes do dia (todos os usuários inscritos no tópico).
+ * Todo dia 8h (SP): push no tópico `gypush_{tenant}_aniversario` (preferência no app).
  */
 export const dailyBirthdayTopicPush = functions
   .region("us-central1")
@@ -1092,7 +1093,7 @@ export const dailyBirthdayTopicPush = functions
 
         await admin.messaging().send(
           buildGyTopicMessage({
-            topic: `igreja_${tenantId}`,
+            topic: topicPushNovo(tenantId, "aniversario"),
             title: "🎂 Aniversariantes de hoje",
             body: bodyOut,
             data: {

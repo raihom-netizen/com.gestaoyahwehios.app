@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -437,6 +438,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final doc = await FirestoreReadResilience.getDocument(
         FirebaseFirestore.instance.collection('igrejas').doc(tid),
         cacheKey: 'igrejas/$tid',
+        maxAttempts: kIsWeb ? 3 : 4,
+        attemptTimeout: kIsWeb
+            ? const Duration(seconds: 10)
+            : const Duration(seconds: 16),
       );
       if (!mounted) return;
       _onIgrejaDocSnapshot(tid, doc);
@@ -1213,60 +1218,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         setState(() => _gestorExistingPhotoUrl = photoUrl);
       }
     }
+    Uint8List? pendingGestorPhotoBytes;
     if (_gPhotoBytes != null) {
-      final jpg = await ensureJpegBytes(
-        _gPhotoBytes!,
-        quality: 70,
-        minWidth: 800,
-        minHeight: 800,
-      );
-      final oldGestorPhoto = (_gestorExistingPhotoUrl ?? '').trim();
-      if (oldGestorPhoto.isNotEmpty) {
-        await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(
-            sanitizeImageUrl(oldGestorPhoto));
-      }
-      final pathMembro =
-          ChurchStorageLayout.gestorMemberPhotoPath(resolvedId, docId);
-      final pathEspelho =
-          ChurchStorageLayout.gestorPublicProfilePhotoPath(resolvedId);
-      photoUrl = await MediaUploadService.uploadBytesWithRetry(
-        storagePath: pathMembro,
-        bytes: jpg,
-        contentType: 'image/jpeg',
-      );
-      unawaited(
-        MediaUploadService.uploadBytesWithRetry(
-          storagePath: pathEspelho,
-          bytes: jpg,
-          contentType: 'image/jpeg',
-        ).catchError((Object _, StackTrace __) => ''),
-      );
-      FirebaseStorageCleanupService
-          .scheduleCleanupAfterGestorProfilePhotoUpload(
-        tenantId: resolvedId,
-      );
-      if (mounted) {
-        setState(() {
-          _gestorExistingPhotoUrl = photoUrl;
-          _gPhotoBytes = null;
-        });
-        final cacheAuthGestor = authUidForPayload.isNotEmpty
-            ? authUidForPayload
-            : (dataAuth.isNotEmpty ? dataAuth : uid);
-        FirebaseStorageService.invalidateMemberPhotoCache(
-          tenantId: resolvedId,
-          memberId: docId,
-          authUid: cacheAuthGestor.isNotEmpty && cacheAuthGestor != docId
-              ? cacheAuthGestor
-              : null,
-        );
-        AppStorageImageService.instance
-            .invalidateStoragePrefix('igrejas/$resolvedId/membros/$docId');
-        AppStorageImageService.instance
-            .invalidateStoragePrefix('igrejas/$resolvedId/gestor');
-      }
+      pendingGestorPhotoBytes = Uint8List.fromList(_gPhotoBytes!);
+      if (mounted) setState(() => _gPhotoBytes = null);
     }
-    if (photoUrl == null || photoUrl.isEmpty) {
+    if (pendingGestorPhotoBytes == null &&
+        (photoUrl == null || photoUrl.isEmpty)) {
       final seed = authUidForPayload.isNotEmpty
           ? authUidForPayload
           : (cpfDigits.isNotEmpty ? cpfDigits : uid);
@@ -1326,12 +1284,29 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (authUidForPayload.isNotEmpty) {
       payload['authUid'] = authUidForPayload;
     }
+    if (pendingGestorPhotoBytes != null) {
+      payload.addAll(MemberProfilePhotoUpdateService.pendingUploadPatchFields());
+    }
     if (!existingSnap.exists) {
       payload['CRIADO_EM'] = FieldValue.serverTimestamp();
     }
     await FirestoreWebGuard.runWithWebRecovery(
       () => ref.set(payload, SetOptions(merge: true)),
     );
+
+    if (pendingGestorPhotoBytes != null && pendingGestorPhotoBytes.isNotEmpty) {
+      final mergedGestor = Map<String, dynamic>.from(payload);
+      MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
+        tenantId: resolvedId,
+        memberDocId: docId,
+        memberData: mergedGestor,
+        rawBytes: pendingGestorPhotoBytes,
+        onSuccess: (result) {
+          if (!mounted) return;
+          setState(() => _gestorExistingPhotoUrl = result.downloadUrl);
+        },
+      );
+    }
 
     await _deleteDuplicateGestorMembroDocs(
         col, docId, cpfDigits, authUidForPayload);

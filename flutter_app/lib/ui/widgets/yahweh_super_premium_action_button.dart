@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
+import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 
 /// Botão de ação largura total — estilo Super Premium (web, iOS, Android).
 class YahwehSuperPremiumActionButton extends StatelessWidget {
   final VoidCallback? onPressed;
-  final IconData icon;
+  final IconData? icon;
+  final Widget? leading;
   final String label;
   final LinearGradient? gradient;
   final Color? backgroundColor;
@@ -16,7 +18,8 @@ class YahwehSuperPremiumActionButton extends StatelessWidget {
   const YahwehSuperPremiumActionButton({
     super.key,
     required this.onPressed,
-    required this.icon,
+    this.icon,
+    this.leading,
     required this.label,
     this.gradient,
     this.backgroundColor,
@@ -50,7 +53,7 @@ class YahwehSuperPremiumActionButton extends StatelessWidget {
     return YahwehSuperPremiumActionButton(
       key: key,
       onPressed: onPressed,
-      icon: Icons.chat_rounded,
+      leading: WhatsappBrandIcon(size: compact ? 15 : 20, color: Colors.white),
       label: label,
       backgroundColor: const Color(0xFF16A34A),
       compact: compact,
@@ -96,7 +99,8 @@ class YahwehSuperPremiumActionButton extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: iconSize, color: foregroundColor),
+                leading ??
+                    Icon(icon ?? Icons.circle, size: iconSize, color: foregroundColor),
                 SizedBox(width: compact ? 5 : 10),
                 Flexible(
                   child: Text(

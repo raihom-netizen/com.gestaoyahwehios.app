@@ -9,9 +9,10 @@ import 'package:gestao_yahweh/core/dashboard/church_dashboard_query_limits.dart'
 import 'package:gestao_yahweh/core/dashboard/church_ministry_intel.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/pages/visitors_page.dart';
+import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_attention_member_card.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
@@ -1159,7 +1160,9 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                       color: Colors.transparent,
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        onTap: () => launchWhatsAppContact(tel),
+                        onTap: () => unawaited(
+                          ChurchMemberContactChat.launchWhatsAppDigits(tel),
+                        ),
                         child: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
@@ -1168,11 +1171,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                             ),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const FaIcon(
-                            FontAwesomeIcons.whatsapp,
-                            color: Colors.white,
-                            size: 18,
-                          ),
+                          child: const WhatsappChannelIcon(size: 18),
                         ),
                       ),
                     ),

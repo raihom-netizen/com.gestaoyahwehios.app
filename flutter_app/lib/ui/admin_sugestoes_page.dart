@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 
@@ -31,10 +32,10 @@ class _AdminSugestoesPageState extends State<AdminSugestoesPage> {
       _erro = null;
     });
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('suggestions')
-          .limit(200)
-          .get();
+      final snap = await MasterAdminFirestore.query(
+        FirebaseFirestore.instance.collection('suggestions').limit(200),
+        cacheKey: 'master_suggestions',
+      );
       final list = snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>().toList();
       list.sort((a, b) {
         final ta = a.data()['createdAt'];
@@ -61,7 +62,7 @@ class _AdminSugestoesPageState extends State<AdminSugestoesPage> {
           _carregando = false;
           _erro = isPermission
               ? 'Sem permissão. Faça login como administrador (Painel Master) e confirme que sua conta tem perfil ADM.'
-              : msg;
+              : MasterAdminFirestore.formatLoadError(e);
         });
       }
     }

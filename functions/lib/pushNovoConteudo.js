@@ -37,8 +37,7 @@ exports.onNovoEventoNoticiaPublishedPush = exports.onNovoEventoNoticiaPush = exp
 exports.topicPushNovo = topicPushNovo;
 /**
  * Push FCM por tópico quando há conteúdo novo (avisos, eventos na agenda, escalas).
- * Tópicos alinhados ao app: `gypush_{tenantIdSafe}_{aviso|evento|escala}`.
- * O app inscreve/desinscreve conforme `users/{uid}.pushAvisos`, `pushEventos`, `pushEscalas` (padrão true).
+ * Tópicos alinhados ao app: `gypush_{tenantIdSafe}_{aviso|evento|escala|aniversario|gestores}`.
  */
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -56,8 +55,28 @@ function clip(s, max) {
         return t;
     return `${t.slice(0, Math.max(0, max - 3))}...`;
 }
+function isEventoDoc(d) {
+    const typeRaw = String(d.type || "evento").trim().toLowerCase();
+    return typeRaw === "evento" || typeRaw === "" || typeRaw === "event";
+}
+async function recordTenantNotification(tenantId, payload) {
+    try {
+        await admin
+            .firestore()
+            .collection("igrejas")
+            .doc(tenantId)
+            .collection("notificacoes")
+            .add({
+            ...payload,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    }
+    catch (_) {
+        /* opcional */
+    }
+}
 async function sendNovoAvisoMuralPush(tenantId, postId, d) {
-    const title = clip(String(d.title || "Novo aviso"), 80) || "Novo aviso";
+    const title = clip(String(d.title || d.titulo || "Novo aviso"), 80) || "Novo aviso";
     const rawBody = String(d.text || d.body || d.mensagem || "").trim();
     const body = clip(rawBody, 140) || title;
     await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
@@ -72,6 +91,12 @@ async function sendNovoAvisoMuralPush(tenantId, postId, d) {
         },
         module: "aviso",
     }));
+    await recordTenantNotification(tenantId, {
+        type: "novo_aviso",
+        title: "Novo aviso",
+        body,
+        postId,
+    });
 }
 exports.onNovoAvisoMuralPush = functions
     .region("us-central1")
@@ -79,7 +104,8 @@ exports.onNovoAvisoMuralPush = functions
     .onCreate(async (snap, context) => {
     const tenantId = context.params.tenantId;
     const d = snap.data() || {};
-    if (String(d.publishState || "") === "uploading")
+    const publishState = String(d.publishState || "").trim();
+    if (publishState === "uploading" || publishState === "draft")
         return null;
     try {
         await sendNovoAvisoMuralPush(tenantId, context.params.id, d);
@@ -89,16 +115,20 @@ exports.onNovoAvisoMuralPush = functions
     }
     return null;
 });
-/** Push quando o aviso passa de `uploading` → `published` (publicação rápida no app). */
+/** Push quando o aviso passa de `uploading` → `published`. */
 exports.onNovoAvisoMuralPublishedPush = functions
     .region("us-central1")
     .firestore.document("igrejas/{tenantId}/avisos/{id}")
     .onUpdate(async (change, context) => {
     const before = change.before.data() || {};
     const after = change.after.data() || {};
-    if (String(before.publishState || "") !== "uploading")
+    const beforeState = String(before.publishState || "").trim();
+    const afterState = String(after.publishState || "").trim();
+    if (beforeState === afterState)
         return null;
-    if (String(after.publishState || "") !== "published")
+    if (afterState !== "published")
+        return null;
+    if (beforeState !== "uploading" && beforeState !== "draft")
         return null;
     const tenantId = context.params.tenantId;
     try {
@@ -110,9 +140,9 @@ exports.onNovoAvisoMuralPublishedPush = functions
     return null;
 });
 async function sendNovoEventoNoticiaPush(tenantId, postId, d) {
-    if (String(d.type || "").toLowerCase() !== "evento")
+    if (!isEventoDoc(d))
         return;
-    const title = clip(String(d.title || "Novo evento"), 80) || "Novo evento";
+    const title = clip(String(d.title || d.titulo || "Novo evento"), 80) || "Novo evento";
     const startAt = d.startAt;
     let extra = "";
     if (startAt && typeof startAt.toDate === "function") {
@@ -132,15 +162,22 @@ async function sendNovoEventoNoticiaPush(tenantId, postId, d) {
         },
         module: "evento",
     }));
+    await recordTenantNotification(tenantId, {
+        type: "novo_evento",
+        title: "Novo evento",
+        body,
+        postId,
+    });
 }
 exports.onNovoEventoNoticiaPush = functions
     .region("us-central1")
     .firestore.document("igrejas/{tenantId}/eventos/{id}")
     .onCreate(async (snap, context) => {
     const d = snap.data() || {};
-    if (String(d.type || "").toLowerCase() !== "evento")
+    if (!isEventoDoc(d))
         return null;
-    if (String(d.publishState || "") === "uploading")
+    const publishState = String(d.publishState || "").trim();
+    if (publishState === "uploading" || publishState === "draft")
         return null;
     const tenantId = context.params.tenantId;
     try {
@@ -151,18 +188,22 @@ exports.onNovoEventoNoticiaPush = functions
     }
     return null;
 });
-/** Push quando o evento passa de `uploading` → `published` (fotos em segundo plano). */
+/** Push quando o evento passa de `uploading` → `published`. */
 exports.onNovoEventoNoticiaPublishedPush = functions
     .region("us-central1")
     .firestore.document("igrejas/{tenantId}/eventos/{id}")
     .onUpdate(async (change, context) => {
     const before = change.before.data() || {};
     const after = change.after.data() || {};
-    if (String(after.type || "").toLowerCase() !== "evento")
+    if (!isEventoDoc(after))
         return null;
-    if (String(before.publishState || "") !== "uploading")
+    const beforeState = String(before.publishState || "").trim();
+    const afterState = String(after.publishState || "").trim();
+    if (beforeState === afterState)
         return null;
-    if (String(after.publishState || "") !== "published")
+    if (afterState !== "published")
+        return null;
+    if (beforeState !== "uploading" && beforeState !== "draft")
         return null;
     const tenantId = context.params.tenantId;
     try {

@@ -34,6 +34,8 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.scheduledRefreshMasterChurchesList = exports.getMasterChurchesList = void 0;
+exports.lightChurchRow = lightChurchRow;
+exports.patchMasterChurchesIndexForTenant = patchMasterChurchesIndexForTenant;
 exports.recomputeMasterChurchesIndex = recomputeMasterChurchesIndex;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -99,6 +101,44 @@ function lightChurchRow(id, data) {
         removedByAdminAt: data.removedByAdminAt ?? null,
         license: lic && typeof lic === "object" ? lic : null,
     };
+}
+/** Atualiza uma igreja no índice leve após alteração de licença/bloqueio. */
+async function patchMasterChurchesIndexForTenant(tenantId, churchData) {
+    const db = admin.firestore();
+    const id = String(tenantId || "").trim();
+    if (!id)
+        return;
+    let data = churchData;
+    if (!data) {
+        const snap = await db.collection("igrejas").doc(id).get();
+        if (!snap.exists)
+            return;
+        data = snap.data();
+    }
+    const row = lightChurchRow(id, data);
+    const indexRef = db.collection("config").doc("master_churches_index");
+    const indexSnap = await indexRef.get();
+    if (!indexSnap.exists) {
+        await recomputeMasterChurchesIndex();
+        return;
+    }
+    const raw = indexSnap.data() ?? {};
+    const churches = Array.isArray(raw.churches)
+        ? [...raw.churches]
+        : [];
+    const idx = churches.findIndex((c) => String(c.id) === id);
+    if (idx >= 0) {
+        churches[idx] = row;
+    }
+    else {
+        churches.unshift(row);
+    }
+    await indexRef.set({
+        churches,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        total: raw.total ?? churches.length,
+        schemaVersion: raw.schemaVersion ?? 1,
+    }, { merge: true });
 }
 /** Índice leve para Lista Igrejas — `config/master_churches_index`. */
 async function recomputeMasterChurchesIndex() {

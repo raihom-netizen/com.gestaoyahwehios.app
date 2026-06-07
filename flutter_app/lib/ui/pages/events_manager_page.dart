@@ -11,6 +11,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firestore_cursor_pagination.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
@@ -329,7 +330,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 
   Future<void> _bootstrapFirestoreTenant() async {
-    unawaited(ensureFirebaseReadyForPublishUpload().catchError((_) {}));
+    unawaited(ensureFirebaseReadyForPanelRead().catchError((_) {}));
     final uid = firebaseDefaultAuth.currentUser?.uid;
     try {
       final tid = await TenantResolverService.resolveOperationalChurchDocId(
@@ -2614,9 +2615,13 @@ class _FeedTab extends StatefulWidget {
 }
 
 class _FeedTabState extends State<_FeedTab> {
-  static const int _feedEventsLimit = 60;
+  static const int _feedPageSize = YahwehPerformanceV4.defaultPageSize;
 
-  late Future<QuerySnapshot<Map<String, dynamic>>> _eventsFuture;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> _loadedDocs = [];
+  DocumentSnapshot<Map<String, dynamic>>? _feedLastCursor;
+  bool _hasMoreFeedPages = true;
+  bool _isLoadingMore = false;
+  bool _isInitialLoading = true;
   QuerySnapshot<Map<String, dynamic>>? _lastGoodEventsSnap;
   bool _showingOfflineEvents = false;
   String _filterPeriod = 'all';
@@ -2627,6 +2632,14 @@ class _FeedTabState extends State<_FeedTab> {
   bool _selectMode = false;
   final Set<String> _selectedEventIds = <String>{};
 
+  Query<Map<String, dynamic>> _eventsBaseQuery() {
+    return firebaseDefaultFirestore
+        .collection('igrejas')
+        .doc(widget.tenantId.trim())
+        .collection(ChurchTenantPostsCollections.eventos)
+        .orderBy('startAt', descending: true);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2636,75 +2649,74 @@ class _FeedTabState extends State<_FeedTab> {
       _searchApplied = _searchCtrl.text.trim();
     }
     _searchCtrl.addListener(_onFeedSearchInput);
-    _eventsFuture = _seedOrLoadEvents();
-    unawaited(_primeEventsFromCache());
+    unawaited(_bootstrapFeed());
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadEvents() {
+  Future<void> _bootstrapFeed() async {
     final seed = widget.tenantId.trim();
-    if (seed.isEmpty) return _loadEvents();
-
-    final ram = _EventosNoticiasRamCache.peek(seed);
-    if (ram != null && ram.isNotEmpty) {
-      final docs = ram.length > _feedEventsLimit
-          ? ram.sublist(0, _feedEventsLimit)
-          : ram;
-      final snap = MergedFirestoreQuerySnapshot(docs);
-      _lastGoodEventsSnap = snap;
-      return Future.value(snap);
+    if (seed.isNotEmpty) {
+      final ram = _EventosNoticiasRamCache.peek(seed);
+      if (ram != null && ram.isNotEmpty) {
+        final docs = ram.length > _feedPageSize
+            ? ram.sublist(0, _feedPageSize)
+            : ram;
+        if (mounted) {
+          setState(() {
+            _loadedDocs
+              ..clear()
+              ..addAll(docs);
+            _feedLastCursor = docs.isNotEmpty ? docs.last : null;
+            _hasMoreFeedPages = ram.length > _feedPageSize;
+            _isInitialLoading = false;
+            _lastGoodEventsSnap = MergedFirestoreQuerySnapshot(docs);
+          });
+        }
+      }
     }
-
-    final mem = FirestoreReadResilience.peekLastGoodQuery(
-      _eventosNoticiasMemKey(seed, _feedEventsLimit),
-    );
-    if (mem != null && mem.docs.isNotEmpty) {
-      _lastGoodEventsSnap = mem;
-      return Future.value(mem);
+    unawaited(_primeEventsFromCache());
+    if (_loadedDocs.isEmpty) {
+      await _loadInitialEvents();
     }
-
-    return _loadEvents();
   }
 
   Future<void> _primeEventsFromCache() async {
     final tid = widget.tenantId.trim();
     if (tid.isEmpty) return;
 
-    void applySnap(QuerySnapshot<Map<String, dynamic>> snap) {
-      if (!mounted || snap.docs.isEmpty) return;
+    void applyDocs(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+      if (!mounted || docs.isEmpty || _loadedDocs.isNotEmpty) return;
       setState(() {
-        _lastGoodEventsSnap = snap;
-        _eventsFuture = Future.value(snap);
+        _loadedDocs
+          ..clear()
+          ..addAll(docs);
+        _feedLastCursor = docs.isNotEmpty ? docs.last : null;
+        _hasMoreFeedPages = docs.length >= _feedPageSize;
+        _isInitialLoading = false;
+        _lastGoodEventsSnap = MergedFirestoreQuerySnapshot(docs);
       });
     }
 
     try {
       final snap = await ChurchTenantResilientReads.noticiasByStartAt(
         tid,
-        limit: _feedEventsLimit,
+        limit: _feedPageSize,
       ).timeout(const Duration(milliseconds: 1800));
       if (snap.docs.isNotEmpty) {
         _EventosNoticiasRamCache.put(tid, snap.docs);
-        applySnap(snap);
+        applyDocs(snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>());
         return;
       }
     } catch (_) {}
 
-    if (_lastGoodEventsSnap != null && _lastGoodEventsSnap!.docs.isNotEmpty) {
-      return;
-    }
-
     try {
-      final cacheSnap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tid)
-          .collection(ChurchTenantPostsCollections.eventos)
-          .orderBy('startAt', descending: true)
-          .limit(_feedEventsLimit)
+      final cacheSnap = await _eventsBaseQuery()
+          .limit(_feedPageSize)
           .get(const GetOptions(source: Source.cache))
           .timeout(const Duration(seconds: 3));
       if (cacheSnap.docs.isNotEmpty) {
         _EventosNoticiasRamCache.put(tid, cacheSnap.docs);
-        applySnap(cacheSnap);
+        applyDocs(
+            cacheSnap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>());
       }
     } catch (_) {}
   }
@@ -2727,50 +2739,106 @@ class _FeedTabState extends State<_FeedTab> {
     super.dispose();
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadEvents() async {
+  Future<void> _loadInitialEvents() async {
+    setState(() {
+      _isInitialLoading = _loadedDocs.isEmpty;
+      _showingOfflineEvents = false;
+      _hasMoreFeedPages = true;
+      _feedLastCursor = null;
+      _loadedDocs.clear();
+    });
     try {
       final snap = await FirestoreWebGuard.runWithWebRecovery(() {
         return ChurchTenantResilientReads.noticiasByStartAt(
           widget.tenantId,
-          limit: _feedEventsLimit,
+          limit: _feedPageSize,
         ).timeout(const Duration(seconds: 10));
       });
-      _lastGoodEventsSnap = snap;
-      _showingOfflineEvents = false;
-      if (snap.docs.isNotEmpty) {
-        _EventosNoticiasRamCache.put(widget.tenantId, snap.docs);
+      final docs =
+          snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
+      if (!mounted) return;
+      setState(() {
+        _loadedDocs
+          ..clear()
+          ..addAll(docs);
+        _feedLastCursor = docs.isNotEmpty ? docs.last : null;
+        _hasMoreFeedPages = docs.length >= _feedPageSize;
+        _isInitialLoading = false;
+        _lastGoodEventsSnap = snap;
+      });
+      if (docs.isNotEmpty) {
+        _EventosNoticiasRamCache.put(widget.tenantId, docs);
       }
-      return snap;
     } catch (_) {
-      final mem = _lastGoodEventsSnap;
-      if (mem != null && mem.docs.isNotEmpty) {
-        _showingOfflineEvents = true;
-        return mem;
+      if (!mounted) return;
+      if (_loadedDocs.isNotEmpty) {
+        setState(() => _showingOfflineEvents = true);
+        return;
       }
       try {
-        final cacheSnap = await firebaseDefaultFirestore
-            .collection('igrejas')
-            .doc(widget.tenantId)
-            .collection(ChurchTenantPostsCollections.eventos)
-            .orderBy('startAt', descending: true)
-            .limit(_feedEventsLimit)
+        final cacheSnap = await _eventsBaseQuery()
+            .limit(_feedPageSize)
             .get(const GetOptions(source: Source.cache))
             .timeout(const Duration(seconds: 4));
-        if (cacheSnap.docs.isNotEmpty) {
+        final docs =
+            cacheSnap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
+        if (!mounted) return;
+        setState(() {
+          _loadedDocs
+            ..clear()
+            ..addAll(docs);
+          _feedLastCursor = docs.isNotEmpty ? docs.last : null;
+          _hasMoreFeedPages = docs.length >= _feedPageSize;
+          _isInitialLoading = false;
+          _showingOfflineEvents = docs.isNotEmpty;
           _lastGoodEventsSnap = cacheSnap;
-          _showingOfflineEvents = true;
-          return cacheSnap;
-        }
-      } catch (_) {}
-      return const MergedFirestoreQuerySnapshot([]);
+        });
+      } catch (_) {
+        if (mounted) setState(() => _isInitialLoading = false);
+      }
+    }
+  }
+
+  Future<void> _loadMoreEvents() async {
+    if (_isLoadingMore || !_hasMoreFeedPages || _feedLastCursor == null) {
+      return;
+    }
+    setState(() => _isLoadingMore = true);
+    try {
+      final page = await FirestoreWebGuard.runWithWebRecovery(() {
+        return FirestoreCursorPagination.fetchDocumentsPage(
+          baseQuery: _eventsBaseQuery(),
+          startAfter: _feedLastCursor,
+          pageSize: _feedPageSize,
+        );
+      });
+      if (!mounted) return;
+      final idSeen = {for (final d in _loadedDocs) d.id};
+      final next = page.items.where((d) => idSeen.add(d.id)).toList();
+      setState(() {
+        _loadedDocs.addAll(next);
+        _feedLastCursor = page.lastDocument ?? _feedLastCursor;
+        _hasMoreFeedPages = page.hasMore;
+      });
+      if (_loadedDocs.isNotEmpty) {
+        _EventosNoticiasRamCache.put(widget.tenantId, _loadedDocs);
+      }
+    } catch (e, st) {
+      unawaited(CrashlyticsService.record(e, st, reason: 'eventos_feed_load_more'));
+    } finally {
+      if (mounted) setState(() => _isLoadingMore = false);
     }
   }
 
   Future<void> _refresh() async {
-    setState(() {
-      _showingOfflineEvents = false;
-      _eventsFuture = _loadEvents();
-    });
+    await _loadInitialEvents();
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadEventsSnapshot() async {
+    if (_loadedDocs.isEmpty) {
+      await _loadInitialEvents();
+    }
+    return MergedFirestoreQuerySnapshot(_loadedDocs);
   }
 
   void _toggleSelectMode() {
@@ -2827,8 +2895,8 @@ class _FeedTabState extends State<_FeedTab> {
           ThemeCleanPremium.successSnackBar('Eventos excluídos.'));
       _selectedEventIds.clear();
       _selectMode = false;
-      _eventsFuture = _loadEvents();
-      setState(() {});
+      await _loadInitialEvents();
+      if (mounted) setState(() {});
     }
   }
 
@@ -2839,7 +2907,7 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<void> _deleteByCurrentPeriod() async {
-    final snap = await _loadEvents();
+    final snap = await _loadEventsSnapshot();
     final allDocs =
         snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
     final docs = _applyFilters(allDocs, DateTime.now(), _filterPeriod,
@@ -2914,40 +2982,11 @@ class _FeedTabState extends State<_FeedTab> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      future: _eventsFuture,
-      builder: (context, snap) {
-        if (snap.hasError) {
-          final fallback = _lastGoodEventsSnap;
-          if (fallback != null && fallback.docs.isNotEmpty) {
-            return _buildFeedList(
-              fallback.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>(),
-              offlineBanner: true,
-            );
-          }
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar os eventos',
-            error: snap.error,
-            onRetry: _refresh,
-          );
-        }
-        if (snap.connectionState != ConnectionState.done || !snap.hasData) {
-          final fallback = _lastGoodEventsSnap;
-          if (fallback != null && fallback.docs.isNotEmpty) {
-            return _buildFeedList(
-              fallback.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>(),
-              offlineBanner: _showingOfflineEvents,
-            );
-          }
-          return const _FeedSkeleton();
-        }
-        _lastGoodEventsSnap = snap.data;
-        final now = DateTime.now();
-        final allDocs =
-            snap.data!.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
-        return _buildFeedList(allDocs, now: now);
-      },
-    );
+    if (_isInitialLoading && _loadedDocs.isEmpty) {
+      return const _FeedSkeleton();
+    }
+    final now = DateTime.now();
+    return _buildFeedList(_loadedDocs, now: now, offlineBanner: _showingOfflineEvents);
   }
 
   Widget _buildFeedList(
@@ -3010,7 +3049,10 @@ class _FeedTabState extends State<_FeedTab> {
                 ThemeCleanPremium.spaceMd,
                 80),
             cacheExtent: 1200,
-            itemCount: docs.length + 1 + (offlineBanner ? 1 : 0),
+            itemCount: docs.length +
+                1 +
+                (offlineBanner ? 1 : 0) +
+                (_hasMoreFeedPages || _isLoadingMore ? 1 : 0),
             itemBuilder: (context, index) {
               if (offlineBanner && index == 0) {
                 return Padding(
@@ -3141,6 +3183,18 @@ class _FeedTabState extends State<_FeedTab> {
                     ],
                   ),
                 );
+              }
+              final footerIndex = headerIndex + docs.length + 1;
+              if ((_hasMoreFeedPages || _isLoadingMore) &&
+                  index == footerIndex) {
+                return LazyLoadMoreFooter(
+                  loading: _isLoadingMore,
+                  visible: _hasMoreFeedPages || _isLoadingMore,
+                  onLoadMore: _loadMoreEvents,
+                );
+              }
+              if (index <= headerIndex || index > headerIndex + docs.length) {
+                return const SizedBox.shrink();
               }
               final d = docs[index - headerIndex - 1];
               final selected = _selectedEventIds.contains(d.id);
@@ -7268,10 +7322,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Future<void> _waitForInFlightPhotoUploads() async {
-    const maxWait = Duration(seconds: 22);
+    const maxWait = Duration(seconds: 2);
     final deadline = DateTime.now().add(maxWait);
     while (_inFlightPhotoUploads > 0 && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+      await Future<void>.delayed(const Duration(milliseconds: 80));
     }
   }
 

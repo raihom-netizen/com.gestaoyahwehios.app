@@ -1,4 +1,4 @@
-import 'dart:async' show TimeoutException, Timer, unawaited;
+import 'dart:async' show Timer, unawaited;
 import 'dart:convert';
 import 'dart:math' show min;
 
@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/member_card_directory_service.dart';
 import 'package:gestao_yahweh/services/member_card_photo_cache.dart';
+import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -440,10 +441,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<_CardData?> _bootstrapAndLoadCard() async {
     await _resolveOperationalTenantOnce();
     try {
-      return await FirestoreWebGuard.runWithWebRecovery(
-        () => _load().timeout(const Duration(seconds: 28)),
-      );
-    } on TimeoutException {
+      return await FirestoreWebGuard.runWithWebRecovery(_load);
+    } catch (_) {
       return null;
     }
   }
@@ -834,24 +833,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
   bool get _hasExplicitMemberTarget =>
       widget.memberId != null && widget.memberId!.trim().isNotEmpty;
 
-  Future<_CardData?> _load() async {
-    final db = FirebaseFirestore.instance;
-    final igrejaDocId = await _effectiveIgrejaDocId();
-    final membersCol =
-        db.collection('igrejas').doc(igrejaDocId).collection('membros');
-
-    // Carrega tenant (obrigatório) e config automática do cartão
+  Future<Map<String, dynamic>> _loadTenantBundleForCard(String igrejaDocId) async {
     Map<String, dynamic> tenant = {};
-
     try {
-      final tenantSnap = await FirestoreReadResilience.getDocument(
-        db.collection('igrejas').doc(igrejaDocId),
-        cacheKey: 'igrejas/$igrejaDocId',
-      );
+      final tenantSnap =
+          await ChurchTenantResilientReads.churchDocument(igrejaDocId);
       tenant = Map<String, dynamic>.from(tenantSnap.data() ?? {})
         ..['id'] = igrejaDocId;
     } catch (_) {}
-
     try {
       final logoResolved =
           await AppStorageImageService.instance.resolveChurchTenantLogoUrl(
@@ -863,56 +852,59 @@ class _MemberCardPageState extends State<MemberCardPage> {
         tenant['_carteiraLogoUrl'] = logoClean;
       }
     } catch (_) {}
+    return tenant;
+  }
 
-    // Logo, nome e cores automáticos (cadastro da igreja; sem painel de configuração).
-    final cardCfg =
-        await _resolveAutomaticCardConfig(tenant: tenant, igrejaDocId: igrejaDocId);
-
-    DocumentSnapshot<Map<String, dynamic>>? memberDoc;
-    final isMembro = _isRestrictedMember;
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _resolveMemberDocForCard(
+    String igrejaDocId,
+  ) async {
     final cpf = (widget.cpf ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    final user = FirebaseAuth.instance.currentUser;
 
-    if (!isMembro &&
-        widget.memberId != null &&
-        widget.memberId!.trim().isNotEmpty) {
-      try {
-        memberDoc = await MemberDocumentResolve.findByHint(
-          membersCol,
-          widget.memberId!.trim(),
-          cpfDigits: cpf,
-        );
-      } catch (_) {}
+    if (_isRestrictedMember) {
+      return ChurchTenantResilientReads.resolveSelfMember(
+        igrejaDocId,
+        memberId: widget.memberId,
+        cpfDigits: cpf,
+        authUid: user?.uid,
+        email: user?.email,
+      );
     }
 
-    if (memberDoc == null && cpf.length >= 11 && isMembro) {
-      try {
-        final byId = await membersCol.doc(cpf).get();
-        if (byId.exists) {
-          memberDoc = byId;
-        } else {
-          final q =
-              await membersCol.where('CPF', isEqualTo: cpf).limit(1).get();
-          if (q.docs.isNotEmpty) memberDoc = q.docs.first;
-        }
-      } catch (_) {}
+    final mid = widget.memberId?.trim() ?? '';
+    if (mid.isEmpty) return null;
+    return ChurchTenantResilientReads.membroByHint(
+      igrejaDocId,
+      mid,
+      cpfDigits: cpf.length >= 11 ? cpf : null,
+    );
+  }
+
+  Future<_CardData?> _load() async {
+    await ChurchTenantResilientReads.preparePanelRead();
+    var igrejaDocId = await _effectiveIgrejaDocId();
+    var tenant = await _loadTenantBundleForCard(igrejaDocId);
+
+    final memberDoc = await _resolveMemberDocForCard(igrejaDocId);
+    if (memberDoc == null || !memberDoc.exists) return null;
+
+    final memberTenantId =
+        memberDoc.reference.parent.parent?.id.trim() ?? '';
+    if (memberTenantId.isNotEmpty && memberTenantId != igrejaDocId) {
+      igrejaDocId = memberTenantId;
+      tenant = await _loadTenantBundleForCard(igrejaDocId);
     }
 
-    if (memberDoc == null && isMembro) {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null && uid.isNotEmpty) {
-        try {
-          final q =
-              await membersCol.where('authUid', isEqualTo: uid).limit(1).get();
-          if (q.docs.isNotEmpty) memberDoc = q.docs.first;
-        } catch (_) {}
-      }
-    }
-
-    if (memberDoc == null) return null;
+    final cardCfg = await _resolveAutomaticCardConfig(
+      tenant: tenant,
+      igrejaDocId: igrejaDocId,
+    );
 
     var memberMap = Map<String, dynamic>.from(memberDoc.data() ?? {});
-    memberMap = await _enrichMemberCarteirinhaSignatureFromSignatory(memberMap,
-        igrejaDocId: igrejaDocId);
+    memberMap = await _enrichMemberCarteirinhaSignatureFromSignatory(
+      memberMap,
+      igrejaDocId: igrejaDocId,
+    );
 
     if (MemberCodigoService.readFromMember(memberMap).isEmpty) {
       try {
@@ -4455,7 +4447,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     Map<String, dynamic> tenant = {};
     try {
       final tenantSnap =
-          await db.collection('igrejas').doc(igrejaDocId).get();
+          await ChurchTenantResilientReads.churchDocument(igrejaDocId);
       tenant = Map<String, dynamic>.from(tenantSnap.data() ?? {})
         ..['id'] = igrejaDocId;
     } catch (_) {}
@@ -4560,11 +4552,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     if (mid.isEmpty) return null;
     final cfgCopy = Map<String, dynamic>.from(cardCfg);
     try {
-      final col = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(igrejaDocId)
-          .collection('membros');
-      final doc = await MemberDocumentResolve.findByHint(col, mid);
+      final doc = await ChurchTenantResilientReads.membroByHint(igrejaDocId, mid);
       if (doc != null && doc.exists) {
         var m = Map<String, dynamic>.from(doc.data() ?? {});
         m = await _enrichMemberCarteirinhaSignatureFromSignatory(m,
@@ -7053,7 +7041,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   /// Foto do cadastro do membro — mesma lógica de [imageUrlFromMap] para não perder URL (Storage, defaultImageUrl, listas).
   String _photoUrlFromMember(Map<String, dynamic> member) {
-    final s = imageUrlFromMap(member);
+    final s = MemberProfileVariantsService.profilePhotoUrl(member) ?? '';
     return isValidImageUrl(s) ? s : '';
   }
 

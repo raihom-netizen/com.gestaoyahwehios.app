@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Painel Master — Multi-Admin e delegação (Super Premium).
@@ -43,12 +43,12 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
     try {
       final merged = <String, Map<String, dynamic>>{};
 
-      final usuSnap = await FirestoreWebGuard.runWithWebRecovery(() {
-        return FirebaseFirestore.instance
+      final usuSnap = await MasterAdminFirestore.query(
+        FirebaseFirestore.instance
             .collection('usuarios')
-            .limit(YahwehPerformanceV4.masterAdminUsersLimit)
-            .get(_getServer);
-      });
+            .limit(YahwehPerformanceV4.masterAdminUsersLimit),
+        cacheKey: 'master_usuarios_admin',
+      );
       for (final d in usuSnap.docs) {
         final data = d.data();
         if (_isAdminPapel(data)) {
@@ -57,17 +57,23 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
       }
 
       try {
-        final admSnap = await FirebaseFirestore.instance
-            .collection('admins')
-            .limit(YahwehPerformanceV4.masterCacheAlertsLimit)
-            .get(_getServer);
+        final admSnap = await MasterAdminFirestore.query(
+          FirebaseFirestore.instance
+              .collection('admins')
+              .limit(YahwehPerformanceV4.masterCacheAlertsLimit),
+          cacheKey: 'master_admins_docs',
+        );
         for (final doc in admSnap.docs) {
           final uid = doc.id;
           if (merged.containsKey(uid)) continue;
           var nome = 'Administrador';
           var email = '';
           try {
-            final u = await FirebaseFirestore.instance.collection('users').doc(uid).get(_getServer);
+            final u = await MasterAdminFirestore.document(
+              FirebaseFirestore.instance.collection('users').doc(uid),
+              cacheKey: 'master_user_$uid',
+              source: Source.server,
+            );
             if (u.exists) {
               final ud = u.data() ?? {};
               nome = (ud['displayName'] ?? ud['nome'] ?? ud['name'] ?? nome).toString();
@@ -109,7 +115,7 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
           _loading = false;
           _error = isDenied
               ? 'Sem permissão em usuarios/ ou admins/. Publique as regras (admins: read isAdminPanel) e faça deploy: firebase deploy --only firestore:rules'
-              : 'Não foi possível carregar. Recarregue com Ctrl+F5 e publique as regras.\n\n$msg';
+              : 'Não foi possível carregar. ${MasterAdminFirestore.formatLoadError(e)}';
         });
       }
     }
@@ -123,7 +129,12 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
     );
     if (email == null || email.isEmpty) return;
     try {
-      final snap = await FirebaseFirestore.instance.collection('usuarios').where('email', isEqualTo: email).get(_getServer);
+      final snap = await MasterAdminFirestore.query(
+        FirebaseFirestore.instance
+            .collection('usuarios')
+            .where('email', isEqualTo: email),
+        cacheKey: 'master_usuario_email_$email',
+      );
       if (snap.docs.isNotEmpty) {
         await snap.docs.first.reference.update({'papel': 'admin'});
         if (mounted) {
@@ -178,7 +189,12 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
     try {
       final email = (admin['email'] ?? '').toString();
       if (email.isEmpty) return;
-      final snap = await FirebaseFirestore.instance.collection('usuarios').where('email', isEqualTo: email).get(_getServer);
+      final snap = await MasterAdminFirestore.query(
+        FirebaseFirestore.instance
+            .collection('usuarios')
+            .where('email', isEqualTo: email),
+        cacheKey: 'master_usuario_email_$email',
+      );
       if (snap.docs.isNotEmpty) {
         await snap.docs.first.reference.update({'papel': 'usuario'});
         if (mounted) {

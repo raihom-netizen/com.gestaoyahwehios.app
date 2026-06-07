@@ -139,6 +139,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   String? _erro;
   ChurchPaymentReceivingConfig _paymentCfg =
       const ChurchPaymentReceivingConfig();
+  static final Set<String> _mpClusterSyncAttempted = <String>{};
 
   String get _effectiveTenantId =>
       (_operationalTenantId ?? widget.tenantId).trim();
@@ -177,23 +178,35 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       });
     }
 
-    unawaited(_loadContas(refreshNetwork: true));
-    unawaited(_bindMemberForDonation());
-    unawaited(_loadPaymentReceiving());
-
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
-      final resolved = await TenantResolverService
-          .resolveOperationalChurchDocId(seed, userUid: uid)
-          .timeout(const Duration(seconds: 12), onTimeout: () => seed);
-      if (!mounted) return;
-      final next = resolved.trim().isEmpty ? seed : resolved.trim();
-      if (next != _operationalTenantId) {
-        setState(() => _operationalTenantId = next);
-        unawaited(_loadContas(refreshNetwork: true));
-        unawaited(_bindMemberForDonation());
-        unawaited(_loadPaymentReceiving());
+      final resolved = await ChurchTenantResilientReads.operationalTenantId(
+        seed,
+        userUid: uid,
+      );
+      if (mounted && resolved.trim().isNotEmpty) {
+        setState(() => _operationalTenantId = resolved.trim());
       }
+    } catch (_) {}
+
+    await _syncMercadoPagoFromClusterIfNeeded();
+    await _loadContas(refreshNetwork: true);
+    unawaited(_bindMemberForDonation());
+    unawaited(_loadPaymentReceiving());
+  }
+
+  /// Copia credenciais/conta MP do doc irmão (ex.: legado) → tenant operacional.
+  Future<void> _syncMercadoPagoFromClusterIfNeeded() async {
+    final tid = _effectiveTenantId;
+    if (tid.isEmpty || _mpClusterSyncAttempted.contains(tid)) return;
+    _mpClusterSyncAttempted.add(tid);
+    try {
+      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable(
+        'syncChurchMercadoPagoFromCluster',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 50)),
+      );
+      await fn.call(<String, dynamic>{'tenantId': tid});
     } catch (_) {}
   }
 
