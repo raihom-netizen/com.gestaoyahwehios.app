@@ -319,7 +319,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _operationalTenantId = resolved;
     if (profile.isNotEmpty) {
       _hydrateFormFromFirestoreDoc(resolved, profile);
-    } else if (!_formHydrated) {
+    } else if (!_formHydrated && !kIsWeb) {
       _nameCtrl.text = _displayNameFromDocId(resolved);
       _slugCtrl.text = _slugFromChurchName(_nameCtrl.text);
     }
@@ -336,12 +336,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final seed = widget.tenantId.trim();
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
-    if (!forceRefresh) {
+    if (!forceRefresh && !kIsWeb) {
       final peek = TenantResolverService.peekRegistrationContext(
         seed,
         userUid: uid,
       );
-      if (peek != null && peek.operationalId.trim().isNotEmpty) {
+      if (peek != null &&
+          peek.operationalId.trim().isNotEmpty &&
+          peek.profile.isNotEmpty) {
         _applyInstantCadastroContext(peek.operationalId, peek.profile);
         unawaited(_finishCadastroBootstrap(forceRefresh: false));
         return;
@@ -374,11 +376,19 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<void> _finishCadastroBootstrap({bool forceRefresh = false}) async {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (kIsWeb && forceRefresh) {
+        TenantResolverService.invalidateRegistrationContextCache(
+          seedId: widget.tenantId,
+          userUid: uid,
+        );
+      }
       final ctx = await TenantResolverService.loadChurchRegistrationContext(
         widget.tenantId,
         userUid: uid,
-        forceRefresh: forceRefresh,
-      ).timeout(const Duration(seconds: 20));
+        forceRefresh: forceRefresh || kIsWeb,
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 28) : const Duration(seconds: 20),
+      );
       if (!mounted) return;
       final resolved = ctx.operationalId.trim();
       if (resolved.isEmpty) {
@@ -391,19 +401,25 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         return;
       }
       _operationalTenantId = resolved;
-      if (ctx.profile.isNotEmpty) {
-        _hydrateFormFromFirestoreDoc(resolved, ctx.profile);
+      var profile = ctx.profile;
+      if (profile.isEmpty ||
+          TenantResolverService.churchProfileRichnessScore(profile) < 8) {
+        profile = await TenantResolverService.richestChurchProfileForCadastro(
+          resolved,
+          preferServer: kIsWeb,
+        );
+      }
+      if (profile.isNotEmpty) {
+        _hydrateFormFromFirestoreDoc(resolved, profile);
       }
       if (_igrejaLiveSub == null) {
         _bindIgrejaLiveWatch(resolved);
-      } else if (!mounted) {
-        return;
-      } else if (!_cadastroBootstrapDone) {
-        setState(() {
-          _cadastroBootstrapDone = true;
-          _cadastroBootstrapError = null;
-        });
       }
+      if (!mounted) return;
+      setState(() {
+        _cadastroBootstrapDone = true;
+        _cadastroBootstrapError = null;
+      });
     } catch (e) {
       if (!mounted) return;
       if (!_cadastroBootstrapDone) {
@@ -435,6 +451,18 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final tid = resolvedId.trim();
     if (tid.isEmpty) return;
     try {
+      if (kIsWeb) {
+        final richest =
+            await TenantResolverService.richestChurchProfileForCadastro(
+          tid,
+          preferServer: true,
+        );
+        if (!mounted) return;
+        if (richest.isNotEmpty) {
+          _hydrateFormFromFirestoreDoc(tid, richest);
+          return;
+        }
+      }
       final doc = await FirestoreReadResilience.getDocument(
         FirebaseFirestore.instance.collection('igrejas').doc(tid),
         cacheKey: 'igrejas/$tid',

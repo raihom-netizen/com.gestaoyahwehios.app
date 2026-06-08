@@ -1,6 +1,7 @@
 import 'dart:async' show TimeoutException;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 /// Resolve o ID do tenant ou igreja para carregar membros.
@@ -446,15 +447,27 @@ class TenantResolverService {
       return null;
     }
 
-    final opData = await readCacheDoc(operational);
-    if (opData != null) {
-      return (operationalId: operational, profile: opData);
+    Map<String, dynamic>? bestData;
+    var bestScore = -1;
+
+    final cacheCandidates = <String>{
+      operational,
+      if (seed.isNotEmpty) seed,
+    };
+    for (final members in _anchoredChurchClusters.values) {
+      cacheCandidates.addAll(members);
     }
-    if (operational != seed) {
-      final seedData = await readCacheDoc(seed);
-      if (seedData != null) {
-        return (operationalId: seed, profile: seedData);
+    for (final id in cacheCandidates) {
+      final data = await readCacheDoc(id);
+      if (data == null || data.isEmpty) continue;
+      final sc = _churchProfileScore(data);
+      if (sc > bestScore) {
+        bestScore = sc;
+        bestData = data;
       }
+    }
+    if (bestData != null && bestScore >= 4) {
+      return (operationalId: operational, profile: bestData!);
     }
     return (operationalId: operational, profile: <String, dynamic>{});
   }
@@ -480,7 +493,10 @@ class TenantResolverService {
       userUid: userUid,
       forceRefresh: forceRefresh,
     );
-    final profile = await _richestProfileInCluster(operational);
+    final profile = await _richestProfileInCluster(
+      operational,
+      preferServer: kIsWeb,
+    );
     _registrationByKey[cacheKey] = _RegistrationContextCacheEntry(
       operationalId: operational,
       profile: Map<String, dynamic>.from(profile),
@@ -491,13 +507,32 @@ class TenantResolverService {
 
   static const int _richProfileEarlyExitScore = 14;
 
+  /// Perfil de cadastro mais completo no cluster (Cadastro da Igreja — web + mobile).
+  static Future<Map<String, dynamic>> richestChurchProfileForCadastro(
+    String seedOrOperational, {
+    bool preferServer = false,
+  }) =>
+      _richestProfileInCluster(
+        seedOrOperational,
+        preferServer: preferServer,
+      );
+
   /// Doc irmão com mais campos de cadastro (evita formulário vazio no «Cadastro da Igreja»).
   static Future<Map<String, dynamic>> _richestProfileInCluster(
     String operationalId, {
     bool scanSiblings = true,
+    bool preferServer = false,
   }) async {
     var best = <String, dynamic>{};
     var bestScore = -1;
+    final primary = operationalId.trim();
+    if (primary.isEmpty) return best;
+
+    final networkSource =
+        preferServer ? Source.server : Source.serverAndCache;
+    final networkTimeout = preferServer
+        ? (kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 10))
+        : const Duration(seconds: 8);
 
     Future<void> consider(
       String id, {
@@ -522,26 +557,40 @@ class TenantResolverService {
       } catch (_) {}
     }
 
-    await consider(
-      operationalId,
-      source: Source.cache,
-      timeout: const Duration(milliseconds: 700),
-    );
-    if (bestScore >= _richProfileEarlyExitScore) return best;
+    if (!preferServer) {
+      await consider(
+        primary,
+        source: Source.cache,
+        timeout: const Duration(milliseconds: 700),
+      );
+      if (bestScore >= _richProfileEarlyExitScore) return best;
+    }
 
-    await consider(operationalId);
+    await consider(primary, source: networkSource, timeout: networkTimeout);
     if (bestScore >= _richProfileEarlyExitScore || !scanSiblings) return best;
 
+    List<String> siblings;
     try {
-      final siblings = await getAllRelatedIgrejaDocIds(operationalId)
+      siblings = await getAllRelatedIgrejaDocIds(primary)
           .timeout(const Duration(seconds: 10));
-      final others = siblings
-          .where((s) => s.trim().isNotEmpty && s.trim() != operationalId.trim())
-          .toList();
-      if (others.isNotEmpty) {
-        await Future.wait(others.map((s) => consider(s)));
+    } catch (_) {
+      siblings = const [];
+    }
+    final ordered = orderedSiblingsForReadFallback(primary, siblings, maxExtra: 8);
+    if (ordered.isNotEmpty) {
+      await Future.wait(
+        ordered.map(
+          (s) => consider(s, source: networkSource, timeout: networkTimeout),
+        ),
+      );
+    }
+
+    if (preferServer && bestScore < _richProfileEarlyExitScore) {
+      await consider(primary, source: Source.server, timeout: networkTimeout);
+      for (final s in ordered) {
+        await consider(s, source: Source.server, timeout: networkTimeout);
       }
-    } catch (_) {}
+    }
 
     return best;
   }
