@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/pages/members_page.dart' show MembersPage;
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Mesma faixa dourada dos cards em [DepartmentsPage] — identidade visual alinhada.
 const Color _kCargoListGoldAccent = Color(0xFFF5C518);
@@ -633,10 +634,8 @@ class _CargosPageState extends State<CargosPage> {
     ),
   ];
 
-  CollectionReference<Map<String, dynamic>> get _col => FirebaseFirestore.instance
-      .collection('igrejas')
-      .doc(_tid)
-      .collection('cargos');
+  CollectionReference<Map<String, dynamic>> get _col =>
+      ChurchOperationalPaths.churchDoc(_tid).collection('cargos');
 
   String get _tid {
     final r = (_resolvedTenantId ?? widget.tenantId).trim();
@@ -658,10 +657,9 @@ class _CargosPageState extends State<CargosPage> {
       return _col.limit(1).get();
     }
     if (forceServer) {
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
       final snap = await FirestoreReadResilience.getQuery(
-        FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(tid)
+        ChurchOperationalPaths.churchDoc(op)
             .collection('cargos')
             .limit(120),
         cacheKey: _cargosMemKey(tid),
@@ -713,7 +711,7 @@ class _CargosPageState extends State<CargosPage> {
 
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
-      final op = await TenantResolverService.resolveOperationalChurchDocId(
+      final op = await ChurchOperationalPaths.resolveCached(
         seed,
         userUid: uid,
       ).timeout(
@@ -2104,9 +2102,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     try {
       final snaps = await Future.wait(
         allIds.map(
-          (tid) => db
-              .collection('igrejas')
-              .doc(tid)
+          (clusterTid) => ChurchOperationalPaths.churchDoc(clusterTid)
               .collection('membros')
               .limit(500)
               .get(const GetOptions(source: Source.serverAndCache)),
@@ -2159,9 +2155,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     try {
       final snaps = await Future.wait(
         allIds.map(
-          (tid) => db
-              .collection('igrejas')
-              .doc(tid)
+          (clusterTid) => ChurchOperationalPaths.churchDoc(clusterTid)
               .collection('membros')
               .limit(500)
               .get(const GetOptions(source: Source.serverAndCache)),
@@ -2227,7 +2221,8 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     final db = FirebaseFirestore.instance;
     for (final tid in allIds) {
       try {
-        await db.collection('igrejas').doc(tid).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
+        final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+        await ChurchOperationalPaths.churchDoc(op).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
       } catch (_) {}
     }
 
@@ -2355,7 +2350,8 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       final db = FirebaseFirestore.instance;
       for (final tid in allIds) {
         try {
-          await db.collection('igrejas').doc(tid).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
+          final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+          await ChurchOperationalPaths.churchDoc(op).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
         } catch (_) {}
       }
       final authUid = (m.data['authUid'] ?? '').toString().trim();
@@ -2455,7 +2451,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       final db = FirebaseFirestore.instance;
       for (final tid in allIds) {
         try {
-          await db.collection('igrejas').doc(tid).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
+          await ChurchOperationalPaths.churchDoc(tid).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
         } catch (_) {}
       }
       final authUid = (m.data['authUid'] ?? '').toString().trim();

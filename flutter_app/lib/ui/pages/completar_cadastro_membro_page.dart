@@ -1,7 +1,10 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
@@ -53,11 +56,24 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
   bool _loading = true;
   bool _saving = false;
   bool _changePassword = false;
+  String? _operationalTenantId;
+
+  String get _effectiveTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
 
   @override
   void initState() {
     super.initState();
-    _loadMember();
+    unawaited(_bootstrapOperationalTenant());
+  }
+
+  Future<void> _bootstrapOperationalTenant() async {
+    final seed = widget.tenantId.trim();
+    if (seed.isNotEmpty) {
+      final op = await ChurchOperationalPaths.resolveCached(seed);
+      if (mounted) setState(() => _operationalTenantId = op);
+    }
+    await _loadMember();
   }
 
   @override
@@ -82,9 +98,8 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
 
   Future<void> _loadMember() async {
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(_effectiveTenantId);
+      final doc = await ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .doc(widget.cpf)
           .get();
@@ -192,9 +207,8 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
       final age = _calcAge(_birthDate);
       final ageRange = _ageRange(age);
 
-      final memberRef = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(_effectiveTenantId);
+      final memberRef = ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .doc(widget.cpf);
       final isNewMember = !(await memberRef.get()).exists;
@@ -233,7 +247,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
           return;
         }
       }
-      final tenantSnap = await FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).get();
+      final tenantSnap = await ChurchOperationalPaths.churchDoc(op).get();
       final tenantData = tenantSnap.data();
       final tid = tenantSnap.id;
       final alias = (tenantData?['alias'] ?? tenantData?['slug'] ?? tid).toString().trim();
@@ -327,9 +341,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
           'email': _emailCtrl.text.trim(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
-        await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(widget.tenantId)
+        await ChurchOperationalPaths.churchDoc(op)
             .collection('usersIndex')
             .doc(widget.cpf)
             .update({

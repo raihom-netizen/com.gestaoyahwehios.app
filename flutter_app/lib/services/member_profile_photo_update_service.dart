@@ -30,6 +30,7 @@ import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Resultado de upload de foto de perfil do membro (chat + módulo Membros).
 class MemberProfilePhotoUpdateResult {
@@ -106,9 +107,8 @@ class MemberProfilePhotoUpdateService {
     String? cpfDigits,
   }) async {
     await ensureFirebaseCore(requireAuth: false);
-    final base = firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    final base =         ChurchOperationalPaths.churchDoc(op)
         .collection('membros');
     final digits = (cpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
     try {
@@ -182,16 +182,17 @@ class MemberProfilePhotoUpdateService {
     await Future.wait(
       tenantIds.map(
         (tid) => FirestoreWebGuard.runWithWebRecovery(
-          () => MembrosOfflineSync.set(
-            ref: db
-                .collection('igrejas')
-                .doc(tid)
-                .collection('membros')
-                .doc(memberDocId),
-            tenantId: tid,
-            merge: true,
-            data: patch,
-          ),
+          () async {
+            final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+            return MembrosOfflineSync.set(
+              ref: ChurchOperationalPaths.churchDoc(op)
+                  .collection('membros')
+                  .doc(memberDocId),
+              tenantId: tid,
+              merge: true,
+              data: patch,
+            );
+          },
         ),
       ),
     );
@@ -303,16 +304,17 @@ class MemberProfilePhotoUpdateService {
     await Future.wait(
       tenantIds.map(
         (tid) => FirestoreWebGuard.runWithWebRecovery(
-          () => MembrosOfflineSync.set(
-            ref: db
-                .collection('igrejas')
-                .doc(tid)
-                .collection('membros')
-                .doc(memberDocId),
-            tenantId: tid,
-            merge: true,
-            data: updates,
-          ),
+          () async {
+            final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+            return MembrosOfflineSync.set(
+              ref: ChurchOperationalPaths.churchDoc(op)
+                  .collection('membros')
+                  .doc(memberDocId),
+              tenantId: tid,
+              merge: true,
+              data: updates,
+            );
+          },
         ),
       ),
     );
@@ -444,9 +446,8 @@ class MemberProfilePhotoUpdateService {
       Future.wait(
         tenantIds.map((tid) async {
           try {
-            await db
-                .collection('igrejas')
-                .doc(tid)
+            final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+            await                 ChurchOperationalPaths.churchDoc(op)
                 .collection('chat_peer_profiles')
                 .doc(authUid)
                 .set(peerPayload, SetOptions(merge: true));

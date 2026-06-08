@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Reenvio de publicações do mural interrompidas (app fechado, rede, etc.).
 abstract final class MuralPublishOutboxService {
@@ -41,9 +42,7 @@ abstract final class MuralPublishOutboxService {
     final col = postType == 'aviso'
         ? ChurchTenantPostsCollections.avisos
         : ChurchTenantPostsCollections.eventos;
-    return firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tenantId)
+    return         ChurchOperationalPaths.churchDoc(tenantId)
         .collection(col)
         .doc(postId);
   }

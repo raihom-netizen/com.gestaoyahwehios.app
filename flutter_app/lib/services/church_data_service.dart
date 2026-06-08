@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Serviço **único** de gravação Firestore + Storage por igreja (`igrejas/{churchId}/…`).
 ///
@@ -57,14 +58,21 @@ final class ChurchDataService {
     }
   }
 
+  /// [operationalChurchId] — ID canónico (após [ChurchOperationalPaths.resolveCached]).
   static CollectionReference<Map<String, dynamic>> tenantCollection(
-    String churchId,
+    String operationalChurchId,
     String collection,
   ) {
-    return firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(churchId.trim())
+    return ChurchOperationalPaths.churchDoc(operationalChurchId.trim())
         .collection(resolveFirestoreCollection(collection));
+  }
+
+  static Future<CollectionReference<Map<String, dynamic>>> tenantCollectionResolved(
+    String churchIdSeed,
+    String collection,
+  ) async {
+    final op = await ChurchOperationalPaths.resolveCached(churchIdSeed);
+    return tenantCollection(op, collection);
   }
 
   static DocumentReference<Map<String, dynamic>> tenantDocument(

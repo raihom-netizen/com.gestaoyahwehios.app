@@ -3,7 +3,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart'
+    show MergedFirestoreQuerySnapshot;
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'busca_global_widget.dart';
 import 'grafico_ultra_moderno.dart';
 import 'igreja_menu_lateral_dinamico.dart';
@@ -193,12 +197,12 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
       _tenantId = tenantId;
     } catch (_) {}
 
-    final base = FirebaseFirestore.instance.collection('igrejas').doc(tenantId);
+    final tid = tenantId!;
     try {
       final snaps = await Future.wait([
-        base.collection('membros').limit(500).get(),
-        base.collection('departamentos').limit(120).get(),
-        base.collection('finance').limit(500).get(),
+        ChurchTenantResilientReads.membrosRecent(tid, limit: 500),
+        ChurchTenantResilientReads.departamentos(tid, limit: 120),
+        ChurchTenantResilientReads.financeRecent(tid, limit: 500),
       ]);
 
       final membrosSnap = snaps[0];
@@ -207,13 +211,9 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
 
       QuerySnapshot<Map<String, dynamic>> avisosSnap;
       try {
-        avisosSnap = await base
-            .collection(ChurchTenantPostsCollections.avisos)
-            .orderBy('createdAt', descending: true)
-            .limit(5)
-            .get();
+        avisosSnap = await ChurchTenantResilientReads.avisosFeed(tid, limit: 5);
       } catch (_) {
-        avisosSnap = await base.collection(ChurchTenantPostsCollections.avisos).limit(5).get();
+        avisosSnap = const MergedFirestoreQuerySnapshot([]);
       }
 
       final hoje = DateTime.now();

@@ -8,6 +8,8 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/member_photo_storage_naming.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'media_handler_service.dart';
 import 'media_upload_service.dart';
 import 'storage_media_service.dart';
@@ -50,8 +52,8 @@ class FirebaseStorageService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return null;
     try {
-      final doc =
-          await FirebaseFirestore.instance.collection('igrejas').doc(tid).get();
+      final op = await ChurchOperationalPaths.resolveCached(tid);
+      final doc = await ChurchTenantResilientReads.churchDocument(op);
       if (!doc.exists) return null;
       final d = doc.data();
       name = (d?['name'] ?? d?['nome'] ?? '').toString().trim();

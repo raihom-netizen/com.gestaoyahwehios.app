@@ -75,6 +75,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/audio_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class _ReplyDraft {
   final String messageId;
@@ -306,9 +307,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         widget.departmentId!.isNotEmpty) {
       _deptSub?.cancel();
       _deptSub = FirestoreStreamUtils.documentWatchBootstrap(
-        FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(_tid)
+                    ChurchOperationalPaths.churchDoc(_tid)
             .collection('departamentos')
             .doc(widget.departmentId!),
       ).listen((snap) {

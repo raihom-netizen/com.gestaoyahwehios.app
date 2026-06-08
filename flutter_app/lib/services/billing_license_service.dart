@@ -1,6 +1,7 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Controle de licença no painel admin (Gestão Yahweh).
@@ -38,7 +39,8 @@ class BillingLicenseService {
   /// Prorroga o prazo da licença da igreja em [dias].
   Future<void> prorrogarPrazoIgreja(String igrejaId, int dias) async {
     await _runLicenseWrite(() async {
-      final ref = _db.collection('igrejas').doc(igrejaId);
+      final op = await ChurchOperationalPaths.resolveCached(igrejaId);
+      final ref = ChurchOperationalPaths.churchDoc(op);
       final doc = await ref.get();
       final data = doc.data() ?? {};
       DateTime base = DateTime.now();
@@ -62,7 +64,8 @@ class BillingLicenseService {
       return;
     }
     await _runLicenseWrite(() async {
-      await _db.collection('igrejas').doc(igrejaId).update({
+      final op = await ChurchOperationalPaths.resolveCached(igrejaId);
+      await ChurchOperationalPaths.churchDoc(op).update({
         'plano': plan,
         'status': 'ativa',
         'updatedAt': _tsNow(),
@@ -74,7 +77,8 @@ class BillingLicenseService {
   /// Marca igreja como removida/desativada (perde acesso). Pode reativar depois.
   Future<void> removerIgreja(String igrejaId) async {
     await _runLicenseWrite(() async {
-      await _db.collection('igrejas').doc(igrejaId).update({
+      final op = await ChurchOperationalPaths.resolveCached(igrejaId);
+      await ChurchOperationalPaths.churchDoc(op).update({
         'status': 'inativa',
         'updatedAt': _tsNow(),
         'removedByAdminAt': _tsNow(),
@@ -82,12 +86,15 @@ class BillingLicenseService {
     });
   }
 
-  DocumentReference<Map<String, dynamic>> igrejaRef(String igrejaId) =>
-      _db.collection('igrejas').doc(igrejaId);
+  Future<DocumentReference<Map<String, dynamic>>> igrejaRef(String igrejaId) async =>
+      ChurchOperationalPaths.churchDoc(
+        await ChurchOperationalPaths.resolveCached(igrejaId),
+      );
 
   Future<void> reativarIgreja(String igrejaId) async {
     await _runLicenseWrite(() async {
-      await _db.collection('igrejas').doc(igrejaId).update({
+      final op = await ChurchOperationalPaths.resolveCached(igrejaId);
+      await ChurchOperationalPaths.churchDoc(op).update({
         'status': 'ativa',
         'updatedAt': _tsNow(),
         'removedByAdminAt': FieldValue.delete(),
@@ -97,8 +104,10 @@ class BillingLicenseService {
 
   // --- TENANTS (painel master) ---
 
-  DocumentReference<Map<String, dynamic>> tenantRef(String tenantId) =>
-      _db.collection('igrejas').doc(tenantId);
+  Future<DocumentReference<Map<String, dynamic>>> tenantRef(String tenantId) async =>
+      ChurchOperationalPaths.churchDoc(
+        await ChurchOperationalPaths.resolveCached(tenantId),
+      );
 
   Future<void> setTenantPlano(String tenantId, String plan,
       {DateTime? licenseExpiresAt}) async {
@@ -115,7 +124,8 @@ class BillingLicenseService {
 
   Future<void> setTenantLicenseExpiresAt(String tenantId, DateTime? date) async {
     await _runLicenseWrite(() async {
-      final ref = _db.collection('igrejas').doc(tenantId);
+      final op = await ChurchOperationalPaths.resolveCached(tenantId);
+      final ref = ChurchOperationalPaths.churchDoc(op);
       final patch = <String, dynamic>{
         'updatedAt': _tsNow(),
       };
@@ -138,7 +148,8 @@ class BillingLicenseService {
 
   Future<void> removerTenant(String tenantId) async {
     await _runLicenseWrite(() async {
-      await _db.collection('igrejas').doc(tenantId).set({
+      final op = await ChurchOperationalPaths.resolveCached(tenantId);
+      await ChurchOperationalPaths.churchDoc(op).set({
         'status': 'inativa',
         'updatedAt': _tsNow(),
         'removedByAdminAt': _tsNow(),
@@ -151,7 +162,8 @@ class BillingLicenseService {
 
   Future<void> reativarTenant(String tenantId) async {
     await _runLicenseWrite(() async {
-      await _db.collection('igrejas').doc(tenantId).set({
+      final op = await ChurchOperationalPaths.resolveCached(tenantId);
+      await ChurchOperationalPaths.churchDoc(op).set({
         'status': 'ativa',
         'updatedAt': _tsNow(),
         'removedByAdminAt': FieldValue.delete(),
@@ -164,7 +176,8 @@ class BillingLicenseService {
 
   Future<void> excluirTenant(String tenantId) async {
     await _runLicenseWrite(() async {
-      await _db.collection('igrejas').doc(tenantId).delete();
+      final op = await ChurchOperationalPaths.resolveCached(tenantId);
+      await ChurchOperationalPaths.churchDoc(op).delete();
     });
   }
 
@@ -327,7 +340,8 @@ class BillingLicenseService {
   }
 
   Future<void> removerIgrejaELimparDados(String tenantId) async {
-    final ref = _db.collection('igrejas').doc(tenantId);
+    final op = await ChurchOperationalPaths.resolveCached(tenantId);
+    final ref = ChurchOperationalPaths.churchDoc(op);
     final batchLimit = 400;
 
     Future<void> deleteCollection(
@@ -414,7 +428,8 @@ class BillingLicenseService {
 
   Future<void> prorrogarTenant(String tenantId, int dias) async {
     await _runLicenseWrite(() async {
-      final ref = _db.collection('igrejas').doc(tenantId);
+      final op = await ChurchOperationalPaths.resolveCached(tenantId);
+      final ref = ChurchOperationalPaths.churchDoc(op);
       final doc = await ref.get();
       final data = doc.data() ?? {};
       DateTime base = DateTime.now();

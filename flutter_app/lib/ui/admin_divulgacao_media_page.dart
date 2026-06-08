@@ -13,7 +13,8 @@ import 'package:gestao_yahweh/ui/widgets/institutional_media_period.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_gestao_yahweh_gallery.dart';
 import 'package:gestao_yahweh/ui/admin_marketing_clientes_tab.dart';
 import 'package:gestao_yahweh/ui/widgets/admin_marketing_canais_master_card.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Evita maps read-only do snapshot e falhas de interop na web ao gravar `items`.
@@ -65,6 +66,36 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    unawaited(_loadGallery());
+  }
+
+  Future<void> _loadGallery({bool showSpinner = true}) async {
+    if (showSpinner && mounted) {
+      setState(() {
+        _galleryLoading = true;
+        _galleryLoadWarning = null;
+      });
+    }
+    try {
+      await FirestoreWebGuard.ensureMasterPanelReady();
+      final snap = await FirestoreReadResilience.getDocument(
+        _docRef,
+        cacheKey: 'app_public_institutional_gallery',
+      );
+      if (!mounted) return;
+      setState(() {
+        _galleryItems = _parseItems(snap.data());
+        _galleryLoading = false;
+        _galleryLoadWarning = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _galleryLoading = false;
+        _galleryLoadWarning =
+            formatFirebaseErrorForUser(e, logToCrashlytics: false);
+      });
+    }
   }
 
   @override
@@ -89,6 +120,10 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
 
   /// Força nova varredura do Storage na grelha (após apagar ou se a lista ficou desatualizada).
   int _marketingGalleryStorageRefreshToken = 0;
+
+  List<Map<String, dynamic>> _galleryItems = const [];
+  bool _galleryLoading = true;
+  String? _galleryLoadWarning;
 
   void _bumpMarketingGalleryStorageRefresh() {
     if (!mounted) return;
@@ -396,6 +431,8 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       if (!mounted) return;
+      await _loadGallery(showSpinner: false);
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar('Mídia adicionada na divulgação.'),
       );
@@ -442,6 +479,8 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     if (!mounted) return;
+    await _loadGallery(showSpinner: false);
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       ThemeCleanPremium.successSnackBar('Material atualizado.'),
     );
@@ -456,6 +495,7 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
       'items': copy,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    if (mounted) await _loadGallery(showSpinner: false);
   }
 
   Future<void> _moveItem(List<Map<String, dynamic>> items, int from, int to) async {
@@ -467,6 +507,7 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
       'items': copy,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    if (mounted) await _loadGallery(showSpinner: false);
   }
 
   Future<void> _removeItem(List<Map<String, dynamic>> items, int index) async {
@@ -586,6 +627,10 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
     }
     if (!mounted) return;
     setState(() => _selectedPaths.remove(path));
+    if (firestoreRemoved) {
+      await _loadGallery(showSpinner: false);
+      if (!mounted) return;
+    }
     if (firestoreRemoved) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
@@ -724,6 +769,10 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
       _selectionMode = false;
       _bulkWorking = false;
     });
+    if (firestoreUpdated) {
+      await _loadGallery(showSpinner: false);
+      if (!mounted) return;
+    }
 
     final parts = <String>[];
     if (firestoreUpdated) {
@@ -755,6 +804,390 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
         ),
       );
     }
+  }
+
+  Widget _buildGalleryStatsRow(List<_VisibleRow> visible) {
+    final total = _galleryItems.length;
+    final featured = _galleryItems
+        .where((e) => MarketingGalleryCms.truthy(e['featured']))
+        .length;
+    return Wrap(
+      spacing: 10,
+      runSpacing: 8,
+      children: [
+        _StatChip(
+          icon: Icons.collections_rounded,
+          label: '$total no CMS',
+          color: const Color(0xFF1E5AA8),
+        ),
+        _StatChip(
+          icon: Icons.filter_alt_rounded,
+          label: '${visible.length} visíveis',
+          color: const Color(0xFF0F766E),
+        ),
+        if (featured > 0)
+          _StatChip(
+            icon: Icons.star_rounded,
+            label: '$featured destaque',
+            color: const Color(0xFFB45309),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildGalleryCmsSection() {
+    if (_galleryLoading && _galleryItems.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: ThemeCleanPremium.softUiCardShadow,
+          border: Border.all(color: const Color(0xFFE5EAF3)),
+        ),
+        child: const Center(
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+
+    final items = _galleryItems;
+    final visible = _visibleRows(items);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_galleryLoadWarning != null) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF7ED),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFFED7AA)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.cloud_off_rounded, color: Colors.orange.shade800, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '$_galleryLoadWarning Lista CMS pode estar desatualizada — use Atualizar.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.4,
+                      color: const Color(0xFF9A3412),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _galleryLoading ? null : () => _loadGallery(),
+                  child: const Text('Atualizar'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        _buildGalleryStatsRow(visible),
+        const SizedBox(height: 12),
+        _buildPeriodAndActionsToolbar(visible),
+        const SizedBox(height: 16),
+        if (items.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+              border: Border.all(color: const Color(0xFFE5EAF3)),
+            ),
+            child: Column(
+              children: [
+                Icon(Icons.perm_media_outlined,
+                    size: 40, color: Colors.grey.shade400),
+                const SizedBox(height: 10),
+                const Text(
+                  'Nenhum item ordenado ainda.',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Faça upload para começar a galeria do site e do painel.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                ),
+              ],
+            ),
+          )
+        else if (visible.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+              border: Border.all(color: const Color(0xFFE5EAF3)),
+            ),
+            child: Text(
+              'Nenhum item neste período. Ajuste o filtro ou use «Todo o período».',
+              style: TextStyle(color: Colors.grey.shade800),
+            ),
+          )
+        else
+          _buildCmsItemsList(items, visible),
+      ],
+    );
+  }
+
+  Widget _buildCmsItemsList(
+    List<Map<String, dynamic>> items,
+    List<_VisibleRow> visible,
+  ) {
+    final canReorder =
+        _period == InstitutionalMediaPeriod.all && !_selectionMode;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: Border.all(color: const Color(0xFFE5EAF3)),
+      ),
+      child: Column(
+        children: List.generate(visible.length, (vi) {
+          final row = visible[vi];
+          final it = row.item;
+          final i = row.originalIndex;
+          final title = (it['title'] ?? '').toString();
+          final kind = (it['kind'] ?? '').toString().toLowerCase();
+          final path = _itemPath(it);
+          final selected = _selectedPaths.contains(path);
+          final desc = (it['description'] ?? '').toString().trim();
+          final catKey = (it['category'] ?? '').toString();
+          final feat = MarketingGalleryCms.truthy(it['featured']);
+          final downloadUrl = (it['downloadUrl'] ?? '').toString().trim();
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: selected ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFF),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: selected ? _selectionGreen : const Color(0xFFDDE5F3),
+                width: selected ? 2.5 : 1,
+              ),
+            ),
+            child: LayoutBuilder(
+              builder: (context, lc) {
+                const narrowBreak = 560.0;
+                final narrow = lc.maxWidth < narrowBreak;
+
+                final leadingChildren = <Widget>[
+                  if (_selectionMode)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8, top: 4),
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => setState(() {
+                              if (selected) {
+                                _selectedPaths.remove(path);
+                              } else {
+                                _selectedPaths.add(path);
+                              }
+                            }),
+                            borderRadius: BorderRadius.circular(12),
+                            child: Icon(
+                              selected
+                                  ? Icons.check_box_rounded
+                                  : Icons.check_box_outline_blank_rounded,
+                              color: selected
+                                  ? _selectionGreen
+                                  : Colors.grey.shade700,
+                              size: 28,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  _GalleryRowThumb(
+                    kind: kind,
+                    path: path,
+                    imageUrl: downloadUrl.isEmpty ? null : downloadUrl,
+                  ),
+                ];
+
+                final textColumn = Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        if (feat)
+                          Chip(
+                            visualDensity: VisualDensity.compact,
+                            label: const Text('Destaque'),
+                            avatar: Icon(Icons.star_rounded,
+                                size: 16, color: Colors.amber.shade800),
+                            backgroundColor: Colors.amber.shade50,
+                            side: BorderSide.none,
+                            labelStyle: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.amber.shade900,
+                            ),
+                          ),
+                        if (catKey.isNotEmpty)
+                          Chip(
+                            visualDensity: VisualDensity.compact,
+                            label: Text(
+                              MarketingGalleryCms.categoryLabel(catKey),
+                              style: const TextStyle(
+                                  fontSize: 11, fontWeight: FontWeight.w600),
+                            ),
+                            backgroundColor: const Color(0xFFEFF6FF),
+                            side: const BorderSide(color: Color(0xFFBFDBFE)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      title.isEmpty ? _baseNameNoExt(path) : title,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 15),
+                    ),
+                    if (desc.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        desc,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          height: 1.3,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 2),
+                    Text(
+                      path,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                    ),
+                  ],
+                );
+
+                final actions = <Widget>[
+                  if (!_selectionMode) ...[
+                    IconButton(
+                      tooltip: feat ? 'Remover destaque' : 'Destacar no site',
+                      onPressed: () => _toggleFeatured(items, i),
+                      icon: Icon(
+                        feat ? Icons.star_rounded : Icons.star_outline_rounded,
+                        color: feat
+                            ? Colors.amber.shade800
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Editar CMS',
+                      onPressed: () => _editItem(items, i),
+                      icon: const Icon(Icons.edit_outlined),
+                    ),
+                  ],
+                  IconButton(
+                    tooltip: 'Subir',
+                    onPressed: !canReorder || vi == 0
+                        ? null
+                        : () => _moveItem(
+                              items,
+                              i,
+                              visible[vi - 1].originalIndex,
+                            ),
+                    icon: const Icon(Icons.arrow_upward_rounded),
+                  ),
+                  IconButton(
+                    tooltip: 'Descer',
+                    onPressed: !canReorder || vi >= visible.length - 1
+                        ? null
+                        : () => _moveItem(
+                              items,
+                              i,
+                              visible[vi + 1].originalIndex,
+                            ),
+                    icon: const Icon(Icons.arrow_downward_rounded),
+                  ),
+                  if (!_selectionMode)
+                    OutlinedButton.icon(
+                      onPressed: () => _removeItem(items, i),
+                      icon: const Icon(Icons.delete_outline_rounded,
+                          size: 18, color: Color(0xFFDC2626)),
+                      label: const Text('Excluir'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFDC2626),
+                        side: const BorderSide(color: Color(0xFFFECACA)),
+                        minimumSize: const Size(48, 48),
+                      ),
+                    ),
+                ];
+
+                if (narrow) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ...leadingChildren,
+                          const SizedBox(width: 10),
+                          Expanded(child: textColumn),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 4,
+                        runSpacing: 8,
+                        children: actions,
+                      ),
+                    ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ...leadingChildren,
+                    const SizedBox(width: 10),
+                    Expanded(child: textColumn),
+                    ...actions,
+                  ],
+                );
+              },
+            ),
+          );
+        }),
+      ),
+    );
   }
 
   Widget _buildPeriodAndActionsToolbar(List<_VisibleRow> visible) {
@@ -898,9 +1331,6 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
 
   @override
   Widget build(BuildContext context) {
-    final canReorder =
-        _period == InstitutionalMediaPeriod.all && !_selectionMode;
-
     return SafeArea(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -936,63 +1366,129 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
             child: TabBarView(
               controller: _tabController,
               children: [
-                SingleChildScrollView(
-                  padding: ThemeCleanPremium.pagePadding(context),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                RefreshIndicator(
+                  onRefresh: () => _loadGallery(),
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics(),
+                    ),
+                    padding: ThemeCleanPremium.pagePadding(context),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
             const AdminMarketingCanaisMasterCard(),
             const SizedBox(height: 20),
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFFF8FAFF),
-                    Color(0xFFEFF6FF),
-                  ],
-                ),
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF0A3D91).withValues(alpha: 0.07),
-                    blurRadius: 22,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-                border: Border.all(color: const Color(0xFFBFDBFE).withValues(alpha: 0.8)),
+                boxShadow: ThemeCleanPremium.softUiCardShadow,
+                border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
-              child: Wrap(
-                spacing: 12,
-                runSpacing: 10,
-                crossAxisAlignment: WrapCrossAlignment.center,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.auto_awesome_rounded,
-                      color: ThemeCleanPremium.primary, size: 26),
-                  const Text(
-                    'Divulgação — Super Premium',
-                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900, letterSpacing: -0.3),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              ThemeCleanPremium.primary,
+                              ThemeCleanPremium.primaryLight,
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: const Icon(
+                          Icons.auto_awesome_rounded,
+                          color: Colors.white,
+                          size: 26,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Divulgação — Super Premium',
+                              style: TextStyle(
+                                fontSize: 19,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.3,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Galeria institucional, vídeos e PDFs no site público e telas de login.',
+                              style: TextStyle(
+                                color: Colors.grey.shade700,
+                                fontSize: 13,
+                                height: 1.4,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Atualizar lista CMS',
+                        onPressed: _galleryLoading ? null : () => _loadGallery(),
+                        icon: _galleryLoading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.refresh_rounded),
+                      ),
+                    ],
                   ),
-                  FilledButton.icon(
-                    onPressed: _uploading ? null : _pickAndUpload,
-                    icon: _uploading
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.upload_rounded),
-                    label: const Text('Adicionar foto/vídeo/PDF'),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _uploading ? null : _pickAndUpload,
+                        icon: _uploading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.upload_rounded),
+                        label: const Text('Adicionar foto/vídeo/PDF'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 14,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 12),
                   Text(
-                    'Storage: ${MarketingStorageLayout.institutionalVideosPrefix}/ (vídeos), '
-                    '${MarketingStorageLayout.institutionalFotosPrefix}/, '
-                    '${MarketingStorageLayout.institutionalPdfPrefix}/. '
-                    'Sem miniatura automática thumb_* nestas pastas — um ficheiro canónico por upload.',
-                    style: TextStyle(color: Colors.grey.shade700, fontSize: 12, height: 1.35),
+                    'Storage: ${MarketingStorageLayout.institutionalVideosPrefix}/ · '
+                    '${MarketingStorageLayout.institutionalFotosPrefix}/ · '
+                    '${MarketingStorageLayout.institutionalPdfPrefix}/',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
                   ),
                 ],
               ),
@@ -1034,323 +1530,7 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
               ),
             ],
             const SizedBox(height: 16),
-            StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: FirestoreStreamUtils.documentWatchSafe(_docRef),
-              builder: (context, snap) {
-                final items = _parseItems(snap.data?.data());
-                final visible = _visibleRows(items);
-
-                if (items.isEmpty) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildPeriodAndActionsToolbar(visible),
-                      const SizedBox(height: 16),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: ThemeCleanPremium.softUiCardShadow,
-                          border: Border.all(color: const Color(0xFFE5EAF3)),
-                        ),
-                        child: const Text(
-                          'Nenhum item ordenado ainda. Faça upload para começar.',
-                        ),
-                      ),
-                    ],
-                  );
-                }
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildPeriodAndActionsToolbar(visible),
-                    const SizedBox(height: 16),
-                    if (visible.isEmpty)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: ThemeCleanPremium.softUiCardShadow,
-                          border: Border.all(color: const Color(0xFFE5EAF3)),
-                        ),
-                        child: Text(
-                          'Nenhum item neste período. Ajuste o filtro ou use «Todo o período».',
-                          style: TextStyle(color: Colors.grey.shade800),
-                        ),
-                      )
-                    else
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: ThemeCleanPremium.softUiCardShadow,
-                          border: Border.all(color: const Color(0xFFE5EAF3)),
-                        ),
-                        child: Column(
-                          children: List.generate(visible.length, (vi) {
-                            final row = visible[vi];
-                            final it = row.item;
-                            final i = row.originalIndex;
-                            final title = (it['title'] ?? '').toString();
-                            final kind = (it['kind'] ?? '').toString().toLowerCase();
-                            final path = _itemPath(it);
-                            final selected = _selectedPaths.contains(path);
-                            final desc = (it['description'] ?? '').toString().trim();
-                            final catKey = (it['category'] ?? '').toString();
-                            final feat = MarketingGalleryCms.truthy(it['featured']);
-                            final downloadUrl =
-                                (it['downloadUrl'] ?? '').toString().trim();
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 10),
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: selected
-                                    ? const Color(0xFFF0FDF4)
-                                    : const Color(0xFFF8FAFF),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: selected
-                                      ? _selectionGreen
-                                      : const Color(0xFFDDE5F3),
-                                  width: selected ? 2.5 : 1,
-                                ),
-                              ),
-                              child: LayoutBuilder(
-                                builder: (context, lc) {
-                                  // Uma linha: ícones + Excluir consomem ~260–300dp; o Expanded ficava com largura ~0 no telefone.
-                                  const narrowBreak = 560.0;
-                                  final narrow = lc.maxWidth < narrowBreak;
-
-                                  final leadingChildren = <Widget>[
-                                    if (_selectionMode)
-                                      Padding(
-                                        padding:
-                                            const EdgeInsets.only(right: 8, top: 4),
-                                        child: SizedBox(
-                                          width: 48,
-                                          height: 48,
-                                          child: Material(
-                                            color: Colors.transparent,
-                                            child: InkWell(
-                                              onTap: () => setState(() {
-                                                if (selected) {
-                                                  _selectedPaths.remove(path);
-                                                } else {
-                                                  _selectedPaths.add(path);
-                                                }
-                                              }),
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                              child: Icon(
-                                                selected
-                                                    ? Icons.check_box_rounded
-                                                    : Icons
-                                                        .check_box_outline_blank_rounded,
-                                                color: selected
-                                                    ? _selectionGreen
-                                                    : Colors.grey.shade700,
-                                                size: 28,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    _GalleryRowThumb(
-                                      kind: kind,
-                                      path: path,
-                                      imageUrl: downloadUrl.isEmpty
-                                          ? null
-                                          : downloadUrl,
-                                    ),
-                                  ];
-
-                                  final textColumn = Column(
-                                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Wrap(
-                                        spacing: 6,
-                                        runSpacing: 4,
-                                        crossAxisAlignment:
-                                            WrapCrossAlignment.center,
-                                        children: [
-                                          if (feat)
-                                            Chip(
-                                              visualDensity: VisualDensity.compact,
-                                              label: const Text('Destaque'),
-                                              avatar: Icon(Icons.star_rounded,
-                                                  size: 16,
-                                                  color: Colors.amber.shade800),
-                                              backgroundColor:
-                                                  Colors.amber.shade50,
-                                              side: BorderSide.none,
-                                              labelStyle: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.w700,
-                                                color: Colors.amber.shade900,
-                                              ),
-                                            ),
-                                          if (catKey.isNotEmpty)
-                                            Chip(
-                                              visualDensity: VisualDensity.compact,
-                                              label: Text(
-                                                MarketingGalleryCms.categoryLabel(
-                                                    catKey),
-                                                style: const TextStyle(
-                                                    fontSize: 11,
-                                                    fontWeight: FontWeight.w600),
-                                              ),
-                                              backgroundColor:
-                                                  const Color(0xFFEFF6FF),
-                                              side: const BorderSide(
-                                                  color: Color(0xFFBFDBFE)),
-                                            ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        title.isEmpty
-                                            ? _baseNameNoExt(path)
-                                            : title,
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 15),
-                                      ),
-                                      if (desc.isNotEmpty) ...[
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          desc,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            height: 1.3,
-                                            color: Colors.grey.shade700,
-                                          ),
-                                        ),
-                                      ],
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        path,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade500),
-                                      ),
-                                    ],
-                                  );
-
-                                  final actions = <Widget>[
-                                    if (!_selectionMode) ...[
-                                      IconButton(
-                                        tooltip: feat
-                                            ? 'Remover destaque'
-                                            : 'Destacar no site',
-                                        onPressed: () =>
-                                            _toggleFeatured(items, i),
-                                        icon: Icon(
-                                          feat
-                                              ? Icons.star_rounded
-                                              : Icons.star_outline_rounded,
-                                          color: feat
-                                              ? Colors.amber.shade800
-                                              : Colors.grey.shade600,
-                                        ),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'Editar CMS',
-                                        onPressed: () => _editItem(items, i),
-                                        icon: const Icon(Icons.edit_outlined),
-                                      ),
-                                    ],
-                                    IconButton(
-                                      tooltip: 'Subir',
-                                      onPressed: !canReorder || vi == 0
-                                          ? null
-                                          : () => _moveItem(items, i,
-                                              visible[vi - 1].originalIndex),
-                                      icon: const Icon(Icons.arrow_upward_rounded),
-                                    ),
-                                    IconButton(
-                                      tooltip: 'Descer',
-                                      onPressed: !canReorder ||
-                                              vi >= visible.length - 1
-                                          ? null
-                                          : () => _moveItem(items, i,
-                                              visible[vi + 1].originalIndex),
-                                      icon:
-                                          const Icon(Icons.arrow_downward_rounded),
-                                    ),
-                                    if (!_selectionMode)
-                                      OutlinedButton.icon(
-                                        onPressed: () => _removeItem(items, i),
-                                        icon: const Icon(
-                                            Icons.delete_outline_rounded,
-                                            size: 18,
-                                            color: Color(0xFFDC2626)),
-                                        label: const Text('Excluir'),
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor:
-                                              const Color(0xFFDC2626),
-                                          side: const BorderSide(
-                                              color: Color(0xFFFECACA)),
-                                          minimumSize: const Size(48, 48),
-                                        ),
-                                      ),
-                                  ];
-
-                                  if (narrow) {
-                                    return Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            ...leadingChildren,
-                                            const SizedBox(width: 10),
-                                            Expanded(child: textColumn),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 10),
-                                        Wrap(
-                                          alignment: WrapAlignment.end,
-                                          spacing: 4,
-                                          runSpacing: 8,
-                                          children: actions,
-                                        ),
-                                      ],
-                                    );
-                                  }
-
-                                  return Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      ...leadingChildren,
-                                      const SizedBox(width: 10),
-                                      Expanded(child: textColumn),
-                                      ...actions,
-                                    ],
-                                  );
-                                },
-                              ),
-                            );
-                          }),
-                        ),
-                      ),
-                  ],
-                );
-              },
-            ),
+            _buildGalleryCmsSection(),
             const SizedBox(height: 18),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1379,10 +1559,12 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
             const SizedBox(height: 6),
             MarketingGestaoYahwehGallerySection(
               adminConfig: _adminGalleryConfig,
+              adminCmsItems: _galleryItems,
               maxStorageFiles: 200,
               storageRefreshToken: _marketingGalleryStorageRefreshToken,
             ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 const AdminMarketingClientesTab(),
@@ -1507,4 +1689,43 @@ String _slugifyFileName(String input) {
   final safe = noSpaces.replaceAll(RegExp(r'[^a-z0-9._-]'), '');
   if (safe.isEmpty) return 'arquivo.bin';
   return safe;
+}
+
+class _StatChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _StatChip({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

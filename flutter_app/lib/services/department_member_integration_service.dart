@@ -1,10 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 
 /// Integração Membros ↔ Departamentos ↔ Escalas (denormalização + limpeza de escalas futuras).
 class DepartmentMemberIntegrationService {
   DepartmentMemberIntegrationService._();
+
+  static Future<String> _operationalId(String tenantId) =>
+      ChurchOperationalPaths.resolve(tenantId);
 
   static String _normCpf(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
 
@@ -34,9 +39,7 @@ class DepartmentMemberIntegrationService {
     String tenantId,
     String memberDocId,
   ) =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+                ChurchOperationalPaths.churchDoc(tenantId)
           .collection('membros')
           .doc(memberDocId);
 
@@ -45,9 +48,7 @@ class DepartmentMemberIntegrationService {
     String departmentId,
     String memberDocId,
   ) =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+                ChurchOperationalPaths.churchDoc(tenantId)
           .collection('departamentos')
           .doc(departmentId)
           .collection('membros_vinculados')
@@ -57,9 +58,7 @@ class DepartmentMemberIntegrationService {
     String tenantId,
     String departmentId,
   ) =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+                ChurchOperationalPaths.churchDoc(tenantId)
           .collection('departamentos')
           .doc(departmentId);
 
@@ -77,7 +76,7 @@ class DepartmentMemberIntegrationService {
     required Set<String> nextDepartmentIds,
     Map<String, dynamic>? extraMemberFields,
   }) async {
-    final tid = tenantId.trim();
+    final tid = (await _operationalId(tenantId)).trim();
     final mid = memberDocId.trim();
     if (tid.isEmpty || mid.isEmpty) return;
 
@@ -225,7 +224,7 @@ class DepartmentMemberIntegrationService {
     required String memberDocId,
     required Map<String, dynamic> memberData,
   }) async {
-    final tid = tenantId.trim();
+    final tid = (await _operationalId(tenantId)).trim();
     final did = departmentId.trim();
     final mid = memberDocId.trim();
     if (tid.isEmpty || did.isEmpty || mid.isEmpty) return;
@@ -263,7 +262,7 @@ class DepartmentMemberIntegrationService {
     required String memberDocId,
     required Map<String, dynamic> memberData,
   }) async {
-    final tid = tenantId.trim();
+    final tid = (await _operationalId(tenantId)).trim();
     final did = departmentId.trim();
     final mid = memberDocId.trim();
     if (tid.isEmpty || did.isEmpty || mid.isEmpty) return;
@@ -292,7 +291,7 @@ class DepartmentMemberIntegrationService {
     required String memberDocId,
     required Map<String, dynamic> memberData,
   }) async {
-    final tid = tenantId.trim();
+    final tid = (await _operationalId(tenantId)).trim();
     final did = departmentId.trim();
     final mid = memberDocId.trim();
     if (tid.isEmpty || did.isEmpty || mid.isEmpty) return;
@@ -320,7 +319,7 @@ class DepartmentMemberIntegrationService {
     required String memberDocId,
     required Map<String, dynamic> memberData,
   }) async {
-    final tid = tenantId.trim();
+    final tid = (await _operationalId(tenantId)).trim();
     final did = departmentId.trim();
     final mid = memberDocId.trim();
     if (tid.isEmpty || did.isEmpty || mid.isEmpty) return;
@@ -382,7 +381,7 @@ class DepartmentMemberIntegrationService {
     required String departmentId,
     required Map<String, dynamic> memberData,
   }) async {
-    final tid = tenantId.trim();
+    final tid = (await _operationalId(tenantId)).trim();
     final did = departmentId.trim();
     if (tid.isEmpty || did.isEmpty) return;
 
@@ -392,9 +391,8 @@ class DepartmentMemberIntegrationService {
     final now = DateTime.now();
     final startOfToday = DateTime(now.year, now.month, now.day);
 
-    final snap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tid)
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final snap = await         ChurchOperationalPaths.churchDoc(op)
         .collection('escalas')
         .where('departmentId', isEqualTo: did)
         .limit(400)
@@ -461,11 +459,8 @@ class DepartmentMemberIntegrationService {
   }) async {
     final my = _normCpf(cpfDigits);
     if (my.length < 11) return {};
-    final snap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId.trim())
-        .collection('departamentos')
-        .get();
+    final tid = await _operationalId(tenantId);
+    final snap = await ChurchTenantResilientReads.departamentos(tid, limit: 120);
     final out = <String>{};
     for (final d in snap.docs) {
       if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(d.data(), my)) {
@@ -480,9 +475,9 @@ class DepartmentMemberIntegrationService {
     required String tenantId,
     required String departmentId,
   }) async {
-    final col = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId.trim())
+    final tid = await _operationalId(tenantId);
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final col =         ChurchOperationalPaths.churchDoc(op)
         .collection('departamentos')
         .doc(departmentId.trim())
         .collection('membros_vinculados');

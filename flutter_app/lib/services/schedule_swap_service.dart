@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
 
 Map<String, dynamic> _asStringKeyMap(dynamic raw) {
@@ -37,10 +38,8 @@ abstract final class ScheduleSwapService {
     final start = DateTime(escalaDay.year, escalaDay.month, escalaDay.day);
     final end = DateTime(escalaDay.year, escalaDay.month, escalaDay.day, 23, 59, 59, 999);
 
-    final escCol = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
-        .collection('escalas');
+    final op = await ChurchOperationalPaths.resolveCached(tenantId);
+    final escCol = ChurchOperationalPaths.churchDoc(op).collection('escalas');
 
     QuerySnapshot<Map<String, dynamic>> daySnap;
     try {
@@ -68,7 +67,7 @@ abstract final class ScheduleSwapService {
     }
 
     final membrosCol =
-        FirebaseFirestore.instance.collection('igrejas').doc(tenantId).collection('membros');
+        await ChurchOperationalPaths.subcollectionResolved(tenantId, 'membros');
     final snap = await membrosCol.get();
     final out = <ScheduleSwapCandidate>[];
 

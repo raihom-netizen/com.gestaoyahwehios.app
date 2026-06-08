@@ -12,6 +12,8 @@ import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 
 /// Bloco em Configurações: Mercado Pago da igreja + conta tesouraria modelo.
 class MercadoPagoChurchSettingsSection extends StatefulWidget {
@@ -84,9 +86,7 @@ class _MercadoPagoChurchSettingsSectionState
       if (!(d.exists && (d.data() ?? {}).isNotEmpty)) {
         if (kIsWeb && tid.isNotEmpty) {
           try {
-            d = await FirebaseFirestore.instance
-                .collection('igrejas')
-                .doc(tid)
+            d = await                 ChurchOperationalPaths.churchDoc(tid)
                 .collection('config')
                 .doc('mercado_pago')
                 .get(const GetOptions(source: Source.server))
@@ -101,7 +101,30 @@ class _MercadoPagoChurchSettingsSectionState
       _publicKeyCtrl.text = (_cfg?['publicKey'] ?? '').toString();
       _clientIdCtrl.text = (_cfg?['clientId'] ?? '').toString();
       _webhookCtrl.text = (_cfg?['notificationWebhookUrl'] ?? '').toString();
-    } catch (_) {}
+      AgentDebugLog.log(
+        location: 'mercado_pago_church_settings_section.dart:load',
+        message: 'mp_config_loaded',
+        hypothesisId: 'E',
+        data: {
+          'seed': widget.tenantId,
+          'operational': _effectiveTenantId,
+          'exists': d.exists,
+          'hasPublicKey': (_cfg?['publicKey'] ?? '').toString().isNotEmpty,
+          'hasClientId': (_cfg?['clientId'] ?? '').toString().isNotEmpty,
+        },
+      );
+    } catch (e) {
+      AgentDebugLog.log(
+        location: 'mercado_pago_church_settings_section.dart:load_err',
+        message: 'mp_config_error',
+        hypothesisId: 'E',
+        data: {
+          'seed': widget.tenantId,
+          'operational': _effectiveTenantId,
+          'error': e.runtimeType.toString(),
+        },
+      );
+    }
     if (mounted) setState(() => _loading = false);
   }
 
@@ -210,9 +233,7 @@ class _MercadoPagoChurchSettingsSectionState
       Map<String, dynamic> churchData = {};
       var slug = _effectiveTenantId;
       try {
-        final snap = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(_effectiveTenantId)
+        final snap = await             ChurchOperationalPaths.churchDoc(_effectiveTenantId)
             .get(const GetOptions(source: Source.serverAndCache));
         churchData = snap.data() ?? {};
         final fromDoc = (churchData['slug'] ?? churchData['slugId'] ?? '')
@@ -232,9 +253,7 @@ class _MercadoPagoChurchSettingsSectionState
   Future<void> _openChurchSiteInApp() async {
     var slug = _effectiveTenantId;
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+      final snap = await           ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .get(const GetOptions(source: Source.serverAndCache));
       final d = snap.data() ?? {};
       final fromDoc =

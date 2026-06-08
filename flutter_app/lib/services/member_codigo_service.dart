@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Código de membro sequencial **por igreja** (cartão CNH, QR, relatórios).
 ///
@@ -11,16 +12,12 @@ abstract final class MemberCodigoService {
   static const _seqPad = 5;
 
   static DocumentReference<Map<String, dynamic>> _configRef(String tenantId) =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId.trim())
+                ChurchOperationalPaths.churchDoc(tenantId.trim())
           .collection('config')
           .doc(_configDocId);
 
   static CollectionReference<Map<String, dynamic>> _membersCol(String tenantId) =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId.trim())
+                ChurchOperationalPaths.churchDoc(tenantId.trim())
           .collection('membros');
 
   /// Lê o código gravado no documento do membro (vários aliases legados).

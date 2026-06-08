@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/services/system_health_service.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class AdminDiagnosticSnapshot {
   const AdminDiagnosticSnapshot({
@@ -94,9 +95,8 @@ abstract final class AdminDiagnosticService {
     }
     if (tid.isNotEmpty) {
       try {
-        final q = await firebaseDefaultFirestore
-            .collection('igrejas')
-            .doc(tid)
+        final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+        final q = await             ChurchOperationalPaths.churchDoc(op)
             .collection('chat_presence')
             .limit(80)
             .get();

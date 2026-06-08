@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 List<String> _pastoralStrList(dynamic v) {
   if (v is! List) return [];
@@ -113,9 +114,7 @@ class PastoralInboxHomeCard extends StatelessWidget {
     final depts = _deptIdsFromMemberData(myData);
     final cargoSlug = _cargoSlugFromMemberData(myData);
 
-    final ref = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
+    final ref =         ChurchOperationalPaths.churchDoc(tenantId)
         .collection('pastoral_mensagens')
         .orderBy('createdAt', descending: true)
         .limit(20);
@@ -189,9 +188,7 @@ class _PastoralInboxMergedContentState extends State<_PastoralInboxMergedContent
     // primeiros por data eram ouvidos, mas a lista mostrada são os 5 primeiros *não
     // lidos* — fora desse conjunto o cartão nunca sumia após confirmar.
     for (final doc in widget.visible) {
-      final sub = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final sub =           ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('pastoral_mensagens')
           .doc(doc.id)
           .collection('leituras')
@@ -477,9 +474,8 @@ class _PastoralInboxTileState extends State<_PastoralInboxTile>
     final r = _replyCtrl.text.trim();
     if (includeReply && r.isEmpty) return;
 
-    final leituraRef = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    final leituraRef =         ChurchOperationalPaths.churchDoc(op)
         .collection('pastoral_mensagens')
         .doc(widget.messageId)
         .collection('leituras')

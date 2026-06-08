@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/app_shell.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// iOS — Guideline 3.2.2(iv): checkout PIX/cartão no site; navegação **in-app** instantânea.
 ///
@@ -51,16 +52,13 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
 
   Future<void> _loadChurchMeta() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .get(const GetOptions(source: Source.cache));
       var d = snap.data() ?? {};
       var slug = (d['slug'] ?? d['slugId'] ?? '').toString().trim();
       if (slug.isEmpty) {
-        final server = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(widget.tenantId)
+        final server = await             ChurchOperationalPaths.churchDoc(op)
             .get();
         d = server.data() ?? {};
         slug = (d['slug'] ?? d['slugId'] ?? '').toString().trim();

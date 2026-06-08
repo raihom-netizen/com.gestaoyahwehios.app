@@ -56,6 +56,7 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 enum _HubConversasFilter { all, unread, favorites, archived }
 
@@ -1118,18 +1119,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   Future<List<_DeptEntry>> _loadDepartmentsFromFirestoreCache(String tid) async {
     try {
-      var snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tid)
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      var snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('departamentos')
           .limit(120)
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 4));
       if (snap.docs.isEmpty) {
         snap = await FirestoreWebGuard.runWithWebRecovery(
-          () => firebaseDefaultFirestore
-              .collection('igrejas')
-              .doc(tid)
+          () =>               ChurchOperationalPaths.churchDoc(op)
               .collection('departamentos')
               .limit(120)
               .get(const GetOptions(source: Source.server)),
@@ -1156,9 +1154,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     List<String> ids,
   ) async {
     if (ids.isEmpty) return [];
-    final deptCol = firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tid)
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final deptCol =         ChurchOperationalPaths.churchDoc(op)
         .collection('departamentos');
     final futures = ids.map((id) async {
       try {
@@ -1286,10 +1283,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     String tid,
   ) async {
     try {
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
       final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => firebaseDefaultFirestore
-            .collection('igrejas')
-            .doc(tid)
+        () => ChurchOperationalPaths.churchDoc(op)
             .collection('chats')
             .where('type', isEqualTo: 'department')
             .limit(80)
@@ -1331,9 +1327,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       return;
     }
     try {
-      final snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tid)
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('departamentos')
           .limit(120)
           .get(const GetOptions(source: Source.cache))
@@ -1414,9 +1409,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   ) async {
     try {
       final digits = widget.cpf.replaceAll(RegExp(r'\D'), '');
-      final base = firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tid)
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final base =           ChurchOperationalPaths.churchDoc(op)
           .collection('membros');
 
       DocumentSnapshot<Map<String, dynamic>>? membro;
@@ -1462,9 +1456,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         }
         final depNames = d['DEPARTAMENTOS'];
         if (depNames is List) {
-          final col = firebaseDefaultFirestore
-              .collection('igrejas')
-              .doc(tid)
+          final col =               ChurchOperationalPaths.churchDoc(tid)
               .collection('departamentos');
           final nameFutures = depNames.map((name) async {
             try {
@@ -3753,9 +3745,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final prefs = await ChurchChatMemberPrefs.load(tid);
     QuerySnapshot<Map<String, dynamic>>? q;
     try {
-      q = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      q = await           ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .limit(120)
           .get();

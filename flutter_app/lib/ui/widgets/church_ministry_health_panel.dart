@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_attention_member_card.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Painel "Saúde ministerial & BI" no dashboard da igreja (pastéis, responsivo).
 class ChurchMinistryHealthPanel extends StatefulWidget {
@@ -1977,9 +1978,8 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
   Future<void> _sync() async {
     setState(() => _loading = true);
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('finance')
           .orderBy('createdAt', descending: true)
           .limit(1000)

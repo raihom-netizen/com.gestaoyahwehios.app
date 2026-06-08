@@ -33,9 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.bootstrapAdmin = exports.saveMercadoPagoAdminConfig = exports.getMercadoPagoAdminConfig = exports.getAdminCheck = exports.getUserProfile = exports.seedFrotaMasterHttp = exports.seedFrotaMaster = exports.migrateFrotaToFrotasveiculo = exports.corrigirBancoFrota = exports.cleanFrotaFromDefault = exports.ensureBrasilParaCristoAccess = exports.getMemberEmailForReset = exports.bulkEnsureMembersAuth = exports.setMemberApproved = exports.masterRelinkMembroAuthUid = exports.purgeMemberFirebaseLogin = exports.setMemberPassword = exports.recreateMemberAuthForNewEmail = exports.alignMemberDocToAuthUid = exports.createMemberLoginFromPublic = exports.createMemberAuthAccountForGestor = exports.syncGestorBrasilParaCristo = exports.seedGestorBrasilParaCristo = exports.createChurchForOnboardingGestor = exports.registerGestorProfile = exports.createChurchAndGestorWithGoogle = exports.consumeUserSignupInvite = exports.getUserSignupInviteInfo = exports.createUserSignupInvite = exports.upsertTenantUser = exports.setUserActive = exports.setUserRole = exports.resolveCpfToEmail = exports.syncMemberRoleClaims = exports.repairMyChurchBinding = exports.resolveEmailToChurchPublic = exports.mpWebhook = exports.mercadoPagoWebhook = exports.createMpPixPayment = exports.createMpPreapproval = exports.backupDailyToGcs = exports.testDriveWriteForChurch = exports.getChurchStorageUsage = exports.archiveChurchMediaNow = exports.archiveChurchMediaToDrive = exports.backupDailyToDrive = exports.ensureGlobalDownloads = exports.ensureDriveFolders = exports.onTenantCreate = exports.resolveCpfToChurchPublic = void 0;
-exports.createChurchDonationPix = exports.ensureChurchTreasuryAccountPresets = exports.saveChurchMercadoPagoCredentials = exports.scheduledFinanceVencimento24h = exports.scheduledFinanceDailyDigest = exports.scheduledFornecedorAgendaReminders = exports.onNovoEventoNoticiaPublishedPush = exports.onNovoEventoNoticiaPush = exports.onNovoAvisoMuralPublishedPush = exports.onNovoAvisoMuralPush = exports.onIgrejaChatMessageDeleteCleanupStorage = exports.onIgrejaPatrimonioDeleteCleanupStorage = exports.onIgrejaNoticiaDeleteCleanupStorage = exports.onIgrejaMembroDeleteCleanupStorage = exports.hourlyDevotionalBroadcast = exports.rollingScaleRemindersConfirmed = exports.dayBeforeScaleReminder = exports.dailyBirthdayTopicPush = exports.onEscalaTrocaInviteTarget = exports.respondScheduleSwap = exports.onEscalaImpedimentoNotifyLeaders = exports.notifySchedulePublished = exports.deleteDevotionalEnvio = exports.resendDevotionalEnvio = exports.resendPastoralMessage = exports.updatePastoralMessage = exports.archivePastoralMessage = exports.sendSegmentedPush = exports.processarCertificadosLote = exports.gerarCertificadosEmLote = exports.shareEvento = exports.recordDomainDailyHit = exports.generateThumbnail = exports.onNewMemberLegacy = exports.onNewMember = exports.validateCarteirinhaPublic = exports.refreshCarteiraSignatoriesIndex = exports.carteirinhaValidarHttp = exports.migrateAllIgrejasMembersToMembros = exports.scheduledGerarReceitasRecorrentesPendentes = exports.scheduledMigrateIgrejaMembersToMembros = exports.ensureMigrateMembersToMembros = exports.migrateMembersFull = exports.syncMembersFromUsers = exports.autoGenerateEvents = exports.onScheduleCreate = exports.resolveCpfToChurchPublicFinal = exports.resolveCpfToChurchPublicHttp = exports.seedPublicCpfIndex = exports.reportSecurityEvent = void 0;
-exports.scheduledPurgeStalePendingUploads = exports.backfillMemberCodigos = exports.resolveStorageDisplayUrls = exports.getChurchMembersDirectory = exports.scheduledRefreshMasterChurchesList = exports.getMasterChurchesList = exports.scheduledRefreshMasterDashboard = exports.warmChurchPanelFromMaster = exports.getMasterDashboardSnapshot = exports.scheduledRefreshPanelCaches = exports.warmChurchTenantCaches = exports.getChurchPanelSnapshot = exports.onChurchPedidoOracaoWritePanelDashboard = exports.onChurchVisitanteWritePanelDashboard = exports.onChurchDepartamentoWritePanelDashboard = exports.onChurchNoticiaWritePanelDashboard = exports.onChurchAvisoWritePanelDashboard = exports.onChurchMembroWritePanelDashboard = exports.onChurchMembroWriteSyncBirthIndex = exports.recomputePublicSiteMediaPrefetch = exports.warmPublicSiteFeedCache = exports.warmChurchPublicFeedCache = exports.refreshPublicFeedCacheOnNoticiaWrite = exports.refreshPublicFeedCacheOnAvisoWrite = exports.generatePublicFeedCache = exports.generateBirthdayCache = exports.compressVideo = exports.optimizeImage = exports.runStorageConsolidationMigration = exports.migrateStorageConsolidated = exports.masterApplyTenantLicense = exports.syncChurchClusterDataFromRichest = exports.syncChurchMercadoPagoFromCluster = exports.migrateAllTenantsFirestoreCollections = exports.migrateTenantFirestoreCollections = exports.onChurchFinanceWritePanelSummary = exports.repairChurchChatDmThreads = exports.backfillChurchChatDmThreads = exports.onChurchChatMessageIndexThread = exports.onChurchChatDmThreadWrite = exports.scheduledSyncMembroSessions = exports.onMembroWriteSyncSession = exports.onIgrejaMembroWriteChatPeerProfile = exports.onChurchChatMessageCreated = exports.purgeAnonymousAuthUsers = exports.purgeChurchChatMessagesAdmin = exports.pruneExpiredChurchChatMessages = exports.pruneContribuicoesDizimoHistorico = exports.createChurchDonationPreference = void 0;
+exports.getAdminCheck = exports.getUserProfile = exports.seedFrotaMasterHttp = exports.seedFrotaMaster = exports.migrateFrotaToFrotasveiculo = exports.corrigirBancoFrota = exports.cleanFrotaFromDefault = exports.ensureBrasilParaCristoAccess = exports.getMemberEmailForReset = exports.bulkEnsureMembersAuth = exports.setMemberApproved = exports.masterRelinkMembroAuthUid = exports.purgeMemberFirebaseLogin = exports.setMemberPassword = exports.recreateMemberAuthForNewEmail = exports.alignMemberDocToAuthUid = exports.createMemberLoginFromPublic = exports.createMemberAuthAccountForGestor = exports.syncGestorBrasilParaCristo = exports.seedGestorBrasilParaCristo = exports.createChurchForOnboardingGestor = exports.registerGestorProfile = exports.createChurchAndGestorWithGoogle = exports.consumeUserSignupInvite = exports.getUserSignupInviteInfo = exports.createUserSignupInvite = exports.upsertTenantUser = exports.setUserActive = exports.setUserRole = exports.resolveCpfToEmail = exports.syncMemberRoleClaims = exports.repairMyChurchBinding = exports.resolveEmailToChurchPublic = exports.mpWebhook = exports.mercadoPagoWebhook = exports.createMpPixPayment = exports.createMpPreapproval = exports.backupDailyToGcs = exports.testDriveWriteForChurch = exports.getChurchStorageUsage = exports.archiveChurchMediaNow = exports.archiveChurchMediaToDrive = exports.backupDailyToDrive = exports.ensureGlobalDownloads = exports.ensureDriveFolders = exports.onIgrejaTenantProvision = exports.migrateAllChurchTenantsCallable = exports.provisionChurchTenantCallable = exports.onTenantCreate = exports.resolveCpfToChurchPublic = void 0;
+exports.scheduledFinanceVencimento24h = exports.scheduledFinanceDailyDigest = exports.scheduledFornecedorAgendaReminders = exports.onNovoEventoNoticiaPublishedPush = exports.onNovoEventoNoticiaPush = exports.onNovoAvisoMuralPublishedPush = exports.onNovoAvisoMuralPush = exports.onIgrejaChatMessageDeleteCleanupStorage = exports.onIgrejaPatrimonioDeleteCleanupStorage = exports.onIgrejaNoticiaDeleteCleanupStorage = exports.onIgrejaMembroDeleteCleanupStorage = exports.hourlyDevotionalBroadcast = exports.rollingScaleRemindersConfirmed = exports.dayBeforeScaleReminder = exports.dailyBirthdayTopicPush = exports.onEscalaTrocaInviteTarget = exports.respondScheduleSwap = exports.onEscalaImpedimentoNotifyLeaders = exports.notifySchedulePublished = exports.deleteDevotionalEnvio = exports.resendDevotionalEnvio = exports.resendPastoralMessage = exports.updatePastoralMessage = exports.archivePastoralMessage = exports.sendSegmentedPush = exports.processarCertificadosLote = exports.gerarCertificadosEmLote = exports.shareEvento = exports.recordDomainDailyHit = exports.generateThumbnail = exports.onNewMemberLegacy = exports.onNewMember = exports.validateCarteirinhaPublic = exports.refreshCarteiraSignatoriesIndex = exports.carteirinhaValidarHttp = exports.migrateAllIgrejasMembersToMembros = exports.scheduledGerarReceitasRecorrentesPendentes = exports.scheduledMigrateIgrejaMembersToMembros = exports.ensureMigrateMembersToMembros = exports.migrateMembersFull = exports.syncMembersFromUsers = exports.autoGenerateEvents = exports.onScheduleCreate = exports.resolveCpfToChurchPublicFinal = exports.resolveCpfToChurchPublicHttp = exports.seedPublicCpfIndex = exports.reportSecurityEvent = exports.bootstrapAdmin = exports.saveMercadoPagoAdminConfig = exports.getMercadoPagoAdminConfig = void 0;
+exports.resolveStorageDisplayUrls = exports.getChurchMembersDirectory = exports.scheduledRefreshMasterChurchesList = exports.getMasterChurchesList = exports.scheduledRefreshMasterDashboard = exports.warmChurchPanelFromMaster = exports.getMasterDashboardSnapshot = exports.scheduledRefreshPanelCaches = exports.warmChurchTenantCaches = exports.getChurchPanelSnapshot = exports.onChurchPedidoOracaoWritePanelDashboard = exports.onChurchVisitanteWritePanelDashboard = exports.onChurchDepartamentoWritePanelDashboard = exports.onChurchNoticiaWritePanelDashboard = exports.onChurchAvisoWritePanelDashboard = exports.onChurchMembroWritePanelDashboard = exports.onChurchMembroWriteSyncBirthIndex = exports.recomputePublicSiteMediaPrefetch = exports.warmPublicSiteFeedCache = exports.warmChurchPublicFeedCache = exports.refreshPublicFeedCacheOnNoticiaWrite = exports.refreshPublicFeedCacheOnAvisoWrite = exports.generatePublicFeedCache = exports.generateBirthdayCache = exports.compressVideo = exports.optimizeImage = exports.runStorageConsolidationMigration = exports.migrateStorageConsolidated = exports.masterApplyTenantLicense = exports.syncChurchClusterDataFromRichest = exports.syncChurchMercadoPagoFromCluster = exports.migrateAllTenantsFirestoreCollections = exports.migrateTenantFirestoreCollections = exports.onChurchFinanceWritePanelSummary = exports.repairChurchChatDmThreads = exports.backfillChurchChatDmThreads = exports.onChurchChatMessageIndexThread = exports.onChurchChatDmThreadWrite = exports.scheduledSyncMembroSessions = exports.onMembroWriteSyncSession = exports.onIgrejaMembroWriteChatPeerProfile = exports.onChurchChatMessageCreated = exports.purgeAnonymousAuthUsers = exports.purgeChurchChatMessagesAdmin = exports.pruneExpiredChurchChatMessages = exports.pruneContribuicoesDizimoHistorico = exports.createChurchDonationPreference = exports.createChurchDonationPix = exports.ensureChurchTreasuryAccountPresets = exports.saveChurchMercadoPagoCredentials = void 0;
+exports.scheduledPurgeStalePendingUploads = exports.backfillMemberCodigos = void 0;
 const functions = __importStar(require("firebase-functions/v1"));
 const params_1 = require("firebase-functions/params");
 const admin = __importStar(require("firebase-admin"));
@@ -50,6 +51,7 @@ const churchMercadoPago_1 = require("./churchMercadoPago");
 const memberCodigo_1 = require("./memberCodigo");
 const carteirinhaValidarPublic_1 = require("./carteirinhaValidarPublic");
 const churchClusterAnchors_1 = require("./churchClusterAnchors");
+const churchTenantProvisioning_1 = require("./churchTenantProvisioning");
 admin.initializeApp();
 const db = admin.firestore();
 /** Banco Firestore separado para frotas (frotasveiculo). */
@@ -1105,6 +1107,92 @@ exports.onTenantCreate = functions
     }
     catch (e) {
         console.error("onTenantCreate ensureChurchWelcomeSeed:", e);
+    }
+    try {
+        await (0, churchTenantProvisioning_1.provisionChurchTenant)(tenantId, { source: "onTenantCreate" });
+    }
+    catch (e) {
+        console.error("onTenantCreate provisionChurchTenant:", e);
+    }
+});
+/** Alinha aliases + doc raiz + Storage após cadastro da igreja (gestor ou migração). */
+exports.provisionChurchTenantCallable = functions
+    .region("us-central1")
+    .https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Faça login para provisionar a igreja.");
+    }
+    const role = String(context.auth.token?.role || "").toUpperCase();
+    const claimTenant = String(context.auth.token?.igrejaId || context.auth.token?.tenantId || "").trim();
+    let tenantId = String(data?.tenantId || "").trim();
+    if (!tenantId)
+        tenantId = claimTenant;
+    if (!tenantId) {
+        throw new functions.https.HttpsError("invalid-argument", "tenantId obrigatório.");
+    }
+    const canonical = (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(tenantId);
+    const isMaster = role === "MASTER" || role === "ADM" || role === "ADMIN";
+    if (!isMaster) {
+        if (!claimTenant) {
+            throw new functions.https.HttpsError("permission-denied", "Conta sem igreja vinculada.");
+        }
+        const claimCanon = (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(claimTenant);
+        if (claimCanon !== canonical && claimTenant !== tenantId && claimTenant !== canonical) {
+            throw new functions.https.HttpsError("permission-denied", "Igreja não vinculada à sua conta.");
+        }
+    }
+    try {
+        return await (0, churchTenantProvisioning_1.provisionChurchTenant)(tenantId, {
+            source: String(data?.source || "provisionChurchTenantCallable"),
+        });
+    }
+    catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new functions.https.HttpsError("internal", msg);
+    }
+});
+/** MASTER — migra todas as igrejas (docs fantasma + church_aliases + Storage). */
+exports.migrateAllChurchTenantsCallable = functions
+    .region("us-central1")
+    .https.onCall(async (_data, context) => {
+    const role = String(context.auth?.token?.role || "").toUpperCase();
+    if (!context.auth || role !== "MASTER") {
+        throw new functions.https.HttpsError("permission-denied", "Acesso restrito ao MASTER.");
+    }
+    return (0, churchTenantProvisioning_1.migrateAllChurchTenants)("migrateAllChurchTenantsCallable");
+});
+/** Trigger: cadastro salvo (`registrationComplete`) ou slug alterado. */
+exports.onIgrejaTenantProvision = functions
+    .region("us-central1")
+    .firestore.document("igrejas/{tenantId}")
+    .onWrite(async (change, context) => {
+    const after = change.after.exists ? change.after.data() : null;
+    if (!after)
+        return;
+    const tenantId = String(context.params.tenantId || "").trim();
+    if (!tenantId)
+        return;
+    const before = change.before.exists ? change.before.data() : null;
+    const slugAfter = String(after.slug || after.slugId || "").trim();
+    const slugBefore = before
+        ? String(before.slug || before.slugId || "").trim()
+        : "";
+    const regAfter = after.registrationComplete === true;
+    const regBefore = before ? before.registrationComplete === true : false;
+    const shouldRun = !change.before.exists ||
+        (regAfter && !regBefore) ||
+        (slugAfter && slugAfter !== slugBefore);
+    if (!shouldRun)
+        return;
+    try {
+        await (0, churchTenantProvisioning_1.provisionChurchTenant)(tenantId, {
+            source: "onIgrejaTenantProvision",
+            data: after,
+            skipRootPatch: false,
+        });
+    }
+    catch (e) {
+        console.error("onIgrejaTenantProvision:", tenantId, e);
     }
 });
 // ✅ Endpoint manual para recriar pastas no Drive
@@ -3131,6 +3219,15 @@ async function finalizeNewChurchForGestorCore(params) {
     }
     catch (e) {
         console.error("finalizeNewChurchForGestorCore ensureChurchWelcomeSeed:", e);
+    }
+    try {
+        await (0, churchTenantProvisioning_1.provisionChurchTenant)(tenantId, {
+            source: "finalizeNewChurchForGestorCore",
+            data: igrejaPayload,
+        });
+    }
+    catch (e) {
+        console.error("finalizeNewChurchForGestorCore provisionChurchTenant:", e);
     }
     return {
         ok: true,

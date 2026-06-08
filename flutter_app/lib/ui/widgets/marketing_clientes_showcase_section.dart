@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/ui/widgets/marketing_web_lazy_logo_image.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Markdown mínimo (sem dependência): `**negrito**`, `*itálico*` ou `_itálico_`.
 List<InlineSpan> lightMarkdownInlineSpans(String input, TextStyle base) {
@@ -735,9 +736,8 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
     Future<Map<String, dynamic>?> fetchTenantDoc() async {
       if (tid.isEmpty) return null;
       try {
-        final doc = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(tid)
+        final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+        final doc = await             ChurchOperationalPaths.churchDoc(op)
             .get()
             .timeout(
               const Duration(seconds: 10),

@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show SafeMemberProfilePhoto, memberPhotoDisplayCacheRevision;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:gestao_yahweh/utils/church_department_list.dart' show churchDepartmentNameFromData;
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class PerfilMembroPage extends StatefulWidget {
   final String tenantId;
@@ -57,17 +58,14 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
   }
 
   Future<_ProfileLoad?> _loadProfile() async {
-    final docRef = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    final docRef =         ChurchOperationalPaths.churchDoc(op)
         .collection('membros')
         .doc(widget.memberId);
     final snap = await docRef.get();
     if (!snap.exists || snap.data() == null) return null;
     final data = snap.data()!;
-    final deptCol = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final deptCol =         ChurchOperationalPaths.churchDoc(op)
         .collection('departamentos');
 
     final ids = ((data['departamentosIds'] as List?) ?? [])
@@ -81,9 +79,7 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
     final cpf = _cpfDigits(data, widget.memberId);
     var schedules = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     if (cpf.length == 11) {
-      final escCol = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final escCol =           ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('escalas');
       final now = DateTime.now();
       final start = DateTime(now.year, now.month, now.day);
@@ -130,9 +126,8 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
   }
 
   Future<void> _confirmPresence(String scheduleDocId, String cpfDigits) async {
-    final ref = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    final ref =         ChurchOperationalPaths.churchDoc(op)
         .collection('escalas')
         .doc(scheduleDocId);
     await ref.update({
@@ -146,9 +141,8 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
     String cpfDigits,
     String reason,
   ) async {
-    final ref = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    final ref =         ChurchOperationalPaths.churchDoc(op)
         .collection('escalas')
         .doc(scheduleDocId);
     final payload = <String, dynamic>{

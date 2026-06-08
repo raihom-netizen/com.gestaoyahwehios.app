@@ -80,6 +80,7 @@ import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/instagram_mural.dart'
     show MuralAvisoEditorPage;
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Breakpoints: >= 900 desktop (sidebar fixa), < 900 mobile (drawer), < 600 phone (layout compacto)
 const double _breakpointDesktop = 900;
@@ -579,15 +580,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   ) async {
     final tid = widget.tenantId.trim();
     if (tid.isEmpty || !mounted) return;
-    final church =
-        await firebaseDefaultFirestore.collection('igrejas').doc(tid).get();
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final church = await ChurchOperationalPaths.churchDoc(op).get();
     if (!mounted) return;
     final d = church.data() ?? {};
     var slug = (d['slug'] ?? '').toString().trim();
     if (slug.isEmpty) slug = tid;
-    final avisos = firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tid)
+    final avisos =         ChurchOperationalPaths.churchDoc(op)
         .collection('avisos');
     await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -757,9 +756,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                final base = firebaseDefaultFirestore
-                    .collection('igrejas')
-                    .doc(tid);
+                final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+                final base =                     ChurchOperationalPaths.churchDoc(op);
                 await base
                     .collection('membros')
                     .orderBy('updatedAt', descending: true)
@@ -774,9 +772,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                final base = firebaseDefaultFirestore
-                    .collection('igrejas')
-                    .doc(tid);
+                final base =                     ChurchOperationalPaths.churchDoc(tid);
                 await base
                     .collection('avisos')
                     .orderBy('createdAt', descending: true)
@@ -791,9 +787,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                final base = firebaseDefaultFirestore
-                    .collection('igrejas')
-                    .doc(tid);
+                final base =                     ChurchOperationalPaths.churchDoc(tid);
                 await base
                     .collection('eventos')
                     .orderBy('startAt', descending: true)
@@ -808,9 +802,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                await firebaseDefaultFirestore
-                    .collection('igrejas')
-                    .doc(tid)
+                await                     ChurchOperationalPaths.churchDoc(tid)
                     .collection('finance')
                     .limit(24)
                     .get();
@@ -823,9 +815,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                await firebaseDefaultFirestore
-                    .collection('igrejas')
-                    .doc(tid)
+                await                     ChurchOperationalPaths.churchDoc(tid)
                     .collection('patrimonio')
                     .limit(24)
                     .get();
@@ -838,9 +828,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                await firebaseDefaultFirestore
-                    .collection('igrejas')
-                    .doc(tid)
+                await                     ChurchOperationalPaths.churchDoc(tid)
                     .collection('fornecedores')
                     .limit(24)
                     .get();
@@ -853,9 +841,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                await firebaseDefaultFirestore
-                    .collection('igrejas')
-                    .doc(tid)
+                await                     ChurchOperationalPaths.churchDoc(tid)
                     .collection('chats')
                     .orderBy('lastMessageAt', descending: true)
                     .limit(16)
@@ -1522,9 +1508,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (nowMs - _lastSubscriptionSyncMs < 5 * 60 * 1000) return;
     _lastSubscriptionSyncMs = nowMs;
     try {
-      await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      await           ChurchOperationalPaths.churchDoc(op)
           .set(SubscriptionGuard.normalizedChurchFields(guard),
               SetOptions(merge: true));
     } catch (_) {
@@ -2411,9 +2396,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       },
       child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         key: ValueKey('tenant_stream_$_tenantStreamRetry'),
-        stream: firebaseDefaultFirestore
-              .collection('igrejas')
-              .doc(widget.tenantId)
+        stream:               ChurchOperationalPaths.churchDoc(widget.tenantId)
               .watchSafe(),
         builder: (context, tenantSnap) {
           if (tenantSnap.hasData && tenantSnap.data != null) {
@@ -2638,9 +2621,7 @@ class _HeaderLocalizacao extends StatelessWidget {
   Widget build(BuildContext context) {
     if (tenantId.isEmpty) return const SizedBox.shrink();
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: firebaseDefaultFirestore
-            .collection('igrejas')
-            .doc(tenantId)
+      stream:             ChurchOperationalPaths.churchDoc(tenantId)
             .watchSafe(),
       builder: (context, snap) {
         final line = _lineFromChurch(snap.data?.data());
@@ -2686,9 +2667,7 @@ class _HeaderVencimento extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: firebaseDefaultFirestore
-            .collection('igrejas')
-            .doc(tenantId)
+      stream:             ChurchOperationalPaths.churchDoc(tenantId)
             .watchSafe(),
       builder: (context, snap) {
         final textColor = light ? Colors.white70 : const Color(0xFF64748B);

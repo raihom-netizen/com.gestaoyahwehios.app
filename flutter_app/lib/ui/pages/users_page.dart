@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class UsersPage extends StatefulWidget {
   final String tenantId;
@@ -93,9 +94,7 @@ class _UsersPageState extends State<UsersPage> {
 
   @override
   Widget build(BuildContext context) {
-    final col = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final col =         ChurchOperationalPaths.churchDoc(widget.tenantId)
         .collection('usersIndex');
 
     return Scaffold(

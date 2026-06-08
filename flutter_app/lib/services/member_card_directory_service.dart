@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap;
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Signatário de carteirinha / certificado (pastor, gestor, etc.).
 class MemberCardSignatory {
@@ -84,17 +85,13 @@ abstract final class MemberCardDirectoryService {
     'lider',
   ];
 
-  static CollectionReference<Map<String, dynamic>> _membros(String tenantId) =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+  static CollectionReference<Map<String, dynamic>> _membros(String operationalTenantId) =>
+      ChurchOperationalPaths.churchDoc(operationalTenantId.trim())
           .collection('membros');
 
   static DocumentReference<Map<String, dynamic>> _signatoryCacheRef(
-          String tenantId) =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+          String operationalTenantId) =>
+      ChurchOperationalPaths.churchDoc(operationalTenantId.trim())
           .collection('config')
           .doc(_signatoryCacheDoc);
 

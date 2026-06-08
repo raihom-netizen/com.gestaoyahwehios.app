@@ -37,6 +37,7 @@ import 'admin_forcar_atualizacao_page.dart';
 import 'admin_migrar_membros_page.dart';
 import 'admin_sugestoes_page.dart';
 import 'admin_divulgacao_media_page.dart';
+import 'admin_multi_tenant_diagnostic_page.dart';
 import 'master_command_center_page.dart';
 import 'master_feature_flags_page.dart';
 import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
@@ -55,6 +56,7 @@ import 'package:gestao_yahweh/core/marketing_official_config.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 part 'admin_igrejas_tab.dart';
 
@@ -107,6 +109,8 @@ String _masterMenuTitle(AdminMenuItem item) {
       return 'Armazenamento';
     case AdminMenuItem.sistemaFirebaseSaude:
       return 'Saúde do Sistema';
+    case AdminMenuItem.sistemaMultiTenantDiag:
+      return 'Diagnóstico Multi-Tenant';
     case AdminMenuItem.sistemaAvisoGlobal:
       return 'Avisos e promoções';
     case AdminMenuItem.sistemaVersaoMinima:
@@ -626,6 +630,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         break;
       case AdminMenuItem.sistemaFirebaseSaude:
         content = const SystemFirebaseHealthPage();
+        break;
+      case AdminMenuItem.sistemaMultiTenantDiag:
+        content = const AdminMultiTenantDiagnosticPage();
         break;
       case AdminMenuItem.sistemaHome:
         content = const Center(child: Text('Voltar ao Início'));
@@ -1650,7 +1657,8 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
 
     setState(() => _saving = true);
     try {
-      final ref = FirebaseFirestore.instance.collection('igrejas').doc(slug);
+      final op = await ChurchOperationalPaths.resolveCached(slug.trim());
+      final ref = ChurchOperationalPaths.churchDoc(op);
       final exists = (await ref.get()).exists;
       if (exists) {
         if (!mounted) return;

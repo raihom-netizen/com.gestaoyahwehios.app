@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Lê caches gerados pelas Cloud Functions (`_performance_cache`).
 ///
@@ -14,9 +15,7 @@ abstract final class ChurchPerformanceCacheService {
     String tenantId,
     String docId,
   ) {
-    return FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId.trim())
+    return         ChurchOperationalPaths.churchDoc(tenantId.trim())
         .collection('_performance_cache')
         .doc(docId);
   }

@@ -61,6 +61,7 @@ import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Extrai URLs de fotos do patrimônio — lista + campos simples + strings dinâmicas do Firestore.
 /// Unifica duplicatas e normaliza URLs do Storage (incl. host *.firebasestorage.app).
@@ -322,9 +323,8 @@ Future<({
   BuildContext context, {
   required String tenantId,
 }) async {
-  final snap = await firebaseDefaultFirestore
-      .collection('igrejas')
-      .doc(tenantId)
+  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+  final snap = await       ChurchOperationalPaths.churchDoc(op)
       .collection('membros')
       .get();
   final options = snap.docs
@@ -780,9 +780,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   bool get _canWrite => ChurchRolePermissions.isFinanceCoreTeam(widget.role);
 
   CollectionReference<Map<String, dynamic>> get _col =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .collection('patrimonio');
 
   /// Categorias principais do inventário (ERP) + legado para dados antigos.
@@ -867,9 +865,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     final db = firebaseDefaultFirestore;
     _patrimonioRealtimeSubs.addAll([
       _col.limit(1).watchSafe().listen((_) => _schedulePatrimonioRealtimeRefresh()),
-      db
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .collection('config')
           .doc('patrimonio')
           .watchSafe()
@@ -5201,9 +5197,7 @@ class _DashboardTabState extends State<_DashboardTab> {
 
               // ── Linha: inventários finalizados por mês (últimos 6 meses) ──
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream: firebaseDefaultFirestore
-                    .collection('igrejas')
-                    .doc(widget.tenantId)
+                stream:                     ChurchOperationalPaths.churchDoc(widget.tenantId)
                     .collection('patrimonio_inventario_historico')
                     .orderBy('finalizadoEm', descending: true)
                     .limit(48)
@@ -5655,9 +5649,8 @@ class _InventarioTabState extends State<_InventarioTab> {
                     'conferidoNestaSessao': _conferidos.contains(d.id),
                   });
                 }
-                await firebaseDefaultFirestore
-                    .collection('igrejas')
-                    .doc(widget.tenantId)
+                final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+                await                     ChurchOperationalPaths.churchDoc(op)
                     .collection('patrimonio_inventario_historico')
                     .add({
                   'finalizadoEm': FieldValue.serverTimestamp(),
@@ -5918,9 +5911,7 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      stream:           ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('patrimonio_inventario_historico')
           .orderBy('finalizadoEm', descending: true)
           .limit(200)
@@ -7447,9 +7438,8 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         }
       }
       final tenantId = widget.col.parent!.id;
-      await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      await           ChurchOperationalPaths.churchDoc(op)
           .collection('config')
           .doc('patrimonio')
           .set(

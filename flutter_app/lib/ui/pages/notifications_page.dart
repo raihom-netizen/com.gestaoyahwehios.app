@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/services/internal_notification_inbox_service.dart'
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_foreground_notification_snackbar.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class NotificationsPage extends StatefulWidget {
   final String tenantId;
@@ -40,15 +41,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _members =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('membros');
 
   CollectionReference<Map<String, dynamic>> get _notifications =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('notificacoes');
 
   Future<List<String>> _loadMemberDepartments() async {

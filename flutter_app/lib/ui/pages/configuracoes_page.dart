@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
@@ -77,12 +78,25 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   SubscriptionGuardState? _subscriptionGuard;
   bool _userAtivoNoPainel = false;
   String _accountEmailDisplay = '';
+  String? _operationalTenantId;
+
+  String get _effectiveTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
 
   @override
   void initState() {
     super.initState();
     _notifMinutosCtrl = TextEditingController(text: '60');
     _loadPrefs();
+    final seed = widget.tenantId.trim();
+    if (seed.isNotEmpty) {
+      unawaited(
+        ChurchOperationalPaths.resolveCached(seed).then((op) {
+          if (!mounted || op.isEmpty) return;
+          setState(() => _operationalTenantId = op);
+        }),
+      );
+    }
   }
 
   @override
@@ -207,11 +221,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     }
     SubscriptionGuardState? guard;
     try {
-      final tid = widget.tenantId.trim();
+      final tid = _effectiveTenantId;
       if (tid.isNotEmpty) {
-        final chSnap = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(tid)
+        final op = await ChurchOperationalPaths.resolveCached(tid);
+        final chSnap = await ChurchOperationalPaths.churchDoc(op)
             .get(const GetOptions(source: Source.serverAndCache))
             .timeout(const Duration(seconds: 8));
         guard = SubscriptionGuard.evaluate(
@@ -1265,7 +1278,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   Future<void> _exportarBackup(BuildContext context) async {
     try {
       final resolvedTenantId = await _resolveEffectiveTenantId();
-      final ref = FirebaseFirestore.instance.collection('igrejas').doc(resolvedTenantId);
+      final op = await ChurchOperationalPaths.resolveCached(resolvedTenantId.trim());
+      final ref = ChurchOperationalPaths.churchDoc(op);
       final membersSnap = await ref.collection('membros').limit(2000).get();
       final noticiasSnap = await ref.collection('eventos').limit(500).get();
       final data = {
@@ -1291,11 +1305,16 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   }
 
   /// Usa o serviço centralizado para garantir mesmo path que AuthGate, dashboard e MembersPage (import/export no mesmo tenant).
-  Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.resolveOperationalChurchDocId(
-        widget.tenantId,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      );
+  Future<String> _resolveEffectiveTenantId() async {
+    final op = await ChurchOperationalPaths.resolveCached(
+      widget.tenantId,
+      userUid: FirebaseAuth.instance.currentUser?.uid,
+    );
+    if (mounted && op.isNotEmpty) {
+      setState(() => _operationalTenantId = op);
+    }
+    return op;
+  }
 
   Future<void> _importarBackup(BuildContext context) async {
     final ctrl = TextEditingController();
@@ -1332,7 +1351,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       final data = jsonDecode(ctrl.text.trim()) as Map<String, dynamic>;
       final members = (data['members'] as List?) ?? [];
       final batch = FirebaseFirestore.instance.batch();
-      final col = FirebaseFirestore.instance.collection('igrejas').doc(resolvedTenantId).collection('membros');
+      final op = await ChurchOperationalPaths.resolveCached(resolvedTenantId.trim());
+      final col = ChurchOperationalPaths.churchDoc(op).collection('membros');
       for (final m in members) {
         final map = m as Map<String, dynamic>;
         final id = (map['id'] ?? '').toString();

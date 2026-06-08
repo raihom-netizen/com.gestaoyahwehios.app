@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class AttendancePage extends StatefulWidget {
   final String tenantId;
@@ -57,15 +58,11 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _cultos =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('cultos');
 
   CollectionReference<Map<String, dynamic>> get _members =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('membros');
 
   // ─── Build ──────────────────────────────────────────────────────────────────
@@ -1004,17 +1001,13 @@ class _PresencaSheetState extends State<_PresencaSheet> {
   int _totalMembers = 0;
 
   CollectionReference<Map<String, dynamic>> get _presencasRef =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('cultos')
           .doc(widget.cultoId)
           .collection('presencas');
 
   CollectionReference<Map<String, dynamic>> get _members =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('membros');
 
   @override

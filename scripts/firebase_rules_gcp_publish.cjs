@@ -248,13 +248,20 @@ function writeDeployState(results) {
 
 async function main() {
   const targets = only === 'all' ? ['firestore', 'storage'] : [only];
-  const token = await getAccessToken();
+  let token = await getAccessToken();
   const base = `https://firebaserules.googleapis.com/v1/projects/${projectId}`;
   const results = [];
 
   for (const t of targets) {
     try {
-      const r = await withRetry(t, () => publishRulesTarget(base, token, t));
+      const r = await withRetry(t, async (attempt) => {
+        // 503 prolongado: renova OAuth a cada 5 tentativas (evita token expirado em fila longa).
+        if (attempt > 1 && (attempt - 1) % 5 === 0) {
+          token = await getAccessToken();
+          process.stderr.write(`[${t}] token OAuth renovado (tentativa ${attempt})\n`);
+        }
+        return publishRulesTarget(base, token, t);
+      });
       results.push(r);
       process.stdout.write(
         `OK ${t} ${r.action} release=${r.release}${r.ruleset ? ` ruleset=${r.ruleset}` : ''}\n`

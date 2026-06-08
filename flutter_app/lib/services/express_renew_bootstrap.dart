@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart'
     show EffectivePlanConfig, PlanPriceService;
 
@@ -72,9 +73,8 @@ class ExpressRenewBootstrap {
     final tenantId = await tenantFuture;
     if (tenantId == null || tenantId.isEmpty) return;
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .get(const GetOptions(source: Source.serverAndCache));
       _cachedChurchData = snap.data();
     } catch (_) {}

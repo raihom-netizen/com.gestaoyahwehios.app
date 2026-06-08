@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// KPIs pré-calculados no servidor — `igrejas/{tenant}/_performance_cache/dashboard_current`.
 ///
@@ -46,9 +47,7 @@ abstract final class ChurchDashboardCurrentService {
   ChurchDashboardCurrentService._();
 
   static DocumentReference<Map<String, dynamic>> ref(String tenantId) {
-    return firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tenantId.trim())
+    return         ChurchOperationalPaths.churchDoc(tenantId.trim())
         .collection('_performance_cache')
         .doc('dashboard_current');
   }

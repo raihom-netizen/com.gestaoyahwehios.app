@@ -61,12 +61,16 @@ class MarketingGestaoYahwehGallerySection extends StatefulWidget {
   /// a varredura inicial só corre uma vez por defeito.
   final int storageRefreshToken;
 
+  /// Painel master: itens CMS já carregados pelo pai — evita 2.ª leitura Firestore.
+  final List<Map<String, dynamic>>? adminCmsItems;
+
   /// Site público: não lista nem filtra PDFs na galeria (só vídeo + imagem).
   final bool excludePdfFromPublicGallery;
 
   const MarketingGestaoYahwehGallerySection({
     super.key,
     this.adminConfig,
+    this.adminCmsItems,
     this.maxStorageFiles = 36,
     this.storageRefreshToken = 0,
     this.excludePdfFromPublicGallery = false,
@@ -505,22 +509,18 @@ class _MarketingGestaoYahwehGallerySectionState
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final docRef = FirebaseFirestore.instance
-        .collection(MarketingStorageLayout.firestoreCollection)
-        .doc(MarketingStorageLayout.firestoreGalleryDocId);
-
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirestoreStreamUtils.documentWatchSafe(docRef),
-      builder: (context, snap) {
-        if (snap.hasData || snap.hasError) {
+  Widget _buildFromFirestoreData(
+    Map<String, dynamic>? data, {
+    bool hasError = false,
+    bool fsWaiting = false,
+  }) {
+        if (!fsWaiting) {
           _disarmFirestoreWaitCap();
         }
 
-        final fromFs = snap.hasError
+        final fromFs = hasError
             ? <_GalleryEntry>[]
-            : _parseFirestoreItems(snap.data?.data());
+            : _parseFirestoreItems(data);
         if (fromFs.isNotEmpty) {
           var ordered = _sortFeaturedFirst(fromFs);
           final filtered = _filterByAdmin(ordered);
@@ -581,8 +581,6 @@ class _MarketingGestaoYahwehGallerySectionState
           );
         }
 
-        final fsWaiting =
-            snap.connectionState == ConnectionState.waiting && !snap.hasData;
         if (fsWaiting && !_firestoreWaitExceeded) {
           _armFirestoreWaitCap();
           _reportAdminVisiblePaths([]);
@@ -602,8 +600,10 @@ class _MarketingGestaoYahwehGallerySectionState
           );
         }
 
-        if (snap.hasError) {
-          debugPrint('MarketingGestaoYahwehGallerySection Firestore: ${snap.error}');
+        if (hasError) {
+          debugPrint(
+            'MarketingGestaoYahwehGallerySection Firestore: erro na leitura CMS',
+          );
         }
         _scheduleStorageFallback();
 
@@ -648,7 +648,7 @@ class _MarketingGestaoYahwehGallerySectionState
                   periodFilteredOut
                       ? 'Nenhuma mídia neste período na varredura do Storage. '
                           'Ajuste o filtro ou confira se os ficheiros têm data no nome (ex.: 1730…_foto.jpg).'
-                      : snap.hasError
+                      : hasError
                           ? 'Não foi possível carregar a lista da galeria agora. '
                               'As mídias em ${MarketingStorageLayout.storageRoot}/ no Storage '
                               'continuam disponíveis para o painel master.'
@@ -701,6 +701,30 @@ class _MarketingGestaoYahwehGallerySectionState
           showPublicFilters: widget.adminConfig == null,
           typeFilterChips: widget.adminConfig == null ? _buildTypeFilterChips() : null,
           children: _buildPublicGalleryBody(context, forPublic),
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final injected = widget.adminCmsItems;
+    if (injected != null) {
+      return _buildFromFirestoreData(
+        {'items': injected},
+      );
+    }
+
+    final docRef = FirebaseFirestore.instance
+        .collection(MarketingStorageLayout.firestoreCollection)
+        .doc(MarketingStorageLayout.firestoreGalleryDocId);
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirestoreStreamUtils.documentWatchSafe(docRef),
+      builder: (context, snap) {
+        return _buildFromFirestoreData(
+          snap.data?.data(),
+          hasError: snap.hasError,
+          fsWaiting:
+              snap.connectionState == ConnectionState.waiting && !snap.hasData,
         );
       },
     );

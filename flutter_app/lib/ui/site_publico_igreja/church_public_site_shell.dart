@@ -1,6 +1,14 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/modern_store_download_button.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
@@ -722,6 +730,148 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
                     acessarBtn,
                   ],
                 ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Faixa moderna no topo — Google Play + TestFlight (igual ao site marketing).
+class ChurchPublicAppDownloadBanner extends StatelessWidget {
+  final Color accentColor;
+  final void Function(String action)? onAnalytics;
+
+  const ChurchPublicAppDownloadBanner({
+    super.key,
+    required this.accentColor,
+    this.onAnalytics,
+  });
+
+  Future<void> _open(String url) async {
+    if (url.trim().isEmpty) return;
+    final uri = Uri.tryParse(url.trim());
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final narrow = MediaQuery.sizeOf(context).width < 520;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(
+          horizontal: narrow ? 14 : 18,
+          vertical: narrow ? 14 : 16,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: accentColor.withValues(alpha: 0.08),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirestoreStreamUtils.documentWatchBootstrap(
+            firebaseDefaultFirestore.doc('config/appDownloads'),
+          ),
+          builder: (context, snap) {
+            final data = snap.data?.data() ?? {};
+            final androidUrl =
+                AppConstants.effectiveAppDownloadsAndroidUrl(data);
+            final iosUrl = AppConstants.effectiveAppDownloadsIosUrl(data);
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.get_app_rounded,
+                        color: accentColor,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Baixar aplicativo',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                          Text(
+                            'Android: Play Store · iPhone: TestFlight',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.grey.shade600,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    ModernStoreDownloadButton(
+                      label: 'Google Play',
+                      subtitle: 'Android',
+                      icon: Icons.android_rounded,
+                      gradient: const [
+                        Color(0xFF01875F),
+                        Color(0xFF00A86B),
+                      ],
+                      onTap: () {
+                        onAnalytics?.call('download_android_top');
+                        unawaited(_open(androidUrl));
+                      },
+                    ),
+                    ModernStoreDownloadButton(
+                      label: 'TestFlight',
+                      subtitle: 'iPhone / iPad',
+                      icon: Icons.apple_rounded,
+                      gradient: const [
+                        Color(0xFF1C1C1E),
+                        Color(0xFF3A3A3C),
+                      ],
+                      enabled: iosUrl.isNotEmpty,
+                      onTap: iosUrl.isEmpty
+                          ? null
+                          : () {
+                              onAnalytics?.call('download_ios_top');
+                              unawaited(_open(iosUrl));
+                            },
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

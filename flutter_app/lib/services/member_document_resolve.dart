@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 
 /// Fonte canónica de dados de pessoas da igreja: [igrejas/{tenantId}/membros].
@@ -7,11 +8,20 @@ import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 abstract final class MemberDocumentResolve {
   MemberDocumentResolve._();
 
+  /// [operationalTenantId] — ID canónico (após [ChurchOperationalPaths.resolveCached]).
   static CollectionReference<Map<String, dynamic>> membrosCol(
     FirebaseFirestore db,
-    String tenantId,
+    String operationalTenantId,
   ) =>
-      db.collection('igrejas').doc(tenantId.trim()).collection('membros');
+      ChurchOperationalPaths.churchDoc(operationalTenantId.trim()).collection('membros');
+
+  static Future<CollectionReference<Map<String, dynamic>>> membrosColResolved(
+    FirebaseFirestore db,
+    String tenantId,
+  ) async {
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    return membrosCol(db, op);
+  }
 
   /// Ordem: `doc(hint)` → `authUid` → `doc(cpf)` → `CPF` → `codigoMembro`.
   static Future<DocumentSnapshot<Map<String, dynamic>>?> findByHint(

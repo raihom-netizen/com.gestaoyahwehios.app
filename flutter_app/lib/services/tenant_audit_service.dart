@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Auditoria tenant — quem criou/editou/excluiu, quando, dispositivo.
 abstract final class TenantAuditService {
@@ -40,9 +41,8 @@ abstract final class TenantAuditService {
 
     try {
       final u = firebaseDefaultAuth.currentUser;
-      await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tid)
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      await           ChurchOperationalPaths.churchDoc(op)
           .collection('auditoria_tenant')
           .add({
         'acao': action,

@@ -9,6 +9,28 @@ const MIN_PLACEHOLDER_PNG = Buffer.from([
   0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
 ]);
 
+/** `igrejas/{tenantId}/configuracoes/logo_igreja.png` (placeholder mínimo se ausente). */
+export async function ensureConfiguracoesStorageFolder(
+  tenantId: string,
+): Promise<{ created: boolean; path: string }> {
+  const tid = String(tenantId || "").trim();
+  if (!tid) return { created: false, path: "" };
+  const bucket = admin.storage().bucket();
+  const pngPath = `igrejas/${tid}/configuracoes/logo_igreja.png`;
+  const jpgPath = `igrejas/${tid}/configuracoes/logo_igreja.jpg`;
+  for (const path of [pngPath, jpgPath]) {
+    const file = bucket.file(path);
+    const [exists] = await file.exists();
+    if (exists) return { created: false, path };
+  }
+  await bucket.file(pngPath).save(MIN_PLACEHOLDER_PNG, {
+    contentType: "image/png",
+    resumable: false,
+    metadata: { cacheControl: "public,max-age=60" },
+  });
+  return { created: true, path: pngPath };
+}
+
 /** `igrejas/{tenantId}/financeiro/_structure/placeholder.png` */
 export async function ensureFinanceiroStorageFolder(
   tenantId: string,

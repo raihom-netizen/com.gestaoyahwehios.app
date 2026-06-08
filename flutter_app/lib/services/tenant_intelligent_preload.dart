@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_doc_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Pré-carregamento inteligente — após login/dashboard, aquece Hive + Firestore cache.
 abstract final class TenantIntelligentPreload {
@@ -96,9 +97,8 @@ abstract final class TenantIntelligentPreload {
           tenantId: tenantId,
           module: TenantModuleKeys.chat,
           networkFetch: () async {
-            return firebaseDefaultFirestore
-                .collection('igrejas')
-                .doc(tenantId)
+            final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+            return                 ChurchOperationalPaths.churchDoc(op)
                 .collection('chats')
                 .where('participantUids', arrayContains: uid)
                 .orderBy('lastMessageAt', descending: true)

@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/web/open_external_url.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 bool _churchPublicEventoStillActive(Map<String, dynamic> m, DateTime now) {
   final v = m['validUntil'];
@@ -38,9 +39,8 @@ Future<ChurchProximoCultoSnapshot?> fetchChurchProximoCultoSnapshot(
   if (tid.isEmpty) return null;
   final now = DateTime.now();
   try {
-    final snap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tid)
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final snap = await         ChurchOperationalPaths.churchDoc(op)
         .collection(ChurchTenantPostsCollections.eventos)
         .where('type', isEqualTo: 'evento')
         .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(now))

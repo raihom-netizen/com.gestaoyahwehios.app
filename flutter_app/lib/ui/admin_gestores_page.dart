@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:intl/intl.dart';
 import 'pages/usuarios_permissoes_page.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Confirma e executa a remoção da igreja e limpeza de todos os dados vinculados.
 Future<void> _confirmarRemoverIgreja(
@@ -258,10 +259,9 @@ class _IgrejaGestoresTileState extends State<_IgrejaGestoresTile> {
 
   Future<void> _loadStats() async {
     try {
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
       final snap = await FirestoreWebGuard.runWithWebRecovery(() {
-        return FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(widget.tenantId)
+        return ChurchOperationalPaths.churchDoc(op)
             .collection('users')
             .limit(60)
             .get();
@@ -472,10 +472,9 @@ class _CadastrarGestorDialogState extends State<_CadastrarGestorDialog> {
 
   Future<void> _carregar() async {
     try {
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
       final doc = await FirestoreWebGuard.runWithWebRecovery(() {
-        return FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(widget.tenantId)
+        return ChurchOperationalPaths.churchDoc(op)
             .get();
       });
       final data = doc.data() ?? {};
@@ -519,8 +518,8 @@ class _CadastrarGestorDialogState extends State<_CadastrarGestorDialog> {
     }
     setState(() => _saving = true);
     try {
-      final ref =
-          FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId);
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final ref = ChurchOperationalPaths.churchDoc(op);
       final update = <String, dynamic>{
         'gestorNome': nome,
         'gestor_nome': nome,

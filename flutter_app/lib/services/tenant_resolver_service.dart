@@ -3,6 +3,7 @@ import 'dart:async' show TimeoutException;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 
 /// Resolve o ID do tenant ou igreja para carregar membros.
 /// Suporta tenants e igrejas (quando membros estão em igrejas/{id}/membros).
@@ -127,6 +128,145 @@ class TenantResolverService {
 
   static Future<void> _ensureFirestore() => ensureFirebaseReadyForPanelRead();
 
+  static const String _aliasesCollection = 'church_aliases';
+  static final Map<String, _AliasCacheEntry> _aliasByKey = {};
+  static const Duration _aliasCacheTtl = Duration(hours: 6);
+
+  /// Mapa `church_aliases/{alias}` → `canonicalId` (fonte da verdade Firestore).
+  static Future<String?> resolveChurchAlias(String rawAlias) async {
+    final alias = rawAlias.trim();
+    if (alias.isEmpty) return null;
+
+    final hit = _aliasByKey[alias];
+    if (hit != null &&
+        DateTime.now().difference(hit.resolvedAt) < _aliasCacheTtl) {
+      return hit.canonicalId;
+    }
+
+    await _ensureFirestore();
+    try {
+      final snap = await _firestore
+          .collection(_aliasesCollection)
+          .doc(alias)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 8));
+      if (!snap.exists || snap.data() == null) return null;
+      final canonical =
+          (snap.data()!['canonicalId'] ?? '').toString().trim();
+      if (canonical.isEmpty) return null;
+      _aliasByKey[alias] = _AliasCacheEntry(canonical, DateTime.now());
+      return canonical;
+    } catch (_) {
+      final mem = _aliasByKey[alias];
+      return mem?.canonicalId;
+    }
+  }
+
+  static void invalidateAliasCache({String? alias}) {
+    if (alias == null || alias.trim().isEmpty) {
+      _aliasByKey.clear();
+      return;
+    }
+    _aliasByKey.remove(alias.trim());
+  }
+
+  /// Contexto operacional completo — alias → canónico + perfil (Regra 3).
+  static Future<({
+    String canonicalId,
+    String seedId,
+    String? resolvedAlias,
+    Map<String, dynamic> profile,
+  })> resolveOperationalChurch(
+    String seedId, {
+    String? userUid,
+    bool forceRefresh = false,
+  }) async {
+    final seed = seedId.trim();
+    if (seed.isEmpty) {
+      return (
+        canonicalId: '',
+        seedId: '',
+        resolvedAlias: null,
+        profile: <String, dynamic>{},
+      );
+    }
+
+    String? aliasHit;
+    final fromAlias = await resolveChurchAlias(seed);
+    if (fromAlias != null && fromAlias.isNotEmpty) {
+      aliasHit = seed;
+    }
+
+    final canonical = await resolveOperationalChurchDocId(
+      fromAlias ?? seed,
+      userUid: userUid,
+      forceRefresh: forceRefresh,
+    );
+
+    var profile = await loadIgrejaCadastroDocDirect(
+      canonical,
+      preferServer: kIsWeb,
+    );
+    if (profile.isEmpty) {
+      final peek = peekRegistrationContext(seed, userUid: userUid);
+      if (peek != null && peek.profile.isNotEmpty) {
+        profile = Map<String, dynamic>.from(peek.profile);
+      }
+    }
+
+    return (
+      canonicalId: canonical,
+      seedId: seed,
+      resolvedAlias: aliasHit,
+      profile: profile,
+    );
+  }
+
+  /// Regra 6 — alinha `users/{uid}` ao ID canónico sem intervenção manual.
+  static Future<bool> syncUserToCanonicalChurchId({
+    required String userUid,
+    required String canonicalId,
+  }) async {
+    final uid = userUid.trim();
+    final canonical = canonicalId.trim();
+    if (uid.isEmpty || canonical.isEmpty) return false;
+
+    try {
+      final ref = _firestore.collection('users').doc(uid);
+      final snap = await ref
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 8));
+      if (!snap.exists) return false;
+      final data = snap.data() ?? {};
+      final stored =
+          (data['igrejaId'] ?? data['tenantId'] ?? '').toString().trim();
+      if (stored == canonical) return false;
+
+      final siblings = await getAllRelatedIgrejaDocIds(canonical)
+          .timeout(const Duration(seconds: 8));
+      final cluster = <String>{canonical, ...siblings};
+      if (stored.isNotEmpty && !cluster.contains(stored)) return false;
+
+      await ref.set(
+        {
+          'igrejaId': canonical,
+          'tenantId': canonical,
+          'churchCanonicalId': canonical,
+          if (stored.isNotEmpty && stored != canonical) 'legacyIgrejaId': stored,
+          'tenantSyncedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      invalidateOperationalChurchDocCache(seedId: stored, userUid: uid);
+      invalidateOperationalChurchDocCache(seedId: canonical, userUid: uid);
+      invalidateRegistrationContextCache(seedId: stored, userUid: uid);
+      invalidateRegistrationContextCache(seedId: canonical, userUid: uid);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Resolve `igrejas/{id}` a partir do slug da URL pública (cadastro de membro / site).
   static Future<String?> resolveIgrejaDocIdFromPublicSlug(String rawSlug) async {
     final slugTrim = rawSlug.trim();
@@ -135,6 +275,9 @@ class TenantResolverService {
     final slugLower = slugTrim.toLowerCase();
     final anchored = _publicSlugToCanonicalDocId[slugLower];
     if (anchored != null && anchored.isNotEmpty) return anchored;
+
+    final fromAlias = await resolveChurchAlias(slugTrim);
+    if (fromAlias != null && fromAlias.isNotEmpty) return fromAlias;
 
     await _ensureFirestore();
     for (final field in const ['slug', 'alias', 'slugId']) {
@@ -165,6 +308,9 @@ class TenantResolverService {
   static Future<String> resolveEffectiveTenantId(String id) async {
     final raw = id.trim();
     if (raw.isEmpty) return id;
+
+    final fromAlias = await resolveChurchAlias(raw);
+    if (fromAlias != null && fromAlias.isNotEmpty) return fromAlias;
 
     await _ensureFirestore();
     try {
@@ -333,6 +479,19 @@ class TenantResolverService {
 
     _operationalByKey[cacheKey] =
         _OperationalTenantCacheEntry(operational, DateTime.now());
+    AgentDebugLog.log(
+      location: 'tenant_resolver_service.dart:resolveOperational',
+      message: 'operational_id_resolved',
+      hypothesisId: 'A',
+      data: {
+        'seed': seed,
+        'bound': bound,
+        'claimId': claimId,
+        'operational': operational,
+        'siblingsCount': siblings.length,
+        'forceRefresh': forceRefresh,
+      },
+    );
     return operational;
   }
 
@@ -422,7 +581,10 @@ class TenantResolverService {
     bump('instagramUrl');
     bump('logoUrl');
     bump('logoProcessedUrl');
-    if (data['registrationComplete'] == true) score += 3;
+    if (data['registrationComplete'] == true ||
+        data['RegistrationComplete'] == true) {
+      score += 3;
+    }
     return score;
   }
 
@@ -434,24 +596,34 @@ class TenantResolverService {
     final id = churchDocId.trim();
     if (id.isEmpty) return {};
     await _ensureFirestore();
-    try {
-      final snap = await _firestore
-          .collection('igrejas')
-          .doc(id)
-          .get(
-            GetOptions(
-              source: preferServer || kIsWeb
-                  ? Source.server
-                  : Source.serverAndCache,
-            ),
-          )
-          .timeout(
-            Duration(seconds: preferServer || kIsWeb ? 18 : 10),
-          );
+    final ref = _firestore.collection('igrejas').doc(id);
+    final timeout = Duration(seconds: preferServer || kIsWeb ? 18 : 10);
+
+    Future<Map<String, dynamic>> readWith(Source source) async {
+      final snap = await ref.get(GetOptions(source: source)).timeout(timeout);
       if (snap.exists && snap.data() != null) {
         return Map<String, dynamic>.from(snap.data()!);
       }
-    } catch (_) {}
+      return {};
+    }
+
+    final sources = <Source>[
+      if (preferServer || kIsWeb) Source.server else Source.serverAndCache,
+      Source.serverAndCache,
+      Source.cache,
+    ];
+    final seen = <Source>{};
+    for (final src in sources) {
+      if (!seen.add(src)) continue;
+      try {
+        final data = await readWith(src);
+        if (data.isNotEmpty) return data;
+      } catch (_) {}
+    }
+    final peek = peekRegistrationContext(id);
+    if (peek != null && peek.profile.isNotEmpty) {
+      return Map<String, dynamic>.from(peek.profile);
+    }
     return {};
   }
 
@@ -974,5 +1146,12 @@ class _RegistrationContextCacheEntry {
 
   final String operationalId;
   final Map<String, dynamic> profile;
+  final DateTime resolvedAt;
+}
+
+class _AliasCacheEntry {
+  _AliasCacheEntry(this.canonicalId, this.resolvedAt);
+
+  final String canonicalId;
   final DateTime resolvedAt;
 }

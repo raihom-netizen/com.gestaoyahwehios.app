@@ -43,6 +43,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class DepartmentsPage extends StatefulWidget {
   final String tenantId;
@@ -335,9 +336,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   CollectionReference<Map<String, dynamic>> _departamentosCol(String tid) =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
+                ChurchOperationalPaths.churchDoc(tid)
           .collection('departamentos');
 
   void _onDepartmentsBootstrapError(Object e) {
@@ -414,14 +413,15 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
     if (forceServer) {
       return FirestoreWebGuard.runWithWebRecovery(
-        () => FirestoreReadResilience.getQuery(
-          FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(tid)
-              .collection('departamentos')
-              .limit(120),
-          cacheKey: '${tid}_departamentos_120_srv',
-        ),
+        () async {
+          final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+          return FirestoreReadResilience.getQuery(
+            ChurchOperationalPaths.churchDoc(op)
+                .collection('departamentos')
+                .limit(120),
+            cacheKey: '${tid}_departamentos_120_srv',
+          );
+        },
       );
     }
     return ChurchTenantResilientReads.departamentos(tid, limit: 120);
@@ -468,9 +468,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         }
       }
 
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .limit(400)
           .get(const GetOptions(source: Source.serverAndCache))
@@ -747,9 +746,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     required String deptId,
     required String deptName,
   }) async {
-    final membrosSnap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(_tid)
+    final op = await ChurchOperationalPaths.resolveCached(_tid.trim());
+    final membrosSnap = await         ChurchOperationalPaths.churchDoc(op)
         .collection('membros')
         .where('DEPARTAMENTOS', arrayContains: deptId)
         .get();
@@ -1059,15 +1057,11 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _col =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_tid)
+                ChurchOperationalPaths.churchDoc(_tid)
           .collection('departamentos');
 
   CollectionReference<Map<String, dynamic>> get _membersCol =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_tid)
+                ChurchOperationalPaths.churchDoc(_tid)
           .collection('membros');
 
   bool _deptIdPreferCanonical(String id) =>
@@ -2601,9 +2595,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     if (tid.isEmpty || !mounted) return null;
     QuerySnapshot<Map<String, dynamic>> snap;
     try {
-      snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .limit(450)
           .get();

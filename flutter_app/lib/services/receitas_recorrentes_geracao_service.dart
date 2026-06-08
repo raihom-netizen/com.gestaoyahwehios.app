@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 
 /// Competência no formato `yyyy-MM`.
 String competenciaFinanceira(DateTime d) =>
@@ -13,9 +15,12 @@ String idLancamentoRecorrencia(String receitaRecorrenteId, String competencia) =
 ///
 /// Só gera competências entre o mês de [dataInicio] e o **mês atual** (sem meses futuros).
 Future<int> gerarReceitasRecorrentesPendentes(String tenantId) async {
-  final db = FirebaseFirestore.instance;
-  final ig = db.collection('igrejas').doc(tenantId);
-  final recSnap = await ig.collection('receitas_recorrentes').get();
+  final op = await ChurchOperationalPaths.resolveCached(tenantId);
+  final ig = ChurchOperationalPaths.churchDoc(op);
+  final recSnap = await ChurchTenantResilientReads.receitasRecorrentes(
+    op,
+    limit: 500,
+  );
   final fin = ig.collection('finance');
   final now = DateTime.now();
   final mesAtual = DateTime(now.year, now.month, 1);

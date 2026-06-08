@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/church_performance_cache_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl, preloadNetworkImages, sanitizeImageUrl;
 
@@ -19,9 +20,8 @@ abstract final class PublicSiteMediaPrefetchService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return null;
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('_performance_cache')
           .doc('public_feed')
           .get();

@@ -2,6 +2,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -138,7 +139,8 @@ class NoticiaExpiredMediaCleanupService {
   }
 
   static Future<void> _run(String tenantId) async {
-    final base = FirebaseFirestore.instance.collection('igrejas').doc(tenantId);
+    final op = await ChurchOperationalPaths.resolveCached(tenantId);
+    final base = ChurchOperationalPaths.churchDoc(op);
     await _purgeCollection(
         base.collection(ChurchTenantPostsCollections.eventos));
     await _purgeCollection(base.collection(ChurchTenantPostsCollections.avisos));

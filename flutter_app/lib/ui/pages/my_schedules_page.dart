@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Agrupa documentos de escala por dia civil (ordenados por horário dentro do dia).
 Map<DateTime, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupSchedulesByDay(
@@ -802,7 +803,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     if (_effectiveTenantId.isNotEmpty) return _effectiveTenantId;
     final hint = widget.tenantId.trim();
     try {
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+      final tid = await ChurchOperationalPaths.resolveCached(
         widget.tenantId,
         userUid: FirebaseAuth.instance.currentUser?.uid,
       ).timeout(const Duration(seconds: 8), onTimeout: () => hint);
@@ -836,10 +837,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         ? _effectiveTenantId
         : widget.tenantId.trim();
     if (tid.isEmpty) return;
-    final col = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tid)
-        .collection('membros');
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final col = ChurchOperationalPaths.churchDoc(op).collection('membros');
 
     Future<bool> applyFirst(QuerySnapshot<Map<String, dynamic>> snap) async {
       if (snap.docs.isEmpty) return false;
@@ -909,10 +908,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       return docs;
     }
 
-    final members = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tid)
-        .collection('membros');
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final members = ChurchOperationalPaths.churchDoc(op).collection('membros');
     final deptIds = await _loadMemberDepartments(members);
     final map = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
     if (_cpfDigits.isNotEmpty) {
@@ -1107,7 +1104,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     String solicitanteNome = '';
     try {
       final col =
-          FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('membros');
+          ChurchOperationalPaths.churchDoc(tid).collection('membros');
       final byId = await col.doc(_cpfDigits).get();
       if (byId.exists) {
         final d = byId.data()!;
@@ -1200,9 +1197,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     );
     if (chosen == null || !context.mounted) return;
     try {
-      await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
+      await           ChurchOperationalPaths.churchDoc(tid)
           .collection('escala_trocas')
           .add({
         'escalaId': escalaDoc.id,
@@ -1277,9 +1272,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         : widget.tenantId.trim();
     if (tid.isEmpty) return const SizedBox.shrink();
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(tid)
+          stream:               ChurchOperationalPaths.churchDoc(tid)
               .collection('escala_trocas')
               .where('alvoCpf', isEqualTo: _cpfDigits)
               .watchSafe(),
@@ -1390,8 +1383,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   Future<String?> _resolveMemberDocId(String tid) async {
     if (_cpfDigits.length != 11) return null;
-    final col =
-        FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('membros');
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final col = ChurchOperationalPaths.churchDoc(op).collection('membros');
     final byId = await col.doc(_cpfDigits).get();
     if (byId.exists) return _cpfDigits;
     for (final field in ['CPF', 'cpf']) {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -144,10 +145,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     }
     final filter = _respondidaFilterFromStatus();
     if (forceServer) {
-      final col = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('pedidosOracao');
+      final op = await ChurchOperationalPaths.resolveCached(tid);
+      final col = ChurchOperationalPaths.churchDoc(op).collection('pedidosOracao');
       final snap = await FirestoreReadResilience.getQuery(
         col.limit(300),
         cacheKey: _pedidosMemKey(tid, _filtroCacheSuffix()),
@@ -202,7 +201,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
 
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
-      final op = await TenantResolverService.resolveOperationalChurchDocId(
+      final op = await ChurchOperationalPaths.resolveCached(
         seed,
         userUid: uid,
       ).timeout(
@@ -289,11 +288,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     'Outro': Color(0xFF424242),
   };
 
-  CollectionReference<Map<String, dynamic>> get _col => FirebaseFirestore
-      .instance
-      .collection('igrejas')
-      .doc(_tid)
-      .collection('pedidosOracao');
+  CollectionReference<Map<String, dynamic>> get _col =>
+      ChurchOperationalPaths.churchDoc(_tid).collection('pedidosOracao');
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
 
@@ -1261,8 +1257,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     final id = effective.trim().isNotEmpty ? effective : tenantId.trim();
     if (id.isEmpty) return [];
 
-    final db = FirebaseFirestore.instance;
-    final churchRef = db.collection('igrejas').doc(id);
+    final op = await ChurchOperationalPaths.resolveCached(id);
+    final churchRef = ChurchOperationalPaths.churchDoc(op);
 
     final membrosDocs = await _paginateSubcollection(churchRef, 'membros');
     final legacyDocs = await _paginateSubcollection(churchRef, 'members');

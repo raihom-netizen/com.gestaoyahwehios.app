@@ -1,6 +1,7 @@
 import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
@@ -11,6 +12,7 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -25,6 +27,65 @@ abstract final class ChurchTenantResilientReads {
 
   static DocumentReference<Map<String, dynamic>> _church(String tenantId) =>
       firebaseDefaultFirestore.collection('igrejas').doc(tenantId.trim());
+
+  static Future<String> _readTenantId(String tenantId, {String? userUid}) async {
+    final seed = tenantId.trim();
+    if (seed.isEmpty) return seed;
+    final uid = (userUid ?? FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    try {
+      return await operationalTenantId(seed, userUid: uid.isEmpty ? null : uid);
+    } catch (_) {
+      return seed;
+    }
+  }
+
+  /// Regra 8 — permission-denied / rede: re-resolve tenant e refaz leitura.
+  static Future<T> withTenantRecovery<T>({
+    required String tenantId,
+    required String module,
+    required Future<T> Function(String operationalId) fetch,
+    String? userUid,
+    int maxAttempts = 3,
+  }) async {
+    final seed = tenantId.trim();
+    Object? lastError;
+    var operational = seed;
+
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        if (attempt > 0) {
+          TenantResolverService.invalidateOperationalChurchDocCache(
+            seedId: seed,
+            userUid: userUid,
+          );
+          await preparePanelRead(refreshToken: attempt >= 1);
+          operational = await operationalTenantId(seed, userUid: userUid);
+        } else {
+          operational = await operationalTenantId(seed, userUid: userUid);
+        }
+        return await fetch(operational);
+      } catch (e, st) {
+        lastError = e;
+        final transient = FirestoreReadResilience.isTransient(e) ||
+            (e is FirebaseException && e.code == 'permission-denied');
+        if (!transient || attempt >= maxAttempts - 1) {
+          unawaited(
+            SystemLogService.recordTenantAccessDenied(
+              module: module,
+              tenantId: operational,
+              error: e,
+              stackTrace: st,
+            ),
+          );
+          rethrow;
+        }
+        await Future<void>.delayed(
+          Duration(milliseconds: 280 + attempt * 320),
+        );
+      }
+    }
+    throw lastError ?? StateError('tenant_recovery_failed');
+  }
 
   /// Token + Firestore pronto (leitura do painel, sem desligar rede).
   static Future<void> preparePanelRead({bool refreshToken = false}) async {
@@ -94,12 +155,14 @@ abstract final class ChurchTenantResilientReads {
   }
 
   static Future<DocumentSnapshot<Map<String, dynamic>>> churchDocument(
-    String tenantId,
-  ) async {
+    String tenantId, {
+    String? userUid,
+  }) async {
     await preparePanelRead();
+    final tid = await _readTenantId(tenantId, userUid: userUid);
     return FirestoreReadResilience.getDocument(
-      _church(tenantId),
-      cacheKey: _key(tenantId, 'igreja_doc'),
+      _church(tid),
+      cacheKey: _key(tid, 'igreja_doc'),
     );
   }
 
@@ -312,10 +375,13 @@ abstract final class ChurchTenantResilientReads {
   /// Se o doc principal estiver vazio, lê o mesmo módulo nos docs irmãos (mesmo slug).
   static Future<QuerySnapshot<Map<String, dynamic>>> _queryWithSiblingFallback(
     String tenantId,
-    Future<QuerySnapshot<Map<String, dynamic>>> Function(String tid) loadFor,
-  ) async {
-    final primary = tenantId.trim();
+    Future<QuerySnapshot<Map<String, dynamic>>> Function(String tid) loadFor, {
+    String? userUid,
+  }) async {
+    var primary = tenantId.trim();
     if (primary.isEmpty) return const MergedFirestoreQuerySnapshot([]);
+
+    primary = await _readTenantId(primary, userUid: userUid);
 
     QuerySnapshot<Map<String, dynamic>> snap;
     try {
@@ -538,35 +604,67 @@ abstract final class ChurchTenantResilientReads {
   static Future<QuerySnapshot<Map<String, dynamic>>> departamentos(
     String tenantId, {
     int limit = 120,
-  }) =>
-      TenantStaleWhileRevalidate.loadQuery(
-        tenantId: tenantId,
-        module: TenantModuleKeys.departamentos,
-        firestoreCacheKey: _key(tenantId, 'departamentos_$limit'),
-        networkFetch: () => _queryWithSiblingFallback(
-          tenantId,
-          (tid) => FirestoreWebGuard.runWithWebRecovery(
-            () => FirestoreReadResilience.getQuery(
-              _church(tid).collection('departamentos').limit(limit),
-              cacheKey: _key(tid, 'departamentos_$limit'),
-            ),
+    String? userUid,
+  }) async {
+    final uid = userUid ?? FirebaseAuth.instance.currentUser?.uid;
+    final tid = await _readTenantId(tenantId, userUid: uid);
+    return TenantStaleWhileRevalidate.loadQuery(
+      tenantId: tid,
+      module: TenantModuleKeys.departamentos,
+      firestoreCacheKey: _key(tid, 'departamentos_$limit'),
+      networkFetch: () => _queryWithSiblingFallback(
+        tid,
+        (id) => FirestoreWebGuard.runWithWebRecovery(
+          () => FirestoreReadResilience.getQuery(
+            _church(id).collection('departamentos').limit(limit),
+            cacheKey: _key(id, 'departamentos_$limit'),
           ),
         ),
-      );
+        userUid: uid,
+      ),
+    );
+  }
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> funcoesControle(
+    String tenantId, {
+    int limit = 80,
+    String? userUid,
+  }) async {
+    final uid = userUid ?? FirebaseAuth.instance.currentUser?.uid;
+    final tid = await _readTenantId(tenantId, userUid: uid);
+    return TenantStaleWhileRevalidate.loadQuery(
+      tenantId: tid,
+      module: 'funcoes_controle',
+      firestoreCacheKey: _key(tid, 'funcoes_controle_$limit'),
+      networkFetch: () => _queryWithSiblingFallback(
+        tid,
+        (id) => FirestoreReadResilience.getQuery(
+          _church(id).collection('funcoesControle').orderBy('order').limit(limit),
+          cacheKey: _key(id, 'funcoes_controle_$limit'),
+        ),
+        userUid: uid,
+      ),
+    );
+  }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> cargos(
     String tenantId, {
     int limit = 120,
-  }) =>
-      TenantStaleWhileRevalidate.loadQuery(
-        tenantId: tenantId,
-        module: TenantModuleKeys.cargos,
-        firestoreCacheKey: _key(tenantId, 'cargos_$limit'),
-        networkFetch: () => _queryWithSiblingFallback(
-          tenantId,
-          (tid) => _cargosQueryResilient(tid, limit: limit),
-        ),
-      );
+    String? userUid,
+  }) async {
+    final uid = userUid ?? FirebaseAuth.instance.currentUser?.uid;
+    final tid = await _readTenantId(tenantId, userUid: uid);
+    return TenantStaleWhileRevalidate.loadQuery(
+      tenantId: tid,
+      module: TenantModuleKeys.cargos,
+      firestoreCacheKey: _key(tid, 'cargos_$limit'),
+      networkFetch: () => _queryWithSiblingFallback(
+        tid,
+        (id) => _cargosQueryResilient(id, limit: limit),
+        userUid: uid,
+      ),
+    );
+  }
 
   static String _cargoSortKey(Map<String, dynamic> data) =>
       (data['name'] ?? data['nome'] ?? '').toString().trim().toLowerCase();

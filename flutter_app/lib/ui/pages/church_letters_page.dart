@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 enum _CartaKind {
   apresentacao,
@@ -102,16 +103,12 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   DateTimeRange? _histCustomRange;
 
   DocumentReference<Map<String, dynamic>> get _configRef =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .collection('config')
           .doc('cartas');
 
   CollectionReference<Map<String, dynamic>> get _historicoCol =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .collection('cartas_historico');
 
   String _effectiveTenantId = '';
@@ -205,9 +202,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     if (hint.isNotEmpty) _effectiveTenantId = hint;
 
     try {
-      final ch = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+      final ch = await           ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .get(const GetOptions(source: Source.serverAndCache));
       final d = ch.data() ?? {};
       if (mounted) {
@@ -261,9 +256,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           });
           await _openChurchLettersFast();
           try {
-            final ch = await FirebaseFirestore.instance
-                .collection('igrejas')
-                .doc(tid)
+            final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+            final ch = await                 ChurchOperationalPaths.churchDoc(op)
                 .get(const GetOptions(source: Source.serverAndCache));
             if (mounted) {
               setState(() {
@@ -335,9 +329,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     final tid = _effectiveTenantId.trim();
     if (tid.isEmpty) return;
 
-    final col = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tid)
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final col =         ChurchOperationalPaths.churchDoc(op)
         .collection('membros');
 
     DocumentSnapshot<Map<String, dynamic>>? memDoc;

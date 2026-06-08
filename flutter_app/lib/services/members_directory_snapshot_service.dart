@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'firestore_stream_utils.dart' show FirestoreStreamUtils, MergedFirestoreQuerySnapshot;
 
 /// Entrada leve em `igrejas/{tid}/_panel_cache/members_directory`.
@@ -228,12 +228,19 @@ class MembersDirectorySnapshotService {
     return null;
   }
 
-  static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
-    return firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tenantId.trim())
+  static DocumentReference<Map<String, dynamic>> cacheRefForOperational(
+    String operationalTenantId,
+  ) {
+    return ChurchOperationalPaths.churchDoc(operationalTenantId.trim())
         .collection('_panel_cache')
         .doc('members_directory');
+  }
+
+  static Future<DocumentReference<Map<String, dynamic>>> cacheRef(
+    String tenantId,
+  ) async {
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    return cacheRefForOperational(op);
   }
 
   static Stream<MembersDirectorySnapshot> watch(String tenantId) {
@@ -241,9 +248,11 @@ class MembersDirectorySnapshotService {
     if (tid.isEmpty) {
       return Stream.value(const MembersDirectorySnapshot());
     }
-    return FirestoreStreamUtils.documentWatchBootstrap(cacheRef(tid)).map(
-      (snap) => MembersDirectorySnapshot.fromMap(snap.data()),
-    );
+    return Stream.fromFuture(ChurchOperationalPaths.resolveCached(tid))
+        .asyncExpand((op) {
+      return FirestoreStreamUtils.documentWatchBootstrap(cacheRefForOperational(op))
+          .map((snap) => MembersDirectorySnapshot.fromMap(snap.data()));
+    });
   }
 
   static Future<MembersDirectorySnapshot> readOnce(String tenantId) async {
@@ -252,7 +261,7 @@ class MembersDirectorySnapshotService {
     final mem = peekMemory(tid);
     if (mem != null) return mem;
     try {
-      final cached = await cacheRef(tid)
+      final cached = await (await cacheRef(tid))
           .get(const GetOptions(source: Source.cache))
           .timeout(const Duration(seconds: 3));
       final fromCache = MembersDirectorySnapshot.fromMap(cached.data());
@@ -262,7 +271,7 @@ class MembersDirectorySnapshotService {
       }
     } catch (_) {}
     try {
-      final snap = await cacheRef(tid)
+      final snap = await (await cacheRef(tid))
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 8));
       final fromServer = MembersDirectorySnapshot.fromMap(snap.data());
@@ -291,7 +300,7 @@ class MembersDirectorySnapshotService {
     final mem = peekMemory(tid);
     if (mem != null && _snapshotComplete(mem)) return mem;
     try {
-      final doc = await cacheRef(tid)
+      final doc = await (await cacheRef(tid))
           .get(const GetOptions(source: Source.cache))
           .timeout(const Duration(seconds: 3));
       final u = doc.data()?['updatedAt'];
@@ -345,7 +354,7 @@ class MembersDirectorySnapshotService {
     if (tid.isEmpty || !snap.hasEntries) {
       return const MergedFirestoreQuerySnapshot([]);
     }
-    final baseRef = firebaseDefaultFirestore.collection('igrejas').doc(tid);
+    final baseRef = ChurchOperationalPaths.churchDoc(tid);
     final docs = snap.entries.map((e) {
       final id = e.memberDocId.trim().isNotEmpty ? e.memberDocId.trim() : 'dir_${e.displayName.hashCode}';
       return _DirectoryMemberQueryDocumentSnapshot(

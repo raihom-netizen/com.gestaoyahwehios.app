@@ -1,6 +1,9 @@
+import 'dart:async' show unawaited;
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import '../../services/app_permissions.dart';
@@ -33,16 +36,31 @@ class UsuariosPermissoesPage extends StatefulWidget {
 }
 
 class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
-  late final CollectionReference<Map<String, dynamic>> _usersCol;
+  CollectionReference<Map<String, dynamic>>? _usersCol;
+  String? _operationalTenantId;
   static const int _membersLoadLimit = 2000;
   List<_UserOrMemberRow> _membersFromCollections = [];
   String _busca = '';
 
+  String get _effectiveTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
+
   @override
   void initState() {
     super.initState();
-    _usersCol = FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('users');
-    _loadMembersAndMembros();
+    unawaited(_bootstrapOperationalTenant());
+  }
+
+  Future<void> _bootstrapOperationalTenant() async {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return;
+    final op = await ChurchOperationalPaths.resolveCached(seed);
+    if (!mounted) return;
+    setState(() {
+      _operationalTenantId = op;
+      _usersCol = ChurchOperationalPaths.churchDoc(op).collection('users');
+    });
+    await _loadMembersAndMembros();
   }
 
   Future<void> _loadMembersAndMembros() async {
@@ -62,7 +80,11 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
 
       for (final tid in allIds) {
         try {
-          final snap = await db.collection('igrejas').doc(tid).collection('membros').limit(_membersLoadLimit).get();
+          final op = await ChurchOperationalPaths.resolveCached(tid);
+          final snap = await ChurchOperationalPaths.churchDoc(op)
+              .collection('membros')
+              .limit(_membersLoadLimit)
+              .get();
           for (final d in snap.docs) { add(d); }
         } catch (_) {}
       }
@@ -74,13 +96,17 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
   }
 
   Future<void> _editarPermissoes(String userId, List<String> roles) async {
-    await _usersCol.doc(userId).set({'roles': roles}, SetOptions(merge: true));
+    final col = _usersCol;
+    if (col == null) return;
+    await col.doc(userId).set({'roles': roles}, SetOptions(merge: true));
     setState(() {});
   }
 
   Future<void> _editarModulos(String userId, List<String> permissions) async {
+    final col = _usersCol;
+    if (col == null) return;
     final normalized = permissions.map((e) => e.trim().toLowerCase()).where((e) => e.isNotEmpty).toSet().toList();
-    await _usersCol.doc(userId).set({'permissions': normalized}, SetOptions(merge: true));
+    await col.doc(userId).set({'permissions': normalized}, SetOptions(merge: true));
     setState(() {});
   }
 
@@ -163,8 +189,10 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
               ],
             ),
       body: SafeArea(
-        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: _usersCol.watchSafe(),
+        child: _usersCol == null
+            ? const Center(child: CircularProgressIndicator())
+            : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _usersCol!.watchSafe(),
           builder: (context, snap) {
             if (snap.hasError) {
               return Center(child: Text('Erro ao carregar usuários.', style: TextStyle(color: Colors.grey.shade600)));

@@ -123,6 +123,7 @@ import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Painel: prioriza `_panel_cache` (scan servidor até ~800 membros) sobre stream local limitado.
 bool dashboardPreferPanelCacheMembers(
@@ -381,7 +382,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   /// Resolve o ID operacional do tenant (vínculo users + doc com departamentos).
   Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.resolveOperationalChurchDocId(
+      ChurchOperationalPaths.resolveCached(
         widget.tenantId,
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );
@@ -493,7 +494,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   void _attachPanelFeedStreams(String resolved) {
     final tenantRef =
-        firebaseDefaultFirestore.collection('igrejas').doc(resolved);
+        ChurchOperationalPaths.churchDoc(resolved);
     final avisosQ = tenantRef
         .collection(ChurchTenantPostsCollections.avisos)
         .orderBy('createdAt', descending: true)
@@ -598,7 +599,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     if (forceToken) _initialAuthTokenForced = true;
     unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: forceToken));
     if (!mounted) return;
-    final tenantRef = firebaseDefaultFirestore.collection('igrejas').doc(resolved);
+    final tenantRef = ChurchOperationalPaths.churchDoc(resolved);
     var churchSlug = '';
     var churchNome = '';
     late final List<String> allIds;
@@ -776,9 +777,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     String tenantId,
     int lim,
   ) {
-    return db
-        .collection('igrejas')
-        .doc(tenantId)
+    return         ChurchOperationalPaths.churchDoc(tenantId)
         .collection('membros')
         .limit(lim)
         .watchSafe();
@@ -820,9 +819,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       );
     }
     if (allIds.length == 1) {
-      return db
-          .collection('igrejas')
-          .doc(allIds.first)
+      return           ChurchOperationalPaths.churchDoc(allIds.first)
           .collection('departamentos')
           .limit(_dashboardDepartmentsLimit)
           .watchSafe();
@@ -844,9 +841,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
       for (final id in allIds) {
         subs.add(
-          db
-              .collection('igrejas')
-              .doc(id)
+                        ChurchOperationalPaths.churchDoc(id)
               .collection('departamentos')
               .limit(_dashboardDepartmentsLimit)
               .watchSafe()
@@ -2979,7 +2974,7 @@ class _DashboardInstitutionalVideoStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: firebaseDefaultFirestore.collection('igrejas').doc(tenantId).watchSafe(),
+      stream: ChurchOperationalPaths.churchDoc(tenantId).watchSafe(),
       builder: (context, snap) {
         final data = snap.data?.data();
         if (data == null || !mapHasInstitutionalVideo(data)) {
@@ -3060,9 +3055,7 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
           .timeout(const Duration(seconds: 8));
       if (slug.isEmpty) {
         final snap = await FirestoreWebGuard.runWithWebRecovery(() {
-          return FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(operational)
+          return               ChurchOperationalPaths.churchDoc(operational)
               .get(const GetOptions(source: Source.cache))
               .timeout(const Duration(seconds: 4));
         });
@@ -3070,9 +3063,7 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
       }
       if (slug.isEmpty) {
         final server = await FirestoreWebGuard.runWithWebRecovery(() {
-          return FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(operational)
+          return               ChurchOperationalPaths.churchDoc(operational)
               .get()
               .timeout(const Duration(seconds: 8));
         });
@@ -5922,9 +5913,7 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
       _recentDespesasFuture = null;
       return;
     }
-    _recentDespesasFuture = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tid)
+    _recentDespesasFuture =         ChurchOperationalPaths.churchDoc(tid)
         .collection('finance')
         .orderBy('createdAt', descending: true)
         .limit(180)
@@ -6176,9 +6165,7 @@ class _TarefasPendentes extends StatelessWidget {
                   color: const Color(0xFFE11D48),
                   label: 'Membros pendentes de aprovação',
                   count: cacheReady ? summary.pendingMembersCount : null,
-                  fallbackStream: FirebaseFirestore.instance
-                      .collection('igrejas')
-                      .doc(tenantId)
+                  fallbackStream:                       ChurchOperationalPaths.churchDoc(tenantId)
                       .collection('membros')
                       .where('status', isEqualTo: 'pendente')
                       .limit(40)
@@ -6197,9 +6184,7 @@ class _TarefasPendentes extends StatelessWidget {
                 color: const Color(0xFF0891B2),
                 label: 'Visitantes aguardando follow-up',
                 count: cacheReady ? summary.newVisitorsCount : null,
-                fallbackStream: FirebaseFirestore.instance
-                    .collection('igrejas')
-                    .doc(tenantId)
+                fallbackStream:                     ChurchOperationalPaths.churchDoc(tenantId)
                     .collection('visitantes')
                     .where('status', isEqualTo: 'Novo')
                     .limit(40)
@@ -6215,9 +6200,7 @@ class _TarefasPendentes extends StatelessWidget {
                 color: const Color(0xFF7C3AED),
                 label: 'Pedidos de oração ativos',
                 count: cacheReady ? summary.openPrayerRequestsCount : null,
-                fallbackStream: FirebaseFirestore.instance
-                    .collection('igrejas')
-                    .doc(tenantId)
+                fallbackStream:                     ChurchOperationalPaths.churchDoc(tenantId)
                     .collection('pedidosOracao')
                     .where('respondida', isEqualTo: false)
                     .limit(40)
@@ -6860,7 +6843,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   if (tid.isEmpty) tid = tenantId.trim();
   if (tid.isEmpty) return const [];
 
-  final churchRef = FirebaseFirestore.instance.collection('igrejas').doc(tid);
+  final churchRef = ChurchOperationalPaths.churchDoc(tid);
   final noticiasRef = churchRef.collection('eventos');
   final templatesRef = churchRef.collection('event_templates');
 
@@ -7705,9 +7688,7 @@ class _DashboardVoluntariadoAtalhoCard extends StatelessWidget {
     Widget incomingBadge = const SizedBox.shrink();
     if (_cpfDigits.length == 11) {
       incomingBadge = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(tid)
+        stream:             ChurchOperationalPaths.churchDoc(tid)
             .collection('escala_trocas')
             .where('alvoCpf', isEqualTo: _cpfDigits)
             .watchSafe(),

@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 String _contaDisplayName(Map<String, dynamic> d) {
   final n = (d['nome'] ?? '').toString().trim();
@@ -71,13 +72,9 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
   @override
   void initState() {
     super.initState();
-    _finRef = firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    _finRef =         ChurchOperationalPaths.churchDoc(widget.tenantId)
         .collection('finance');
-    _contasRef = firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    _contasRef =         ChurchOperationalPaths.churchDoc(widget.tenantId)
         .collection('contas');
     _filterCtrl.addListener(_onFilterChanged);
     if (widget.initialRangeFrom != null && widget.initialRangeTo != null) {

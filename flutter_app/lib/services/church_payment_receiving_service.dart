@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Formas de recebimento configuradas pelo gestor/pastor (`config/payment_receiving`).
 class ChurchPaymentReceivingConfig {
@@ -69,9 +70,7 @@ abstract final class ChurchPaymentReceivingService {
   ChurchPaymentReceivingService._();
 
   static DocumentReference<Map<String, dynamic>> _ref(String tenantId) =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId.trim())
+                ChurchOperationalPaths.churchDoc(tenantId.trim())
           .collection('config')
           .doc('payment_receiving');
 

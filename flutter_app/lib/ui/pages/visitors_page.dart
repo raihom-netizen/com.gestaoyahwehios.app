@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Abre WhatsApp (app ou web) com o número informado.
 Future<void> launchWhatsAppContact(
@@ -126,9 +127,8 @@ Future<void> openChurchVisitorFichaFromDashboard(
   required String visitorDocId,
 }) async {
   await FirebaseAuth.instance.currentUser?.getIdToken(true);
-  final snap = await FirebaseFirestore.instance
-      .collection('igrejas')
-      .doc(tenantId)
+  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+  final snap = await       ChurchOperationalPaths.churchDoc(op)
       .collection('visitantes')
       .doc(visitorDocId)
       .get();
@@ -140,9 +140,7 @@ Future<void> openChurchVisitorFichaFromDashboard(
     return;
   }
   final visitor = _VisitorData(id: snap.id, data: snap.data()!);
-  final membersRef = FirebaseFirestore.instance
-      .collection('igrejas')
-      .doc(tenantId)
+  final membersRef =       ChurchOperationalPaths.churchDoc(op)
       .collection('membros');
   final canManage = churchVisitorManagementRole(role);
   final isMobile = ThemeCleanPremium.isMobile(context);
@@ -259,15 +257,11 @@ class _VisitorsPageState extends State<VisitorsPage> {
       _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
 
   CollectionReference<Map<String, dynamic>> get _visitantesRef =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_tid)
+                ChurchOperationalPaths.churchDoc(_tid)
           .collection('visitantes');
 
   CollectionReference<Map<String, dynamic>> get _membersRef =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_tid)
+                ChurchOperationalPaths.churchDoc(_tid)
           .collection('membros');
 
   static String _visitantesMemKey(String tenantId) =>
@@ -281,10 +275,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
       return _visitantesRef.limit(1).get();
     }
     if (forceServer) {
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
       final snap = await FirestoreReadResilience.getQuery(
-        FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(tid)
+        ChurchOperationalPaths.churchDoc(op)
             .collection('visitantes')
             .limit(400),
         cacheKey: _visitantesMemKey(tid),
@@ -1858,9 +1851,8 @@ class _VisitorFormSheetState extends State<_VisitorFormSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
 
-    final ref = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    final ref =         ChurchOperationalPaths.churchDoc(op)
         .collection('visitantes');
 
     final payload = <String, dynamic>{
@@ -2057,9 +2049,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
   @override
   void initState() {
     super.initState();
-    _visitorDoc = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    _visitorDoc =         ChurchOperationalPaths.churchDoc(widget.tenantId)
         .collection('visitantes')
         .doc(widget.visitor.id);
     _followupsRef = _visitorDoc.collection('followups');

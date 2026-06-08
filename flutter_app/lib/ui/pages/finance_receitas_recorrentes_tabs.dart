@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/ui/pages/finance_page.dart'
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_fixo_premium_dialogs.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 const _categoriasReceitaPadrao = [
   'Dízimos',
@@ -43,9 +44,8 @@ double _parseValor(dynamic raw) {
 }
 
 Future<List<String>> _categoriasReceitaTenant(String tenantId) async {
-  final col = firebaseDefaultFirestore
-      .collection('igrejas')
-      .doc(tenantId)
+  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+  final col =       ChurchOperationalPaths.churchDoc(op)
       .collection('categorias_receitas');
   var snap = await col.orderBy('nome').get();
   if (snap.docs.isEmpty) {
@@ -65,9 +65,8 @@ Future<List<String>> _categoriasReceitaTenant(String tenantId) async {
 }
 
 Future<List<({String id, String nome})>> _contasAtivas(String tenantId) async {
-  final snap = await firebaseDefaultFirestore
-      .collection('igrejas')
-      .doc(tenantId)
+  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+  final snap = await       ChurchOperationalPaths.churchDoc(op)
       .collection('contas')
       .orderBy('nome')
       .get();
@@ -79,10 +78,8 @@ Future<List<({String id, String nome})>> _contasAtivas(String tenantId) async {
 }
 
 Future<String> _nomeIgreja(String tenantId) async {
-  final d = await firebaseDefaultFirestore
-      .collection('igrejas')
-      .doc(tenantId)
-      .get();
+  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+  final d = await ChurchOperationalPaths.churchDoc(op).get();
   return (d.data()?['nome'] ?? d.data()?['name'] ?? 'Igreja').toString().trim();
 }
 
@@ -121,9 +118,7 @@ class FinanceReceitasFixasTab extends StatefulWidget {
 }
 
 class _FinanceReceitasFixasTabState extends State<FinanceReceitasFixasTab> {
-  CollectionReference<Map<String, dynamic>> get _col => firebaseDefaultFirestore
-      .collection('igrejas')
-      .doc(widget.tenantId)
+  CollectionReference<Map<String, dynamic>> get _col =>       ChurchOperationalPaths.churchDoc(widget.tenantId)
       .collection('receitas_recorrentes');
 
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
@@ -953,9 +948,7 @@ class FinanceConciliacaoReceitasTab extends StatefulWidget {
 class _FinanceConciliacaoReceitasTabState
     extends State<FinanceConciliacaoReceitasTab> {
   CollectionReference<Map<String, dynamic>> get _fin =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('finance');
 
   late String _competencia;
@@ -1056,9 +1049,8 @@ class _FinanceConciliacaoReceitasTabState
           final valor = _parseValor(m['amount'] ?? m['valor']);
           var phone = (m['memberTelefone'] ?? '').toString().trim();
           if (phone.isEmpty) {
-            final ms = await firebaseDefaultFirestore
-                .collection('igrejas')
-                .doc(widget.tenantId)
+            final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+            final ms = await                 ChurchOperationalPaths.churchDoc(op)
                 .collection('membros')
                 .doc(mid)
                 .get();

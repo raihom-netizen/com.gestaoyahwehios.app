@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:gestao_yahweh/core/certificate_protocol_id.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Certificados emitidos: **dados completos** em `igrejas/{tenantId}/certificados_emitidos/{id}`.
 ///
@@ -14,14 +15,16 @@ class CertificateEmitidoService {
 
   static final FirebaseFirestore _fs = FirebaseFirestore.instance;
 
-  static CollectionReference<Map<String, dynamic>> _emitidosCol(String tid) =>
-      _fs.collection('igrejas').doc(tid).collection('certificados_emitidos');
+  static CollectionReference<Map<String, dynamic>> _emitidosCol(String operationalId) =>
+      ChurchOperationalPaths.churchDoc(operationalId).collection('certificados_emitidos');
 
   static DocumentReference<Map<String, dynamic>> _protocolIndexDoc(
-    String tenantId,
+    String operationalId,
     String certId,
   ) =>
-      _fs.collection('igrejas').doc(tenantId).collection('certificados_protocol_index').doc(certId);
+      ChurchOperationalPaths.churchDoc(operationalId)
+          .collection('certificados_protocol_index')
+          .doc(certId);
 
   /// Grava protocolo e devolve o [certificadoId] (UUID) para o QR.
   static Future<String> registerEmissao({
@@ -33,6 +36,7 @@ class CertificateEmitidoService {
     if (tid.isEmpty) {
       throw ArgumentError('tenantId vazio');
     }
+    final op = await ChurchOperationalPaths.resolveCached(tid);
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) {
       throw StateError('Utilizador não autenticado');
@@ -45,15 +49,15 @@ class CertificateEmitidoService {
     final payload = <String, dynamic>{
       ...snapshot,
       'certificadoId': certificadoIdResolved,
-      'tenantId': tid,
+      'tenantId': op,
       'emitidoPorUid': uid,
       'emitidoPorEmail': email,
       'dataEmissao': FieldValue.serverTimestamp(),
     };
 
     final batch = _fs.batch();
-    batch.set(_emitidosCol(tid).doc(certificadoIdResolved), payload);
-    batch.set(_protocolIndexDoc(tid, certificadoIdResolved), {
+    batch.set(_emitidosCol(op).doc(certificadoIdResolved), payload);
+    batch.set(_protocolIndexDoc(op, certificadoIdResolved), {
       'createdAt': FieldValue.serverTimestamp(),
     });
     await batch.commit();
@@ -68,6 +72,7 @@ class CertificateEmitidoService {
   }) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) throw ArgumentError('tenantId vazio');
+    final op = await ChurchOperationalPaths.resolveCached(tid);
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) throw StateError('Utilizador não autenticado');
     final email = FirebaseAuth.instance.currentUser?.email ?? '';
@@ -92,13 +97,13 @@ class CertificateEmitidoService {
         final payload = <String, dynamic>{
           ...snapshot,
           'certificadoId': certificadoId,
-          'tenantId': tid,
+          'tenantId': op,
           'emitidoPorUid': uid,
           'emitidoPorEmail': email,
           'dataEmissao': FieldValue.serverTimestamp(),
         };
-        batch.set(_emitidosCol(tid).doc(certificadoId), payload);
-        batch.set(_protocolIndexDoc(tid, certificadoId), {
+        batch.set(_emitidosCol(op).doc(certificadoId), payload);
+        batch.set(_protocolIndexDoc(op, certificadoId), {
           'createdAt': FieldValue.serverTimestamp(),
         });
       }
@@ -159,15 +164,24 @@ class CertificateEmitidoService {
     if (id.isEmpty || tid.isEmpty) {
       return _fs.collection('certificados_emitidos').doc('__invalid__').get();
     }
-    final local = await _emitidosCol(tid).doc(id).get();
+    final op = await ChurchOperationalPaths.resolveCached(tid);
+    final local = await _emitidosCol(op).doc(id).get();
     if (local.exists) return local;
     return getPublic(id);
   }
 
   /// Histórico no painel (mesma coleção que o protocolo completo).
+  /// [tenantId] deve ser o ID operacional (já resolvido pelo painel).
   static Query<Map<String, dynamic>> historicoQuery(String tenantId) {
     return _emitidosCol(tenantId.trim())
         .orderBy('dataEmissao', descending: true)
         .limit(300);
+  }
+
+  static Future<Query<Map<String, dynamic>>> historicoQueryResolved(
+    String tenantId,
+  ) async {
+    final op = await ChurchOperationalPaths.resolveCached(tenantId);
+    return historicoQuery(op);
   }
 }

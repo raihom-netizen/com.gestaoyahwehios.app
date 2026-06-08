@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/services/schedule_intel_validators.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -42,6 +43,7 @@ import 'package:gestao_yahweh/utils/escala_relatorio_premium_pdf.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 Map<String, dynamic> _remapScheduleCpfKeyedMap(
   Map<String, dynamic> old,
@@ -76,9 +78,8 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadScheduleMemberDoc
     if (snap.docs.isNotEmpty) return snap.docs;
   } catch (_) {}
   try {
-    return (await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(tid)
+    final op = await ChurchOperationalPaths.resolveCached(tid);
+    return (await ChurchOperationalPaths.churchDoc(op)
             .collection('membros')
             .limit(_kScheduleMembersFetchLimit)
             .get())
@@ -378,7 +379,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedInstances;
   List<_DeptItem>? _seedDepts;
 
-  DocumentReference<Map<String, dynamic>> _churchDoc(String tid) => FirebaseFirestore.instance.collection('igrejas').doc(tid);
+  DocumentReference<Map<String, dynamic>> _churchDoc(String tid) => ChurchOperationalPaths.churchDoc(tid);
   CollectionReference<Map<String, dynamic>> _templatesCol(String tid) => _churchDoc(tid).collection('escala_templates');
   CollectionReference<Map<String, dynamic>> _instancesCol(String tid) => _churchDoc(tid).collection('escalas');
   CollectionReference<Map<String, dynamic>> _departmentsCol(String tid) => _churchDoc(tid).collection('departamentos');
@@ -394,7 +395,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   Future<String> _resolveTenantAndSeedPresets() async {
     final hint = widget.tenantId.trim();
     try {
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+      final tid = await ChurchOperationalPaths.resolveCached(
         widget.tenantId,
         userUid: FirebaseAuth.instance.currentUser?.uid,
       ).timeout(const Duration(seconds: 8), onTimeout: () => hint);
@@ -675,8 +676,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         );
       }
       final branding = await loadReportPdfBranding(tid);
-      final tenantSnap =
-          await FirebaseFirestore.instance.collection('igrejas').doc(tid).get();
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final tenantSnap = await ChurchOperationalPaths.churchDoc(op).get();
       final t = tenantSnap.data() ?? {};
       final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
       final phone =
@@ -805,7 +806,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         );
       }
       final branding = await loadReportPdfBranding(tid);
-      final tenantSnap = await FirebaseFirestore.instance.collection('igrejas').doc(tid).get();
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final tenantSnap = await ChurchOperationalPaths.churchDoc(op).get();
       final t = tenantSnap.data() ?? {};
       final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
       final phone = (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '').toString().trim();
@@ -930,7 +932,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         );
       }
       final branding = await loadReportPdfBranding(tid);
-      final tenantSnap = await FirebaseFirestore.instance.collection('igrejas').doc(tid).get();
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final tenantSnap = await ChurchOperationalPaths.churchDoc(op).get();
       final t = tenantSnap.data() ?? {};
       final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
       final phone = (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '').toString().trim();
@@ -1195,8 +1198,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }
 
     try {
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
       final escRef =
-          FirebaseFirestore.instance.collection('igrejas').doc(tid).collection('escalas').doc(escalaId);
+          ChurchOperationalPaths.churchDoc(op).collection('escalas').doc(escalaId);
       final escSnap = await escRef.get();
       if (!escSnap.exists) return;
       final ed = escSnap.data() ?? {};
@@ -3330,9 +3334,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         _tenantFuture,
         _deptsFuture,
         _effectiveTidFuture.then(
-          (tid) => FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(tid)
+          (tid) => ChurchOperationalPaths.churchDoc(tid)
               .collection('escala_trocas')
               .limit(800)
               .get(),
@@ -5000,9 +5002,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       if (tid.isEmpty) {
                         return Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
                       }
-                      return FirebaseFirestore.instance
-                          .collection('igrejas')
-                          .doc(tid)
+                      return ChurchOperationalPaths.churchDoc(tid)
                           .collection('escala_trocas')
                           .where('escalaId', isEqualTo: doc.id)
                           .watchSafe();

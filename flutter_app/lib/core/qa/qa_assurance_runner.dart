@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/services/resumable_upload_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/services/system_health_service.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 enum QaTestStatus { pass, fail, warn, manual }
 
@@ -337,9 +338,8 @@ abstract final class QaAssuranceRunner {
     String collection,
   ) async {
     try {
-      await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      await           ChurchOperationalPaths.churchDoc(op)
           .collection(collection)
           .limit(1)
           .get(const GetOptions(source: Source.server));

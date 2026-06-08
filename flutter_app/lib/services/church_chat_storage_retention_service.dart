@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Retenção seletiva de mídia do chat — remove ficheiros Storage > 90 dias.
 ///
@@ -82,9 +83,8 @@ abstract final class ChurchChatStorageRetentionService {
     final cutoff = DateTime.now().subtract(const Duration(days: retentionDays));
     final cutoffTs = Timestamp.fromDate(cutoff);
     final db = FirebaseFirestore.instance;
-    final chatsSnap = await db
-        .collection('igrejas')
-        .doc(tid)
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final chatsSnap = await         ChurchOperationalPaths.churchDoc(op)
         .collection('chats')
         .orderBy('lastMessageAt', descending: true)
         .limit(maxThreadsPerRun)

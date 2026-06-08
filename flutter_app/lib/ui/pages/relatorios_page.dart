@@ -32,6 +32,7 @@ import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
 import 'package:gestao_yahweh/ui/pages/relatorio_gastos_fornecedores_page.dart';
 import '../../services/app_permissions.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Membros para relatórios — cache RAM + `_panel_cache/members_directory` (rápido).
 abstract final class _RelatoriosMembersDataCache {
@@ -556,10 +557,21 @@ class _RelatorioMembrosPage extends StatefulWidget {
 }
 
 class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
+  String? _operationalTenantId;
+
+  String get _effectiveTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
+
   @override
   void initState() {
     super.initState();
     _prewarmRelatoriosData(widget.tenantId);
+    unawaited(
+      ChurchOperationalPaths.resolveCached(widget.tenantId).then((op) {
+        if (!mounted || op.isEmpty) return;
+        setState(() => _operationalTenantId = op);
+      }),
+    );
     _loadDepartamentos();
   }
 
@@ -655,13 +667,13 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
   bool _deptsLoaded = false;
   bool _pdfLandscape = false;
 
-  CollectionReference<Map<String, dynamic>> get _members => FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membros => FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membersIgrejas => FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membrosIgrejas => FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('membros');
+  CollectionReference<Map<String, dynamic>> get _members => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
+  CollectionReference<Map<String, dynamic>> get _membros => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
+  CollectionReference<Map<String, dynamic>> get _membersIgrejas => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
+  CollectionReference<Map<String, dynamic>> get _membrosIgrejas => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
 
   Future<List<Map<String, dynamic>>> _fetchMembers() =>
-      _RelatoriosMembersDataCache.fetch(widget.tenantId, limit: 800);
+      _RelatoriosMembersDataCache.fetch(_effectiveTenantId, limit: 800);
 
   String _val(Map<String, dynamic> m, String key) {
     if (key == 'nome') return (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '').toString();
@@ -930,6 +942,11 @@ class _RelatorioAniversariantesPage extends StatefulWidget {
 }
 
 class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantesPage> {
+  String? _operationalTenantId;
+
+  String get _effectiveTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
+
   /// 0=hoje, 1=semana, 2=mês, 3=personalizado, 4=anual (lista completa)
   int _filtro = 2;
   DateTime? _dataInicio;
@@ -943,15 +960,21 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
   bool _loadingMembros = true;
   String? _erroMembros;
 
-  CollectionReference<Map<String, dynamic>> get _members => FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membros => FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membersIgrejas => FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membrosIgrejas => FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('membros');
+  CollectionReference<Map<String, dynamic>> get _members => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
+  CollectionReference<Map<String, dynamic>> get _membros => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
+  CollectionReference<Map<String, dynamic>> get _membersIgrejas => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
+  CollectionReference<Map<String, dynamic>> get _membrosIgrejas => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
 
   @override
   void initState() {
     super.initState();
     _prewarmRelatoriosData(widget.tenantId);
+    unawaited(
+      ChurchOperationalPaths.resolveCached(widget.tenantId).then((op) {
+        if (!mounted || op.isEmpty) return;
+        setState(() => _operationalTenantId = op);
+      }),
+    );
     final cached = _RelatoriosMembersDataCache.peek(widget.tenantId);
     if (cached != null && cached.isNotEmpty) {
       _todosMembros = cached;
@@ -1798,6 +1821,11 @@ class RelatorioFinanceiroPage extends StatefulWidget {
 }
 
 class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
+  String? _operationalTenantId;
+
+  String get _effectiveTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
+
   late int _mes;
   late int _ano;
   String _filtroTipo = 'todos'; // todos, receitas, despesas, transferencias
@@ -1819,7 +1847,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
   String _summaryQueryKey = '';
 
   DocumentReference<Map<String, dynamic>> get _tenantRef =>
-      FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId);
+      ChurchOperationalPaths.churchDoc(_effectiveTenantId);
 
   bool get _embedded => widget.embeddedInFinanceModule;
 
@@ -1872,6 +1900,12 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
     _mes = now.month;
     _ano = now.year;
     _prewarmRelatoriosData(widget.tenantId);
+    unawaited(
+      ChurchOperationalPaths.resolveCached(widget.tenantId).then((op) {
+        if (!mounted || op.isEmpty) return;
+        setState(() => _operationalTenantId = op);
+      }),
+    );
     _loadCategoriasContas();
     _ensureSummaryFuture();
   }
@@ -4042,6 +4076,11 @@ class _RelatorioPatrimonioPage extends StatefulWidget {
 }
 
 class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
+  String? _operationalTenantId;
+
+  String get _effectiveTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
+
   static const _statusOptions = [
     ('', 'Todos'),
     ('bom', 'Bom'),
@@ -4081,7 +4120,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
   bool _pdfLandscape = true;
 
   CollectionReference<Map<String, dynamic>> get _col =>
-      FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('patrimonio');
+      ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('patrimonio');
 
   static String _statusLabel(String key) {
     final f = _statusOptions.where((e) => e.$1 == key).firstOrNull;
@@ -4124,6 +4163,12 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
   void initState() {
     super.initState();
     _prewarmRelatoriosData(widget.tenantId);
+    unawaited(
+      ChurchOperationalPaths.resolveCached(widget.tenantId).then((op) {
+        if (!mounted || op.isEmpty) return;
+        setState(() => _operationalTenantId = op);
+      }),
+    );
     _load();
   }
 
@@ -4432,6 +4477,11 @@ class _RelatorioEventosPage extends StatefulWidget {
 }
 
 class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
+  String? _operationalTenantId;
+
+  String get _effectiveTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
+
   String _tipo = 'mes'; // dia, mes, anual, periodo
   DateTime? _dataInicio;
   DateTime? _dataFim;
@@ -4441,7 +4491,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
   List<Map<String, dynamic>> _eventos = [];
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
-      FirebaseFirestore.instance.collection('igrejas').doc(widget.tenantId).collection('eventos');
+      ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('eventos');
 
   Future<void> _carregar() async {
     setState(() {
@@ -4506,6 +4556,12 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
   void initState() {
     super.initState();
     _prewarmRelatoriosData(widget.tenantId);
+    unawaited(
+      ChurchOperationalPaths.resolveCached(widget.tenantId).then((op) {
+        if (!mounted || op.isEmpty) return;
+        setState(() => _operationalTenantId = op);
+      }),
+    );
     _carregar();
   }
 

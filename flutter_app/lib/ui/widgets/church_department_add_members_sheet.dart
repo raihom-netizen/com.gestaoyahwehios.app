@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/services/department_member_integration_service.dar
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Folha para vincular membros ao departamento (mesmo fluxo do módulo Departamentos) e
 /// incluir contas no thread do grupo em [ChurchChatService.ensureDepartmentThread].
@@ -84,9 +85,8 @@ class _ChurchDepartmentAddMembersBodyState
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final q = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final q = await           ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .limit(600)
           .get();

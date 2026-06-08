@@ -25,6 +25,7 @@ import '../../widgets/primary_button.dart';
 import 'package:gestao_yahweh/utils/mp_web_checkout_redirect.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 String _money(double v) =>
     'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
@@ -452,9 +453,8 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     var tenantId = ExpressRenewBootstrap.instance.cachedTenantId;
     tenantId ??= await _resolveTenantIdFromClaims();
     if (tenantId == null || tenantId.isEmpty) return;
-    _churchBillingSub = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    _churchBillingSub =         ChurchOperationalPaths.churchDoc(op)
         .watchSafe()
         .listen((snap) {
       _applyChurchBillingSnapshot(snap.data());

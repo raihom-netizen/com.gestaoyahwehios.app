@@ -48,6 +48,7 @@ import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
 import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Categorias padrão (seed quando coleções vazias)
@@ -212,9 +213,8 @@ Widget _financeBankMiniLogo({
 }
 
 Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
-  final col = firebaseDefaultFirestore
-      .collection('igrejas')
-      .doc(tenantId)
+  final op = await ChurchOperationalPaths.resolveCached(tenantId);
+  final col = ChurchOperationalPaths.churchDoc(op)
       .collection('categorias_receitas');
   var snap = await col.orderBy('nome').get();
   if (snap.docs.isEmpty) {
@@ -233,9 +233,8 @@ Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
 
 Future<List<({String id, String nome})>> _financeContasAtivasTenant(
     String tenantId) async {
-  final snap = await firebaseDefaultFirestore
-      .collection('igrejas')
-      .doc(tenantId)
+  final op = await ChurchOperationalPaths.resolveCached(tenantId);
+  final snap = await ChurchOperationalPaths.churchDoc(op)
       .collection('contas')
       .orderBy('nome')
       .get();
@@ -291,9 +290,8 @@ Future<_FinancePdfSignerSelection?> _pickFinancePdfSigners(
   BuildContext context, {
   required String tenantId,
 }) async {
-  final snap = await firebaseDefaultFirestore
-      .collection('igrejas')
-      .doc(tenantId)
+  final op = await ChurchOperationalPaths.resolveCached(tenantId);
+  final snap = await ChurchOperationalPaths.churchDoc(op)
       .collection('membros')
       .get();
 
@@ -1032,7 +1030,7 @@ class _FinancePageState extends State<FinancePage>
   String get _tid => (_firestoreTenantId ?? widget.tenantId).trim();
 
   DocumentReference<Map<String, dynamic>> get _tenantRef =>
-      firebaseDefaultFirestore.collection('igrejas').doc(_tid);
+      ChurchOperationalPaths.churchDoc(_tid);
 
   CollectionReference<Map<String, dynamic>> get _financeCol =>
       _tenantRef.collection('finance');
@@ -1087,26 +1085,19 @@ class _FinancePageState extends State<FinancePage>
       unawaited(s.cancel());
     }
     _financeRealtimeSubs.clear();
-    final db = firebaseDefaultFirestore;
     _financeRealtimeSubs.addAll([
       _financeCol.limit(1).watchSafe().listen((_) => _scheduleFinanceRealtimeRefresh()),
-      db
-          .collection('igrejas')
-          .doc(_tid)
+      ChurchOperationalPaths.churchDoc(_tid)
           .collection('contas')
           .limit(1)
           .watchSafe()
           .listen((_) => _scheduleFinanceRealtimeRefresh()),
-      db
-          .collection('igrejas')
-          .doc(_tid)
+      ChurchOperationalPaths.churchDoc(_tid)
           .collection('despesas_fixas')
           .limit(1)
           .watchSafe()
           .listen((_) => _scheduleFinanceRealtimeRefresh()),
-      db
-          .collection('igrejas')
-          .doc(_tid)
+      ChurchOperationalPaths.churchDoc(_tid)
           .collection('receitas_recorrentes')
           .limit(1)
           .watchSafe()
@@ -1128,7 +1119,7 @@ class _FinancePageState extends State<FinancePage>
   Future<void> _resolveOperationalTenantInBackground() async {
     try {
       final uid = firebaseDefaultAuth.currentUser?.uid;
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+      final tid = await ChurchOperationalPaths.resolveCached(
         widget.tenantId,
         userUid: uid,
       ).timeout(const Duration(seconds: 10));
@@ -3709,9 +3700,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          future: firebaseDefaultFirestore
-                              .collection('igrejas')
-                              .doc(widget.tenantId)
+                          future:                               ChurchOperationalPaths.churchDoc(widget.tenantId)
                               .collection('contas')
                               .orderBy('nome')
                               .get(),
@@ -3752,9 +3741,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                     if (ctaId != null && ctaId.isNotEmpty && saldoIni != null) ...[
                       const SizedBox(height: 6),
                       FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        future: firebaseDefaultFirestore
-                            .collection('igrejas')
-                            .doc(widget.tenantId)
+                        future:                             ChurchOperationalPaths.churchDoc(widget.tenantId)
                             .collection('contas')
                             .doc(ctaId)
                             .get(),
@@ -5364,9 +5351,7 @@ class _DespesasFixasTab extends StatefulWidget {
 
 class _DespesasFixasTabState extends State<_DespesasFixasTab> {
   CollectionReference<Map<String, dynamic>> get _col =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('despesas_fixas');
 
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
@@ -6260,9 +6245,8 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
         lanc['fornecedorNome'] = (despesa['fornecedorNome'] ?? '').toString();
       }
     }
-    await firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    await         ChurchOperationalPaths.churchDoc(op)
         .collection('finance')
         .add(lanc);
     if (context.mounted) {
@@ -6285,7 +6269,7 @@ class _FinanceCategoriasTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ref = firebaseDefaultFirestore.collection('igrejas').doc(tenantId);
+    final ref = ChurchOperationalPaths.churchDoc(tenantId);
     final colDespesas = ref.collection('categorias_despesas');
     final colReceitas = ref.collection('categorias_receitas');
     return SingleChildScrollView(
@@ -6595,15 +6579,11 @@ class _FinanceContasTab extends StatefulWidget {
 
 class _FinanceContasTabState extends State<_FinanceContasTab> {
   CollectionReference<Map<String, dynamic>> get _col =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('contas');
 
   CollectionReference<Map<String, dynamic>> get _financeCol =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('finance');
 
   static String _contaSubtitle(Map<String, dynamic> d) {
@@ -7506,9 +7486,8 @@ class _MiniButton extends StatelessWidget {
 Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
     String tenantId) async {
   try {
-    final snap = await firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(tenantId);
+    final snap = await ChurchOperationalPaths.churchDoc(op)
         .collection('fornecedores')
         .orderBy('nome')
         .limit(YahwehPerformanceV4.defaultPageSize)
@@ -7530,9 +7509,8 @@ Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
 Future<List<({String id, String nome})>> _membrosParaFinanceDropdown(
     String tenantId) async {
   try {
-    final snap = await firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(tenantId);
+    final snap = await ChurchOperationalPaths.churchDoc(op)
         .collection('membros')
         .limit(YahwehPerformanceV4.defaultPageSize)
         .get();
@@ -7604,9 +7582,8 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   String? presetNovoTipo,
 }) async {
   await _ensureFinanceWriteReady();
-  final financeCol = firebaseDefaultFirestore
-      .collection('igrejas')
-      .doc(tenantId)
+  final op = await ChurchOperationalPaths.resolveCached(tenantId);
+  final financeCol = ChurchOperationalPaths.churchDoc(op)
       .collection('finance');
 
   final isEdit = existingDoc != null;

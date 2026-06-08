@@ -108,6 +108,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Diagnóstico no Console (F12): prefixo pedido para filtrar falhas de Storage/CORS/decode.
 /// Leitura rápida: [SafeNetworkImage] / [StableStorageImage] = cache disco+RAM (CDN Storage).
@@ -292,15 +293,11 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(_tid)
+                ChurchOperationalPaths.churchDoc(_tid)
           .collection(ChurchTenantPostsCollections.eventos);
 
   CollectionReference<Map<String, dynamic>> get _avisos =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(_tid)
+                ChurchOperationalPaths.churchDoc(_tid)
           .collection(ChurchTenantPostsCollections.avisos);
 
   String get _nomeIgreja =>
@@ -1161,7 +1158,7 @@ class _MuralPostLinksRow extends StatelessWidget {
 
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future:
-          firebaseDefaultFirestore.collection('igrejas').doc(tenantId).get(),
+          ChurchOperationalPaths.churchDoc(tenantId).get(),
       builder: (context, snap) {
         double? lat = eventLat;
         double? lng = eventLng;

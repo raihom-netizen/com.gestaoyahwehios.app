@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart' show XFile, ImageSource;
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -26,6 +27,7 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_provisioning_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -47,6 +49,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         firebaseStorageDownloadUrlLooksTokenized;
 import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 
 /// Gera slug (link/domínio) a partir do nome da igreja: normaliza, remove acentos e palavras comuns, usa hífens.
 String _slugFromChurchName(String name) {
@@ -397,6 +401,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
 
       if (kIsWeb) {
+        await ensureFirebaseReadyForPanelRead();
+        await FirestoreWebGuard.ensurePanelReadReady();
         TenantResolverService.invalidateOperationalChurchDocCache(
           seedId: seed,
           userUid: uid,
@@ -419,19 +425,46 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           return;
         }
         _operationalTenantId = resolved;
+        AgentDebugLog.log(
+          location: 'igreja_cadastro_page.dart:resolve',
+          message: 'cadastro_web_resolved',
+          hypothesisId: 'A',
+          data: {
+            'seed': seed,
+            'resolved': resolved,
+            'sameAsSeed': resolved == seed,
+          },
+        );
         await ChurchTenantResilientReads.preparePanelRead(refreshToken: true);
 
         var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
           resolved,
           preferServer: true,
         );
-        if (profile.isEmpty ||
-            TenantResolverService.churchProfileRichnessScore(profile) < 8) {
+        var score =
+            TenantResolverService.churchProfileRichnessScore(profile);
+        if (profile.isEmpty || score < 8) {
           profile = await TenantResolverService.richestChurchProfileForCadastro(
             resolved,
             preferServer: true,
           );
+          score = TenantResolverService.churchProfileRichnessScore(profile);
         }
+        AgentDebugLog.log(
+          location: 'igreja_cadastro_page.dart:profile',
+          message: 'cadastro_web_profile_loaded',
+          hypothesisId: 'B',
+          data: {
+            'resolved': resolved,
+            'score': score,
+            'hasCidade': (profile['cidade'] ?? '').toString().isNotEmpty,
+            'hasEndereco': (profile['endereco'] ?? '').toString().isNotEmpty,
+            'hasNome': (profile['name'] ?? profile['nome'] ?? '')
+                .toString()
+                .isNotEmpty,
+            'keys': profile.keys.take(12).toList(),
+          },
+        );
         if (profile.isNotEmpty) {
           _hydrateFormFromFirestoreDoc(resolved, profile);
         }
@@ -513,7 +546,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       return;
     }
     final ref =
-        FirebaseFirestore.instance.collection('igrejas').doc(resolvedId);
+        ChurchOperationalPaths.churchDoc(resolvedId);
     _igrejaLiveSub = FirestoreStreamUtils.documentWatchBootstrap(ref).listen(
       (doc) => _onIgrejaDocSnapshot(resolvedId, doc),
       onError: (_) {},
@@ -544,8 +577,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           return;
         }
       }
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
       final doc = await FirestoreReadResilience.getDocument(
-        FirebaseFirestore.instance.collection('igrejas').doc(tid),
+        ChurchOperationalPaths.churchDoc(op),
         cacheKey: 'igrejas/$tid',
         maxAttempts: kIsWeb ? 3 : 4,
         attemptTimeout: kIsWeb
@@ -1018,9 +1052,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<String> _resolveGestorMembroDocumentId(
       String resolvedId, String cpfDigits) async {
     if (cpfDigits.length != 11) return cpfDigits;
-    final col = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(resolvedId)
+    final col =         ChurchOperationalPaths.churchDoc(resolvedId)
         .collection('membros');
 
     final hinted = (_gestorMemberDocId ?? '').trim();
@@ -1108,9 +1140,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (!force && _lastHydratedCpf == cpf) return;
     final seqAtStart = _gestorHydrateSeq;
     try {
-      final col = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(resolvedId)
+      final col =           ChurchOperationalPaths.churchDoc(resolvedId)
           .collection('membros');
       DocumentSnapshot<Map<String, dynamic>>? memDoc;
 
@@ -1343,9 +1373,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final alias = al.isEmpty ? resolvedId : al;
     final slug = sl.isEmpty ? resolvedId : sl;
 
-    final col = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(resolvedId)
+    final col =         ChurchOperationalPaths.churchDoc(resolvedId)
         .collection('membros');
     final roleLower = widget.role.toLowerCase();
     final editorIsChurchStaff =
@@ -1525,9 +1553,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       );
       parallel.add(
         FirestoreWebGuard.runWithWebRecovery(
-          () => FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(resolvedId)
+          () =>               ChurchOperationalPaths.churchDoc(resolvedId)
               .collection('users')
               .doc(userWriteId)
               .set({
@@ -1550,9 +1576,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (cpfDigits.length == 11) {
       parallel.add(
         FirestoreWebGuard.runWithWebRecovery(
-          () => FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(resolvedId)
+          () =>               ChurchOperationalPaths.churchDoc(resolvedId)
               .collection('usersIndex')
               .doc(cpfDigits)
               .set({
@@ -1577,9 +1601,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         authUidForPayload != cpfDigits) {
       parallel.add(
         FirestoreWebGuard.runWithWebRecovery(
-          () => FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(resolvedId)
+          () =>               ChurchOperationalPaths.churchDoc(resolvedId)
               .collection('usersIndex')
               .doc(authUidForPayload)
               .set({
@@ -1744,8 +1766,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     });
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final resolvedId =
-          await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+      final resolvedId = await _resolveTenantIdForSave();
       final png =
           await encodeChurchLogoAsPngInIsolate(_logoBytes!, maxSide: 1920);
       if (!mounted) return true;
@@ -1921,8 +1942,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     try {
       await _prepareCadastroFirestoreWrite();
       await user.getIdToken(false);
-      final resolvedId =
-          await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+      final resolvedId = await _resolveTenantIdForSave();
       final data = {
         'logoUrl': url,
         'logo_url': url,
@@ -1934,9 +1954,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         'updatedAt': FieldValue.serverTimestamp(),
       };
       await FirestoreWebGuard.runWithWebRecovery(
-        () => FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(resolvedId)
+        () =>             ChurchOperationalPaths.churchDoc(resolvedId)
             .set(data, SetOptions(merge: true)),
         maxAttempts: 5,
       );
@@ -2041,7 +2059,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<String> _resolveTenantIdForSave() async {
     final cached = (_operationalTenantId ?? '').trim();
     if (cached.isNotEmpty) return cached;
-    return TenantResolverService.resolveOperationalChurchDocId(
+    return ChurchOperationalPaths.resolveCached(
       widget.tenantId,
       userUid: FirebaseAuth.instance.currentUser?.uid,
     );
@@ -2229,16 +2247,18 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       data['sitePrimaryHex'] = FieldValue.delete();
 
       await FirestoreWebGuard.runWithWebRecovery(
-        () => FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(resolvedId)
+        () =>             ChurchOperationalPaths.churchDoc(resolvedId)
             .set(data, SetOptions(merge: true)),
         maxAttempts: 5,
+      );
+      unawaited(
+        ChurchTenantProvisioningService.provisionAfterCadastroSave(resolvedId),
       );
       TenantResolverService.invalidateRegistrationContextCache(
         seedId: widget.tenantId,
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );
+      TenantResolverService.invalidateAliasCache();
       if (!mounted) return;
       try {
         await GestorMembroStubService.ensurePreCadastroGestor(
@@ -2509,6 +2529,17 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         _formHydrated &&
         _nameCtrl.text.trim().isNotEmpty &&
         incomingScore <= _hydratedProfileScore) {
+      AgentDebugLog.log(
+        location: 'igreja_cadastro_page.dart:hydrate_skip',
+        message: 'hydrate_guard_blocked',
+        hypothesisId: 'D',
+        data: {
+          'resolvedId': resolvedId,
+          'incomingScore': incomingScore,
+          'hydratedScore': _hydratedProfileScore,
+          'nameLen': _nameCtrl.text.trim().length,
+        },
+      );
       return;
     }
     _applyData(live, docIdFallback: resolvedId);

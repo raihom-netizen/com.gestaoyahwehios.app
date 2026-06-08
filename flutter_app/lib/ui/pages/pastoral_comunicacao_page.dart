@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/utils/church_department_list.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 InputDecoration _pastoralInputDecoration(
   String label, {
@@ -697,13 +698,9 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
 
   @override
   Widget build(BuildContext context) {
-    final deptsRef = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final deptsRef =         ChurchOperationalPaths.churchDoc(widget.tenantId)
         .collection('departamentos');
-    final cargosRef = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final cargosRef =         ChurchOperationalPaths.churchDoc(widget.tenantId)
         .collection('cargos');
 
     return SingleChildScrollView(
@@ -956,9 +953,7 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
               if (_segment == 'member') ...[
                 const SizedBox(height: 16),
                 FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-                  future: FirebaseFirestore.instance
-                      .collection('igrejas')
-                      .doc(widget.tenantId)
+                  future:                       ChurchOperationalPaths.churchDoc(widget.tenantId)
                       .collection('membros')
                       .limit(500)
                       .get()
@@ -1434,9 +1429,7 @@ class _DevocionalTabState extends State<_DevocionalTab> {
   DateTime? _devRangeStart;
   DateTime? _devRangeEnd;
 
-  DocumentReference<Map<String, dynamic>> get _cfgRef => FirebaseFirestore.instance
-      .collection('igrejas')
-      .doc(widget.tenantId)
+  DocumentReference<Map<String, dynamic>> get _cfgRef =>       ChurchOperationalPaths.churchDoc(widget.tenantId)
       .collection('config')
       .doc('comunicacao');
 
@@ -1979,9 +1972,7 @@ class _DevocionalTabState extends State<_DevocionalTab> {
               const SizedBox(height: 14),
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 key: ValueKey<String>('dev_hist_${widget.tenantId}'),
-                stream: FirebaseFirestore.instance
-                    .collection('igrejas')
-                    .doc(widget.tenantId)
+                stream:                     ChurchOperationalPaths.churchDoc(widget.tenantId)
                     .collection('devocional_envios')
                     .limit(200)
                     .watchSafe(),
@@ -2275,15 +2266,12 @@ class _EvasaoTabState extends State<_EvasaoTab> {
   }
 
   Future<List<_EvasaoRow>> _load() async {
-    final membros = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    final membros = await         ChurchOperationalPaths.churchDoc(op)
         .collection('membros')
         .get();
 
-    final cultos = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final cultos = await         ChurchOperationalPaths.churchDoc(op)
         .collection('cultos')
         .orderBy('data', descending: true)
         .limit(40)

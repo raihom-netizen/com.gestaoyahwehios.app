@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Categorias de despesa padrão (seed). Alinhado ao módulo financeiro.
 const kCategoriasDespesaPadrao = [
@@ -24,9 +25,8 @@ const kCategoriasDespesaPadrao = [
 
 /// Categorias de despesa do tenant, com criação dos documentos padrão se a coleção estiver vazia.
 Future<List<String>> getCategoriasDespesaForTenant(String tenantId) async {
-  final col = firebaseDefaultFirestore
-      .collection('igrejas')
-      .doc(tenantId)
+  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+  final col =       ChurchOperationalPaths.churchDoc(op)
       .collection('categorias_despesas');
   var snap = await col.orderBy('nome').get();
   if (snap.docs.isEmpty) {

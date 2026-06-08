@@ -3,6 +3,7 @@ import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_cursor_pagination.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Feed do site público com paginação global (20 por vez, `startAfterDocument`).
 abstract final class ChurchPublicFeedService {
@@ -15,10 +16,8 @@ abstract final class ChurchPublicFeedService {
     required String tenantId,
     DocumentSnapshot<Map<String, dynamic>>? startAfter,
   }) async {
-    final db = await FirebaseService.firestore();
-    final base = db
-        .collection('igrejas')
-        .doc(tenantId.trim())
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    final base = ChurchOperationalPaths.churchDoc(op)
         .collection(ChurchTenantPostsCollections.avisos)
         .where('publicSite', isEqualTo: true)
         .orderBy('createdAt', descending: true);
@@ -34,12 +33,10 @@ abstract final class ChurchPublicFeedService {
     required String tenantId,
     DocumentSnapshot<Map<String, dynamic>>? startAfter,
   }) async {
-    final db = await FirebaseService.firestore();
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
     final today = DateTime.now();
     final startOfDay = DateTime(today.year, today.month, today.day);
-    final base = db
-        .collection('igrejas')
-        .doc(tenantId.trim())
+    final base = ChurchOperationalPaths.churchDoc(op)
         .collection(ChurchTenantPostsCollections.eventos)
         .where('type', isEqualTo: 'evento')
         .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))

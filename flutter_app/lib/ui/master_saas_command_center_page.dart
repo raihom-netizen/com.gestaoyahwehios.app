@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Torre de comando SaaS — clientes (igrejas), licenças, white-label e visão de negócio.
 class MasterSaasCommandCenterPage extends StatefulWidget {
@@ -180,9 +181,8 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
       return _memberCountCache[tenantId]!;
     }
     try {
-      final agg = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final agg = await           ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .count()
           .get();
@@ -265,7 +265,8 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
           .map((s) => s.trim())
           .where((s) => s.isNotEmpty)
           .toList();
-      await FirebaseFirestore.instance.collection('igrejas').doc(tenantId).set({
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      await ChurchOperationalPaths.churchDoc(op).set({
         'saas': {
           'authorizedDomains': list,
           'integrationNotes': notesCtrl.text.trim(),
@@ -286,7 +287,8 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
   }
 
   Future<void> _setSaasTier(String tenantId, String tier) async {
-    await FirebaseFirestore.instance.collection('igrejas').doc(tenantId).set({
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    await ChurchOperationalPaths.churchDoc(op).set({
       'saasTier': tier,
       'saas': {'tier': tier, 'updatedAt': FieldValue.serverTimestamp()},
     }, SetOptions(merge: true));
@@ -879,7 +881,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
       totalChurches = churches.docs.length;
       for (final d in churches.docs.take(60)) {
         try {
-          final c = await db.collection('igrejas').doc(d.id).collection('membros').count().get();
+          final c = await ChurchOperationalPaths.churchDoc(d.id).collection('membros').count().get();
           membersSum += c.count ?? 0;
         } catch (_) {}
       }

@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
 import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
 import 'package:gestao_yahweh/services/finance_smart_batch_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 const _categoriasReceitaPadrao = <String>[
   'Dízimos',
@@ -114,9 +115,8 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
 
   Future<void> _carregarCategorias() async {
     try {
-      final despSnap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final despSnap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('categorias_despesas')
           .orderBy('ordem')
           .get();
@@ -124,9 +124,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
           .map((d) => (d.data()['nome'] ?? '').toString().trim())
           .where((e) => e.isNotEmpty)
           .toList();
-      final recSnap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final recSnap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('categorias_receitas')
           .orderBy('ordem')
           .get();
@@ -253,9 +251,8 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
           false;
       final nome = ctrl.text.trim();
       if (!ok || nome.isEmpty) return;
-      final col = firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final col =           ChurchOperationalPaths.churchDoc(op)
           .collection(isIncome ? 'categorias_receitas' : 'categorias_despesas');
       await col.add({'nome': nome, 'ordem': DateTime.now().millisecondsSinceEpoch});
       await _carregarCategorias();
@@ -624,9 +621,8 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
     setState(() => _saving = true);
     try {
       await firebaseDefaultAuth.currentUser?.getIdToken(true);
-      final contas = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final contas = await           ChurchOperationalPaths.churchDoc(op)
           .collection('contas')
           .orderBy('nome')
           .get();
@@ -654,9 +650,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       final expenseRows = chosen.where((r) => r.type != 'income').toList();
       if (incomeRows.isNotEmpty) {
         total += await FinanceSmartBatchService.writeRows(
-          financeCol: firebaseDefaultFirestore
-              .collection('igrejas')
-              .doc(widget.tenantId)
+          financeCol:               ChurchOperationalPaths.churchDoc(widget.tenantId)
               .collection('finance'),
           rows: incomeRows,
           contaId: cDoc.id,
@@ -673,9 +667,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
       }
       if (expenseRows.isNotEmpty) {
         total += await FinanceSmartBatchService.writeRows(
-          financeCol: firebaseDefaultFirestore
-              .collection('igrejas')
-              .doc(widget.tenantId)
+          financeCol:               ChurchOperationalPaths.churchDoc(widget.tenantId)
               .collection('finance'),
           rows: expenseRows,
           contaId: cDoc.id,
@@ -1163,9 +1155,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
                 ),
                 const SizedBox(height: 8),
                 FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  future: firebaseDefaultFirestore
-                      .collection('igrejas')
-                      .doc(widget.tenantId)
+                  future:                       ChurchOperationalPaths.churchDoc(widget.tenantId)
                       .collection('contas')
                       .orderBy('nome')
                       .get(),

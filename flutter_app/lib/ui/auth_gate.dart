@@ -37,6 +37,7 @@ import '../core/firebase_auth_token_guard.dart';
 import '../core/roles_permissions.dart';
 import '../core/app_constants.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Gestor/liderança: acesso ao painel mesmo se `users.ativo` estiver ausente ou membro desalinhado.
 bool authGateResolvePanelActive({
@@ -618,14 +619,13 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       return normalized;
     }
     if (repairDepth == 0 && AppConnectivityService.instance.isOnline) {
-      if (kIsWeb) {
-        final claimsFast = await _loadProfileFromClaimsFast(user, cached);
-        if (claimsFast != null) {
-          await AuthProfileCacheService.instance.save(user.uid, claimsFast);
-          unawaited(_enrichProfileWithMemberAsync(user, claimsFast));
-          return claimsFast;
-        }
-      } else {
+      final claimsFast = await _loadProfileFromClaimsFast(user, cached);
+      if (claimsFast != null) {
+        await AuthProfileCacheService.instance.save(user.uid, claimsFast);
+        unawaited(_enrichProfileWithMemberAsync(user, claimsFast));
+        return claimsFast;
+      }
+      if (!kIsWeb) {
         final fast = await _loadProfileOnlineFast(user, cached);
         if (fast != null) {
           await AuthProfileCacheService.instance.save(user.uid, fast);
@@ -637,7 +637,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     try {
       final db = FirebaseFirestore.instance;
       final loadTimeout =
-          kIsWeb ? const Duration(seconds: 4) : const Duration(seconds: 10);
+          kIsWeb ? const Duration(seconds: 4) : const Duration(seconds: 6);
 
       // `false` = não força refresh na rede; permite abrir com sessão persistida sem internet.
       late final IdTokenResult token;
@@ -712,12 +712,24 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       if (igrejaId.isEmpty) return null;
 
       try {
-        igrejaId =
-            await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
+        igrejaId = await TenantResolverService.resolveOperationalChurchDocId(
           igrejaId,
           userUid: user.uid,
         );
       } catch (_) {}
+
+      final storedTenant = (userData['igrejaId'] ?? userData['tenantId'] ?? '')
+          .toString()
+          .trim();
+      if (storedTenant.isNotEmpty &&
+          storedTenant != igrejaId &&
+          userDoc.exists) {
+        await db
+            .collection('users')
+            .doc(user.uid)
+            .update({'igrejaId': igrejaId, 'tenantId': igrejaId})
+            .catchError((_) {});
+      }
 
       final hasIgrejaInDoc = (userData['igrejaId'] ?? '').toString().trim().isNotEmpty
           || (userData['tenantId'] ?? '').toString().trim().isNotEmpty;
@@ -731,10 +743,11 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       }
 
       Future<DocumentSnapshot<Map<String, dynamic>>> fetchChurch() async {
+        final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
         try {
-          return await db.collection('igrejas').doc(igrejaId).get().timeout(loadTimeout);
+          return await ChurchOperationalPaths.churchDoc(op).get().timeout(loadTimeout);
         } catch (_) {
-          return db.collection('igrejas').doc(igrejaId).get(
+          return ChurchOperationalPaths.churchDoc(op).get(
                 const GetOptions(source: Source.cache),
               );
         }
@@ -791,7 +804,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       Map<String, dynamic>? memberData;
       if (igrejaId.isNotEmpty) {
         try {
-          final membersCol = db.collection('igrejas').doc(igrejaId).collection('membros');
+          final membersCol = ChurchOperationalPaths.churchDoc(igrejaId).collection('membros');
           final byDocId = await membersCol.doc(user.uid).get();
           if (byDocId.exists) {
             memberData = byDocId.data() ?? {};
@@ -1023,7 +1036,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     return null;
   }
 
-  /// Web: abre o painel com claims + cache local — sem esperar callable (12s+).
+  /// Web + mobile: abre o painel com claims + cache local — sem esperar callable (12s+).
   Future<Map<String, dynamic>?> _loadProfileFromClaimsFast(
     User user,
     Map<String, dynamic>? cached,
@@ -1067,14 +1080,31 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       }
       if (igrejaId.isEmpty) return null;
 
+      final seedIgrejaId = igrejaId;
+      try {
+        igrejaId = await TenantResolverService.resolveOperationalChurchDocId(
+          igrejaId,
+          userUid: user.uid,
+        ).timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => seedIgrejaId,
+        );
+      } catch (_) {}
+
+      unawaited(
+        TenantResolverService.syncUserToCanonicalChurchId(
+          userUid: user.uid,
+          canonicalId: igrejaId,
+        ),
+      );
+
       Map<String, dynamic> churchData;
-      if (cached?['church'] is Map) {
-        churchData = Map<String, dynamic>.from(cached!['church'] as Map);
+      if (cached?['church'] is Map &&
+          (cached!['igrejaId'] ?? '').toString().trim() == igrejaId) {
+        churchData = Map<String, dynamic>.from(cached['church'] as Map);
       } else {
         try {
-          final ch = await FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(igrejaId)
+          final ch = await ChurchOperationalPaths.churchDoc(igrejaId)
               .get(const GetOptions(source: Source.cache))
               .timeout(const Duration(seconds: 2));
           churchData = ch.exists
@@ -1133,7 +1163,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       );
       final res = await fn
           .call<Map<String, dynamic>>(<String, dynamic>{})
-          .timeout(const Duration(seconds: 13));
+          .timeout(kIsWeb ? const Duration(seconds: 13) : const Duration(seconds: 8));
       final data = res.data;
       final profile = data['profile'];
       if (profile == null || profile is! Map) return null;
@@ -1148,9 +1178,8 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         churchData = Map<String, dynamic>.from(cached!['church'] as Map);
       } else {
         try {
-          final ch = await FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(igrejaId)
+          final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
+          final ch = await               ChurchOperationalPaths.churchDoc(op)
               .get(const GetOptions(source: Source.cache));
           if (ch.exists) churchData = ch.data();
         } catch (_) {}
@@ -1447,9 +1476,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
       if (igrejaId.isEmpty || !mounted) return;
       Map<String, dynamic> churchData = <String, dynamic>{'id': igrejaId};
       try {
-        final ch = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(igrejaId)
+        final ch = await ChurchOperationalPaths.churchDoc(igrejaId.trim())
             .get(const GetOptions(source: Source.cache));
         final chData = ch.data();
         if (ch.exists && chData != null) {
@@ -1507,11 +1534,9 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
             ));
       }
     }());
-    if (kIsWeb) {
-      unawaited(_tryEmergencyBootstrapFromLocalFirestore());
-    }
+    unawaited(_tryEmergencyBootstrapFromLocalFirestore());
     _emergencyBootstrapTimer = Timer(
-      kIsWeb ? const Duration(milliseconds: 300) : const Duration(seconds: 4),
+      const Duration(milliseconds: 350),
       () => unawaited(_tryEmergencyBootstrapFromLocalFirestore()),
     );
     _profileFuture = _profileFutureCacheFirst();
@@ -1523,7 +1548,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     _readyFuture = Future.wait([_profileFuture, _biometricFuture])
         .then((list) => (list[0] as Map<String, dynamic>?, list[1] as bool))
         .timeout(
-          kIsWeb ? const Duration(seconds: 4) : const Duration(seconds: 12),
+          kIsWeb ? const Duration(seconds: 4) : const Duration(seconds: 6),
           onTimeout: () async {
             final c =
                 await AuthProfileCacheService.instance.load(widget.user.uid);

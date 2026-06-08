@@ -1,14 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Aniversariantes sem varrer todos os membros — índice `birthMonth` + limite.
 abstract final class ChurchBirthdayQueryService {
   ChurchBirthdayQueryService._();
 
   static CollectionReference<Map<String, dynamic>> _membros(String tenantId) {
-    return FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId.trim())
+    return         ChurchOperationalPaths.churchDoc(tenantId.trim())
         .collection('membros');
   }
 

@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Ficha Super Premium da igreja (ações, saúde, timeline, notas internas).
 class MasterChurchDetailSheet extends StatefulWidget {
@@ -108,9 +109,8 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
 
   Future<void> _loadTechnicalHealth() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .get();
       final data = snap.data() ?? widget.churchData;
       final total = data['membersTotalCount'] ?? data['totalMembros'];
@@ -229,9 +229,8 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
       if (free) {
         await BillingLicenseService().setTenantFreeMaster(widget.tenantId);
       } else {
-        await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(widget.tenantId)
+        final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+        await             ChurchOperationalPaths.churchDoc(op)
             .set({
           'license': {'isFree': false, 'updatedAt': FieldValue.serverTimestamp()},
         }, SetOptions(merge: true));
@@ -259,9 +258,8 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
   Future<void> _saveNotes() async {
     setState(() => _busy = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      await           ChurchOperationalPaths.churchDoc(op)
           .set({
         'masterNotes': _notesCtrl.text.trim(),
         'updatedAt': FieldValue.serverTimestamp(),

@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_chat_admin_purge_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Limpar no chat (padrão Controle Total): remove do **Firestore** stubs/filas antigas
 /// (`uploading` / `queued` / `sending`), `chat_uploads` e `pending_uploads` — não só memória.
@@ -94,9 +95,8 @@ abstract final class ChurchChatStuckCleanupService {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return 0;
     try {
-      final snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('pending_uploads')
           .where('ownerUid', isEqualTo: uid)
           .limit(200)
@@ -133,9 +133,8 @@ abstract final class ChurchChatStuckCleanupService {
       ChurchChatUploadsService.statusFailed,
     ];
     try {
-      final snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('chat_uploads')
           .where('ownerUid', isEqualTo: uid)
           .where('status', whereIn: openStatuses)

@@ -81,8 +81,12 @@ class FirestoreReadResilience {
               );
             } catch (_) {}
           }
+        } else if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady();
         }
-        final snap = await ref.get().timeout(attemptTimeout);
+        final snap = kIsWeb
+            ? await firestoreDocumentGetReliable(ref).timeout(attemptTimeout)
+            : await ref.get().timeout(attemptTimeout);
         if (key.isNotEmpty) _lastDocByKey[key] = snap;
         return snap;
       } catch (e) {

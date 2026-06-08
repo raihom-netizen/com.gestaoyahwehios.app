@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/mercado_pago_church_settings_section.dart';
+import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 
 /// Configurações — Mercado Pago (credenciais) + links InitPay/outros (simples).
 class ChurchPaymentReceivingSettingsSection extends StatefulWidget {
@@ -57,10 +58,21 @@ class _ChurchPaymentReceivingSettingsSectionState
 
   Future<void> _load() async {
     if (mounted) setState(() => _loading = true);
+    final loadStarted = DateTime.now();
     try {
       try {
         await _resolveOperationalTenant().timeout(const Duration(seconds: 10));
       } catch (_) {}
+      AgentDebugLog.log(
+        location: 'church_payment_receiving_settings_section.dart:load',
+        message: 'payment_receiving_resolve_done',
+        hypothesisId: 'C',
+        data: {
+          'seed': widget.tenantId,
+          'operational': _effectiveTenantId,
+          'ms': DateTime.now().difference(loadStarted).inMilliseconds,
+        },
+      );
       final cfg = await ChurchPaymentReceivingService.read(_effectiveTenantId)
           .timeout(const Duration(seconds: 16));
       if (!mounted) return;
@@ -70,9 +82,28 @@ class _ChurchPaymentReceivingSettingsSectionState
       _initPayPixCtrl.text = cfg.initPayPixLink;
       _otherNameCtrl.text = cfg.otherProviderName;
       _otherUrlCtrl.text = cfg.otherCheckoutUrl;
-    } catch (_) {
-      // Mantém defaults — evita spinner infinito se Firestore web falhar.
+    } catch (e) {
+      AgentDebugLog.log(
+        location: 'church_payment_receiving_settings_section.dart:load_err',
+        message: 'payment_receiving_load_error',
+        hypothesisId: 'C',
+        data: {
+          'operational': _effectiveTenantId,
+          'error': e.runtimeType.toString(),
+          'ms': DateTime.now().difference(loadStarted).inMilliseconds,
+        },
+      );
     } finally {
+      AgentDebugLog.log(
+        location: 'church_payment_receiving_settings_section.dart:load_done',
+        message: 'payment_receiving_load_finished',
+        hypothesisId: 'C',
+        data: {
+          'operational': _effectiveTenantId,
+          'mounted': mounted,
+          'ms': DateTime.now().difference(loadStarted).inMilliseconds,
+        },
+      );
       if (mounted) setState(() => _loading = false);
     }
   }

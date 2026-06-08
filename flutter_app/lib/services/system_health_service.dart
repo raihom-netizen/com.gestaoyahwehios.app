@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class SystemHealthCheck {
   const SystemHealthCheck({
@@ -279,9 +280,8 @@ abstract final class SystemHealthService {
           severity: SystemHealthSeverity.warn,
         );
       }
-      await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      await           ChurchOperationalPaths.churchDoc(op)
           .collection('chats')
           .where('participantUids', arrayContains: uid)
           .limit(1)
@@ -323,9 +323,8 @@ abstract final class SystemHealthService {
   }) async {
     final label = collection == 'avisos' ? 'Avisos' : 'Eventos';
     try {
-      await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      await           ChurchOperationalPaths.churchDoc(op)
           .collection(collection)
           .limit(1)
           .get(const GetOptions(source: Source.server));

@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Organograma ministerial: cargos de liderança (diferente de «líderes de departamento» no painel).
 class LiderancaPage extends StatefulWidget {
@@ -180,9 +181,8 @@ class _LiderancaPageState extends State<LiderancaPage> {
       String tid) async {
     final map = <String, Map<String, dynamic>>{};
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('cargos')
           .get();
       for (final d in snap.docs) {

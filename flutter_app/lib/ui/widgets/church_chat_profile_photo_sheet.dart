@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Folha para trocar foto de um membro (próprio ou equipe no módulo Membros).
 Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
@@ -30,9 +31,8 @@ Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
   }
   Map<String, dynamic> data = Map<String, dynamic>.from(initialData ?? {});
   if (data.isEmpty) {
-    final snap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    final snap = await         ChurchOperationalPaths.churchDoc(op)
         .collection('membros')
         .doc(memberDocId)
         .get();
@@ -127,16 +127,13 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
     if (_uploading) return;
     setState(() => _uploading = true);
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .doc(widget.memberId)
           .get();
       final data = snap.data() ?? widget.initialData;
-      await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      await           ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .doc(widget.memberId)
           .set(
@@ -214,9 +211,8 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
     if (bytes == null || bytes.isEmpty || _uploading) return;
     setState(() => _uploading = true);
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .doc(widget.memberId)
           .get();
@@ -263,9 +259,7 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
             boxShadow: ThemeCleanPremium.softUiCardShadow,
           ),
           child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance
-                .collection('igrejas')
-                .doc(widget.tenantId)
+            stream:                 ChurchOperationalPaths.churchDoc(widget.tenantId)
                 .collection('membros')
                 .doc(widget.memberId)
                 .watchSafe(),

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Modos de alerta (alinhados a [ChurchChatNotificationPrefs]).
 const Set<String> _kChatAlertModes = {'sound', 'vibrate', 'silent'};
@@ -128,9 +129,7 @@ class ChurchChatMemberPrefs {
     String tenantId,
     String uid,
   ) {
-    return FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
+    return         ChurchOperationalPaths.churchDoc(tenantId)
         .collection('chat_member_prefs')
         .doc(uid);
   }
@@ -271,9 +270,8 @@ class ChurchChatMemberPrefs {
     required String messageId,
   }) async {
     try {
-      await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId.trim())
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      await           ChurchOperationalPaths.churchDoc(op)
           .collection('chats')
           .doc(threadId)
           .collection('messages')
@@ -653,10 +651,8 @@ class ChurchChatMemberPrefs {
     if (!threadId.startsWith('dm_')) return true;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return false;
-    final thread =
-        await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    final thread = await ChurchOperationalPaths.churchDoc(op)
             .collection('chats')
             .doc(threadId)
             .get();

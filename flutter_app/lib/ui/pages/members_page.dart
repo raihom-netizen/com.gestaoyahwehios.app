@@ -99,6 +99,7 @@ import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'aprovar_membros_pendentes_page.dart';
 import 'funcoes_permissoes_page.dart';
 import 'relatorios_page.dart' show openRelatorioMembrosAvancado;
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class MembersPage extends StatefulWidget {
   final String tenantId;
@@ -238,9 +239,7 @@ class _MembersPageState extends State<MembersPage> {
   /// Retorna alias e slug da igreja para amarrar o membro ao tenant (segurança entre igrejas).
   Future<Map<String, String>> _getTenantLinkage() async {
     if (_tenantLinkageCache != null) return _tenantLinkageCache!;
-    final snap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(_effectiveTenantId)
+    final snap = await         ChurchOperationalPaths.churchDoc(_effectiveTenantId)
         .get();
     final d = snap.data();
     final id = snap.id;
@@ -256,9 +255,8 @@ class _MembersPageState extends State<MembersPage> {
   /// Retorna alias e slug de um tenant qualquer (ex.: ao mover membro para outra igreja).
   static Future<Map<String, String>> _getLinkageForTenant(
       String tenantId) async {
-    final snap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    final snap = await         ChurchOperationalPaths.churchDoc(op)
         .get();
     final d = snap.data();
     final id = snap.id;
@@ -765,9 +763,7 @@ class _MembersPageState extends State<MembersPage> {
     _membrosRealtimeSkipInitial = true;
     final db = FirebaseFirestore.instance;
     _membersRealtimeSubs.add(
-      db
-          .collection('igrejas')
-          .doc(tenantId)
+                ChurchOperationalPaths.churchDoc(tenantId)
           .collection('membros')
           .orderBy('updatedAt', descending: true)
           .limit(_membersLoadLimit)
@@ -910,9 +906,8 @@ class _MembersPageState extends State<MembersPage> {
       return _aplicarFiltros(_memberDocsFromDirectoryCache());
     }
 
-    final snap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tid)
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final snap = await         ChurchOperationalPaths.churchDoc(op)
         .collection('membros')
         .limit(YahwehPerformanceV4.adminExportBatchLimit)
         .get();
@@ -1084,28 +1079,20 @@ class _MembersPageState extends State<MembersPage> {
     String effectiveId,
     GetOptions getOpts,
   ) async {
-    Future<QuerySnapshot<Map<String, dynamic>>> membrosOrdered() => db
-        .collection('igrejas')
-        .doc(effectiveId)
+    Future<QuerySnapshot<Map<String, dynamic>>> membrosOrdered() =>         ChurchOperationalPaths.churchDoc(effectiveId)
         .collection('membros')
         .orderBy('updatedAt', descending: true)
         .limit(_membersLoadLimit)
         .get(getOpts);
-    Future<QuerySnapshot<Map<String, dynamic>>> membrosPlain() => db
-        .collection('igrejas')
-        .doc(effectiveId)
+    Future<QuerySnapshot<Map<String, dynamic>>> membrosPlain() =>         ChurchOperationalPaths.churchDoc(effectiveId)
         .collection('membros')
         .limit(_membersLoadLimit)
         .get(getOpts);
-    Future<QuerySnapshot<Map<String, dynamic>>> membersLegacy() => db
-        .collection('igrejas')
-        .doc(effectiveId)
+    Future<QuerySnapshot<Map<String, dynamic>>> membersLegacy() =>         ChurchOperationalPaths.churchDoc(effectiveId)
         .collection('members')
         .limit(_membersLoadLimit)
         .get(getOpts);
-    Future<QuerySnapshot<Map<String, dynamic>>> pendente() => db
-        .collection('igrejas')
-        .doc(effectiveId)
+    Future<QuerySnapshot<Map<String, dynamic>>> pendente() =>         ChurchOperationalPaths.churchDoc(effectiveId)
         .collection('membros')
         .where('status', isEqualTo: 'pendente')
         .limit(YahwehPerformanceV4.adminExportBatchLimit)
@@ -1276,15 +1263,11 @@ class _MembersPageState extends State<MembersPage> {
       final extraPairs = await Future.wait(otherIds.map((id) async {
         try {
           final pair = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-            db
-                .collection('igrejas')
-                .doc(id)
+                            ChurchOperationalPaths.churchDoc(id)
                 .collection('membros')
                 .limit(_membersLoadLimit)
                 .get(getOpts),
-            db
-                .collection('igrejas')
-                .doc(id)
+                            ChurchOperationalPaths.churchDoc(id)
                 .collection('members')
                 .limit(_membersLoadLimit)
                 .get(getOpts),
@@ -1990,9 +1973,7 @@ class _MembersPageState extends State<MembersPage> {
     if (ids.isEmpty || !mounted) return;
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     final linkage = await _getTenantLinkage();
-    final col = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(_effectiveTenantId)
+    final col =         ChurchOperationalPaths.churchDoc(_effectiveTenantId)
         .collection('membros');
     final batch = FirebaseFirestore.instance.batch();
     for (final id in ids) {
@@ -2050,40 +2031,28 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _members =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .collection('membros');
 
   CollectionReference<Map<String, dynamic>> get _cargosCol =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .collection('cargos');
 
   CollectionReference<Map<String, dynamic>> get _membros =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .collection('membros');
 
   /// Igrejas: mesma estrutura para igrejas que usam collection igrejas (ex.: Brasil para Cristo)
   CollectionReference<Map<String, dynamic>> get _membersIgrejas =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .collection('membros');
 
   CollectionReference<Map<String, dynamic>> get _membrosIgrejas =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .collection('membros');
 
   CollectionReference<Map<String, dynamic>> get _departments =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .collection('departamentos');
 
   // Usados apenas via _loadMembersData() (leitura pontual).
@@ -4394,9 +4363,8 @@ class _MembersPageState extends State<MembersPage> {
         await Future.wait(
           allIds.map((tid) async {
             try {
-              await db
-                  .collection('igrejas')
-                  .doc(tid)
+              final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+              await                   ChurchOperationalPaths.churchDoc(op)
                   .collection('membros')
                   .doc(member.id)
                   .set(updates, SetOptions(merge: true));
@@ -4441,9 +4409,7 @@ class _MembersPageState extends State<MembersPage> {
               .replaceAll(RegExp(r'\D'), '');
           if (cpfKey.length == 11) {
             try {
-              await FirebaseFirestore.instance
-                  .collection('igrejas')
-                  .doc(targetTenantId)
+              await                   ChurchOperationalPaths.churchDoc(targetTenantId)
                   .collection('usersIndex')
                   .doc(cpfKey)
                   .set({
@@ -4720,9 +4686,8 @@ class _MembersPageState extends State<MembersPage> {
       await Future.wait(
         allIds.map((tid) async {
           try {
-            await db
-                .collection('igrejas')
-                .doc(tid)
+            final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+            await                 ChurchOperationalPaths.churchDoc(op)
                 .collection('membros')
                 .doc(member.id)
                 .set(updates, SetOptions(merge: true));
@@ -4771,9 +4736,7 @@ class _MembersPageState extends State<MembersPage> {
           }, SetOptions(merge: true));
         } catch (_) {}
         try {
-          final tenantUsersCol = FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(targetTenantId)
+          final tenantUsersCol =               ChurchOperationalPaths.churchDoc(targetTenantId)
               .collection('users');
           await tenantUsersCol.doc(authUid).set({
             'role': permBaseFinal,
@@ -4812,18 +4775,14 @@ class _MembersPageState extends State<MembersPage> {
             {...oldFromMember, ...oldFromPanel}.difference(newResolved);
         for (final tid in idsToRemove) {
           try {
-            await db
-                .collection('igrejas')
-                .doc(tid)
+            await                 ChurchOperationalPaths.churchDoc(tid)
                 .collection('membros')
                 .doc(member.id)
                 .delete();
           } catch (_) {}
           if (authUid != null && authUid.isNotEmpty) {
             try {
-              await db
-                  .collection('igrejas')
-                  .doc(tid)
+              await                   ChurchOperationalPaths.churchDoc(tid)
                   .collection('users')
                   .doc(authUid)
                   .delete();
@@ -4933,9 +4892,8 @@ class _MembersPageState extends State<MembersPage> {
           await Future.wait(
             allIdsRetry.map((tid) async {
               try {
-                await dbRetry
-                    .collection('igrejas')
-                    .doc(tid)
+                final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+                await ChurchOperationalPaths.churchDoc(op)
                     .collection('membros')
                     .doc(member.id)
                     .set(updates, SetOptions(merge: true));
@@ -5176,10 +5134,11 @@ class _MembersPageState extends State<MembersPage> {
       final refs = <DocumentReference<Map<String, dynamic>>>[];
       for (final tid in allTenantIds) {
         if (tid.isEmpty) continue;
+        final op = await ChurchOperationalPaths.resolveCached(tid.trim());
         refs.add(
-            db.collection('igrejas').doc(tid).collection('membros').doc(mid));
+            ChurchOperationalPaths.churchDoc(op).collection('membros').doc(mid));
         refs.add(
-            db.collection('igrejas').doc(tid).collection('members').doc(mid));
+            ChurchOperationalPaths.churchDoc(op).collection('members').doc(mid));
       }
       final userDocIds = <String>{};
       if (authUid.isNotEmpty) userDocIds.add(authUid);
@@ -6239,9 +6198,7 @@ class _MembersPageState extends State<MembersPage> {
 
   Future<String?> _loadTenantSlug() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_effectiveTenantId)
+      final snap = await           ChurchOperationalPaths.churchDoc(_effectiveTenantId)
           .get();
       return (snap.data()?['slug'] ?? snap.data()?['slugId'] ?? '')
           .toString()
@@ -9333,9 +9290,8 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
 
   Future<String?> _loadSlug() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .get();
       return (snap.data()?['slug'] ?? snap.data()?['slugId'] ?? '')
           .toString()

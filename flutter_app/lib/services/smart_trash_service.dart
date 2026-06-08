@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/core/offline/sync_task.dart';
 import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/services/tenant_audit_service.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Lixeira inteligente — 30 dias antes de exclusão definitiva.
 abstract final class SmartTrashService {
@@ -60,9 +61,8 @@ abstract final class SmartTrashService {
     final expires = DateTime.now().add(const Duration(days: retentionDays));
     final u = firebaseDefaultAuth.currentUser;
 
-    await firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    await         ChurchOperationalPaths.churchDoc(op)
         .collection('lixeira')
         .doc(snap.id)
         .set({
@@ -126,9 +126,8 @@ abstract final class SmartTrashService {
   /// Purga entradas expiradas (cliente admin; CF pode fazer em batch).
   static Future<int> purgeExpired(String tenantId) async {
     final now = Timestamp.now();
-    final q = await firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    final q = await         ChurchOperationalPaths.churchDoc(op)
         .collection('lixeira')
         .where('expiresAt', isLessThan: now)
         .limit(40)

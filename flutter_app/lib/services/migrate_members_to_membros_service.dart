@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Migração automatizada: copia documentos de igrejas/{tenantId}/members para igrejas/{tenantId}/membros.
@@ -32,8 +33,10 @@ class MigrateMembersToMembrosService {
   Future<int> migrateTenant(String tenantId) async {
     if (tenantId.isEmpty) return 0;
     try {
-      final membersRef = _db.collection('igrejas').doc(tenantId).collection('members');
-      final membrosRef = _db.collection('igrejas').doc(tenantId).collection('membros');
+      final op = await ChurchOperationalPaths.resolveCached(tenantId);
+      final churchRef = ChurchOperationalPaths.churchDoc(op);
+      final membersRef = churchRef.collection('members');
+      final membrosRef = churchRef.collection('membros');
       var totalMigrated = 0;
       DocumentSnapshot<Map<String, dynamic>>? lastDoc;
       while (true) {

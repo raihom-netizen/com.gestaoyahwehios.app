@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Configurações do financeiro por igreja — doc `igrejas/{id}/config/finance_settings`.
 class FinanceTenantSettings {
@@ -13,9 +14,7 @@ class FinanceTenantSettings {
   });
 
   static DocumentReference<Map<String, dynamic>> docRef(String tenantId) =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
+                ChurchOperationalPaths.churchDoc(tenantId)
           .collection('config')
           .doc('finance_settings');
 

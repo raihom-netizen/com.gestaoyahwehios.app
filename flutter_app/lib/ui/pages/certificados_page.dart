@@ -68,6 +68,7 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart'
     show ChurchImageFields;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 // ─── Templates de Certificados ──────────────────────────────────────────────
 class _CertTemplate {
@@ -351,9 +352,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
   bool _membersLoadingMore = false;
 
   DocumentReference<Map<String, dynamic>> get _certConfigDoc =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('config')
           .doc('certificados');
 
@@ -497,9 +496,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
   Future<void> _loadTenant() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .get(const GetOptions(source: Source.serverAndCache));
       if (mounted) {
         setState(() => _tenantData = snap.data());
@@ -3421,9 +3419,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
 
   Future<void> _loadMembersForSignatoryPickers() async {
     try {
-      final q = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final q = await           ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .limit(YahwehPerformanceV4.defaultPageSize * 5)
           .get();
@@ -3525,9 +3522,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
           _logoCtrl.text = primaryHttps;
           _uploadingLogo = false;
         });
-        await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(widget.tenantId)
+        final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+        await             ChurchOperationalPaths.churchDoc(op)
             .collection('config')
             .doc('certificados')
             .set({
@@ -3633,9 +3629,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
           'textoModelo': texto,
         };
       }
-      await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      await           ChurchOperationalPaths.churchDoc(op)
           .collection('config')
           .doc('certificados')
           .set({
@@ -5534,9 +5529,8 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       },
     );
     try {
-      await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      await           ChurchOperationalPaths.churchDoc(op)
           .collection('config')
           .doc('certificados')
           .set({

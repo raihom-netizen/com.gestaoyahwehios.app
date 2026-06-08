@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/services/church_firestore_collection_migration_ser
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Pré-carrega leituras frequentes no **cache do Firestore** (mobile/web)
 /// após o login — painel, mural, membros, finanças, etc. (padrão Controle Total).
@@ -151,9 +152,8 @@ class ChurchTenantOfflineWarmupService {
                 .get();
           }),
           safe('members_legacy', () async {
-            await FirebaseFirestore.instance
-                .collection('igrejas')
-                .doc(tenantId)
+            final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+            await                 ChurchOperationalPaths.churchDoc(op)
                 .collection('members')
                 .limit(120)
                 .get();

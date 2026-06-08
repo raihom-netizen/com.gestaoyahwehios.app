@@ -1,6 +1,7 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Interações sociais em `igrejas/{tenantId}/noticias|avisos/{postId}`:
 /// — subcoleções `curtidas` e `confirmacoes` (documento por uid)
@@ -13,9 +14,7 @@ class NoticiaSocialService {
     String postId, {
     String parentCollection = ChurchTenantPostsCollections.eventos,
   }) =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+                ChurchOperationalPaths.churchDoc(tenantId)
           .collection(parentCollection)
           .doc(postId);
 

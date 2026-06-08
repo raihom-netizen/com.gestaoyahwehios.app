@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Dados visuais da igreja para PDFs de relatórios (logo + nome + cor de destaque).
 class ReportPdfBranding {
@@ -105,10 +106,10 @@ Future<ReportPdfBranding> _loadReportPdfBrandingUncached(String seed) async {
     } catch (_) {}
   }
 
+  final op = await ChurchOperationalPaths.resolveCached(tid.trim());
   Map<String, dynamic> tenant = {};
   try {
-    final snap =
-        await FirebaseFirestore.instance.collection('igrejas').doc(tid).get();
+    final snap = await ChurchOperationalPaths.churchDoc(op).get();
     tenant = snap.data() ?? {};
   } catch (_) {}
 
@@ -117,9 +118,7 @@ Future<ReportPdfBranding> _loadReportPdfBrandingUncached(String seed) async {
 
   Map<String, dynamic> cert = {};
   try {
-    final c = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tid)
+    final c = await ChurchOperationalPaths.churchDoc(op)
         .collection('config')
         .doc('certificados')
         .get();

@@ -214,8 +214,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
       final churchName =
           (d.data['nome'] ?? d.data['name'] ?? churchId).toString();
       try {
+        final op = await ChurchOperationalPaths.resolveCached(churchId.trim());
         final membrosCol =
-            db.collection('igrejas').doc(churchId).collection('membros');
+            ChurchOperationalPaths.churchDoc(op).collection('membros');
         final publicTotalAgg = await membrosCol
             .where('PUBLIC_SIGNUP', isEqualTo: true)
             .count()
@@ -230,9 +231,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
             .where('status', isEqualTo: 'ativo')
             .limit(120)
             .get();
-        final newsAgg = await db
-            .collection('igrejas')
-            .doc(churchId)
+        final newsAgg = await             ChurchOperationalPaths.churchDoc(churchId)
             .collection('eventos')
             .where('publicSite', isEqualTo: true)
             .where('createdAt', isGreaterThanOrEqualTo: last30)

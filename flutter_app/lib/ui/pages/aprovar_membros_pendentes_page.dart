@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class AprovarMembrosPendentesPage extends StatefulWidget {
   final String tenantId;
@@ -87,9 +88,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       '${tenantId.trim()}_membros_pendente_warm';
 
   CollectionReference<Map<String, dynamic>> get _membersCol =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(_tid)
+                ChurchOperationalPaths.churchDoc(_tid)
           .collection('membros');
 
   void _hydratePendentesFromRam() {
@@ -109,9 +108,8 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     if (seed.isEmpty) return;
 
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(seed)
+      final op = await ChurchOperationalPaths.resolveCached(seed.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .where('status', isEqualTo: 'pendente')
           .limit(120)

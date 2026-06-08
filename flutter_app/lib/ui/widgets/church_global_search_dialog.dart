@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Índices do menu em [IgrejaCleanShell] para navegação a partir da busca.
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Resultado da busca global — [avisoDocForDirectEdit] abre o formulário sem passar pelo menu.
 class ChurchGlobalSearchSelection {
@@ -180,7 +181,7 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
     } catch (_) {}
 
     final db = FirebaseFirestore.instance;
-    final base = db.collection('igrejas').doc(tid);
+    final base = ChurchOperationalPaths.churchDoc(tid);
 
     try {
       final futures = <Future<QuerySnapshot<Map<String, dynamic>>>>[];

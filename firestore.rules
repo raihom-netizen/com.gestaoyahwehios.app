@@ -48,10 +48,55 @@ service cloud.firestore {
     function isAdminPanel() {
       return isSignedIn() && isMaster();
     }
-    // sameChurch: documento users ou custom claims (igrejaId/tenantId) â€” evita permission-denied Mural/Departamentos/Eventos
-    function sameChurch(tenantId) {
+    /// Alias legado → doc canónico (`church_aliases/{alias}.canonicalId`).
+    function resolveCanonicalTenantId(tenantId) {
+      let aliasDoc = /databases/$(database)/documents/church_aliases/$(tenantId);
+      return exists(aliasDoc)
+        && ('canonicalId' in get(aliasDoc).data)
+        && get(aliasDoc).data.canonicalId is string
+        && get(aliasDoc).data.canonicalId.size() > 0
+        ? get(aliasDoc).data.canonicalId
+        : tenantId;
+    }
+    /// Chave de cluster (`churchId` canónico ou slug) — docs irmãos (`_sistema`, legado) partilham acesso.
+    function igrejaClusterKey(tenantId) {
+      let resolved = resolveCanonicalTenantId(tenantId);
+      let p = /databases/$(database)/documents/igrejas/$(resolved);
+      return exists(p)
+        ? (
+            ('churchId' in get(p).data && get(p).data.churchId is string && get(p).data.churchId.size() > 0)
+              ? get(p).data.churchId
+              : (
+                  ('slug' in get(p).data && get(p).data.slug is string && get(p).data.slug.size() > 0)
+                    ? get(p).data.slug
+                    : resolved
+                )
+          )
+        : resolved;
+    }
+    function userBoundTenantId() {
       let p = /databases/$(database)/documents/users/$(request.auth.uid);
-      return isSignedIn() && ((exists(p) && (get(p).data.igrejaId == tenantId || get(p).data.tenantId == tenantId)) || (request.auth.token.igrejaId == tenantId || request.auth.token.tenantId == tenantId));
+      return isSignedIn() && exists(p)
+        ? (
+            ('igrejaId' in get(p).data && get(p).data.igrejaId is string && get(p).data.igrejaId.size() > 0)
+              ? get(p).data.igrejaId
+              : (
+                  ('tenantId' in get(p).data && get(p).data.tenantId is string && get(p).data.tenantId.size() > 0)
+                    ? get(p).data.tenantId
+                    : ''
+                )
+          )
+        : '';
+    }
+    // sameChurch: users, claims ou mesmo cluster (`igrejas/{id}` canónico vs `_sistema`/legado).
+    function sameChurch(tenantId) {
+      let bound = userBoundTenantId();
+      return isSignedIn() && (
+        bound == tenantId
+        || request.auth.token.igrejaId == tenantId
+        || request.auth.token.tenantId == tenantId
+        || (bound.size() > 0 && igrejaClusterKey(bound) == igrejaClusterKey(tenantId))
+      );
     }
     // Inclui capitalizaÃ§Ã£o comum no app (ex.: "Gestor", "Master") â€” sem isto canWriteTenant falha e nada grava (avisos, departamentos, mÃ­dia-meta).
     function canManageChurch() {
@@ -104,10 +149,17 @@ service cloud.firestore {
           && (get(/databases/$(database)/documents/igrejas/$(tenantId)).data.email == request.auth.token.email
               || get(/databases/$(database)/documents/igrejas/$(tenantId)).data.gestorEmail == request.auth.token.email);
     }
+    function memberLinkedToTenantCluster(tenantId) {
+      let bound = userBoundTenantId();
+      return bound.size() > 0
+        && igrejaClusterKey(bound) == igrejaClusterKey(tenantId)
+        && memberLinkedToTenant(bound);
+    }
     function canAccessTenant(tenantId) {
       return isMaster() || sameChurch(tenantId) || emailMatchesTenant(tenantId)
         || exists(/databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid))
-        || memberLinkedToTenant(tenantId);
+        || memberLinkedToTenant(tenantId)
+        || memberLinkedToTenantCluster(tenantId);
     }
     /// Membro cadastrado na igreja (doc por UID ou por CPF 11 dÃ­gitos vinculado ao authUid).
     /// Evita bloqueio de gravaÃ§Ã£o para quem estÃ¡ ativo em `membros`, mas sem espelho completo em `users`.
@@ -1743,6 +1795,21 @@ service cloud.firestore {
     // Legado raiz `pendingUploads` — descontinuado; migrar/apagar via Admin SDK (script).
     match /pendingUploads/{docId} {
       allow read, write: if false;
+    }
+
+    // Mapeamento alias → ID canónico (multi-tenant).
+    match /church_aliases/{aliasId} {
+      // Slug público (/igreja/{alias}/cadastro-membro) — visitante anónimo precisa resolver o ID canónico.
+      allow read: if true;
+      allow write: if isMaster();
+    }
+
+    // Logs centralizados de erros multi-tenant (cliente grava; master lê).
+    match /system_logs/{logId} {
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid;
+      allow read: if isMaster();
+      allow update, delete: if false;
     }
 
     match /{document=**} {

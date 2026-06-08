@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Resumo mensal em `igrejas/{tid}/_panel_cache/finance_summary` (Cloud Function).
 class PanelFinanceMonthTotals {
@@ -65,9 +66,7 @@ class PanelFinanceSnapshot {
 
 class PanelFinanceSnapshotService {
   static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
-    return firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tenantId.trim())
+    return         ChurchOperationalPaths.churchDoc(tenantId.trim())
         .collection('_panel_cache')
         .doc('finance_summary');
   }

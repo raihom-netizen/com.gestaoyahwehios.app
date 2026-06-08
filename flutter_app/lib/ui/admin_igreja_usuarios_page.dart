@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_page.dart';
@@ -44,10 +46,8 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final resolved = await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
-      final tenantId = resolved.isNotEmpty ? resolved : widget.tenantId;
-      List<String> allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(tenantId);
-      if (widget.tenantId.trim().isNotEmpty && !allIds.contains(widget.tenantId)) allIds = [widget.tenantId, ...allIds];
+      final tenantId = await ChurchOperationalPaths.resolve(widget.tenantId);
+      final allIds = await ChurchOperationalPaths.clusterDocIds(tenantId);
       final db = FirebaseFirestore.instance;
       final seen = <String>{};
       final list = <_MemberRow>[];
@@ -58,14 +58,16 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
         list.add(_MemberRow(d.id, d.data()));
       }
 
-      for (final tid in allIds) {
+      for (final rawTid in allIds) {
+        final tid = await ChurchOperationalPaths.resolve(rawTid);
         try {
-          final membrosSnap = await db.collection('igrejas').doc(tid).collection('membros').get();
+          final membrosSnap =
+              await ChurchTenantResilientReads.membrosRecent(tid, limit: 2500);
           for (final d in membrosSnap.docs) addDoc(d);
         } catch (_) {}
         // Usuários dentro da igreja: subcoleção igrejas/{id}/users (painel da igreja)
         try {
-          final usersInIgreja = await db.collection('igrejas').doc(tid).collection('users').get();
+          final usersInIgreja = await ChurchOperationalPaths.churchDoc(tid).collection('users').get();
           for (final d in usersInIgreja.docs) addDoc(d);
         } catch (_) {}
         // users (raiz) com tenantId/igrejaId apontando para esta igreja

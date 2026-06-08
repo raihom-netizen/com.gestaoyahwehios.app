@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/services/feed_media_publish_strict.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Fachada legada — **toda** publicação mural/feed delega a [PublicationEngine].
 ///
@@ -41,9 +42,8 @@ abstract final class FeedMediaPublishService {
     final col = postType == 'aviso'
         ? ChurchTenantPostsCollections.avisos
         : ChurchTenantPostsCollections.eventos;
-    final ref = db
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    final ref =         ChurchOperationalPaths.churchDoc(op)
         .collection(col);
     return postId == null ? ref.doc() : ref.doc(postId);
   }

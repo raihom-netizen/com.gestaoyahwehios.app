@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class GroupsPage extends StatefulWidget {
   final String tenantId;
@@ -33,9 +34,7 @@ class _GroupsPageState extends State<GroupsPage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _gruposCol =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('grupos');
 
   static const _diasSemana = [
@@ -830,9 +829,8 @@ class _GroupFormPageState extends State<_GroupFormPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      final col = FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final col =           ChurchOperationalPaths.churchDoc(op)
           .collection('grupos');
 
       final payload = <String, dynamic>{
@@ -1053,9 +1051,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
   late final TabController _tabCtrl;
 
   DocumentReference<Map<String, dynamic>> get _groupRef =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+                ChurchOperationalPaths.churchDoc(widget.tenantId)
           .collection('grupos')
           .doc(widget.groupDoc.id);
 
@@ -1265,9 +1261,8 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
   }
 
   Future<void> _addMembro() async {
-    final membersCol = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    final membersCol =         ChurchOperationalPaths.churchDoc(op)
         .collection('membros');
 
     final searchCtrl = TextEditingController();

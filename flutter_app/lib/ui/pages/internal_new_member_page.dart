@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart'
     show FirebaseFunctions, FirebaseFunctionsException;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
@@ -56,6 +57,10 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   String _tenantName = 'Igreja';
   String _tenantAlias = '';
   String _tenantSlug = '';
+  String? _operationalTenantId;
+
+  String get _effectiveTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
 
   DateTime? _birthDate;
   final _birthDateCtrl = TextEditingController();
@@ -120,7 +125,9 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       return;
     }
     try {
-      final d = await FirebaseFirestore.instance.collection('igrejas').doc(tid).get();
+      final op = await ChurchOperationalPaths.resolveCached(tid);
+      if (mounted) _operationalTenantId = op;
+      final d = await ChurchOperationalPaths.churchDoc(op).get();
       if (d.exists) {
         final data = d.data() ?? {};
         setState(() {
@@ -315,10 +322,8 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
 
     final cpfDigits = _onlyDigits(_cpfCtrl.text);
     final emailNorm = _emailCtrl.text.trim().toLowerCase();
-    final col = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
-        .collection('membros');
+    final op = await ChurchOperationalPaths.resolveCached(_effectiveTenantId);
+    final col = ChurchOperationalPaths.churchDoc(op).collection('membros');
 
     // Impedir cadastro duplo: mesmo CPF ou mesmo e-mail na mesma igreja
     if (cpfDigits.length == 11) {

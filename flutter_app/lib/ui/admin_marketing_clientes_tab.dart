@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -9,8 +10,9 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_clientes_showcase_section.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 DocumentReference<Map<String, dynamic>> get _marketingClientesDocRef =>
@@ -58,6 +60,49 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
   final _sectionTitleCtrl = TextEditingController();
   final _sectionSubtitleCtrl = TextEditingController();
   bool _titleDirty = false;
+  List<Map<String, dynamic>> _items = const [];
+  bool _loading = true;
+  String? _loadWarning;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _loadWarning = null;
+    });
+    try {
+      await FirestoreWebGuard.ensureMasterPanelReady();
+      final snap = await FirestoreReadResilience.getDocument(
+        _marketingClientesDocRef,
+        cacheKey: 'app_public_marketing_clientes',
+      );
+      final data = snap.data();
+      final items = _cloneItems(data);
+      items.sort(
+        (a, b) => _parseOrdem(a['ordem']).compareTo(_parseOrdem(b['ordem'])),
+      );
+      if (!_titleDirty) {
+        _sectionTitleCtrl.text = (data?['sectionTitle'] as String?) ?? '';
+        _sectionSubtitleCtrl.text = (data?['sectionSubtitle'] as String?) ?? '';
+      }
+      if (!mounted) return;
+      setState(() {
+        _items = items;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadWarning = formatFirebaseErrorForUser(e, logToCrashlytics: false);
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -82,6 +127,8 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
       );
       if (mounted) {
         setState(() => _titleDirty = false);
+        await _load();
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Título e texto da seção atualizados.'),
         );
@@ -513,6 +560,8 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
     );
 
     if (result == true && mounted) {
+      await _load();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar('Lista de igrejas atualizada.'),
       );
@@ -595,6 +644,8 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
       );
       await _persistItems(list);
       if (mounted) {
+        await _load();
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Removido.'),
         );
@@ -611,43 +662,53 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
   @override
   Widget build(BuildContext context) {
     final pad = ThemeCleanPremium.pagePadding(context);
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirestoreStreamUtils.documentWatchSafe(
-        _marketingClientesDocRef,
-      ),
-      builder: (context, snap) {
-        final data = snap.data?.data();
-        final items = _cloneItems(data);
-        items.sort(
-          (a, b) =>
-              _parseOrdem(a['ordem']).compareTo(_parseOrdem(b['ordem'])),
-        );
+    final items = _items;
 
-        if (!_titleDirty && snap.hasData) {
-          final st = (data?['sectionTitle'] as String?) ?? '';
-          final ss = (data?['sectionSubtitle'] as String?) ?? '';
-          if (_sectionTitleCtrl.text != st ||
-              _sectionSubtitleCtrl.text != ss) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted && !_titleDirty) {
-                _sectionTitleCtrl.text = st;
-                _sectionSubtitleCtrl.text = ss;
-              }
-            });
-          }
-        }
-
-        return CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(
-            parent: BouncingScrollPhysics(),
-          ),
-          slivers: [
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        slivers: [
             SliverPadding(
               padding: pad.copyWith(bottom: 8),
               sliver: SliverToBoxAdapter(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (_loadWarning != null) ...[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFFED7AA)),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _loadWarning!,
+                                style: const TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF9A3412),
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: _loading ? null : _load,
+                              child: const Text('Atualizar'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     Text(
                       'Igrejas em destaque',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -699,16 +760,13 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
               padding: EdgeInsets.fromLTRB(pad.left, 0, pad.right, 8),
               sliver: SliverToBoxAdapter(
                 child: FilledButton.icon(
-                  onPressed: snap.connectionState == ConnectionState.waiting &&
-                          !snap.hasData
-                      ? null
-                      : () => _openEditor(currentItems: items),
+                  onPressed: _loading ? null : () => _openEditor(currentItems: items),
                   icon: const Icon(Icons.add_rounded),
                   label: const Text('Adicionar igreja'),
                 ),
               ),
             ),
-            if (snap.connectionState == ConnectionState.waiting && !snap.hasData)
+            if (_loading && items.isEmpty)
               const SliverFillRemaining(
                 hasScrollBody: false,
                 child: Center(child: CircularProgressIndicator()),
@@ -840,8 +898,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                 ),
               ),
           ],
-        );
-      },
+        ),
     );
   }
 }

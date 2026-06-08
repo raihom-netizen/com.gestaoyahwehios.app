@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Recuperação automática de mensagens presas (`sending` / `uploading` / `queued`).
 ///
@@ -240,9 +241,8 @@ abstract final class ChurchChatAutoRecoveryService {
 
   static Future<void> _closeOrphanChatUploads(String tenantId, String uid) async {
     try {
-      final snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('chat_uploads')
           .where('ownerUid', isEqualTo: uid)
           .where(

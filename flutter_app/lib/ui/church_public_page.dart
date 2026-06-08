@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -89,6 +93,7 @@ import 'package:gestao_yahweh/ui/pages/legal_pages.dart'
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Capa para site público — mesma lógica centralizada em [eventNoticiaFeedCoverHintUrl].
 String _churchPublicNoticiaCoverUrl(Map<String, dynamic> p) =>
@@ -204,7 +209,7 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
     // Só documentos com publicSite == true: o Firestore exige que a query não possa
     // devolver posts privados (publicSite == false); senão visitante sem login leva
     // permission-denied em listas sem filtro — mesmo que o app filtre depois no cliente.
-    final base = FirebaseFirestore.instance.collection('igrejas').doc(igrejaId);
+    final base = ChurchOperationalPaths.churchDoc(igrejaId);
     final sub1 = base
         .collection(ChurchTenantPostsCollections.eventos)
         .where('publicSite', isEqualTo: true)
@@ -1427,26 +1432,21 @@ Future<_PublicSocialProofStats> _loadPublicSocialProofStats(
     String igrejaId) async {
   final db = FirebaseFirestore.instance;
   try {
-    final membersAgg = await db
-        .collection('igrejas')
-        .doc(igrejaId)
+    final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
+    final membersAgg = await         ChurchOperationalPaths.churchDoc(op)
         .collection('membros')
         .where('status', isEqualTo: 'ativo')
         .count()
         .get();
     final from =
         Timestamp.fromDate(DateTime.now().subtract(const Duration(days: 30)));
-    final postsNoticias = await db
-        .collection('igrejas')
-        .doc(igrejaId)
+    final postsNoticias = await         ChurchOperationalPaths.churchDoc(op)
         .collection(ChurchTenantPostsCollections.eventos)
         .where('publicSite', isEqualTo: true)
         .where('createdAt', isGreaterThanOrEqualTo: from)
         .count()
         .get();
-    final postsAvisos = await db
-        .collection('igrejas')
-        .doc(igrejaId)
+    final postsAvisos = await         ChurchOperationalPaths.churchDoc(op)
         .collection(ChurchTenantPostsCollections.avisos)
         .where('publicSite', isEqualTo: true)
         .where('createdAt', isGreaterThanOrEqualTo: from)
@@ -1516,64 +1516,113 @@ class _ChurchPublicTenantResolved {
 
 Stream<_ChurchPublicTenantResolved?> _churchPublicTenantBySlugStream(
   String slugClean,
-) {
-  return Stream.multi((controller) {
-    QuerySnapshot<Map<String, dynamic>>? bySlug;
-    DocumentSnapshot<Map<String, dynamic>>? byId;
-    var slugReady = false;
-    var idReady = false;
+) =>
+    Stream.fromFuture(_resolveChurchPublicTenantBySlug(slugClean));
 
-    void emit() {
-      if (!slugReady || !idReady) return;
-      if (bySlug != null && bySlug!.docs.isNotEmpty) {
-        final d = bySlug!.docs.first;
-        controller.add(
-          _ChurchPublicTenantResolved(id: d.id, data: d.data() ?? {}),
-        );
-        return;
-      }
-      if (byId != null && byId!.exists) {
-        controller.add(
-          _ChurchPublicTenantResolved(
-            id: byId!.id,
-            data: byId!.data() ?? {},
-          ),
-        );
-        return;
-      }
-      controller.add(null);
+Future<_ChurchPublicTenantResolved?> _resolveChurchPublicTenantBySlug(
+  String slugClean,
+) async {
+  final slug = slugClean.trim();
+  if (slug.isEmpty) return null;
+
+  try {
+    await ensureFirebaseReadyForPanelRead();
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady();
     }
+  } catch (e) {
+    AgentDebugLog.log(
+      location: 'church_public_page.dart:resolve',
+      message: 'public_site_firebase_prep_failed',
+      hypothesisId: 'PUB-C',
+      data: {'slug': slug, 'error': e.toString()},
+    );
+  }
 
-    final subSlug = FirebaseFirestore.instance
-        .collection('igrejas')
-        .where('slug', isEqualTo: slugClean)
-        .limit(1)
-        .watchSafe()
-        .listen(
-      (snap) {
-        bySlug = snap;
-        slugReady = true;
-        emit();
-      },
-      onError: controller.addError,
-    );
-    final subId = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(slugClean)
-        .watchSafe()
-        .listen(
-      (snap) {
-        byId = snap;
-        idReady = true;
-        emit();
-      },
-      onError: controller.addError,
-    );
-    controller.onCancel = () {
-      subSlug.cancel();
-      subId.cancel();
-    };
-  });
+  for (var attempt = 0; attempt < 4; attempt++) {
+    try {
+      if (attempt > 0) {
+        await Future<void>.delayed(
+          Duration(milliseconds: 280 * attempt),
+        );
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady();
+        }
+      }
+
+      final resolved =
+          await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(slug)
+              .timeout(const Duration(seconds: 12));
+
+      if (resolved != null && resolved.isNotEmpty) {
+        var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
+          resolved,
+          preferServer: kIsWeb || attempt == 0,
+        );
+        if (profile.isEmpty) {
+          profile = await TenantResolverService.richestChurchProfileForCadastro(
+            resolved,
+            preferServer: kIsWeb,
+          );
+        }
+        AgentDebugLog.log(
+          location: 'church_public_page.dart:resolve',
+          message: 'public_site_tenant_resolved',
+          hypothesisId: 'PUB-A',
+          data: {
+            'slug': slug,
+            'resolved': resolved,
+            'attempt': attempt,
+            'profileKeys': profile.keys.length,
+            'hasCidade': (profile['cidade'] ?? '').toString().isNotEmpty,
+            'hasNome': (profile['name'] ?? profile['nome'] ?? '')
+                .toString()
+                .isNotEmpty,
+          },
+        );
+        if (profile.isNotEmpty) {
+          return _ChurchPublicTenantResolved(
+            id: resolved,
+            data: profile,
+          );
+        }
+      }
+
+      for (final field in const ['slug', 'alias', 'slugId']) {
+        final q = await FirebaseFirestore.instance
+            .collection('igrejas')
+            .where(field, isEqualTo: slug)
+            .limit(1)
+            .get(
+              GetOptions(
+                source: kIsWeb && attempt == 0
+                    ? Source.server
+                    : Source.serverAndCache,
+              ),
+            )
+            .timeout(const Duration(seconds: 10));
+        if (q.docs.isNotEmpty) {
+          final d = q.docs.first;
+          return _ChurchPublicTenantResolved(
+            id: d.id,
+            data: d.data(),
+          );
+        }
+      }
+    } catch (e) {
+      AgentDebugLog.log(
+        location: 'church_public_page.dart:resolve',
+        message: 'public_site_resolve_attempt_failed',
+        hypothesisId: 'PUB-B',
+        data: {
+          'slug': slug,
+          'attempt': attempt,
+          'error': e.toString(),
+        },
+      );
+    }
+  }
+  return null;
 }
 
 /// Pré-resolve a URL da logo (memoizada em [AppStorageImageService]) para o badge aparecer mais cedo.
@@ -2031,6 +2080,12 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                 logChurchPublic('nav_access_system');
                                 Navigator.pushNamed(context, '/igreja/login');
                               },
+                            ),
+                            SliverToBoxAdapter(
+                              child: ChurchPublicAppDownloadBanner(
+                                accentColor: accent,
+                                onAnalytics: logChurchPublic,
+                              ),
                             ),
                             SliverToBoxAdapter(
                               child: ChurchPublicWelcomeStrip(
@@ -2702,16 +2757,12 @@ class _PublicNoticiaDeepLinkOpenerState
   Future<void> _open(String key) async {
     try {
       if (!mounted) return;
-      var snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.igrejaId)
+      var snap = await           ChurchOperationalPaths.churchDoc(widget.igrejaId)
           .collection(ChurchTenantPostsCollections.avisos)
           .doc(widget.openNoticiaId)
           .get();
       if (!snap.exists) {
-        snap = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(widget.igrejaId)
+        snap = await             ChurchOperationalPaths.churchDoc(widget.igrejaId)
             .collection(ChurchTenantPostsCollections.eventos)
             .doc(widget.openNoticiaId)
             .get();
@@ -3174,9 +3225,7 @@ class _HorariosCultoSection extends StatelessWidget {
       icon: Icons.schedule_rounded,
       accentColor: const Color(0xFF059669),
       child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        future: FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(igrejaId)
+        future:             ChurchOperationalPaths.churchDoc(igrejaId)
             .get(),
         builder: (context, tenantSnap) {
           final tenantHorarios = (tenantSnap.data?.data()?['horariosCulto'] ??
@@ -3190,9 +3239,7 @@ class _HorariosCultoSection extends StatelessWidget {
                     fontSize: 15, height: 1.6, color: Colors.grey.shade800));
           }
           return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            future: FirebaseFirestore.instance
-                .collection('igrejas')
-                .doc(igrejaId)
+            future:                 ChurchOperationalPaths.churchDoc(igrejaId)
                 .collection('event_templates')
                 .where('active', isEqualTo: true)
                 .get(),
@@ -3515,9 +3562,8 @@ Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
   try {
     final now = DateTime.now();
     final end = now.add(Duration(days: days));
-    final noticiasRef = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(igrejaId)
+    final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
+    final noticiasRef =         ChurchOperationalPaths.churchDoc(op)
         .collection('eventos');
     final eventosSnap = await noticiasRef
         .where('type', isEqualTo: 'evento')
@@ -3554,9 +3600,7 @@ Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
         'photoStoragePath': path0 != null && path0.isNotEmpty ? path0 : '',
       });
     }
-    final tplSnap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(igrejaId)
+    final tplSnap = await         ChurchOperationalPaths.churchDoc(igrejaId)
         .collection('event_templates')
         .where('active', isEqualTo: true)
         .get();
@@ -4664,15 +4708,29 @@ class _ChurchTenantFallback extends StatelessWidget {
       {required this.slugClean, required this.prettyName});
 
   Future<DocumentSnapshot<Map<String, dynamic>>?> _loadTenant() async {
+    try {
+      final resolved =
+          await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(
+        slugClean,
+      ).timeout(const Duration(seconds: 14));
+      if (resolved != null && resolved.isNotEmpty) {
+        final doc = await ChurchOperationalPaths.churchDoc(resolved).get();
+        if (doc.exists) return doc;
+      }
+    } catch (_) {}
+
     final db = FirebaseFirestore.instance;
-    var q = await db
-        .collection('igrejas')
-        .where('slug', isEqualTo: slugClean)
-        .limit(1)
-        .get();
-    if (q.docs.isNotEmpty) return q.docs.first;
-    final doc = await db.collection('igrejas').doc(slugClean).get();
-    return doc.exists ? doc : null;
+    for (final field in const ['slug', 'alias', 'slugId']) {
+      try {
+        final q = await db
+            .collection('igrejas')
+            .where(field, isEqualTo: slugClean)
+            .limit(1)
+            .get();
+        if (q.docs.isNotEmpty) return q.docs.first;
+      } catch (_) {}
+    }
+    return null;
   }
 
   @override
@@ -4829,6 +4887,10 @@ class _ChurchTenantFallback extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
+            ChurchPublicAppDownloadBanner(
+              accentColor: accentFb,
+            ),
+            const SizedBox(height: 8),
             ChurchPublicWelcomeStrip(
               churchName: nome,
               accentColor: accentFb,

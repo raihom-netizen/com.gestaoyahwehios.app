@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
@@ -43,6 +45,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:image_picker/image_picker.dart';
 import 'package:lottie/lottie.dart';
 import 'package:skeletonizer/skeletonizer.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 
 class PublicMemberSignupPage extends StatefulWidget {
   /// Slug da igreja (para link público). Se null, use [tenantId].
@@ -393,11 +397,20 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   Future<void> _applyTenantFromChurchDoc(
     DocumentSnapshot<Map<String, dynamic>> d,
   ) async {
-    final data = d.data() ?? {};
-    final churchWithId = Map<String, dynamic>.from(data)..['id'] = d.id;
-    final operational = await TenantResolverService.resolveOperationalChurchDocId(
-      d.id,
-    );
+    await _applyTenantFromChurchData(d.id, d.data() ?? {});
+  }
+
+  Future<void> _applyTenantFromChurchData(
+    String docId,
+    Map<String, dynamic> data,
+  ) async {
+    final churchWithId = Map<String, dynamic>.from(data)..['id'] = docId;
+    String operational = docId;
+    try {
+      operational = await TenantResolverService.resolveOperationalChurchDocId(
+        docId,
+      ).timeout(const Duration(seconds: 8), onTimeout: () => docId);
+    } catch (_) {}
     final resolvedLogo = await _prefetchChurchLogoUrl(
       tenantDocId: operational,
       churchWithId: churchWithId,
@@ -438,42 +451,76 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
 
   Future<void> _loadTenant() async {
     try {
-      if (widget.tenantId != null && widget.tenantId!.isNotEmpty) {
+      await ensureFirebaseReadyForPanelRead();
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady();
+      }
+
+      final slugTrim = widget.slug?.trim() ?? '';
+      final tenantHint = widget.tenantId?.trim() ?? '';
+
+      String? resolvedId;
+      if (tenantHint.isNotEmpty) {
+        resolvedId =
+            await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(
+                  tenantHint,
+                )
+                .timeout(const Duration(seconds: 12), onTimeout: () => tenantHint) ??
+            tenantHint;
+      }
+      if ((resolvedId == null || resolvedId.isEmpty) && slugTrim.isNotEmpty) {
+        resolvedId =
+            await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(slugTrim)
+                .timeout(const Duration(seconds: 12));
+      }
+
+      if (resolvedId != null && resolvedId.isNotEmpty) {
+        AgentDebugLog.log(
+          location: 'public_member_signup_page.dart:load',
+          message: 'signup_slug_resolved',
+          hypothesisId: 'PUB-B',
+          data: {'slug': slugTrim, 'resolvedId': resolvedId},
+        );
+        var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
+          resolvedId,
+          preferServer: kIsWeb,
+        );
+        if (profile.isEmpty) {
+          profile = await TenantResolverService.richestChurchProfileForCadastro(
+            resolvedId,
+            preferServer: kIsWeb,
+          );
+        }
+        if (profile.isNotEmpty) {
+          await _applyTenantFromChurchData(resolvedId, profile);
+          return;
+        }
         final d = await FirebaseFirestore.instance
             .collection('igrejas')
-            .doc(widget.tenantId!)
-            .get();
+            .doc(resolvedId)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 12));
         if (d.exists) {
           await _applyTenantFromChurchDoc(d);
           return;
         }
       }
-      if (widget.slug != null && widget.slug!.trim().isNotEmpty) {
-        final slugTrim = widget.slug!.trim();
-        final resolvedId =
-            await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(slugTrim);
-        if (resolvedId != null && resolvedId.isNotEmpty) {
-          final d = await FirebaseFirestore.instance
-              .collection('igrejas')
-              .doc(resolvedId)
-              .get();
-          if (d.exists) {
-            await _applyTenantFromChurchDoc(d);
-            return;
-          }
-        }
+
+      if (slugTrim.isNotEmpty) {
         // Fallback: query directa slug/alias (igrejas sem cluster conhecido).
         var q = await FirebaseFirestore.instance
             .collection('igrejas')
             .where('slug', isEqualTo: slugTrim)
             .limit(1)
-            .get();
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 10));
         if (q.docs.isEmpty) {
           q = await FirebaseFirestore.instance
               .collection('igrejas')
               .where('alias', isEqualTo: slugTrim)
               .limit(1)
-              .get();
+              .get(const GetOptions(source: Source.serverAndCache))
+              .timeout(const Duration(seconds: 10));
         }
         if (q.docs.isNotEmpty) {
           await _applyTenantFromChurchDoc(q.docs.first);
@@ -1035,9 +1082,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     }
     final cpfDigits = _onlyDigits(_cpfCtrl.text);
     final emailNorm = _emailCtrl.text.trim().toLowerCase();
-    final col = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(_tenantId!)
+    final op = await ChurchOperationalPaths.resolveCached(_tenantId!);
+    final col =         ChurchOperationalPaths.churchDoc(op)
         .collection('membros');
     final editingDocId = _editModeAfterSubmit ? _lastSubmittedDocId : null;
 
@@ -1946,9 +1992,7 @@ class PublicSignupStatusPage extends StatelessWidget {
         (churchDoc.data()['name'] ?? churchDoc.data()['nome'] ?? 'Igreja')
             .toString();
 
-    final membrosCol = db
-        .collection('igrejas')
-        .doc(churchDoc.id)
+    final membrosCol =         ChurchOperationalPaths.churchDoc(churchDoc.id)
         .collection('membros');
     var memberDoc = await membrosCol.doc(protocolo.trim()).get();
     if (!memberDoc.exists) {

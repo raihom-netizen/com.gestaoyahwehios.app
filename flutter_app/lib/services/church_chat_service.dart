@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart'
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart'
     show awaitStorageUploadTask;
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'church_chat_album_utils.dart';
 import 'church_chat_attachment_utils.dart';
 import 'church_chat_local_conversations.dart';
@@ -99,9 +100,7 @@ class ChurchChatService {
 
   static DocumentReference<Map<String, dynamic>> threadRef(
       String tenantId, String threadId) {
-    return _db
-        .collection('igrejas')
-        .doc(tenantId)
+    return         ChurchOperationalPaths.churchDoc(tenantId)
         .collection('chats')
         .doc(threadId);
   }
@@ -114,7 +113,7 @@ class ChurchChatService {
   /// Biblioteca de figurinhas por igreja (`chat_stickers`).
   static CollectionReference<Map<String, dynamic>> stickersCol(
       String tenantId) {
-    return _db.collection('igrejas').doc(tenantId).collection('chat_stickers');
+    return ChurchOperationalPaths.churchDoc(tenantId).collection('chat_stickers');
   }
 
   /// Histórico por páginas no cliente (`startAfter` + stream da página recente).
@@ -147,13 +146,14 @@ class ChurchChatService {
     required String threadId,
     int pageSize = defaultMessagePageSize,
   }) async {
+    final op = await ChurchOperationalPaths.resolve(tenantId);
     final snap = await FirestoreReadResilience.getQuery(
       recentMessagesQuery(
-        tenantId: tenantId,
+        tenantId: op,
         threadId: threadId,
         pageSize: pageSize,
       ),
-      cacheKey: recentMessagesCacheKey(tenantId, threadId),
+      cacheKey: recentMessagesCacheKey(op, threadId),
     );
     return snap.docs;
   }
@@ -208,9 +208,7 @@ class ChurchChatService {
     String tenantId,
     String uid,
   ) {
-    return _db
-        .collection('igrejas')
-        .doc(tenantId)
+    return         ChurchOperationalPaths.churchDoc(tenantId)
         .collection('chats')
         .where('participantUids', arrayContains: uid)
         .orderBy('lastMessageAt', descending: true)
@@ -222,9 +220,7 @@ class ChurchChatService {
     String tenantId,
     String uid,
   ) {
-    return _db
-        .collection('igrejas')
-        .doc(tenantId)
+    return         ChurchOperationalPaths.churchDoc(tenantId)
         .collection('chats')
         .where('participantUids', arrayContains: uid)
         .limit(YahwehPerformanceV4.chatThreadsFallbackLimit);
@@ -606,10 +602,9 @@ class ChurchChatService {
   }) async {
     final peerUids = <String>{};
     try {
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
       final profiles = await firestoreQueryGetReliable(
-        _db
-            .collection('igrejas')
-            .doc(tenantId)
+        ChurchOperationalPaths.churchDoc(op)
             .collection('chat_peer_profiles')
             .limit(YahwehPerformanceV4.chatThreadsFallbackLimit),
       );
@@ -646,7 +641,7 @@ class ChurchChatService {
     }
 
     final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    final col = _db.collection('igrejas').doc(tenantId).collection('chats');
+    final col = ChurchOperationalPaths.churchDoc(tenantId).collection('chats');
     for (final id in threadIds) {
       try {
         final snap = await firestoreQueryGetReliable(
@@ -1254,9 +1249,7 @@ class ChurchChatService {
     }
 
     try {
-      final q = await _db
-          .collection('igrejas')
-          .doc(tenantId)
+      final q = await           ChurchOperationalPaths.churchDoc(tenantId)
           .collection('membros')
           .where('departamentosIds', arrayContains: deptId)
           .limit(YahwehPerformanceV4.chatThreadsListLimit)
@@ -1265,9 +1258,7 @@ class ChurchChatService {
       out.sort(nameCmp);
       return out;
     } catch (_) {
-      final all = await _db
-          .collection('igrejas')
-          .doc(tenantId)
+      final all = await           ChurchOperationalPaths.churchDoc(tenantId)
           .collection('membros')
           .limit(YahwehPerformanceV4.chatThreadsListLimit)
           .get();
@@ -1340,9 +1331,8 @@ class ChurchChatService {
     if (uid == null) return;
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
-    await _db
-        .collection('igrejas')
-        .doc(tid)
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    await         ChurchOperationalPaths.churchDoc(op)
         .collection('users_profile_chat')
         .doc(uid)
         .set(
@@ -1360,9 +1350,8 @@ class ChurchChatService {
   static Future<void> touchPresence(String tenantId) async {
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null) return;
-    await _db
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    await         ChurchOperationalPaths.churchDoc(op)
         .collection('chat_presence')
         .doc(uid)
         .set(
@@ -1435,11 +1424,10 @@ class ChurchChatService {
         i,
         i + chunk > ids.length ? ids.length : i + chunk,
       );
+      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
       final snaps = await Future.wait(
         part.map(
-          (uid) => _db
-              .collection('igrejas')
-              .doc(tid)
+          (uid) => ChurchOperationalPaths.churchDoc(op)
               .collection('chat_presence')
               .doc(uid)
               .get(),

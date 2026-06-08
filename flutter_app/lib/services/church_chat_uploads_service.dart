@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Controlo Firestore de uploads de mídia do chat (retoma após fechar o app).
 ///
@@ -17,10 +18,8 @@ abstract final class ChurchChatUploadsService {
   static const statusDone = 'done';
   static const statusFailed = 'failed';
 
-  static CollectionReference<Map<String, dynamic>> _col(String tenantId) =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
+  static CollectionReference<Map<String, dynamic>> _col(String operationalTenantId) =>
+      ChurchOperationalPaths.churchDoc(operationalTenantId.trim())
           .collection('chat_uploads');
 
   static String? get _uid => firebaseDefaultAuth.currentUser?.uid;

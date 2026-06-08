@@ -26,6 +26,7 @@ import 'package:gestao_yahweh/utils/cert_pdf_image_optimize.dart'
         optimizeCertPdfLogoBytes;
 import 'package:gestao_yahweh/utils/carteirinha_pdf_signature_enhance.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Signatário efetivo (com [memberId] para buscar imagem no Firestore/Storage).
 class CertPdfPipelineSignatory {
@@ -485,9 +486,7 @@ Future<Uint8List?> _fetchSignatorySignatureBytes({
     } else {
       DocumentSnapshot<Map<String, dynamic>>? membroSnap;
       try {
-        membroSnap = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(tenantId)
+        membroSnap = await             ChurchOperationalPaths.churchDoc(tenantId)
             .collection('membros')
             .doc(memberId)
             .get()
@@ -653,9 +652,8 @@ Future<String> _resolveTenantSignatureEnhanceMode(String tenantId) async {
     return _signatureEnhanceModeByTenantCache[tid]!;
   }
   try {
-    final snap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tid)
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final snap = await         ChurchOperationalPaths.churchDoc(op)
         .collection('config')
         .doc('carteira')
         .get();

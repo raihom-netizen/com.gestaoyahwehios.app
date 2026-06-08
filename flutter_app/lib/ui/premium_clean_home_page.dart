@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// ✅ Landing Premium Clean (fundo branco, logo grande, módulos modernos)
 /// - Campo CPF (11 dígitos) → consulta via Cloud Function `resolveCpfToEmail`
@@ -31,7 +32,8 @@ class _PremiumCleanHomePageState extends State<PremiumCleanHomePage> {
 
   Future<Map<String, dynamic>?> _loadTenantPublic(String tenantId) async {
     try {
-      final snap = await FirebaseFirestore.instance.collection('igrejas').doc(tenantId).get();
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final snap = await ChurchOperationalPaths.churchDoc(op).get();
       if (!snap.exists) return null;
       final data = snap.data() ?? {};
       // Mantém somente o necessário para a landing

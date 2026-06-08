@@ -1,12 +1,12 @@
 ﻿import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show eventNoticiaPhotoUrls, looksLikeHostedVideoFileUrl;
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -120,7 +120,7 @@ Future<void> scheduleYahwehPanelImageWarmup(
           userUid: FirebaseAuth.instance.currentUser?.uid,
         );
   if (resolved.isEmpty || !context.mounted) return;
-  final base = FirebaseFirestore.instance.collection('igrejas').doc(resolved);
+  final base = ChurchOperationalPaths.churchDoc(resolved);
   try {
     final snaps = await Future.wait([
       base.collection('membros').limit(24).get(),

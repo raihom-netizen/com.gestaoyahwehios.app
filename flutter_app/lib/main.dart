@@ -84,6 +84,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:gestao_yahweh/core/app_deep_link.dart';
 import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/core/public_web_route_parser.dart';
+import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
 
@@ -442,8 +443,8 @@ void main() async {
   await Future.wait<void>([
     LoginPreferences.warmUpForStartup(),
     AppShellSessionCache.warmUp(),
+    AuthProfileCacheService.warmUpForStartup(),
   ]);
-  unawaited(AuthProfileCacheService.warmUpForStartup());
   if (!firebaseBoot.isReady) {
     runApp(
       MaterialApp(
@@ -508,9 +509,9 @@ Future<String> _resolveWebInitialRouteWithSession(String bootRoute) async {
       final isPublicRoot = initialRoute == '/' || initialRoute.isEmpty;
       if (!isPublicRoot) {
         final keepCurrent = initialRoute != '/' && initialRoute != '';
-        final isPublicSignupDeep =
-            PublicWebRouteParser.isPublicSignupDeepRoute(initialRoute);
-        if (!keepCurrent && !isPublicSignupDeep) {
+        final isPublicChurchDeep =
+            PublicWebRouteParser.isPublicChurchDeepRoute(initialRoute);
+        if (!keepCurrent && !isPublicChurchDeep) {
           if (hasSession) {
             initialRoute = '/painel';
           } else {
@@ -650,6 +651,64 @@ Future<void> _finalizeWebStartupAfterFirstFrame(String bootRoute) async {
   );
 }
 
+/// Crashlytics nativo — pode correr após o 1.º frame (não bloquear [runApp]).
+Future<void> _bindNativeCrashlyticsHandlers() async {
+  try {
+    await FirebaseCrashlytics.instance
+        .setCrashlyticsCollectionEnabled(kReleaseMode);
+  } catch (_) {}
+  FlutterError.onError = (FlutterErrorDetails details) {
+    Future<void> fallbackChain(Object e, StackTrace st) async {
+      try {
+        await FirebaseCrashlytics.instance.recordError(
+          Exception(
+            '${details.exceptionAsString()} | crashlytics_report: $e',
+          ),
+          details.stack ?? st,
+          fatal: !_crashlyticsFlutterErrorLikelyBenign(details),
+        );
+      } catch (_) {}
+    }
+
+    try {
+      if (_crashlyticsFlutterErrorLikelyBenign(details)) {
+        FirebaseCrashlytics.instance
+            .recordFlutterError(details, fatal: false)
+            .catchError((Object e, StackTrace st) {
+          unawaited(fallbackChain(e, st));
+        });
+      } else {
+        FirebaseCrashlytics.instance
+            .recordFlutterFatalError(details)
+            .catchError((Object e, StackTrace st) {
+          unawaited(fallbackChain(e, st));
+        });
+      }
+    } catch (e, st) {
+      unawaited(fallbackChain(e, st));
+    }
+  };
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    final benign = CrashlyticsBenignErrors.isBenign(error);
+    try {
+      FirebaseCrashlytics.instance.recordError(
+        error,
+        stack,
+        fatal: !benign,
+      );
+    } catch (e) {
+      try {
+        FirebaseCrashlytics.instance.recordError(
+          Exception('zone_error: $error | crashlytics_wrap: $e'),
+          stack,
+          fatal: true,
+        );
+      } catch (_) {}
+    }
+    return true;
+  };
+}
+
 void _installFriendlyErrorWidget() {
   ErrorWidget.builder = (FlutterErrorDetails details) {
     return Material(
@@ -710,67 +769,6 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
   final crashlyticsOk = !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS);
-  if (crashlyticsOk) {
-    await FirebaseCrashlytics.instance
-        .setCrashlyticsCollectionEnabled(kReleaseMode);
-    FlutterError.onError = (FlutterErrorDetails details) {
-      // [recordFlutterError] pode falhar em cenários raros (ex.: informação do framework);
-      // garantimos que o erro original ainda chega ao Crashlytics.
-      Future<void> fallbackChain(Object e, StackTrace st) async {
-        try {
-          await FirebaseCrashlytics.instance.recordError(
-            Exception(
-              '${details.exceptionAsString()} | crashlytics_report: $e',
-            ),
-            details.stack ?? st,
-            fatal: !_crashlyticsFlutterErrorLikelyBenign(details),
-          );
-        } catch (_) {}
-      }
-
-      try {
-        if (_crashlyticsFlutterErrorLikelyBenign(details)) {
-          FirebaseCrashlytics.instance
-              .recordFlutterError(details, fatal: false)
-              .catchError((Object e, StackTrace st) {
-            unawaited(fallbackChain(e, st));
-          });
-        } else {
-          FirebaseCrashlytics.instance
-              .recordFlutterFatalError(details)
-              .catchError((Object e, StackTrace st) {
-            unawaited(fallbackChain(e, st));
-          });
-        }
-      } catch (e, st) {
-        unawaited(fallbackChain(e, st));
-      }
-    };
-    PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
-      final benign = CrashlyticsBenignErrors.isBenign(error);
-      try {
-        FirebaseCrashlytics.instance.recordError(
-          error,
-          stack,
-          fatal: !benign,
-        );
-      } catch (e) {
-        try {
-          FirebaseCrashlytics.instance.recordError(
-            Exception('zone_error: $error | crashlytics_wrap: $e'),
-            stack,
-            fatal: true,
-          );
-        } catch (_) {}
-      }
-      return true;
-    };
-  }
-  if (!kIsWeb) {
-    try {
-      await IosPaymentsGate.initialize();
-    } catch (_) {}
-  }
 
   if (AppStartupRoute.isNativeMobile) {
     final initialRoute = _resolveNativeInitialRouteFast();
@@ -784,9 +782,24 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       child: _AppWithTheme(initialRoute: initialRoute),
     ));
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (crashlyticsOk) {
+        unawaited(_bindNativeCrashlyticsHandlers().catchError((_) {}));
+      }
+      unawaited(
+        IosPaymentsGate.initialize().catchError((_) {}),
+      );
       unawaited(_finalizeNativeStartupAfterFirstFrame(initialRoute));
     });
     return;
+  }
+
+  if (crashlyticsOk) {
+    await _bindNativeCrashlyticsHandlers();
+  }
+  if (!kIsWeb) {
+    try {
+      await IosPaymentsGate.initialize();
+    } catch (_) {}
   }
 
   if (kIsWeb) {
@@ -838,9 +851,9 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
             kIsWeb && (initialRoute == '/' || initialRoute.isEmpty);
         if (!isPublicRoot) {
           final keepCurrent = kIsWeb && initialRoute != '/' && initialRoute != '';
-          final isPublicSignupDeep =
-              PublicWebRouteParser.isPublicSignupDeepRoute(initialRoute);
-          if (!keepCurrent && !isPublicSignupDeep) {
+          final isPublicChurchDeep =
+              PublicWebRouteParser.isPublicChurchDeepRoute(initialRoute);
+          if (!keepCurrent && !isPublicChurchDeep) {
             if (hasSession) {
               initialRoute = '/painel';
             } else if (kIsWeb) {
@@ -1428,6 +1441,83 @@ Widget _initialAppHome(String rawRoute) {
   return _StartupSplashGate(targetRoute: r);
 }
 
+/// Site público da igreja / cadastro — cold start web (evita fallback para [SitePublicPage]).
+Widget? _widgetForChurchPublicPath(Uri uri) {
+  var path = uri.path.isEmpty ? '/' : uri.path;
+  if (path != '/' && !path.startsWith('/')) path = '/$path';
+  if (path.length > 1 && path.endsWith('/')) {
+    path = path.replaceFirst(RegExp(r'/$'), '');
+  }
+  final pathSegments = path == '/'
+      ? <String>[]
+      : path.split('/').where((s) => s.isNotEmpty).toList();
+
+  final igrejaMatch = RegExp(r'^/igreja[_-]([\w\d_-]+)').firstMatch(path);
+  if (igrejaMatch != null) {
+    final slug = igrejaMatch.group(1)!;
+    if (AppConstants.isMarketingBrandSlug(slug)) return const SitePublicPage();
+    return ChurchPublicPage(slug: slug);
+  }
+
+  if (pathSegments.length >= 2 && pathSegments[0] == 'i') {
+    final slug = pathSegments[1];
+    if (AppConstants.isMarketingBrandSlug(slug)) return const SitePublicPage();
+    return ChurchPublicPage(slug: slug);
+  }
+
+  if (pathSegments.length >= 2 &&
+      pathSegments[0] == 'igreja' &&
+      pathSegments[1] != 'login') {
+    final slug = pathSegments[1];
+    if (AppConstants.isMarketingBrandSlug(slug)) return const SitePublicPage();
+    if (pathSegments.length >= 4 &&
+        pathSegments[2].toLowerCase() == 'evento') {
+      return ChurchPublicPage(
+        slug: slug,
+        openNoticiaId: pathSegments[3],
+      );
+    }
+    if (pathSegments.length >= 3 && pathSegments[2] == 'cadastro-membro') {
+      return PublicMemberSignupPage(slug: slug);
+    }
+    if (pathSegments.length >= 3 && pathSegments[2] == 'acompanhar-cadastro') {
+      return PublicSignupStatusPage(
+        slug: slug,
+        protocolo: uri.queryParameters['protocolo'] ?? '',
+      );
+    }
+    return ChurchPublicPage(slug: slug);
+  }
+
+  if (pathSegments.length == 1 &&
+      pathSegments[0].isNotEmpty &&
+      !AppConstants.reservedChurchSlugs
+          .contains(pathSegments[0].toLowerCase())) {
+    return ChurchPublicPage(slug: pathSegments[0]);
+  }
+
+  if (pathSegments.length == 2 &&
+      pathSegments[0].isNotEmpty &&
+      !AppConstants.reservedChurchSlugs
+          .contains(pathSegments[0].toLowerCase())) {
+    final slug = pathSegments[0];
+    final second = pathSegments[1];
+    final low = second.toLowerCase();
+    if (low == 'cadastro-membro') {
+      return PublicMemberSignupPage(slug: slug);
+    }
+    if (low == 'acompanhar-cadastro') {
+      return PublicSignupStatusPage(
+        slug: slug,
+        protocolo: uri.queryParameters['protocolo'] ?? '',
+      );
+    }
+    return ChurchPublicPage(slug: slug, openNoticiaId: second);
+  }
+
+  return null;
+}
+
 /// Rotas críticas com [MaterialPageRoute] explícita — `pushReplacementNamed` falha
 /// no Flutter Web quando [MaterialApp.home] é o splash.
 Widget? _explicitStartupPage(String rawRoute) {
@@ -1486,7 +1576,7 @@ Widget? _explicitStartupPage(String rawRoute) {
         showFleetBranding: false,
       );
     default:
-      return null;
+      return _widgetForChurchPublicPath(uri);
   }
 }
 
@@ -1573,10 +1663,22 @@ class _StartupSplashGateState extends State<_StartupSplashGate> {
       });
       return;
     }
+    final uri = Uri.parse('https://gestao.invalid$r');
+    final churchPage = _widgetForChurchPublicPath(uri);
+    AgentDebugLog.log(
+      location: 'main.dart:_navigateOffSplash',
+      message: 'splash_nav_force_fallback',
+      hypothesisId: 'ROUTE-A',
+      data: {
+        'route': r,
+        'resolvedChurchPage': churchPage != null,
+        'widget': churchPage?.runtimeType.toString() ?? 'SitePublicPage',
+      },
+    );
     nav.pushReplacement(
       MaterialPageRoute<void>(
         settings: RouteSettings(name: r),
-        builder: (_) => const SitePublicPage(),
+        builder: (_) => churchPage ?? const SitePublicPage(),
       ),
     );
     _navFallbackTimer?.cancel();

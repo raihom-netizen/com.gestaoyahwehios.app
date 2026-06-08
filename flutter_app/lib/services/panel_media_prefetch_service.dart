@@ -1,15 +1,14 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Cache `_panel_cache/media_prefetch` — URLs de logo e fotos já resolvidas no servidor.
 abstract final class PanelMediaPrefetchService {
   PanelMediaPrefetchService._();
 
   static DocumentReference<Map<String, dynamic>> _ref(String tenantId) =>
-      FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId.trim())
+                ChurchOperationalPaths.churchDoc(tenantId.trim())
           .collection('_panel_cache')
           .doc('media_prefetch');
 

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/marketing_official_config.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -31,7 +32,8 @@ class _AdminMarketingCanaisMasterCardState
 
   bool _loading = true;
   bool _saving = false;
-  String? _error;
+  /// Aviso suave quando a rede falhou mas o formulário abre com valores padrão.
+  String? _loadWarning;
 
   @override
   void dispose() {
@@ -42,41 +44,52 @@ class _AdminMarketingCanaisMasterCardState
     super.dispose();
   }
 
+  void _applyDefaultFields() {
+    _contactCtrl.clear();
+    _instagramCtrl.text = AppConstants.marketingOfficialInstagramUrl;
+    _youtubeCtrl.text = AppConstants.marketingOfficialYoutubeUrl;
+    _whatsappCtrl.text = AppConstants.marketingOfficialWhatsAppDigits;
+  }
+
+  void _applyFieldsFromDoc(Map<String, dynamic> d) {
+    _contactCtrl.text = _trimOrEmpty(
+      d['contactName'] ?? d['nomeExibicao'] ?? d['displayName'],
+    );
+    _instagramCtrl.text = _trimOrEmpty(
+      d['instagramUrl'] ?? d['instagram'] ?? d['linkInstagram'],
+    );
+    _youtubeCtrl.text = _trimOrEmpty(
+      d['youtubeUrl'] ?? d['youtube'] ?? d['linkYoutube'],
+    );
+    _whatsappCtrl.text = _trimOrEmpty(
+      d['whatsapp'] ?? d['whatsappDigits'] ?? d['whatsappUrl'],
+    );
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _loadWarning = null;
     });
     try {
+      await FirestoreWebGuard.ensureMasterPanelReady();
       final snap = await FirestoreReadResilience.getDocument(
         _ref,
         cacheKey: 'config_marketing_official',
       );
       if (snap.exists && snap.data() != null) {
-        final d = snap.data()!;
-        _contactCtrl.text = _trimOrEmpty(
-          d['contactName'] ?? d['nomeExibicao'] ?? d['displayName'],
-        );
-        _instagramCtrl.text = _trimOrEmpty(
-          d['instagramUrl'] ?? d['instagram'] ?? d['linkInstagram'],
-        );
-        _youtubeCtrl.text = _trimOrEmpty(
-          d['youtubeUrl'] ?? d['youtube'] ?? d['linkYoutube'],
-        );
-        _whatsappCtrl.text = _trimOrEmpty(
-          d['whatsapp'] ?? d['whatsappDigits'] ?? d['whatsappUrl'],
-        );
+        _applyFieldsFromDoc(snap.data()!);
       } else {
-        _contactCtrl.clear();
-        _instagramCtrl.text = AppConstants.marketingOfficialInstagramUrl;
-        _youtubeCtrl.text = AppConstants.marketingOfficialYoutubeUrl;
-        _whatsappCtrl.text = AppConstants.marketingOfficialWhatsAppDigits;
+        _applyDefaultFields();
       }
+      if (!mounted) return;
       setState(() => _loading = false);
     } catch (e) {
+      _applyDefaultFields();
+      if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = e.toString();
+        _loadWarning = formatFirebaseErrorForUser(e, logToCrashlytics: false);
       });
     }
   }
@@ -146,27 +159,6 @@ class _AdminMarketingCanaisMasterCardState
             height: 28,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
-        ),
-      );
-    }
-
-    if (_error != null) {
-      return Container(
-        padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-        decoration: _cardDecoration(),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.error_outline_rounded, color: ThemeCleanPremium.error),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                _error!,
-                style: TextStyle(color: ThemeCleanPremium.error, fontSize: 13),
-              ),
-            ),
-            TextButton(onPressed: _load, child: const Text('Tentar de novo')),
-          ],
         ),
       );
     }
@@ -245,6 +237,44 @@ class _AdminMarketingCanaisMasterCardState
               ],
             ),
           ),
+          if (_loadWarning != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF7ED),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFFED7AA)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.cloud_off_rounded,
+                      size: 20,
+                      color: Colors.orange.shade800,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '$_loadWarning Valores padrão exibidos — pode editar e salvar.',
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          height: 1.4,
+                          color: const Color(0xFF9A3412),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _load,
+                      child: const Text('Atualizar'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
             child: Column(

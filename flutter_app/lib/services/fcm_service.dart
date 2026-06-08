@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -485,9 +486,8 @@ class FcmService {
     final cpfDigits = cpf.replaceAll(RegExp(r'[^0-9]'), '');
     if (cpfDigits.isEmpty) return '';
 
-    final members = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolve(tenantId);
+    final members =         ChurchOperationalPaths.churchDoc(op)
         .collection('membros');
 
     final byId = await members.doc(cpfDigits).get();
@@ -517,9 +517,8 @@ class FcmService {
     final cpfDigits = cpf.replaceAll(RegExp(r'[^0-9]'), '');
     if (cpfDigits.isEmpty) return <String>[];
 
-    final members = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
+    final op = await ChurchOperationalPaths.resolve(tenantId);
+    final members =         ChurchOperationalPaths.churchDoc(op)
         .collection('membros');
 
     final byId = await members.doc(cpfDigits).get();

@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/church_chat_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Fila por igreja: `igrejas/{tenantId}/pending_uploads/{id}`.
 /// A coleção raiz `pendingUploads` está descontinuada (legado — migrar/apagar).
@@ -28,10 +29,8 @@ abstract final class PendingUploadsFirestoreService {
     await ensureFirebaseReadyForMediaUpload();
   }
 
-  static CollectionReference<Map<String, dynamic>> _col(String tenantId) =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId)
+  static CollectionReference<Map<String, dynamic>> _col(String operationalTenantId) =>
+      ChurchOperationalPaths.churchDoc(operationalTenantId.trim())
           .collection('pending_uploads');
 
   static String? tenantFromStoragePath(String storagePath) =>

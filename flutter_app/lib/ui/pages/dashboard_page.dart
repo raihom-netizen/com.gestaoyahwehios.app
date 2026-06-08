@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -29,8 +31,9 @@ import '../widgets/install_pwa_button.dart';
 import '../widgets/yahweh_premium_feed_widgets.dart'
     show YahwehPremiumFeedShimmer;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
-class DashboardPage extends StatelessWidget {
+class DashboardPage extends StatefulWidget {
   final String tenantId; // igrejaId
   final String cpf;
   final String role;
@@ -45,6 +48,30 @@ class DashboardPage extends StatelessWidget {
     required this.trialExpired,
     required this.subscription,
   });
+
+  @override
+  State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  String? _operationalTenantId;
+
+  String get _effectiveTenantId =>
+      (_operationalTenantId ?? widget.tenantId).trim();
+
+  @override
+  void initState() {
+    super.initState();
+    final seed = widget.tenantId.trim();
+    if (seed.isNotEmpty) {
+      unawaited(
+        ChurchOperationalPaths.resolveCached(seed).then((op) {
+          if (!mounted || op.isEmpty) return;
+          setState(() => _operationalTenantId = op);
+        }),
+      );
+    }
+  }
 
   DateTime? _parseDate(dynamic raw) {
     if (raw == null) return null;
@@ -101,19 +128,15 @@ class DashboardPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     final nowBuild = DateTime.now();
-    final roleKey = role.toLowerCase();
+    final roleKey = widget.role.toLowerCase();
     final isAdmin = roleKey == 'adm' || roleKey == 'admin' || roleKey == 'gestor' || roleKey == 'master';
     final isLeader = roleKey == 'lider';
     final isUser = !isAdmin && !isLeader;
 
-    final membersCol = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
+    final membersCol = ChurchOperationalPaths.churchDoc(_effectiveTenantId)
         .collection('membros');
 
-    final visitantesMesQuery = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
+    final visitantesMesQuery = ChurchOperationalPaths.churchDoc(_effectiveTenantId)
         .collection('visitantes')
         .where(
           'createdAt',
@@ -121,9 +144,7 @@ class DashboardPage extends StatelessWidget {
             DateTime(nowBuild.year, nowBuild.month, 1),
           ),
         );
-    final proximoEventoQuery = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
+    final proximoEventoQuery = ChurchOperationalPaths.churchDoc(_effectiveTenantId)
         .collection('eventos')
         .where('type', isEqualTo: 'evento')
         .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(nowBuild))
@@ -131,14 +152,14 @@ class DashboardPage extends StatelessWidget {
         .limit(1);
 
     Widget banner() {
-      final status = (subscription?['status'] ?? '').toString().toUpperCase();
+      final status = (widget.subscription?['status'] ?? '').toString().toUpperCase();
       // Em iOS sob o gate, o botao leva para a tela "Atualizar plano" que abre
       // o site externo (Apple 3.1.3 / Multiplatform Service).
       final iosReader = IosPaymentsGate.shouldHidePayments;
       final ctaLabel = iosReader ? 'Atualizar plano' : 'Ativar plano';
       final ctaLabelTrial = iosReader ? 'Atualizar plano' : 'Ver planos';
 
-      if (trialExpired) {
+      if (widget.trialExpired) {
         return Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -207,33 +228,33 @@ class DashboardPage extends StatelessWidget {
 
     Widget tile(IconData icon, String title, String subtitle) {
       final locked =
-          trialExpired && title != 'Configurações' && title != 'Assinatura' && title != 'Informações do Sistema';
+          widget.trialExpired && title != 'Configurações' && title != 'Assinatura' && title != 'Informações do Sistema';
       void open() {
         if (title == 'Membros') {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => MembersPage(tenantId: tenantId, role: role),
+              builder: (_) => MembersPage(tenantId: _effectiveTenantId, role: widget.role),
             ),
           );
           return;
         }
         if (title == 'Carteirinha') {
-          if (AppPermissions.isRestrictedMember(role)) {
+          if (AppPermissions.isRestrictedMember(widget.role)) {
             openMemberCardCnhFullscreen(
               context,
-              tenantId: tenantId,
-              role: role,
-              cpf: cpf,
+              tenantId: _effectiveTenantId,
+              role: widget.role,
+              cpf: widget.cpf,
             );
           } else {
             Navigator.push(
               context,
               MaterialPageRoute(
                 builder: (_) => MemberCardPage(
-                  tenantId: tenantId,
-                  role: role,
-                  cpf: cpf,
+                  tenantId: _effectiveTenantId,
+                  role: widget.role,
+                  cpf: widget.cpf,
                 ),
               ),
             );
@@ -244,7 +265,7 @@ class DashboardPage extends StatelessWidget {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => UsersPage(tenantId: tenantId, role: role),
+              builder: (_) => UsersPage(tenantId: _effectiveTenantId, role: widget.role),
             ),
           );
           return;
@@ -253,7 +274,7 @@ class DashboardPage extends StatelessWidget {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => MuralPage(tenantId: tenantId, role: role),
+              builder: (_) => MuralPage(tenantId: _effectiveTenantId, role: widget.role),
             ),
           );
           return;
@@ -263,9 +284,9 @@ class DashboardPage extends StatelessWidget {
             context,
             MaterialPageRoute(
               builder: (_) => NotificationsPage(
-                tenantId: tenantId,
-                cpf: cpf,
-                role: role,
+                tenantId: _effectiveTenantId,
+                cpf: widget.cpf,
+                role: widget.role,
               ),
             ),
           );
@@ -275,7 +296,7 @@ class DashboardPage extends StatelessWidget {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => EventsManagerPage(tenantId: tenantId, role: role),
+              builder: (_) => EventsManagerPage(tenantId: _effectiveTenantId, role: widget.role),
             ),
           );
           return;
@@ -285,9 +306,9 @@ class DashboardPage extends StatelessWidget {
             context,
             MaterialPageRoute(
               builder: (_) => SchedulesPage(
-                tenantId: tenantId,
-                role: role,
-                cpf: cpf,
+                tenantId: _effectiveTenantId,
+                role: widget.role,
+                cpf: widget.cpf,
               ),
             ),
           );
@@ -298,9 +319,9 @@ class DashboardPage extends StatelessWidget {
             context,
             MaterialPageRoute(
               builder: (_) => MySchedulesPage(
-                tenantId: tenantId,
-                cpf: cpf,
-                role: role,
+                tenantId: _effectiveTenantId,
+                cpf: widget.cpf,
+                role: widget.role,
               ),
             ),
           );
@@ -310,7 +331,7 @@ class DashboardPage extends StatelessWidget {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => DepartmentsPage(tenantId: tenantId, role: role),
+              builder: (_) => DepartmentsPage(tenantId: _effectiveTenantId, role: widget.role),
             ),
           );
           return;
@@ -318,14 +339,14 @@ class DashboardPage extends StatelessWidget {
         if (title == 'Receitas e Despesas') {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => FinancePage(tenantId: tenantId, role: role)),
+            MaterialPageRoute(builder: (_) => FinancePage(tenantId: _effectiveTenantId, role: widget.role)),
           );
           return;
         }
         if (title == 'Patrimônio') {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => PatrimonioPage(tenantId: tenantId, role: role)),
+            MaterialPageRoute(builder: (_) => PatrimonioPage(tenantId: _effectiveTenantId, role: widget.role)),
           );
           return;
         }
@@ -336,7 +357,7 @@ class DashboardPage extends StatelessWidget {
         if (title == 'Informações do Sistema') {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => SistemaInformacoesPage(tenantId: tenantId)),
+            MaterialPageRoute(builder: (_) => SistemaInformacoesPage(tenantId: _effectiveTenantId)),
           );
           return;
         }
@@ -423,7 +444,7 @@ class DashboardPage extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => MembersPage(tenantId: tenantId, role: role),
+                        builder: (_) => MembersPage(tenantId: _effectiveTenantId, role: widget.role),
                       ),
                     );
                   },
@@ -436,7 +457,7 @@ class DashboardPage extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => EventsManagerPage(tenantId: tenantId, role: role),
+                        builder: (_) => EventsManagerPage(tenantId: _effectiveTenantId, role: widget.role),
                       ),
                     );
                   },
@@ -449,7 +470,7 @@ class DashboardPage extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => FinancePage(tenantId: tenantId, role: role),
+                        builder: (_) => FinancePage(tenantId: _effectiveTenantId, role: widget.role),
                       ),
                     );
                   },
@@ -477,8 +498,8 @@ class DashboardPage extends StatelessWidget {
             subtitle: 'Gestao YAHWEH',
             userName: user?.displayName ?? user?.email ?? 'Admin',
             photoUrl: user?.photoURL,
-            tenantId: tenantId,
-            subscription: subscription,
+            tenantId: _effectiveTenantId,
+            subscription: widget.subscription,
             onLogout: () => FirebaseAuth.instance.signOut().then((_) {
               Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
             }),
@@ -662,7 +683,7 @@ class DashboardPage extends StatelessWidget {
                                       showDialog(
                                         context: context,
                                         builder: (_) => _BirthdaysDialog(
-                                          tenantId: tenantId,
+                                          tenantId: _effectiveTenantId,
                                           birthdays: birthdays,
                                           formatDayMonth: _formatDayMonth,
                                         ),
@@ -689,7 +710,7 @@ class DashboardPage extends StatelessWidget {
                                         final b = birthdays[i];
                                         final dt = b['birth'] as DateTime;
                                         return _BirthdayChip(
-                                          tenantId: tenantId,
+                                          tenantId: _effectiveTenantId,
                                           memberId: b['id'] as String,
                                           cpfDigits: (b['cpf'] as String?) ?? '',
                                           name: b['name'] as String,
@@ -782,8 +803,8 @@ class DashboardPage extends StatelessWidget {
                                       context,
                                       MaterialPageRoute(
                                         builder: (_) => EventsManagerPage(
-                                          tenantId: tenantId,
-                                          role: role,
+                                          tenantId: _effectiveTenantId,
+                                          role: widget.role,
                                           initialTabIndex: 1,
                                         ),
                                       ),
@@ -792,7 +813,7 @@ class DashboardPage extends StatelessWidget {
                                   icon: const Icon(Icons.photo_library_rounded, size: 18),
                                   label: const Text('Galeria de eventos'),
                                 ),
-                                child: _MuralPreview(tenantId: tenantId),
+                                child: _MuralPreview(tenantId: _effectiveTenantId),
                               );
                               final statsCard = _SectionCard(
                                   title: 'Estatisticas de Membros',
@@ -1104,7 +1125,7 @@ class DashboardPage extends StatelessWidget {
                           ),
                           const SizedBox(height: 12),
                           Text(
-                            'IgrejaId: $tenantId',
+                            'IgrejaId: $_effectiveTenantId',
                             style: const TextStyle(color: Colors.black45),
                           ),
                         ],
@@ -1134,7 +1155,7 @@ class _LicenseActiveBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('igrejas').doc(tenantId).watchSafe(),
+      stream: ChurchOperationalPaths.churchDoc(tenantId).watchSafe(),
       builder: (context, tenantSnap) {
         DateTime? vencimento;
         if (tenantSnap.hasData) {
@@ -1494,9 +1515,7 @@ class _MuralPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final col = FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(tenantId)
+    final col =         ChurchOperationalPaths.churchDoc(tenantId)
         .collection('eventos')
         .orderBy('createdAt', descending: true)
         .limit(2);

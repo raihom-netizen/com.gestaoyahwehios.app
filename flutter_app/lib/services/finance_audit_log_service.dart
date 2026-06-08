@@ -3,6 +3,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/services/tenant_audit_service.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Histórico de exclusões e alterações relevantes no módulo financeiro (quem, quando).
 Future<void> logFinanceiroAuditoria({
@@ -13,9 +14,8 @@ Future<void> logFinanceiroAuditoria({
 }) async {
   await ensureFirebaseReadyForPublishUpload();
   final u = firebaseDefaultAuth.currentUser;
-  await firebaseDefaultFirestore
-      .collection('igrejas')
-      .doc(tenantId)
+  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+  await       ChurchOperationalPaths.churchDoc(op)
       .collection('finance_logs')
       .add({
     'acao': acao,

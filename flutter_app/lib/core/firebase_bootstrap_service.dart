@@ -317,11 +317,28 @@ abstract final class FirebaseBootstrapService {
             configureFirestoreForOfflineAndSpeed();
             unawaited(FirestoreWebGuard.ensureWebDatabaseConnected());
           } catch (_) {}
-          final health = _optimisticWebHealth();
+          final health = _optimisticColdStartHealth();
           _lastHealth = health;
           _lastFailure = null;
           _healthOkAt = DateTime.now();
           if (!c.isCompleted) c.complete();
+          return FirebaseBootstrapResult.ready(health);
+        }
+        if (defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS) {
+          if (kDebugMode) {
+            debugPrint('FIREBASE INIT OK (optimistic mobile cold start)');
+            debugPrint('FIREBASE APPS=${Firebase.apps.length}');
+          }
+          try {
+            configureFirestoreForOfflineAndSpeed();
+          } catch (_) {}
+          final health = _optimisticColdStartHealth();
+          _lastHealth = health;
+          _lastFailure = null;
+          _healthOkAt = DateTime.now();
+          c.complete();
+          unawaited(_warmMobileHealthInBackground());
           return FirebaseBootstrapResult.ready(health);
         }
         if (kDebugMode) {
@@ -451,7 +468,7 @@ abstract final class FirebaseBootstrapService {
     try {
       final fs = FirebaseFirestore.instanceFor(app: app);
       try {
-        await fs.enableNetwork();
+        await fs.enableNetwork().timeout(const Duration(seconds: 2));
       } catch (e) {
         if (!_isNoFirebaseApp(e)) {
           firestoreDetail = e.toString();
@@ -740,7 +757,8 @@ abstract final class FirebaseBootstrapService {
     _cachedApp = Firebase.app();
   }
 
-  static FirebaseHealthReport _optimisticWebHealth() => FirebaseHealthReport(
+  static FirebaseHealthReport _optimisticColdStartHealth() =>
+      FirebaseHealthReport(
         coreInitialized: true,
         authOk: true,
         firestoreOk: true,
@@ -749,6 +767,24 @@ abstract final class FirebaseBootstrapService {
         fcmOk: true,
         checkedAt: DateTime.now(),
       );
+
+  static Future<void> _warmMobileHealthInBackground() async {
+    try {
+      final health = await healthCheck(
+        requireAuthSession: false,
+        skipFcmProbe: true,
+      ).timeout(const Duration(seconds: 8));
+      _lastHealth = health;
+      _healthOkAt = DateTime.now();
+      if (kDebugMode) {
+        debugPrint('FirebaseBootstrapService: background health OK');
+      }
+    } catch (e, st) {
+      if (kDebugMode) {
+        debugPrint('FirebaseBootstrapService background health: $e\n$st');
+      }
+    }
+  }
 
   static bool _isNoFirebaseApp(Object e) {
     final low = e.toString().toLowerCase();

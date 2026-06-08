@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class UserRepository {
   UserRepository({
@@ -9,11 +10,13 @@ class UserRepository {
   final FirebaseFirestore _db;
   final String tenantId;
 
-  CollectionReference<Map<String, dynamic>> get _usersIndex =>
-      _db.collection('igrejas').doc(tenantId).collection('usersIndex');
+  Future<CollectionReference<Map<String, dynamic>>> _usersIndex() async {
+    final op = await ChurchOperationalPaths.resolveCached(tenantId);
+    return ChurchOperationalPaths.churchDoc(op).collection('usersIndex');
+  }
 
-  DocumentReference<Map<String, dynamic>> userDocByCpf(String cpf) =>
-      _usersIndex.doc(cpf);
+  Future<DocumentReference<Map<String, dynamic>>> userDocByCpf(String cpf) async =>
+      (await _usersIndex()).doc(cpf);
 
   // ========= Helpers =========
 
@@ -28,7 +31,7 @@ class UserRepository {
 
   /// Busca dados do usuário pelo CPF (docId = CPF).
   Future<Map<String, dynamic>?> getUserByCpf(String cpfDigits) async {
-    final doc = await userDocByCpf(cpfDigits).get();
+    final doc = await (await userDocByCpf(cpfDigits)).get();
     if (!doc.exists) return null;
     return doc.data();
   }
@@ -57,14 +60,16 @@ class UserRepository {
 
   /// 🔥 Importante pro AuthGate: achar CPF pelo email logado (quando já está autenticado).
   Future<String?> getCpfByEmail(String email) async {
-    final q = await _usersIndex.where('email', isEqualTo: email).limit(1).get();
+    final col = await _usersIndex();
+    final q = await col.where('email', isEqualTo: email).limit(1).get();
     if (q.docs.isEmpty) return null;
     return q.docs.first.id; // docId = CPF
   }
 
   /// (Opcional) ler usuário pelo email (para checar active/mustChangePass depois do login)
   Future<Map<String, dynamic>?> getUserByEmail(String email) async {
-    final q = await _usersIndex.where('email', isEqualTo: email).limit(1).get();
+    final col = await _usersIndex();
+    final q = await col.where('email', isEqualTo: email).limit(1).get();
     if (q.docs.isEmpty) return null;
     return q.docs.first.data();
   }

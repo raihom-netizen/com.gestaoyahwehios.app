@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'church_chat_member_prefs.dart';
 import 'fcm_service.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Preferências de push do chat da igreja — alinhado a [users/{uid}.pushChat] e FCM `gypush_*_chat`.
 class ChurchChatNotificationPrefs {
@@ -173,9 +174,8 @@ class ChurchChatNotificationPrefs {
   ) async {
     if (!threadId.startsWith('dm_')) return '';
     try {
-      final t = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final t = await           ChurchOperationalPaths.churchDoc(op)
           .collection('chats')
           .doc(threadId)
           .get();
@@ -197,9 +197,8 @@ class ChurchChatNotificationPrefs {
       return threadId.substring(5);
     }
     try {
-      final t = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final t = await           ChurchOperationalPaths.churchDoc(op)
           .collection('chats')
           .doc(threadId)
           .get();

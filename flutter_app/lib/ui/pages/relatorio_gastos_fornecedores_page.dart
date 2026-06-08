@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 
@@ -134,9 +135,8 @@ class _RelatorioGastosFornecedoresPageState
     });
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final snap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('finance')
           .orderBy('createdAt', descending: true)
           .limit(4000)
@@ -186,9 +186,8 @@ class _RelatorioGastosFornecedoresPageState
     Uint8List? rightSig,
     bool showDigital
   })?> _pickPdfSigners() async {
-    final snap = await FirebaseFirestore.instance
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    final snap = await         ChurchOperationalPaths.churchDoc(op)
         .collection('membros')
         .get();
     final opts = snap.docs

@@ -120,4 +120,16 @@ abstract final class PublicWebRouteParser {
     return low.contains('cadastro-membro') ||
         low.contains('acompanhar-cadastro');
   }
+
+  /// Site público da igreja ou cadastro — não substituir por last_route/painel no cold start.
+  static bool isPublicChurchDeepRoute(String? route) {
+    if (route == null || route.isEmpty) return false;
+    if (isPublicSignupDeepRoute(route)) return true;
+    final raw = route.trim();
+    final uri = Uri.tryParse(
+      raw.contains('://') ? raw : 'https://local$raw',
+    );
+    if (uri == null) return false;
+    return churchPublicSiteRouteFromUri(uri) != null;
+  }
 }

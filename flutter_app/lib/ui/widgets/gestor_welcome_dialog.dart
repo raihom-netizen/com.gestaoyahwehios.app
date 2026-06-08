@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Boas-vindas únicas no painel da igreja (gestor) — após OK grava em `igrejas/{tenantId}`.
 
@@ -61,9 +62,8 @@ class GestorWelcomeDialog {
     if (prefs.getBool('$_prefKeyPrefix$tenantId') == true) return;
 
     try {
-      final igrejaSnap = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tenantId)
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final igrejaSnap = await           ChurchOperationalPaths.churchDoc(op)
           .get(const GetOptions(source: Source.server));
 
       final ig = igrejaSnap.data();
@@ -115,9 +115,7 @@ class GestorWelcomeDialog {
           if (!ctx.mounted) return;
           Navigator.of(ctx, rootNavigator: true).pop();
           unawaited(
-            FirebaseFirestore.instance
-                .collection('igrejas')
-                .doc(tenantId)
+                            ChurchOperationalPaths.churchDoc(tenantId)
                 .set(
                   {
                     'gestorBoasVindasModalOkAt': FieldValue.serverTimestamp(),

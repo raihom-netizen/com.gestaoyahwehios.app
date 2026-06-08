@@ -128,6 +128,7 @@ import 'package:gestao_yahweh/utils/br_input_formatters.dart'
 import 'package:gestao_yahweh/core/event_gallery_archive.dart';
 import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
     show noticiaEventoEspecialCaiuDoFeedParaGaleria;
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class EventsManagerPage extends StatefulWidget {
   final String tenantId;
@@ -262,14 +263,10 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(_tid)
+                ChurchOperationalPaths.churchDoc(_tid)
           .collection('eventos');
   CollectionReference<Map<String, dynamic>> get _templates =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(_tid)
+                ChurchOperationalPaths.churchDoc(_tid)
           .collection('event_templates');
 
   void _onMainTabChanged() {
@@ -333,7 +330,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     unawaited(ensureFirebaseReadyForPanelRead().catchError((_) {}));
     final uid = firebaseDefaultAuth.currentUser?.uid;
     try {
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+      final tid = await ChurchOperationalPaths.resolveCached(
         widget.tenantId,
         userUid: uid,
       ).timeout(
@@ -354,9 +351,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
   Future<void> _loadTenantDoc() async {
     try {
-      final snap = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(_tid)
+      final op = await ChurchOperationalPaths.resolveCached(_tid.trim());
+      final snap = await           ChurchOperationalPaths.churchDoc(op)
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 8));
       if (mounted) setState(() => _tenantData = snap.data());
@@ -476,9 +472,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     Future<void> fillLocationFromCadastro() async {
       try {
         await ensureFirebaseReadyForPublishUpload();
-        final snap = await firebaseDefaultFirestore
-            .collection('igrejas')
-            .doc(tenantId)
+        final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+        final snap = await             ChurchOperationalPaths.churchDoc(op)
             .get();
         final d = snap.data() ?? {};
         final endereco = (d['endereco'] ?? '').toString().trim();
@@ -1084,9 +1079,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final imageUrls =
         defaultImageUrl.isNotEmpty ? <String>[defaultImageUrl] : <String>[];
     await ensureFirebaseReadyForPublishUpload();
-    final agendaCol = firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(_tid)
+    final op = await ChurchOperationalPaths.resolveCached(_tid.trim());
+    final agendaCol =         ChurchOperationalPaths.churchDoc(op)
         .collection('agenda');
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     for (final dt in dates) {
@@ -2341,15 +2335,13 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = [];
 
   Future<String> _operationalTenantId() =>
-      TenantResolverService.resolveOperationalChurchDocId(
+      ChurchOperationalPaths.resolveCached(
         widget.tenantId,
         userUid: firebaseDefaultAuth.currentUser?.uid,
       );
 
   CollectionReference<Map<String, dynamic>> _colFor(String tid) =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tid)
+                ChurchOperationalPaths.churchDoc(tid)
           .collection('event_categories');
 
   @override
@@ -2633,9 +2625,7 @@ class _FeedTabState extends State<_FeedTab> {
   final Set<String> _selectedEventIds = <String>{};
 
   Query<Map<String, dynamic>> _eventsBaseQuery() {
-    return firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(widget.tenantId.trim())
+    return         ChurchOperationalPaths.churchDoc(widget.tenantId.trim())
         .collection(ChurchTenantPostsCollections.eventos)
         .orderBy('startAt', descending: true);
   }
@@ -5601,7 +5591,7 @@ class _EventPostLinksRow extends StatelessWidget {
     }
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future:
-          firebaseDefaultFirestore.collection('igrejas').doc(tenantId).get(),
+          ChurchOperationalPaths.churchDoc(tenantId).get(),
       builder: (context, snap) {
         return _buildLinks(context, snap.data?.data());
       },
@@ -6386,7 +6376,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _bootstrapEventForm() async {
     try {
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+      final tid = await ChurchOperationalPaths.resolveCached(
         widget.tenantId,
         userUid: firebaseDefaultAuth.currentUser?.uid,
       );
@@ -6400,9 +6390,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _refreshAgendaLinkFromFirestore() async {
     try {
       await ensureFirebaseReadyForPublishUpload();
-      final q = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(widget.tenantId)
+      final q = await ChurchOperationalPaths.churchDoc(_editorTenantId)
           .collection('agenda')
           .where('noticiaId', isEqualTo: widget.doc!.id)
           .limit(1)
@@ -6449,9 +6437,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final (start, end) = _computeStartEndForSave();
     final cat = _agendaCategoryKeyFromEvent();
     final colorHex = _agendaColorHexForCategory();
-    final agendaCol = firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final agendaCol = ChurchOperationalPaths.churchDoc(_editorTenantId)
         .collection('agenda');
     final existing =
         await agendaCol.where('noticiaId', isEqualTo: noticiaId).limit(10).get();
@@ -6480,9 +6466,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Future<void> _removeAgendaLinkedNoticia(String noticiaId) async {
-    final q = await firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(widget.tenantId)
+    final q = await ChurchOperationalPaths.churchDoc(_editorTenantId)
         .collection('agenda')
         .where('noticiaId', isEqualTo: noticiaId)
         .get();

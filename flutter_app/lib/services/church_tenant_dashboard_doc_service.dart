@@ -3,6 +3,7 @@ import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Contadores leves do painel — `dashboard_stats/summary` ou `dashboard/home`.
 ///
@@ -42,18 +43,14 @@ abstract final class ChurchTenantDashboardDocService {
   static const String statsDocId = 'summary';
 
   static DocumentReference<Map<String, dynamic>> ref(String tenantId) {
-    return firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tenantId.trim())
+    return         ChurchOperationalPaths.churchDoc(tenantId.trim())
         .collection('dashboard')
         .doc(docId);
   }
 
   /// `igrejas/{tenantId}/dashboard_stats/summary` — fonte principal (1 documento).
   static DocumentReference<Map<String, dynamic>> statsRef(String tenantId) {
-    return firebaseDefaultFirestore
-        .collection('igrejas')
-        .doc(tenantId.trim())
+    return         ChurchOperationalPaths.churchDoc(tenantId.trim())
         .collection('dashboard_stats')
         .doc(statsDocId);
   }
@@ -62,9 +59,7 @@ abstract final class ChurchTenantDashboardDocService {
   static DocumentReference<Map<String, dynamic>> churchDashboardStatsRef(
     String tenantId,
   ) =>
-      firebaseDefaultFirestore
-          .collection('igrejas')
-          .doc(tenantId.trim())
+                ChurchOperationalPaths.churchDoc(tenantId.trim())
           .collection('church_dashboard_stats')
           .doc(statsDocId);
 

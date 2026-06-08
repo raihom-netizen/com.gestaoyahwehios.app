@@ -2,7 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 
 /// Funções do painel da igreja — catálogo em `igrejas/{tenantId}/funcoesControle/{key}`.
 /// O gestor pode adicionar/remover entradas e restaurar padrões. O campo [permissionTemplate]
@@ -13,8 +14,9 @@ class ChurchFuncoesControleService {
   /// Chaves que não podem ser excluídas (acesso base do sistema).
   static const Set<String> protectedKeys = {'membro', 'adm', 'gestor', 'master'};
 
+  /// [tenantId] deve ser o ID operacional (já resolvido pelo painel).
   static CollectionReference<Map<String, dynamic>> collection(String tenantId) =>
-      FirebaseFirestore.instance.collection('igrejas').doc(tenantId).collection('funcoesControle');
+      ChurchOperationalPaths.churchDoc(tenantId).collection('funcoesControle');
 
   /// Documentos padrão (mesmo conjunto que a tela informativa original).
   static List<Map<String, dynamic>> defaultRoleDocuments() => [
@@ -117,7 +119,10 @@ class ChurchFuncoesControleService {
   ];
 
   static Future<String> resolveEffectiveTenantId(String tenantId) =>
-      TenantResolverService.resolveEffectiveTenantId(tenantId);
+      ChurchOperationalPaths.resolveCached(
+        tenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
 
   /// Remove toda a coleção e grava os padrões.
   static Future<void> restoreDefaults(String tenantId) async {
@@ -164,27 +169,17 @@ class ChurchFuncoesControleService {
     }
     // Coleção cargos: [permissionTemplate] ou [key] como núcleo de permissão
     try {
-      final byId = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('cargos')
-          .doc(key)
-          .get();
-      if (byId.exists) {
-        final pt = (byId.data()?['permissionTemplate'] ?? '').toString().trim();
-        if (pt.isNotEmpty) return pt.toLowerCase();
-      }
-      final cq = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('cargos')
-          .where('key', isEqualTo: key)
-          .limit(1)
-          .get();
-      if (cq.docs.isNotEmpty) {
-        final pt =
-            (cq.docs.first.data()['permissionTemplate'] ?? '').toString().trim();
-        if (pt.isNotEmpty) return pt.toLowerCase();
+      final cargosSnap = await ChurchTenantResilientReads.cargos(tid, limit: 120);
+      for (final d in cargosSnap.docs) {
+        if (d.id == key) {
+          final pt = (d.data()['permissionTemplate'] ?? '').toString().trim();
+          if (pt.isNotEmpty) return pt.toLowerCase();
+        }
+        final dk = (d.data()['key'] ?? '').toString().trim().toLowerCase();
+        if (dk == key) {
+          final pt = (d.data()['permissionTemplate'] ?? '').toString().trim();
+          if (pt.isNotEmpty) return pt.toLowerCase();
+        }
       }
     } catch (_) {}
     return key;
@@ -284,13 +279,7 @@ class ChurchFuncoesControleService {
   ) async {
     final tid = await resolveEffectiveTenantId(tenantId);
     try {
-      final cargos = await FirebaseFirestore.instance
-          .collection('igrejas')
-          .doc(tid)
-          .collection('cargos')
-          .orderBy('name')
-          .limit(120)
-          .get();
+      final cargos = await ChurchTenantResilientReads.cargos(tid, limit: 120);
       if (cargos.docs.isNotEmpty) {
         final out = <({String key, String label, String permissionTemplate})>[];
         for (final d in cargos.docs) {
@@ -310,7 +299,7 @@ class ChurchFuncoesControleService {
       }
     } catch (_) {}
     try {
-      final snap = await collection(tid).orderBy('order').get();
+      final snap = await ChurchTenantResilientReads.funcoesControle(tid, limit: 120);
       if (snap.docs.isNotEmpty) {
         final out = <({String key, String label, String permissionTemplate})>[];
         for (final d in snap.docs) {

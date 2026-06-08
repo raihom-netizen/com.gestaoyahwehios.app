@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_service.dart';
 import 'media_upload_service.dart';
 import 'video_duration.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Regra de negócio: cada evento pode ter no máximo 2 vídeos (90s cada), 20 fotos.
 /// Vídeos: verificação de duração no upload; fotos: comprimidas em Full HD (1920x1080).
@@ -47,9 +48,8 @@ class EventoGalleryService {
   ) async {
     final db = await _firestore();
     final tid = tenantId.trim();
-    final eventoRef = db
-        .collection('igrejas')
-        .doc(tid)
+    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final eventoRef =         ChurchOperationalPaths.churchDoc(op)
         .collection('eventos')
         .doc(eventoId);
     final storagePrefix =

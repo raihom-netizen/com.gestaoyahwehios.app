@@ -15,6 +15,10 @@ import {
   validateCarteirinhaCore,
 } from "./carteirinhaValidarPublic";
 import { resolveAnchoredCanonicalTenantId, addAnchoredCluster } from "./churchClusterAnchors";
+import {
+  migrateAllChurchTenants,
+  provisionChurchTenant,
+} from "./churchTenantProvisioning";
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -1205,6 +1209,116 @@ export const onTenantCreate = functions
       await ensureChurchWelcomeSeed(db, tenantId);
     } catch (e) {
       console.error("onTenantCreate ensureChurchWelcomeSeed:", e);
+    }
+    try {
+      await provisionChurchTenant(tenantId, { source: "onTenantCreate" });
+    } catch (e) {
+      console.error("onTenantCreate provisionChurchTenant:", e);
+    }
+  });
+
+/** Alinha aliases + doc raiz + Storage após cadastro da igreja (gestor ou migração). */
+export const provisionChurchTenantCallable = functions
+  .region("us-central1")
+  .https.onCall(async (data, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError(
+        "unauthenticated",
+        "Faça login para provisionar a igreja.",
+      );
+    }
+
+    const role = String(context.auth.token?.role || "").toUpperCase();
+    const claimTenant = String(
+      context.auth.token?.igrejaId || context.auth.token?.tenantId || "",
+    ).trim();
+    let tenantId = String(data?.tenantId || "").trim();
+    if (!tenantId) tenantId = claimTenant;
+
+    if (!tenantId) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "tenantId obrigatório.",
+      );
+    }
+
+    const canonical = resolveAnchoredCanonicalTenantId(tenantId);
+    const isMaster = role === "MASTER" || role === "ADM" || role === "ADMIN";
+
+    if (!isMaster) {
+      if (!claimTenant) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "Conta sem igreja vinculada.",
+        );
+      }
+      const claimCanon = resolveAnchoredCanonicalTenantId(claimTenant);
+      if (claimCanon !== canonical && claimTenant !== tenantId && claimTenant !== canonical) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "Igreja não vinculada à sua conta.",
+        );
+      }
+    }
+
+    try {
+      return await provisionChurchTenant(tenantId, {
+        source: String(data?.source || "provisionChurchTenantCallable"),
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new functions.https.HttpsError("internal", msg);
+    }
+  });
+
+/** MASTER — migra todas as igrejas (docs fantasma + church_aliases + Storage). */
+export const migrateAllChurchTenantsCallable = functions
+  .region("us-central1")
+  .https.onCall(async (_data, context) => {
+    const role = String(context.auth?.token?.role || "").toUpperCase();
+    if (!context.auth || role !== "MASTER") {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "Acesso restrito ao MASTER.",
+      );
+    }
+    return migrateAllChurchTenants("migrateAllChurchTenantsCallable");
+  });
+
+/** Trigger: cadastro salvo (`registrationComplete`) ou slug alterado. */
+export const onIgrejaTenantProvision = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}")
+  .onWrite(async (change, context) => {
+    const after = change.after.exists ? change.after.data() : null;
+    if (!after) return;
+
+    const tenantId = String(context.params.tenantId || "").trim();
+    if (!tenantId) return;
+
+    const before = change.before.exists ? change.before.data() : null;
+    const slugAfter = String(after.slug || after.slugId || "").trim();
+    const slugBefore = before
+      ? String(before.slug || before.slugId || "").trim()
+      : "";
+    const regAfter = after.registrationComplete === true;
+    const regBefore = before ? before.registrationComplete === true : false;
+
+    const shouldRun =
+      !change.before.exists ||
+      (regAfter && !regBefore) ||
+      (slugAfter && slugAfter !== slugBefore);
+
+    if (!shouldRun) return;
+
+    try {
+      await provisionChurchTenant(tenantId, {
+        source: "onIgrejaTenantProvision",
+        data: after as Record<string, unknown>,
+        skipRootPatch: false,
+      });
+    } catch (e) {
+      console.error("onIgrejaTenantProvision:", tenantId, e);
     }
   });
 
@@ -3696,6 +3810,15 @@ async function finalizeNewChurchForGestorCore(params: {
     await ensureChurchWelcomeSeed(db, tenantId);
   } catch (e) {
     console.error("finalizeNewChurchForGestorCore ensureChurchWelcomeSeed:", e);
+  }
+
+  try {
+    await provisionChurchTenant(tenantId, {
+      source: "finalizeNewChurchForGestorCore",
+      data: igrejaPayload as Record<string, unknown>,
+    });
+  } catch (e) {
+    console.error("finalizeNewChurchForGestorCore provisionChurchTenant:", e);
   }
 
   return {
