@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/services/extended_publish_verification_services.dart';
 import 'package:gestao_yahweh/services/storage_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
@@ -72,30 +73,35 @@ abstract final class FinanceComprovantePublishService {
     void Function(String url)? onSuccess,
   }) async {
     YahwehFlowLog.uploadStart('comprovante');
-    await FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(
-      tenantId,
+    final igrejaId = await FinanceiroPublishVerificationService.resolveTenant(
+      seed: tenantId,
     );
-    final path = ChurchStorageLayout.financeComprovantePath(
-      tenantId: tenantId,
+    await FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(
+      igrejaId,
+    );
+    final path = FinanceiroPublishVerificationService.comprovantePath(
+      igrejaId: igrejaId,
       lancamentoId: docRef.id,
     );
-    final url = await StorageService.uploadCompressedImage(
+    await StorageService.uploadCompressedImage(
       storagePath: path,
       rawBytes: rawBytes,
       module: YahwehUploadModule.generic,
       contentType: 'image/jpeg',
     );
+    await FinanceiroPublishVerificationService.verifyStorage(path);
     await docRef.set(
       {
-        'comprovanteUrl': url,
+        'comprovanteStoragePath': path,
         comprovanteUploadStateField: EntityPublishStatus.published,
         'comprovanteUploadError': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),
     );
+    await FinanceiroPublishVerificationService.verifyDoc(docRef);
     YahwehFlowLog.uploadSuccess('comprovante');
-    onSuccess?.call(url);
+    onSuccess?.call(path);
   }
 
   static Future<void> _markError(

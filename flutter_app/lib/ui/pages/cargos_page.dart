@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/pages/members_page.dart' show MembersPage;
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Mesma faixa dourada dos cards em [DepartmentsPage] — identidade visual alinhada.
@@ -778,7 +779,7 @@ class _CargosPageState extends State<CargosPage> {
       final snap = await _col.limit(1).get();
       if (snap.docs.isNotEmpty) return;
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       for (var i = 0; i < _welcomeCargos.length; i++) {
         final row = _welcomeCargos[i];
         batch.set(_col.doc(row.docId), <String, dynamic>{
@@ -965,7 +966,7 @@ class _CargosPageState extends State<CargosPage> {
       final existing = await _col.get();
       final have = existing.docs.map((d) => d.id).toSet();
       var n = 0;
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = firebaseDefaultFirestore.batch();
       for (var i = 0; i < _welcomeCargos.length; i++) {
         final row = _welcomeCargos[i];
         if (have.contains(row.docId)) continue;
@@ -2093,7 +2094,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     } catch (_) {
       allIds = [widget.tenantId];
     }
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     final seen = <String>{};
     final list = <_MemberWithRef>[];
     final cargoKeyNorm = widget.cargoKey.toLowerCase().trim();
@@ -2149,7 +2150,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     } catch (_) {
       allIds = [widget.tenantId];
     }
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     final seen = <String>{};
     final list = <_MemberWithRef>[];
     try {
@@ -2218,7 +2219,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     } catch (_) {
       allIds = [widget.tenantId];
     }
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     for (final tid in allIds) {
       try {
         final op = await ChurchOperationalPaths.resolveCached(tid.trim());
@@ -2347,7 +2348,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       } catch (_) {
         allIds = [widget.tenantId];
       }
-      final db = FirebaseFirestore.instance;
+      final db = firebaseDefaultFirestore;
       for (final tid in allIds) {
         try {
           final op = await ChurchOperationalPaths.resolveCached(tid.trim());
@@ -2357,7 +2358,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       final authUid = (m.data['authUid'] ?? '').toString().trim();
       if (authUid.isNotEmpty) {
         try {
-          await FirebaseFirestore.instance.collection('users').doc(authUid).set({
+          await firebaseDefaultFirestore.collection('users').doc(authUid).set({
             'role': updates['role'],
             'funcao': updates['FUNCAO'],
             'cargo': updates['CARGO'],
@@ -2448,7 +2449,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       } catch (_) {
         allIds = [widget.tenantId];
       }
-      final db = FirebaseFirestore.instance;
+      final db = firebaseDefaultFirestore;
       for (final tid in allIds) {
         try {
           await ChurchOperationalPaths.churchDoc(tid).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
@@ -2457,7 +2458,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       final authUid = (m.data['authUid'] ?? '').toString().trim();
       if (authUid.isNotEmpty) {
         try {
-          await FirebaseFirestore.instance.collection('users').doc(authUid).set({
+          await firebaseDefaultFirestore.collection('users').doc(authUid).set({
             'role': updates['role'],
             'funcao': updates['FUNCAO'],
             'cargo': updates['CARGO'],

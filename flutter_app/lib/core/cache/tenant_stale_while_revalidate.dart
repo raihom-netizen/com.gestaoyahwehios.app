@@ -12,15 +12,7 @@ abstract final class TenantStaleWhileRevalidate {
   TenantStaleWhileRevalidate._();
 
   static Duration _networkAttemptTimeout(int attempt) {
-    if (!kIsWeb) return const Duration(seconds: 22);
-    switch (attempt) {
-      case 0:
-        return const Duration(seconds: 8);
-      case 1:
-        return const Duration(seconds: 12);
-      default:
-        return const Duration(seconds: 16);
-    }
+    return Duration(seconds: 20 + attempt * 4);
   }
 
   /// Retorna cache Hive imediato (se existir) e dispara [networkFetch] em background.
@@ -58,18 +50,13 @@ abstract final class TenantStaleWhileRevalidate {
     StackTrace? lastStack;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        if (kIsWeb) {
-          if (attempt == 0) {
-            // Leitura: sessão leve — NÃO prepareForCriticalWrite (desliga rede e trava o painel).
-            await FirestoreWebGuard.ensurePanelReadReady();
-          } else {
-            await FirestoreWebGuard.recoverFirestoreWebSession(
-              allowHardReconnect: attempt >= 2,
-            );
-            await Future<void>.delayed(
-              Duration(milliseconds: 120 + attempt * 180),
-            );
-          }
+        if (kIsWeb && attempt >= 2) {
+          await FirestoreWebGuard.recoverFirestoreWebSession(
+            allowHardReconnect: true,
+          );
+          await Future<void>.delayed(
+            Duration(milliseconds: 120 + attempt * 180),
+          );
         }
         final snap =
             await networkFetch().timeout(_networkAttemptTimeout(attempt));

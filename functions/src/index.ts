@@ -1271,6 +1271,56 @@ export const provisionChurchTenantCallable = functions
     }
   });
 
+/** Gestor/master — padroniza `igrejas/{canonicalId}/…` (aliases, cluster, members→membros). */
+export const ensureChurchTenantConsolidated = functions
+  .region("us-central1")
+  .runWith({ timeoutSeconds: 540, memory: "1GB" })
+  .https.onCall(async (data, context) => {
+    if (!context.auth?.uid) {
+      throw new functions.https.HttpsError("unauthenticated", "Login necessário.");
+    }
+    const payload =
+      data && typeof data === "object" ? (data as Record<string, unknown>) : {};
+    const tenantId = String(payload.tenantId || payload.igrejaId || "").trim();
+    if (!tenantId) {
+      throw new functions.https.HttpsError("invalid-argument", "tenantId obrigatório.");
+    }
+    const email = String((context.auth.token?.email as string) || "").trim().toLowerCase();
+    let role = String((context.auth.token?.role as string) || "").toUpperCase();
+    const claimTenant = String(
+      (context.auth.token?.igrejaId as string) ||
+        (context.auth.token?.tenantId as string) ||
+        "",
+    ).trim();
+    const isMaster =
+      role === "MASTER" ||
+      role === "ADMIN" ||
+      role === "ADM" ||
+      email === "raihom@gmail.com";
+    if (!isMaster) {
+      const u = await db.collection("users").doc(context.auth.uid).get();
+      const ud = u.data() || {};
+      const userTenant = String(ud.igrejaId ?? ud.tenantId ?? "").trim();
+      if (role === "") role = String(ud.role ?? ud.perfil ?? "").toUpperCase();
+      const allowed =
+        claimTenant === tenantId ||
+        userTenant === tenantId ||
+        role === "GESTOR" ||
+        role === "ADMINISTRADOR";
+      if (!allowed) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "Sem permissão para consolidar esta igreja.",
+        );
+      }
+    }
+    const { runChurchTenantConsolidation } = await import("./churchTenantConsolidation");
+    return runChurchTenantConsolidation(tenantId, {
+      source: String(payload.source || "ensureChurchTenantConsolidated"),
+      forceCluster: payload.forceCluster === true,
+    });
+  });
+
 /** MASTER — migra todas as igrejas (docs fantasma + church_aliases + Storage). */
 export const migrateAllChurchTenantsCallable = functions
   .region("us-central1")

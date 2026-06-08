@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:gestao_yahweh/services/video_duration.dart';
 
 import 'feed_editor_media_service.dart';
 import 'firebase_storage_cleanup_service.dart';
@@ -46,6 +47,10 @@ class VideoHandlerService implements IVideoHandlerService {
       maxDuration: effectiveMaxDuration,
     );
     if (xfile == null) return null;
+    final durationSec = await getVideoDurationSeconds(xfile);
+    if (durationSec != null && durationSec > kMediaEventVideoMaxSeconds) {
+      throw StateError('Vídeo excede o limite de 90 segundos.');
+    }
     final localPath = await FeedEditorMediaService.persistVideoXFileToTemp(
       xfile,
       prefix: 'gy_event_video',
@@ -82,9 +87,12 @@ class VideoHandlerService implements IVideoHandlerService {
     try {
       final lower = path.toLowerCase();
       final byteLen = await File(path).length();
-      final hardLimitBytes = mediaVideoHardMaxBytesEffective;
+      final hardLimitBytes = mediaEventVideoHardMaxBytesEffective;
       final pickLimit = maxRawPickBytes ?? hardLimitBytes;
       if (byteLen > pickLimit) {
+        if (byteLen > kMediaEventVideoHardMaxBytes) {
+          throw StateError('Vídeo excede o limite permitido.');
+        }
         final sizeMb = (byteLen / (1024 * 1024)).toStringAsFixed(1);
         final limitMb = (pickLimit / (1024 * 1024)).round();
         throw StateError(

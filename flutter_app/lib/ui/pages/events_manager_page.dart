@@ -25,6 +25,9 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
+import 'package:gestao_yahweh/services/evento_strict_publish_service.dart';
+import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
+import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
@@ -254,6 +257,111 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         permissions: widget.permissions,
       );
 
+  bool get _canManageAll {
+    final r = widget.role.toLowerCase();
+    return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
+  }
+
+  Future<void> _showEventosDiagnostic() async {
+    if (!_canManageAll || !mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        content: Padding(
+          padding: EdgeInsets.all(20),
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+        ),
+      ),
+    );
+    EventosDiagnosticReport report;
+    try {
+      report = await EventosDiagnosticService.run(
+        seedTenantId: _tid,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
+    } catch (e) {
+      report = EventosDiagnosticReport(
+        tenantAtual: _tid,
+        tenantResolvido: _tid,
+        colecaoUtilizada:
+            EventosPublishVerificationService.collectionPathFor(_tid),
+        quantidadeEventos: 0,
+        ultimoErro: e.toString(),
+      );
+    }
+    if (!mounted) return;
+    Navigator.pop(context);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Diagnóstico Eventos'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Tenant atual: ${report.tenantAtual}'),
+              const SizedBox(height: 8),
+              Text('Tenant resolvido: ${report.tenantResolvido}'),
+              const SizedBox(height: 8),
+              Text('Coleção: ${report.colecaoUtilizada}'),
+              const SizedBox(height: 8),
+              Text('Quantidade de eventos: ${report.quantidadeEventos}'),
+              const SizedBox(height: 8),
+              Text('Fotos no último evento: ${report.fotosEncontradas}'),
+              Text(
+                'Vídeo no último evento: ${report.videoEncontrado ? 'sim' : 'não'}',
+              ),
+              if (report.ultimoEventoDocId != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Último evento: ${report.ultimoEventoTitulo ?? '(sem título)'}',
+                ),
+                Text('Doc ID: ${report.ultimoEventoDocId}'),
+                if (report.ultimoEventoCreatedAt != null)
+                  Text(
+                    'Criado: ${DateFormat('dd/MM/yyyy HH:mm').format(report.ultimoEventoCreatedAt!)}',
+                  ),
+              ],
+              if (report.ultimoErro != null && report.ultimoErro!.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Último erro:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: ThemeCleanPremium.error,
+                  ),
+                ),
+                Text(
+                  report.ultimoErro!,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fechar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _feedTabKey.currentState?._refresh();
+            },
+            child: const Text('Recarregar feed'),
+          ),
+        ],
+      ),
+    );
+  }
+
   String? _eventsModuleBarSubtitle() {
     final user = firebaseDefaultAuth.currentUser;
     final dn = (user?.displayName ?? '').trim();
@@ -374,11 +482,21 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       );
     }
     await ensureFirebaseReadyForPublishUpload().catchError((_) {});
+    final igrejaId = await ChurchOperationalPaths.resolveCached(
+      _tid,
+      userUid: firebaseDefaultAuth.currentUser?.uid,
+    );
+    final noticias = ChurchOperationalPaths.churchDoc(igrejaId)
+        .collection(ChurchTenantPostsCollections.eventos);
+    if (!mounted) return;
     final result = await Navigator.push<bool>(
         context,
         MaterialPageRoute(
             builder: (_) => _EventoFormPage(
-                tenantId: _tid, noticias: _noticias, doc: doc)));
+                tenantId: _tid,
+                resolvedTenantId: igrejaId,
+                noticias: noticias,
+                doc: doc)));
     if (result == true && mounted) {
       _feedTabKey.currentState?._refresh();
       setState(() {});
@@ -1173,6 +1291,17 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                     fontSize: isMobile ? 17 : 16,
                     fontWeight: FontWeight.w700),
               ),
+              actions: [
+                if (_canManageAll)
+                  IconButton(
+                    tooltip: 'Diagnóstico Eventos',
+                    onPressed: () => unawaited(_showEventosDiagnostic()),
+                    icon: Icon(
+                      Icons.medical_information_outlined,
+                      color: ThemeCleanPremium.primary,
+                    ),
+                  ),
+              ],
               bottom: _tab.length > 1
                   ? ChurchPanelPillTabBar(
                       controller: _tab,
@@ -2624,9 +2753,15 @@ class _FeedTabState extends State<_FeedTab> {
   bool _selectMode = false;
   final Set<String> _selectedEventIds = <String>{};
 
-  Query<Map<String, dynamic>> _eventsBaseQuery() {
-    return         ChurchOperationalPaths.churchDoc(widget.tenantId.trim())
-        .collection(ChurchTenantPostsCollections.eventos)
+  Query<Map<String, dynamic>> _eventsBaseQuery({bool filtered = true}) {
+    final col = ChurchOperationalPaths.churchDoc(widget.tenantId.trim())
+        .collection(ChurchTenantPostsCollections.eventos);
+    if (!filtered) {
+      return col.orderBy('startAt', descending: true);
+    }
+    return col
+        .where('ativo', isEqualTo: true)
+        .where('publicado', isEqualTo: true)
         .orderBy('startAt', descending: true);
   }
 
@@ -2915,6 +3050,9 @@ class _FeedTabState extends State<_FeedTab> {
   ) {
     // Feed = só eventos especiais; data passada → Galeria, não o Feed.
     var out = docs.where(noticiaDocEhEventoSpecialFeed).where((d) {
+      final data = d.data();
+      if (data['ativo'] == false) return false;
+      if (data['publicado'] == false) return false;
       if (noticiaEventoEspecialCaiuDoFeedParaGaleria(d.data(), now)) {
         return false;
       }
@@ -5807,10 +5945,15 @@ class _FeedSkeleton extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════════════════
 class _EventoFormPage extends StatefulWidget {
   final String tenantId;
+  final String resolvedTenantId;
   final CollectionReference<Map<String, dynamic>> noticias;
   final DocumentSnapshot<Map<String, dynamic>>? doc;
-  const _EventoFormPage(
-      {required this.tenantId, required this.noticias, this.doc});
+  const _EventoFormPage({
+    required this.tenantId,
+    required this.resolvedTenantId,
+    required this.noticias,
+    this.doc,
+  });
 
   @override
   State<_EventoFormPage> createState() => _EventoFormPageState();
@@ -6029,7 +6172,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   String? _operationalTenantId;
 
   String get _editorTenantId =>
-      (_operationalTenantId ?? widget.tenantId).trim();
+      (_operationalTenantId ?? widget.resolvedTenantId).trim();
 
   /// Novo evento: mesmo id desde o init, para vídeos ficarem em paths estáveis `…/eventos/videos/{id}_v0.mp4`.
   late final DocumentReference<Map<String, dynamic>> _eventDocRef;
@@ -6275,9 +6418,60 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
+  Future<({DocumentReference<Map<String, dynamic>> docRef, String igrejaId})>
+      _prepareEventoPublishContext() async {
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    final igrejaId =
+        await EventosPublishVerificationService.resolveTenantForPublish(
+      seedTenantId: widget.tenantId,
+      userUid: uid.isEmpty ? null : uid,
+    );
+    if (mounted) setState(() => _operationalTenantId = igrejaId);
+    final docId = _eventDocRef.id;
+    final docRef = EventosPublishVerificationService.eventoDocRef(
+      igrejaId: igrejaId,
+      docId: docId,
+    );
+    return (docRef: docRef, igrejaId: igrejaId);
+  }
+
+  String? _videoStoragePathForPublish(String igrejaId) {
+    if (_eventVideos.isEmpty) return null;
+    return EventosPublishVerificationService.hostedVideoStoragePath(
+      igrejaId: igrejaId,
+      eventoId: _eventDocRef.id,
+      slot: 0,
+    );
+  }
+
+  Future<void> _waitForVideoUploadComplete() async {
+    const maxWait = Duration(minutes: 11);
+    final deadline = DateTime.now().add(maxWait);
+    while (_uploadingVideo && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    if (_uploadingVideo) {
+      throw StateError(
+        'O envio do vídeo demorou demais. Aguarde ou remova o vídeo e tente de novo.',
+      );
+    }
+  }
+
+  Future<void> _showEventoPublishVerifiedSuccess({required bool isNewDoc}) async {
+    if (!mounted) return;
+    unawaited(IosPublishMemory.releaseAfterHeavyWork());
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.successSnackBar(
+        isNewDoc ? 'Evento publicado' : 'Evento atualizado',
+      ),
+    );
+    Navigator.pop(context, true);
+  }
+
   @override
   void initState() {
     super.initState();
+    _operationalTenantId = widget.resolvedTenantId.trim();
     _eventDocRef = widget.doc?.reference ?? widget.noticias.doc();
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
@@ -6870,7 +7064,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'A enviar vídeo em segundo plano… Pode publicar o evento — o vídeo entra no documento ao concluir.',
+          'A enviar vídeo… Aguarde concluir antes de publicar.',
         ),
       );
     }
@@ -7184,6 +7378,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final hasVideo = firstVideoUrl.toString().trim().isNotEmpty;
     final ar = (aspectRatio ?? 1.0).clamp(0.45, 1.9);
 
+    final fotoPaths = EventosPublishVerificationService.storagePathsFromUrls(
+      allUrlsSafe,
+    );
+    final videoPath = _eventVideos.isNotEmpty
+        ? EventosPublishVerificationService.hostedVideoStoragePath(
+            igrejaId: _editorTenantId,
+            eventoId: _eventDocRef.id,
+            slot: 0,
+          )
+        : null;
+
     final payload = <String, dynamic>{
       'type': 'evento',
       'title': _title.text.trim(),
@@ -7191,6 +7396,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'videoUrl': firstVideoUrl,
       'thumbUrl': firstThumbUrl,
       'videos': videosClean,
+      'fotos': fotoPaths,
+      if (videoPath != null && videoPath.isNotEmpty) 'videoPath': videoPath,
+      'ativo': true,
+      'publicado': true,
+      'status': 'publicado',
       'active': true,
       'likes': widget.doc?.data()?['likes'] ?? <String>[],
       'rsvp': widget.doc?.data()?['rsvp'] ?? <String>[],
@@ -7349,86 +7559,130 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       return;
     }
     setState(() => _saving = true);
-    final docRef = _eventDocRef;
-    final postId = docRef.id;
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    final titulo = _title.text.trim();
     try {
       await AppFinalizeBootstrap.ensureSessionForPublish(
         logLabel: 'evento_save',
       );
       await _waitForInFlightPhotoUploads();
+      await _waitForVideoUploadComplete();
       ChurchPublishFlowLog.eventoStart();
       await FeedPublishPreflight.prepareForFirestoreSave(
         inFlightCount: () => _inFlightPhotoUploads,
       );
+      final ctx = await _prepareEventoPublishContext();
+      final docRef = ctx.docRef;
+      final publishTenantId = ctx.igrejaId;
+      final postId = docRef.id;
+
+      await EventosPublishVerificationService.logPublishPhase(
+        phase: 'before',
+        igrejaId: publishTenantId,
+        uid: uid,
+        titulo: titulo,
+        eventoId: postId,
+        fotos: EventosPublishVerificationService.storagePathsFromUrls(
+          _existingUrls,
+        ),
+        videoPath: _videoStoragePathForPublish(publishTenantId),
+      );
+
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
-        final hasPendingLocal = _newPhotoCount > 0;
-        double? aspectRatio;
-        if (!hasPendingLocal && existingUrls.isNotEmpty) {
-          final prev = widget.doc?.data()?['media_info'];
-          if (prev is Map) {
-            final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
-            if (oar is num) aspectRatio = oar.toDouble();
-          }
+      final hasPendingLocal = _newPhotoCount > 0;
+      double? aspectRatio;
+      if (!hasPendingLocal && existingUrls.isNotEmpty) {
+        final prev = widget.doc?.data()?['media_info'];
+        if (prev is Map) {
+          final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+          if (oar is num) aspectRatio = oar.toDouble();
         }
-        final hasVideo = _eventVideos.isNotEmpty ||
-            _videoUrl.text.trim().isNotEmpty;
-        final payload = _buildEventCorePayload(
-          allUrls: existingUrls,
-          aspectRatio: aspectRatio,
-          isNewDoc: isNewDoc,
-        );
-        if (hasPendingLocal) {
-          final startSlot = existingUrls.length;
-          List<Uint8List>? bytes;
-          List<String>? paths;
-          if (kIsWeb) {
-            bytes = await _copyNewImagesForPublish();
-          } else {
-            paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
-          }
-          final n = bytes?.length ?? paths?.length ?? 0;
-          if (n == 0) {
-            throw StateError('Não foi possível ler as fotos para enviar.');
-          }
-          await FeedMediaPublishService.publish(
-            docRef: docRef,
-            tenantId: _editorTenantId,
-            postId: postId,
-            postType: 'evento',
-            corePayload: payload,
-            isNewDoc: isNewDoc,
-            existingUrls: existingUrls,
-            startSlotIndex: startSlot,
-            hasVideo: hasVideo,
-            newImagesBytes: bytes,
-            newImagePaths: paths,
-            publicSite: _publicSite,
-          );
+      }
+      final hasVideo =
+          _eventVideos.isNotEmpty || _videoUrl.text.trim().isNotEmpty;
+      final payload = _buildEventCorePayload(
+        allUrls: existingUrls,
+        aspectRatio: aspectRatio,
+        isNewDoc: isNewDoc,
+      );
+
+      List<Uint8List>? bytes;
+      List<String>? paths;
+      if (hasPendingLocal) {
+        final startSlot = existingUrls.length;
+        if (kIsWeb) {
+          bytes = await _copyNewImagesForPublish();
         } else {
-          await FeedMediaPublishService.publishNow(
-            docRef: docRef,
-            payload: payload,
-            isNewDoc: isNewDoc,
-            postType: 'evento',
-            publicSite: _publicSite,
-          );
+          paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
         }
-        if (mounted) {
-          if (_uploadingVideo) _publishedAwaitingVideoMerge = true;
-          unawaited(IosPublishMemory.releaseAfterHeavyWork());
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-              _uploadingVideo
-                  ? 'Evento publicado — vídeo a concluir em segundo plano.'
-                  : (isNewDoc ? 'Evento publicado!' : 'Evento atualizado!'),
-            ),
-          );
-          Navigator.pop(context, true);
+        final n = bytes?.length ?? paths?.length ?? 0;
+        if (n == 0) {
+          throw StateError('Não foi possível ler as fotos para enviar.');
         }
-        unawaited(_applyAgendaSyncAfterSave(postId));
+        await EventoStrictPublishService.publish(
+          docRef: docRef,
+          tenantId: publishTenantId,
+          corePayload: payload,
+          isNewDoc: isNewDoc,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlot,
+          hasVideo: hasVideo,
+          newImagesBytes: bytes,
+          newImagePaths: paths,
+          videoStoragePath: _videoStoragePathForPublish(publishTenantId),
+          publicSite: _publicSite,
+        );
+      } else {
+        final videoPath = _videoStoragePathForPublish(publishTenantId);
+        final fotoPaths =
+            EventosPublishVerificationService.storagePathsFromUrls(
+          existingUrls,
+        );
+        await EventosPublishVerificationService.verifyStorageMetadata(
+          photoPaths: fotoPaths,
+          videoPath: videoPath,
+        );
+        await FeedMediaPublishService.publishNow(
+          docRef: docRef,
+          payload: payload,
+          isNewDoc: isNewDoc,
+          postType: 'evento',
+          publicSite: _publicSite,
+        );
+        await EventosPublishVerificationService.verifyDocumentExists(docRef);
+        PublicationEngine.scheduleDistribution(
+          tenantId: publishTenantId,
+          kind: PublicationKind.evento,
+          postId: postId,
+          isNewDoc: isNewDoc,
+          publicSite: _publicSite,
+        );
+      }
+
+      await EventosPublishVerificationService.logPublishPhase(
+        phase: 'after',
+        igrejaId: publishTenantId,
+        uid: uid,
+        titulo: titulo,
+        eventoId: postId,
+      );
+      EventosPublishVerificationService.clearLastError();
+      await _showEventoPublishVerifiedSuccess(isNewDoc: isNewDoc);
+      unawaited(_applyAgendaSyncAfterSave(postId));
     } catch (e, st) {
       ChurchPublishFlowLog.logCatch(e, st, label: 'evento_save');
+      EventosPublishVerificationService.rememberLastError(e);
+      unawaited(
+        EventosPublishVerificationService.logPublishPhase(
+          phase: 'error',
+          igrejaId: _editorTenantId,
+          uid: uid,
+          titulo: titulo,
+          eventoId: _eventDocRef.id,
+          erro: e,
+        ),
+      );
       unawaited(CrashlyticsService.record(e, st, reason: 'eventos_publish'));
       unawaited(
         FeedMediaPublishService.markPublishFailed(
@@ -7442,23 +7696,22 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           msg.contains('WatchChangeAggregator') ||
           msg.contains('PersistentListenStream') ||
           msg.contains('Unexpected state');
+      final verifyFailed =
+          msg.contains('Documento não localizado no Firestore') ||
+              msg.contains(EventosPublishVerificationService
+                  .kPublishVerifyFailedMessage) ||
+              msg.contains(EventosPublishVerificationService
+                  .kStorageVerifyFailedMessage);
       if (mounted && isAssertionOrPerm) {
         try {
           await _retryEventPublishFirestoreFirst();
-          if (mounted) {
-            PublicationEngine.scheduleDistribution(
-              tenantId: widget.tenantId,
-              kind: PublicationKind.evento,
-              postId: postId,
-              isNewDoc: isNewDoc,
-              publicSite: _publicSite,
-            );
-            ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar('Evento publicado!'),
-            );
-            Navigator.pop(context, true);
-          }
-          unawaited(_applyAgendaSyncAfterSave(postId));
+          final verifyCtx = await _prepareEventoPublishContext();
+          await EventosPublishVerificationService.verifyDocumentExists(
+            verifyCtx.docRef,
+          );
+          EventosPublishVerificationService.clearLastError();
+          await _showEventoPublishVerifiedSuccess(isNewDoc: isNewDoc);
+          unawaited(_applyAgendaSyncAfterSave(_eventDocRef.id));
         } catch (e2, st2) {
           ChurchPublishFlowLog.logCatch(e2, st2, label: 'evento_retry');
           if (mounted) {
@@ -7470,7 +7723,15 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(formatUploadErrorForUser(e)),
+            content: Text(
+              verifyFailed
+                  ? (msg.contains('Storage')
+                      ? EventosPublishVerificationService
+                          .kStorageVerifyFailedMessage
+                      : EventosPublishVerificationService
+                          .kPublishVerifyFailedMessage)
+                  : formatUploadErrorForUser(e),
+            ),
             backgroundColor: ThemeCleanPremium.error));
       }
     } finally {

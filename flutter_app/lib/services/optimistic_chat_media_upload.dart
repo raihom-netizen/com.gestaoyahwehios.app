@@ -679,11 +679,9 @@ abstract final class OptimisticChatMediaUpload {
 
           pending: pending,
 
-          downloadUrl: up.url,
-
           storagePath: up.path,
 
-          thumbUrl: up.thumbUrl,
+          thumbStoragePath: up.thumbPath,
 
           uploadDocId: activeUploadId,
 
@@ -703,7 +701,7 @@ abstract final class OptimisticChatMediaUpload {
 
       List<int>? uploadBytes = bytes;
 
-      String? thumbUrl;
+      String? thumbStoragePath;
 
 
 
@@ -752,7 +750,7 @@ abstract final class OptimisticChatMediaUpload {
               storagePathOverride: thumbPath,
               skipClientPrepare: true,
               onProgress: (t) => _mapProgress(reportProgress, 0.40, 0.48, t),
-            ).then((up) => up.url);
+            ).then((up) => up.path);
           }
 
           void uploadProgress(double t) =>
@@ -771,16 +769,15 @@ abstract final class OptimisticChatMediaUpload {
 
           if (thumbFuture != null) {
             final pair = await Future.wait<Object?>([thumbFuture, mainFuture]);
-            thumbUrl = pair[0] as String?;
+            thumbStoragePath = pair[0] as String?;
             final up = pair[1] as ({String url, String path});
             await _finalizeChatMediaUpload(
               tenantId: tenantId,
               threadId: threadId,
               messageId: messageId!,
               pending: pending,
-              downloadUrl: up.url,
               storagePath: up.path,
-              thumbUrl: thumbUrl,
+              thumbStoragePath: thumbStoragePath,
               uploadDocId: activeUploadId,
               reportProgress: reportProgress,
               onSuccess: onSuccess,
@@ -858,11 +855,9 @@ abstract final class OptimisticChatMediaUpload {
 
         pending: pending,
 
-        downloadUrl: up.url,
-
         storagePath: up.path,
 
-        thumbUrl: thumbUrl,
+        thumbStoragePath: thumbStoragePath,
 
         uploadDocId: activeUploadId,
 
@@ -928,11 +923,9 @@ abstract final class OptimisticChatMediaUpload {
 
     required ChurchChatOutboundPending pending,
 
-    required String downloadUrl,
-
     required String storagePath,
 
-    String? thumbUrl,
+    String? thumbStoragePath,
 
     int? fileSize,
 
@@ -956,15 +949,13 @@ abstract final class OptimisticChatMediaUpload {
 
       messageId: messageId,
 
-      downloadUrl: downloadUrl,
-
       storagePath: storagePath,
 
       fileName: ChurchChatMessageFields.isDocumentType(pending.kind)
           ? pending.fileName
           : null,
 
-      thumbUrl: thumbUrl,
+      thumbStoragePath: thumbStoragePath,
 
       fileSize: resolvedSize,
 
@@ -1006,7 +997,7 @@ abstract final class OptimisticChatMediaUpload {
 
 
 
-  static Future<({String url, String path, String? thumbUrl})>
+  static Future<({String path, String? thumbPath})>
 
       _uploadChatImagePrepared({
 
@@ -1066,7 +1057,7 @@ abstract final class OptimisticChatMediaUpload {
         storagePathOverride: thumbPath,
         skipClientPrepare: true,
         onProgress: (t) => _mapProgress(reportProgress, 0.12, 0.22, t),
-      ).then((up) => up.url);
+      ).then((up) => up.path);
     }
 
     final fullFuture = ChurchChatService.uploadChatBytes(
@@ -1080,17 +1071,17 @@ abstract final class OptimisticChatMediaUpload {
       onProgress: uploadProgress,
     );
 
-    String? thumbUrl;
+    String? thumbPath;
     late final ({String url, String path}) up;
     if (thumbFuture != null) {
       final pair = await Future.wait<Object?>([thumbFuture, fullFuture]);
-      thumbUrl = pair[0] as String?;
+      thumbPath = pair[0] as String?;
       up = pair[1] as ({String url, String path});
     } else {
       up = await fullFuture;
     }
 
-    return (url: up.url, path: up.path, thumbUrl: thumbUrl);
+    return (path: up.path, thumbPath: thumbPath);
 
   }
 

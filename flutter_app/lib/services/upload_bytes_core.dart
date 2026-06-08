@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 
+import 'package:gestao_yahweh/services/church_tenant_media_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 
 import 'package:gestao_yahweh/services/upload_storage_task.dart'
@@ -55,14 +56,29 @@ Future<String> uploadStoragePutDataWithRetry({
   if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
     await ensureUploadBootstrapForStoragePath(storagePath);
   }
-  return YahwehMediaUploadPipeline.uploadPreparedBytes(
-    storagePath: storagePath,
-    bytes: bytes,
-    contentType: contentType,
-    maxAttempts: maxAttempts,
-    onProgress: onProgress,
-    onUploadTaskCreated: onTaskStarted,
-  );
+  try {
+    await ChurchTenantMediaService.assertUploadPathFromResolvedTenant(
+      storagePath: storagePath,
+    );
+  } on ChurchTenantMediaException catch (e) {
+    ChurchTenantMediaActivity.recordError(e.toString());
+    rethrow;
+  }
+  try {
+    final url = await YahwehMediaUploadPipeline.uploadPreparedBytes(
+      storagePath: storagePath,
+      bytes: bytes,
+      contentType: contentType,
+      maxAttempts: maxAttempts,
+      onProgress: onProgress,
+      onUploadTaskCreated: onTaskStarted,
+    );
+    ChurchTenantMediaActivity.recordUpload(storagePath);
+    return url;
+  } catch (e) {
+    ChurchTenantMediaActivity.recordError(e.toString());
+    rethrow;
+  }
 }
 
 
@@ -106,6 +122,14 @@ Future<String> uploadStoragePutFileWithRetry({
   if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
     await ensureUploadBootstrapForStoragePath(storagePath);
   }
+  try {
+    await ChurchTenantMediaService.assertUploadPathFromResolvedTenant(
+      storagePath: storagePath,
+    );
+  } on ChurchTenantMediaException catch (e) {
+    ChurchTenantMediaActivity.recordError(e.toString());
+    rethrow;
+  }
 
   final byteLen = await file.length();
 
@@ -143,7 +167,9 @@ Future<String> uploadStoragePutFileWithRetry({
 
       onProgress?.call(1.0);
 
-      return await storageDownloadUrlWithRetry(snap.ref);
+      final url = await storageDownloadUrlWithRetry(snap.ref);
+      ChurchTenantMediaActivity.recordUpload(storagePath);
+      return url;
 
     } catch (e) {
 
@@ -166,6 +192,7 @@ Future<String> uploadStoragePutFileWithRetry({
   }
 
   final err = lastError ?? StateError('Falha de upload');
+  ChurchTenantMediaActivity.recordError(err.toString());
 
   logFirebaseDiagnostic(err, StackTrace.current, context: storagePath);
 

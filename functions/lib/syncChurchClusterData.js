@@ -43,6 +43,7 @@ exports.runSyncChurchClusterDataFromRichest = runSyncChurchClusterDataFromRiches
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const churchClusterAnchors_1 = require("./churchClusterAnchors");
+const churchCanonicalResolve_1 = require("./churchCanonicalResolve");
 const META_DOC = "cluster_data_sync_v1";
 const BATCH_LIMIT = 350;
 const MIGRATE_COLLECTIONS = [
@@ -61,6 +62,16 @@ const MIGRATE_COLLECTIONS = [
     "escalas",
     "avisos",
     "eventos",
+    "noticias",
+    "chats",
+    "chat_threads",
+    "users",
+    "usersIndex",
+    "pedidosOracao",
+    "cultos",
+    "presencas",
+    "categorias_despesas",
+    "escala_templates",
 ];
 const CONFIG_DOCS = [
     "finance_settings",
@@ -124,8 +135,12 @@ async function scoreTenantData(tenantId) {
         contas: 3,
         departamentos: 3,
         escalas: 3,
+        chats: 3,
         event_templates: 2,
         agenda: 2,
+        avisos: 2,
+        eventos: 2,
+        visitantes: 2,
     };
     await Promise.all(MIGRATE_COLLECTIONS.map(async (col) => {
         const w = weights[col] ?? 1;
@@ -212,7 +227,7 @@ async function copyConfigDocs(sourceId, targetId) {
     return copied;
 }
 async function runSyncChurchClusterDataFromRichest(tenantId, options) {
-    const target = (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(String(tenantId || "").trim());
+    const target = await (0, churchCanonicalResolve_1.resolveCanonicalChurchDocId)(String(tenantId || "").trim());
     if (!target) {
         throw new functions.https.HttpsError("invalid-argument", "tenantId obrigatório");
     }

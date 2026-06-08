@@ -11,6 +11,8 @@ import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/global_tenant_audit_service.dart';
+import 'package:gestao_yahweh/ui/pages/church_sync_test_page.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
@@ -79,9 +81,38 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   bool _userAtivoNoPainel = false;
   String _accountEmailDisplay = '';
   String? _operationalTenantId;
+  GlobalTenantAuditReport? _globalAudit;
+  bool _churchSyncDiagnosticLoading = false;
 
   String get _effectiveTenantId =>
       (_operationalTenantId ?? widget.tenantId).trim();
+
+  bool get _canManageDiagnostic {
+    final r = widget.role.toLowerCase();
+    return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
+  }
+
+  Future<void> _runChurchSyncDiagnostic() async {
+    if (_churchSyncDiagnosticLoading) return;
+    setState(() => _churchSyncDiagnosticLoading = true);
+    try {
+      final report = await GlobalTenantAuditService.run(
+        seedTenantId: _effectiveTenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
+      if (!mounted) return;
+      setState(() {
+        _globalAudit = report;
+        _churchSyncDiagnosticLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _churchSyncDiagnosticLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Diagnóstico falhou: $e')),
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -765,6 +796,14 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                   const SizedBox(height: 24),
                   _SectionTitle(icon: Icons.notifications_active_rounded, title: 'Notificações e acesso'),
                   _buildNotificacoesCard(),
+                  if (_canManageDiagnostic) ...[
+                    const SizedBox(height: 24),
+                    _SectionTitle(
+                      icon: Icons.sync_problem_rounded,
+                      title: 'Diagnóstico Firestore + Storage',
+                    ),
+                    _buildChurchSyncDiagnosticCard(context),
+                  ],
                   const SizedBox(height: 24),
                   ..._buildBackupSection(context),
                   ..._buildDicasSection(),
@@ -1022,6 +1061,179 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
               value: _bioEnabled,
               onChanged: _bioToggling ? null : _onBiometricSwitch,
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChurchSyncDiagnosticCard(BuildContext context) {
+    final audit = _globalAudit;
+    final d = audit?.syncReport;
+    final counts = audit?.moduleCounts;
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Firestore e Storage são uma única estrutura — o mesmo '
+            '`churchId` em `igrejas/{id}` e `igrejas/{id}/`.',
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 12),
+          if (_churchSyncDiagnosticLoading)
+            const Center(child: CircularProgressIndicator(strokeWidth: 2))
+          else if (d != null) ...[
+            _diagLine('Church ID', d.resolvedChurchId),
+            _diagLine('Seed (entrada)', d.seedTenantId),
+            _diagLine('Firestore Path', d.firestorePath),
+            _diagLine('Storage Path', d.storageRootPath ?? '—'),
+            _diagLine('Bucket', d.storageBucket),
+            _diagLine(
+              'Firestore ativo',
+              d.firestoreActive == true ? 'sim' : (d.firestoreActive == false ? 'não' : '—'),
+            ),
+            _diagLine(
+              'Storage ativo',
+              d.storageActive == true ? 'sim' : (d.storageActive == false ? 'não' : '—'),
+            ),
+            _diagLine(
+              'Alinhado',
+              d.storageAligned ? 'sim' : 'NÃO — abortar uploads',
+            ),
+            _diagLine('Campos Firestore', '${d.fieldCount}'),
+            _diagLine(
+              'Última leitura',
+              d.lastReadAt?.toIso8601String() ?? '—',
+            ),
+            _diagLine(
+              'Último upload',
+              d.lastUploadPath != null
+                  ? '${d.lastUploadAt?.toIso8601String() ?? ''}\n${d.lastUploadPath}'
+                  : '—',
+            ),
+            _diagLine(
+              'Último download',
+              d.lastDownloadPath != null
+                  ? '${d.lastDownloadAt?.toIso8601String() ?? ''}\n${d.lastDownloadPath}'
+                  : '—',
+            ),
+            if (d.tenantMismatch || !d.storageAligned)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  d.tenantMismatch
+                      ? 'WEB_FIRESTORE_MISMATCH detectado'
+                      : 'STORAGE_TENANT_MISMATCH detectado',
+                  style: TextStyle(
+                    color: ThemeCleanPremium.error,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            if (d.lastError != null)
+              Text(
+                'Último erro: ${d.lastError}',
+                style: TextStyle(fontSize: 12, color: ThemeCleanPremium.error),
+              ),
+            if (counts != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Documentos (amostra até 500/coleção)',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              _diagLine('Membros', '${counts.membros}'),
+              _diagLine('Eventos', '${counts.eventos}'),
+              _diagLine('Avisos', '${counts.avisos}'),
+              _diagLine('Departamentos', '${counts.departamentos}'),
+              _diagLine('Cargos', '${counts.cargos}'),
+              _diagLine('Patrimônios', '${counts.patrimonio}'),
+              _diagLine('Chats', '${counts.chats}'),
+              _diagLine('Escalas', '${counts.escalas}'),
+              _diagLine('Financeiro', '${counts.financeiro}'),
+              _diagLine('Fornecedores', '${counts.fornecedores}'),
+              _diagLine('Pedidos Oração', '${counts.pedidosOracao}'),
+              _diagLine('Cartas/Transfer.', '${counts.cartasHistorico}'),
+              _diagLine('Certificados', '${counts.certificados}'),
+            ],
+            if (audit?.moduleStatuses.isNotEmpty == true) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Módulos padronizados',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade700,
+                ),
+              ),
+              for (final m in audit!.moduleStatuses)
+                _diagLine(
+                  m.module,
+                  m.standardized
+                      ? 'OK — ${m.firestoreCollection ?? ''}'
+                      : (m.lastError ?? 'pendente'),
+                ),
+            ],
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _churchSyncDiagnosticLoading
+                      ? null
+                      : () => unawaited(_runChurchSyncDiagnostic()),
+                  icon: const Icon(Icons.medical_information_outlined, size: 18),
+                  label: const Text('Executar diagnóstico'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => ChurchSyncTestPage(
+                          tenantId: _effectiveTenantId,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.science_outlined, size: 18),
+                  label: const Text('Tela de teste'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _diagLine(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 130,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(value, style: const TextStyle(fontSize: 12)),
+          ),
         ],
       ),
     );

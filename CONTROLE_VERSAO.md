@@ -7,22 +7,37 @@
 
 ---
 
-## Como subir a versão (você só roda o script)
+## Política atual (jun/2026)
+
+| Campo | Valor fixo | Como subir |
+|-------|------------|------------|
+| **Marketing** (nome visível) | `11.2.305` | Só com pedido explícito (`-NewMarketing`) |
+| **Build** (`+N` / versionCode) | incrementa a cada release | `.\scripts\bump_build.ps1` |
+
+Produção Play (referência): **11.2.305 (1852)**. Próximo build no repo: **1853+**.
+
+## Como subir o build (padrão)
 
 ### Windows (PowerShell)
 ```powershell
+.\scripts\bump_build.ps1
+```
+Incrementa só o `+N` (ex.: `11.2.305+1853` → `11.2.305+1854`).
+
+### Subir mais de um build de uma vez
+```powershell
+.\scripts\bump_build.ps1 -Increment 3
+```
+
+### Alias (mesma política)
+```powershell
 .\scripts\bump_version.ps1
 ```
-Incrementa o patch: 9.0.2 → 9.0.3 (e o build number).
 
-### Windows (duplo clique)
-Execute `scripts\bump_version.bat`.
-
-### Subir mais de um patch
+### Mudar marketing (exceção — só se pedido)
 ```powershell
-.\scripts\bump_version.ps1 -Patch 2
+.\scripts\bump_version.ps1 -NewMarketing "11.2.306"
 ```
-Sobe 2 patches (ex.: 9.0.2 → 9.0.4).
 
 ### O que o script altera sozinho
 

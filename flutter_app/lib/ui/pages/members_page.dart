@@ -40,7 +40,10 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         sanitizeImageUrl,
         preloadNetworkImages;
 import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
+import 'package:gestao_yahweh/services/storage_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
@@ -56,6 +59,7 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
+import 'package:gestao_yahweh/services/membro_strict_publish_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
@@ -206,6 +210,58 @@ class _MembersPageState extends State<MembersPage> {
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );
 
+  /// Upload validado (Storage + Firestore) — sucesso só após confirmação completa.
+  Future<void> _publishMemberProfilePhotoStrict({
+    required String tenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+    required Uint8List bytes,
+  }) async {
+    final result = await MembroStrictPublishService.publishPhoto(
+      seedTenantId: tenantId,
+      memberDocId: memberDocId,
+      memberData: memberData,
+      rawBytes: bytes,
+      userUid: FirebaseAuth.instance.currentUser?.uid,
+    );
+    if (!mounted) return;
+    final displayUrl = sanitizeImageUrl(result.downloadUrl);
+    final merged = Map<String, dynamic>.from(memberData)
+      ..addAll({
+        'photoStoragePath': result.storagePath,
+        'photoThumbStoragePath': result.thumbStoragePath,
+        'fotoPath': result.storagePath,
+        'fotoThumbPath': result.thumbStoragePath,
+        'fotoUrlCacheRevision': result.cacheRevision,
+      });
+    setState(() {
+      if (displayUrl.isNotEmpty) {
+        _uploadedPhotoUrls[memberDocId] = displayUrl;
+      }
+      _optimisticProfilePhotoBytes.remove(memberDocId);
+    });
+    _invalidateMemberPhotoCaches(tenantId, memberDocId, merged);
+    unawaited(
+      MemberProfilePhotoUpdateService.syncChatPeerProfilesAfterPhotoUpdate(
+        primaryTenantId: tenantId,
+        memberDocId: memberDocId,
+        memberData: merged,
+        photoUrl: displayUrl,
+        photoThumbUrl: result.thumbDownloadUrl,
+        cacheRevision: result.cacheRevision,
+        photoStoragePath: result.storagePath,
+        photoThumbStoragePath: result.thumbStoragePath,
+      ),
+    );
+    if (displayUrl.isNotEmpty) {
+      unawaited(FirebaseStorageCleanupService.evictImageCaches(displayUrl));
+    }
+    Future.delayed(const Duration(seconds: 20), () {
+      if (!mounted) return;
+      setState(() => _uploadedPhotoUrls.remove(memberDocId));
+    });
+  }
+
   void _invalidateMemberPhotoCaches(
     String tenantId,
     String memberId, [
@@ -283,7 +339,7 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Carrega lista de igrejas (tenants) para o painel master (mudar igreja do membro).
   static Future<List<MapEntry<String, String>>> _loadTenantsForMove() async {
-    final snap = await FirebaseFirestore.instance.collection('igrejas').get();
+    final snap = await firebaseDefaultFirestore.collection('igrejas').get();
     final list = snap.docs.map((d) {
       final data = d.data();
       final name = (data['name'] ?? data['nome'] ?? d.id).toString();
@@ -773,7 +829,7 @@ class _MembersPageState extends State<MembersPage> {
     _membersRealtimeSubs.clear();
     _membersRealtimeTenant = tenantId;
     _membrosRealtimeSkipInitial = true;
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     _membersRealtimeSubs.add(
                 ChurchOperationalPaths.churchDoc(tenantId)
           .collection('membros')
@@ -1190,7 +1246,7 @@ class _MembersPageState extends State<MembersPage> {
           await TenantResolverService.getAllRelatedIgrejaDocIds(effectiveId);
     } catch (_) {}
 
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
 
     late final List<QuerySnapshot<Map<String, dynamic>>> initialCore;
     try {
@@ -1987,7 +2043,7 @@ class _MembersPageState extends State<MembersPage> {
     final linkage = await _getTenantLinkage();
     final col =         ChurchOperationalPaths.churchDoc(_effectiveTenantId)
         .collection('membros');
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     for (final id in ids) {
       batch.update(col.doc(id), {
         'alias': linkage['alias'],
@@ -4356,18 +4412,12 @@ class _MembersPageState extends State<MembersPage> {
           updates['DATA_BATISMO'] =
               Timestamp.fromDate(result['dataBatismo'] as DateTime);
         }
-        if (pendingProfilePhotoBytes != null) {
-          updates.addAll(
-            MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
-          );
-        }
-
         final linkage = await _getTenantLinkage();
         updates['alias'] = linkage['alias'];
         updates['slug'] = linkage['slug'];
         updates['tenantId'] = targetTenantId;
 
-        final db = FirebaseFirestore.instance;
+        final db = firebaseDefaultFirestore;
         var allIds =
             await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
                 targetTenantId);
@@ -4407,7 +4457,7 @@ class _MembersPageState extends State<MembersPage> {
             authUidSelf != null &&
             authUidSelf.isNotEmpty) {
           try {
-            await FirebaseFirestore.instance
+            await firebaseDefaultFirestore
                 .collection('users')
                 .doc(authUidSelf)
                 .set({
@@ -4442,47 +4492,34 @@ class _MembersPageState extends State<MembersPage> {
           }
           if (pendingProfilePhotoBytes != null) {
             final bytes = pendingProfilePhotoBytes;
-            final mid = member.id;
             final mergedSelf = Map<String, dynamic>.from(member.data)
               ..addAll(updates);
-            MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
-              tenantId: targetTenantId,
-              memberDocId: member.id,
-              memberData: mergedSelf,
-              rawBytes: bytes,
-              onSuccess: (result) {
-                if (!mounted) return;
-                final u = result.downloadUrl;
-                setState(() {
-                  _uploadedPhotoUrls[mid] = u;
-                  _optimisticProfilePhotoBytes.remove(mid);
-                });
-                Future.delayed(const Duration(seconds: 20), () {
-                  if (!mounted) return;
-                  setState(() => _uploadedPhotoUrls.remove(mid));
-                });
-                unawaited(FirebaseStorageCleanupService.evictImageCaches(u));
-                _invalidateMemberPhotoCaches(
-                  targetTenantId,
-                  member.id,
-                  mergedSelf,
-                );
-                unawaited(
-                  MemberProfilePhotoUpdateService
-                      .syncChatPeerProfilesAfterPhotoUpdate(
-                    primaryTenantId: targetTenantId,
-                    memberDocId: member.id,
-                    memberData: mergedSelf,
-                    photoUrl: u,
-                    cacheRevision: result.cacheRevision,
+            try {
+              await _publishMemberProfilePhotoStrict(
+                tenantId: targetTenantId,
+                memberDocId: member.id,
+                memberData: mergedSelf,
+                bytes: bytes,
+              );
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  ThemeCleanPremium.successSnackBar(
+                    'Foto de perfil atualizada!',
                   ),
                 );
-              },
-              onError: (_) {
-                if (!mounted) return;
-                setState(() => _optimisticProfilePhotoBytes.remove(mid));
-              },
-            );
+              }
+            } catch (e) {
+              if (mounted) {
+                setState(
+                  () => _optimisticProfilePhotoBytes.remove(member.id),
+                );
+                ScaffoldMessenger.of(context).showSnackBar(
+                  ThemeCleanPremium.feedbackSnackBar(
+                    'Cadastro salvo, mas foto falhou: $e',
+                  ),
+                );
+              }
+            }
           }
           _refreshMembers(clearOptimisticMemberOverlayId: member.id);
         }
@@ -4614,29 +4651,31 @@ class _MembersPageState extends State<MembersPage> {
     }
     if (nascimento != null)
       updates['DATA_NASCIMENTO'] = Timestamp.fromDate(nascimento!);
-    if (pendingProfilePhotoBytesGestor != null) {
-      updates.addAll(
-        MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
-      );
-    }
     if (newAssinaturaBytes != null) {
       try {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('Enviando assinatura...'));
+        final oldPath =
+            (member.data['assinaturaStoragePath'] ?? '').toString().trim();
+        if (oldPath.isNotEmpty) {
+          try {
+            await FirebaseStorage.instance.ref(oldPath).delete();
+          } catch (_) {}
+        }
         final oldAss = sanitizeImageUrl(
             (member.data['assinaturaUrl'] ?? '').toString().trim());
         if (oldAss.isNotEmpty) {
           await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(oldAss);
         }
-        final ref = FirebaseStorage.instance
-            .ref('igrejas/$targetTenantId/membros/${member.id}_assinatura.png');
-        await ref.putData(
-            newAssinaturaBytes!,
-            SettableMetadata(
-                contentType: 'image/png',
-                cacheControl: 'public, max-age=31536000'));
-        final url = await ref.getDownloadURL();
-        updates['assinaturaUrl'] = url;
+        final op = await ChurchOperationalPaths.resolveCached(targetTenantId);
+        final assinaturaPath =
+            '${ChurchStorageLayout.churchRoot(op)}/membros/${member.id}_assinatura.png';
+        await StorageService.uploadBytes(
+          storagePath: assinaturaPath,
+          bytes: newAssinaturaBytes!,
+          contentType: 'image/png',
+        );
+        updates['assinaturaStoragePath'] = assinaturaPath;
         if (mounted)
           ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.successSnackBar('Assinatura enviada.'));
@@ -4648,12 +4687,20 @@ class _MembersPageState extends State<MembersPage> {
       }
     }
     if (removeAssinatura) {
+      final oldPath =
+          (member.data['assinaturaStoragePath'] ?? '').toString().trim();
+      if (oldPath.isNotEmpty) {
+        try {
+          await FirebaseStorage.instance.ref(oldPath).delete();
+        } catch (_) {}
+      }
       final uAss = sanitizeImageUrl(
           (member.data['assinaturaUrl'] ?? '').toString().trim());
       if (uAss.isNotEmpty) {
         await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(uAss);
       }
       updates['assinaturaUrl'] = FieldValue.delete();
+      updates['assinaturaStoragePath'] = FieldValue.delete();
     }
     final linkage = isMoveToOtherChurch
         ? await _getLinkageForTenant(targetTenantId)
@@ -4690,7 +4737,7 @@ class _MembersPageState extends State<MembersPage> {
     }
 
     try {
-      final db = FirebaseFirestore.instance;
+      final db = firebaseDefaultFirestore;
       List<String> allIds =
           await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
               targetTenantId);
@@ -4730,7 +4777,7 @@ class _MembersPageState extends State<MembersPage> {
       if (rolesList.isEmpty) rolesList.add('membro');
       if (authUid != null && authUid.isNotEmpty) {
         try {
-          await FirebaseFirestore.instance
+          await firebaseDefaultFirestore
               .collection('users')
               .doc(authUid)
               .set({
@@ -4851,42 +4898,30 @@ class _MembersPageState extends State<MembersPage> {
       }
       if (pendingProfilePhotoBytesGestor != null && mounted) {
         final bytes = pendingProfilePhotoBytesGestor;
-        final mid = member.id;
         final mergedGestor = Map<String, dynamic>.from(member.data)
           ..addAll(updates);
-        MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
-          tenantId: targetTenantId,
-          memberDocId: mid,
-          memberData: mergedGestor,
-          rawBytes: bytes,
-          onSuccess: (result) {
-            if (!mounted) return;
-            final u = result.downloadUrl;
-            setState(() {
-              _uploadedPhotoUrls[mid] = u;
-              _optimisticProfilePhotoBytes.remove(mid);
-            });
-            _invalidateMemberPhotoCaches(targetTenantId, mid, mergedGestor);
-            unawaited(
-              MemberProfilePhotoUpdateService.syncChatPeerProfilesAfterPhotoUpdate(
-                primaryTenantId: targetTenantId,
-                memberDocId: mid,
-                memberData: mergedGestor,
-                photoUrl: u,
-                cacheRevision: result.cacheRevision,
+        try {
+          await _publishMemberProfilePhotoStrict(
+            tenantId: targetTenantId,
+            memberDocId: member.id,
+            memberData: mergedGestor,
+            bytes: bytes,
+          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.successSnackBar('Foto de perfil atualizada!'),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            setState(() => _optimisticProfilePhotoBytes.remove(member.id));
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.feedbackSnackBar(
+                'Membro salvo, mas foto falhou: $e',
               ),
             );
-            Future.delayed(const Duration(seconds: 20), () {
-              if (!mounted) return;
-              setState(() => _uploadedPhotoUrls.remove(mid));
-            });
-            unawaited(FirebaseStorageCleanupService.evictImageCaches(u));
-          },
-          onError: (_) {
-            if (!mounted) return;
-            setState(() => _optimisticProfilePhotoBytes.remove(mid));
-          },
-        );
+          }
+        }
       }
       if (mounted) {
         _refreshMembers(clearOptimisticMemberOverlayId: member.id);
@@ -4900,7 +4935,7 @@ class _MembersPageState extends State<MembersPage> {
           final allIdsRetry =
               await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
                   targetTenantId);
-          final dbRetry = FirebaseFirestore.instance;
+          final dbRetry = firebaseDefaultFirestore;
           await Future.wait(
             allIdsRetry.map((tid) async {
               try {
@@ -4917,46 +4952,22 @@ class _MembersPageState extends State<MembersPage> {
                 ThemeCleanPremium.successSnackBar('Membro atualizado!'));
             if (pendingProfilePhotoBytesGestor != null) {
               final bytes = pendingProfilePhotoBytesGestor;
-              final mid = member.id;
               final mergedRetry = Map<String, dynamic>.from(member.data)
                 ..addAll(updates);
-              MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
-                tenantId: targetTenantId,
-                memberDocId: mid,
-                memberData: mergedRetry,
-                rawBytes: bytes,
-                onSuccess: (result) {
-                  if (!mounted) return;
-                  final u = result.downloadUrl;
-                  setState(() {
-                    _uploadedPhotoUrls[mid] = u;
-                    _optimisticProfilePhotoBytes.remove(mid);
-                  });
-                  _invalidateMemberPhotoCaches(
-                    targetTenantId,
-                    mid,
-                    mergedRetry,
+              try {
+                await _publishMemberProfilePhotoStrict(
+                  tenantId: targetTenantId,
+                  memberDocId: member.id,
+                  memberData: mergedRetry,
+                  bytes: bytes,
+                );
+              } catch (_) {
+                if (mounted) {
+                  setState(
+                    () => _optimisticProfilePhotoBytes.remove(member.id),
                   );
-                  unawaited(
-                    MemberProfilePhotoUpdateService
-                        .syncChatPeerProfilesAfterPhotoUpdate(
-                      primaryTenantId: targetTenantId,
-                      memberDocId: mid,
-                      memberData: mergedRetry,
-                      photoUrl: u,
-                      cacheRevision: result.cacheRevision,
-                    ),
-                  );
-                },
-                onError: (_) {
-                  if (!mounted) return;
-                  setState(() => _optimisticProfilePhotoBytes.remove(mid));
-                },
-              );
-              Future.delayed(const Duration(seconds: 20), () {
-                if (!mounted) return;
-                setState(() => _uploadedPhotoUrls.remove(mid));
-              });
+                }
+              }
             }
             _refreshMembers(clearOptimisticMemberOverlayId: member.id);
             final uidRetry = member.data['authUid']?.toString().trim() ?? '';
@@ -5135,14 +5146,19 @@ class _MembersPageState extends State<MembersPage> {
         memberId: mid,
         data: member.data,
       );
-      final db = FirebaseFirestore.instance;
+      final db = firebaseDefaultFirestore;
       final allDocIds = await _resolvedFirestoreTenantIds(_effectiveTenantId);
 
       final refs = <DocumentReference<Map<String, dynamic>>>[];
       for (final tid in allDocIds) {
         if (tid.isEmpty) continue;
-        refs.add(db.collection('igrejas').doc(tid).collection('membros').doc(mid));
-        refs.add(db.collection('igrejas').doc(tid).collection('members').doc(mid));
+        final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+        refs.add(
+          ChurchOperationalPaths.churchDoc(op).collection('membros').doc(mid),
+        );
+        refs.add(
+          ChurchOperationalPaths.churchDoc(op).collection('members').doc(mid),
+        );
       }
       final userDocIds = <String>{};
       if (authUid.isNotEmpty) userDocIds.add(authUid);
@@ -9640,11 +9656,25 @@ Map<String, dynamic> _mergeMemberPhotoFields(
     Map<String, dynamic> a, Map<String, dynamic> b) {
   bool hasFirebaseStorageMemberPhoto(Map<String, dynamic> m) {
     for (final k in [
+      'photoStoragePath',
+      'photoThumbStoragePath',
+      'fotoPath',
+      'fotoThumbPath',
       'foto_url',
       'FOTO_URL_OU_ID',
       'fotoUrl',
       'photoUrl',
-      'photoURL'
+      'photoURL',
+    ]) {
+      final p = (m[k] ?? '').toString().trim();
+      if (p.isNotEmpty && p.contains('igrejas/')) return true;
+    }
+    for (final k in [
+      'foto_url',
+      'FOTO_URL_OU_ID',
+      'fotoUrl',
+      'photoUrl',
+      'photoURL',
     ]) {
       final u = sanitizeImageUrl((m[k] ?? '').toString());
       if (u.isNotEmpty &&
@@ -9663,6 +9693,10 @@ Map<String, dynamic> _mergeMemberPhotoFields(
   if (hasFirebaseStorageMemberPhoto(b)) {
     final out = Map<String, dynamic>.from(a);
     const keys = [
+      'photoStoragePath',
+      'photoThumbStoragePath',
+      'fotoPath',
+      'fotoThumbPath',
       'foto_url',
       'FOTO_URL_OU_ID',
       'fotoUrl',
@@ -9694,6 +9728,10 @@ Map<String, dynamic> _mergeMemberPhotoFields(
   if (imageUrlFromMap(b).trim().isEmpty) return Map<String, dynamic>.from(a);
   final out2 = Map<String, dynamic>.from(a);
   const keys2 = [
+    'photoStoragePath',
+    'photoThumbStoragePath',
+    'fotoPath',
+    'fotoThumbPath',
     'foto_url',
     'FOTO_URL_OU_ID',
     'fotoUrl',

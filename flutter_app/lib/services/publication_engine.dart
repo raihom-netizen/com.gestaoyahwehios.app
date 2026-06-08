@@ -14,6 +14,10 @@ import 'package:gestao_yahweh/services/church_tenant_dashboard_doc_service.dart'
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
+import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
+import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
+import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
+    show kMaxEventFeedPhotosPerPost;
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity;
@@ -87,13 +91,13 @@ abstract final class PublicationEngine {
   static const String statusDraft = MuralFastPublishService.stateDraft;
 
   static const int kMaxPhotosAviso = 5;
-  static const int kMaxPhotosEvento = 10;
-  static const int kMaxVideosEvento = 2;
+  static const int kMaxPhotosEvento = kMaxEventFeedPhotosPerPost;
+  static const int kMaxVideosEvento = 1;
 
   /// Legado — avisos (5 fotos).
   static const int kMaxPhotosPerPost = kMaxPhotosAviso;
 
-  /// Eventos — 10 fotos / 2 vídeos.
+  /// Eventos — 5 fotos / 1 vídeo.
   static const int kMaxPhotosPerEvento = kMaxPhotosEvento;
   static const int kMaxVideosPerPost = kMaxVideosEvento;
 
@@ -139,6 +143,30 @@ abstract final class PublicationEngine {
       ChurchPublishFlowLog.firestoreError(e, st);
       rethrow;
     }
+    if (request.kind == PublicationKind.aviso ||
+        request.kind == PublicationKind.mural ||
+        request.kind == PublicationKind.feedPublico) {
+      try {
+        await AvisosPublishVerificationService.verifyDocumentExists(
+          request.docRef,
+        );
+      } catch (e, st) {
+        AvisosPublishVerificationService.rememberLastError(e);
+        ChurchPublishFlowLog.firestoreError(e, st);
+        rethrow;
+      }
+    } else if (request.kind == PublicationKind.evento ||
+        request.kind == PublicationKind.noticia) {
+      try {
+        await EventosPublishVerificationService.verifyDocumentExists(
+          request.docRef,
+        );
+      } catch (e, st) {
+        EventosPublishVerificationService.rememberLastError(e);
+        ChurchPublishFlowLog.firestoreError(e, st);
+        rethrow;
+      }
+    }
     FeedPublishPreflight.firestoreSaveOk(isEvento: request.isEvento);
     ChurchTenantWriteLog.publishStubCommitted(
       request.docRef.path,
@@ -161,6 +189,15 @@ abstract final class PublicationEngine {
             ? EntityPublishStatus.creating
             : statusProcessing)
         : statusPublished;
+    if (request.kind == PublicationKind.aviso ||
+        request.kind == PublicationKind.mural ||
+        request.kind == PublicationKind.feedPublico ||
+        request.kind == PublicationKind.evento ||
+        request.kind == PublicationKind.noticia) {
+      patch['ativo'] = true;
+      patch['publicado'] = true;
+      patch['status'] = 'publicado';
+    }
     FirestoreWriteGuard.applyMuralPublishMetaPatch(
       patch,
       isNewDoc: request.isNewDoc,

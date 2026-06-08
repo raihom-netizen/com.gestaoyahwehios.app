@@ -31,6 +31,9 @@ const int kMaxPatrimonioPhotosPerItem = 5;
 /// Eventos (editor + galeria) — vídeo até 90 s.
 const int kMediaEventVideoMaxSeconds = 90;
 
+/// Eventos — teto de 100 MB após compressão (spec produção).
+const int kMediaEventVideoHardMaxBytes = 100 * 1024 * 1024;
+
 Duration get mediaEventVideoMaxDurationEffective =>
     Duration(seconds: kMediaEventVideoMaxSeconds);
 
@@ -62,7 +65,11 @@ int get mediaImagePreferredMaxBytesEffective =>
     kMediaTurboMobilePreset ? (850 * 1024) : kMediaImagePreferredMaxBytes;
 
 int get mediaVideoHardMaxBytesEffective =>
-    kMediaTurboMobilePreset ? (100 * 1024 * 1024) : kMediaVideoHardMaxBytes;
+    kMediaTurboMobilePreset
+        ? kMediaEventVideoHardMaxBytes
+        : kMediaVideoHardMaxBytes;
+
+int get mediaEventVideoHardMaxBytesEffective => kMediaEventVideoHardMaxBytes;
 
 int get mediaChatVideoHardMaxBytesEffective => kMediaChatVideoHardMaxBytes;
 

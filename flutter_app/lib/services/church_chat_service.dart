@@ -26,6 +26,7 @@ import 'church_chat_local_conversations.dart';
 import 'church_chat_member_prefs.dart';
 import 'church_chat_message_fields.dart';
 import 'church_chat_threads_list_cache.dart';
+import 'chat_publish_verification_service.dart';
 import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -759,14 +760,16 @@ class ChurchChatService {
         } catch (_) {}
 
         try {
-          await FirestoreWebGuard.prepareForCriticalWrite();
+          await FirestoreWebGuard.ensurePanelReadReady()
+              .timeout(const Duration(seconds: 6))
+              .catchError((_) {});
           final fb = await FirestoreWebGuard.runWithWebRecovery(() async {
             await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: false);
             return loadDmThreadsSnapshotFallback(
               tenantId: tenantId,
               uid: uid,
             );
-          });
+          }).timeout(const Duration(seconds: 16));
           if (ctrl.isClosed) return;
           ctrl.add(fb);
           if (fb.docs.isNotEmpty) {
@@ -1190,13 +1193,12 @@ class ChurchChatService {
         senderDisplayName: senderDisplayNameForNewMessage(),
       );
     }
-    final url = (messageData['mediaUrl'] ?? '').toString().trim();
-    if (url.isEmpty) return false;
+    final sp = ChurchChatMessageFields.storagePath(messageData);
+    if (sp.isEmpty) return false;
     return sendMediaMessage(
       tenantId: tenantId,
       threadId: targetThreadId,
-      downloadUrl: url,
-      storagePath: (messageData['storagePath'] ?? '').toString(),
+      storagePath: sp,
       kind: type,
       fileName: (messageData['fileName'] ?? '').toString().isEmpty
           ? null
@@ -1962,8 +1964,7 @@ class ChurchChatService {
   static Future<({String messageId, bool allowed})> beginStickerMessage({
     required String tenantId,
     required String threadId,
-    required String downloadUrl,
-    String? storagePath,
+    required String storagePath,
     String stickerSource = 'upload',
     Map<String, dynamic>? replyTo,
     String? senderDisplayName,
@@ -1979,12 +1980,14 @@ class ChurchChatService {
         Timestamp.fromDate(DateTime.now().add(mediaRetention));
     final msgRef = messagesCol(tenantId, threadId).doc();
     final nr = normalizeReplyTo(replyTo);
-    final sp = storagePath?.trim() ?? '';
+    final sp = storagePath.trim();
     final label = (senderDisplayName ?? '').trim();
     await msgRef.set({
       'senderUid': uid,
       'type': 'sticker',
+      'storagePath': sp,
       'deliveryStatus': deliverySending,
+      'status': deliverySending,
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': expiresAt,
       if (nr != null) 'replyTo': nr,
@@ -1999,8 +2002,7 @@ class ChurchChatService {
     required String tenantId,
     required String threadId,
     required String messageId,
-    required String downloadUrl,
-    String? storagePath,
+    required String storagePath,
     String stickerSource = 'upload',
   }) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
@@ -2008,12 +2010,13 @@ class ChurchChatService {
       kind: 'sticker',
       fileName: null,
     );
-    final sp = storagePath?.trim() ?? '';
+    final sp = storagePath.trim();
     await messagesCol(tenantId, threadId).doc(messageId).update({
-      'mediaUrl': downloadUrl,
-      if (sp.isNotEmpty) 'storagePath': sp,
+      'storagePath': sp,
+      'mediaUrl': FieldValue.delete(),
       'stickerSource': stickerSource,
       'deliveryStatus': deliverySent,
+      'status': deliverySent,
     });
     await threadRef(tenantId, threadId).set(
       {
@@ -2029,7 +2032,6 @@ class ChurchChatService {
   static Future<bool> sendMediaMessage({
     required String tenantId,
     required String threadId,
-    required String downloadUrl,
     required String storagePath,
     required String kind,
     String? fileName,
@@ -2060,8 +2062,9 @@ class ChurchChatService {
     await msgRef.set({
       'senderUid': uid,
       'type': kind,
-      'mediaUrl': downloadUrl,
-      'storagePath': storagePath,
+      'storagePath': storagePath.trim(),
+      'deliveryStatus': deliverySent,
+      'status': deliverySent,
       if (fileName != null && fileName.trim().isNotEmpty)
         'fileName': fileName.trim(),
       'createdAt': FieldValue.serverTimestamp(),
@@ -2088,8 +2091,7 @@ class ChurchChatService {
   static Future<bool> sendStickerMessage({
     required String tenantId,
     required String threadId,
-    required String downloadUrl,
-    String? storagePath,
+    required String storagePath,
     String stickerSource = 'upload',
     Map<String, dynamic>? replyTo,
     String? senderDisplayName,
@@ -2109,13 +2111,12 @@ class ChurchChatService {
       fileName: null,
     );
     final nr = normalizeReplyTo(replyTo);
-    final sp = storagePath?.trim() ?? '';
+    final sp = storagePath.trim();
     final label = (senderDisplayName ?? '').trim();
     await msgRef.set({
       'senderUid': uid,
       'type': 'sticker',
-      'mediaUrl': downloadUrl,
-      if (sp.isNotEmpty) 'storagePath': sp,
+      'storagePath': sp,
       'stickerSource': stickerSource,
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': expiresAt,
@@ -2276,26 +2277,30 @@ class ChurchChatService {
     int albumCount = 1,
   }) async {
     await ensureFirebaseReadyForChatSend();
+    final resolvedTenant =
+        await ChatPublishVerificationService.resolveTenantForPublish(
+      seedTenantId: tenantId,
+    );
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
-      tenantId: tenantId,
+      tenantId: resolvedTenant,
       threadId: threadId,
     )) {
       throw StateError('Envio bloqueado para este contacto.');
     }
     await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
-      tenantId: tenantId,
+      tenantId: resolvedTenant,
       threadId: threadId,
     );
     final uid = firebaseDefaultAuth.currentUser!.uid;
     final storagePath = buildChatMediaStoragePath(
-      tenantId: tenantId,
+      tenantId: resolvedTenant,
       threadId: threadId,
       kind: kind,
       fileName: fileName ?? _defaultFileNameForKind(kind),
     );
     final expiresAt =
         Timestamp.fromDate(DateTime.now().add(mediaRetention));
-    final msgRef = messagesCol(tenantId, threadId).doc();
+    final msgRef = messagesCol(resolvedTenant, threadId).doc();
     final gid = (albumGroupId ?? '').trim();
     final aCount = albumCount < 1 ? 1 : albumCount;
     var preview = gid.isNotEmpty && aCount > 1
@@ -2313,9 +2318,9 @@ class ChurchChatService {
       preview = '↪ ${nf['preview']}';
     }
     final label = (senderDisplayName ?? '').trim();
-    await _ensureDmThreadDocBeforeSend(tenantId, threadId);
+    await _ensureDmThreadDocBeforeSend(resolvedTenant, threadId);
     await _commitMessageAndThreadIndex(
-      tenantId: tenantId,
+      tenantId: resolvedTenant,
       threadId: threadId,
       msgRef: msgRef,
       messageData: {
@@ -2336,6 +2341,7 @@ class ChurchChatService {
           'albumIndex': albumIndex,
           'albumCount': aCount,
         },
+        'storagePath': storagePath,
         if (label.isNotEmpty) ...{
           'senderDisplayName':
               label.length > 100 ? label.substring(0, 100) : label,
@@ -2352,55 +2358,90 @@ class ChurchChatService {
   }
 
   /// Patch permitido pelas regras Firestore (`chatMessageMediaDeliveryPatchAllowed`).
+  /// **Não** grava `mediaUrl` — só `storagePath` (+ miniatura por path).
   static Map<String, dynamic> mediaUploadFinalizePatch({
-    required String downloadUrl,
     required String storagePath,
-    String? thumbUrl,
+    String? thumbStoragePath,
     String? fileName,
   }) {
+    final sp = storagePath.trim();
     final patch = <String, dynamic>{
-      'mediaUrl': downloadUrl,
-      'storagePath': storagePath,
+      'storagePath': sp,
       'deliveryStatus': deliverySent,
+      'status': deliverySent,
       'uploadProgress': 1,
+      'mediaUrl': FieldValue.delete(),
+      'fileUrl': FieldValue.delete(),
     };
-    if (thumbUrl != null && thumbUrl.trim().isNotEmpty) {
-      patch['thumbUrl'] = thumbUrl.trim();
+    final thumb = (thumbStoragePath ?? '').trim();
+    if (thumb.isNotEmpty) {
+      patch['thumbStoragePath'] = thumb;
+      patch['thumbUrl'] = FieldValue.delete();
+      patch['thumbnailUrl'] = FieldValue.delete();
     }
     if (fileName != null && fileName.trim().isNotEmpty) {
       patch['fileName'] = fileName.trim();
     }
-    return patch;
+    return ChurchChatMessageFields.withCanonicalAliases(patch);
   }
 
-  /// Completa o stub após upload no Storage.
+  /// Valida objeto no bucket antes de finalizar mensagem.
+  static Future<void> assertChatMediaUploaded(
+    String storagePath, {
+    String? thumbStoragePath,
+  }) async {
+    await ChatPublishVerificationService.verifyStorageMetadata(
+      storagePath: storagePath,
+      thumbStoragePath: thumbStoragePath,
+    );
+  }
+
+  /// Completa o stub após upload no Storage (upload + metadata já concluídos).
   static Future<bool> completeMediaUploadMessage({
     required String tenantId,
     required String threadId,
     required String messageId,
-    required String downloadUrl,
     required String storagePath,
     String? fileName,
-    String? thumbUrl,
+    String? thumbStoragePath,
     int? fileSize,
   }) async {
+    final resolvedTenant =
+        await ChatPublishVerificationService.resolveTenantForPublish(
+      seedTenantId: tenantId,
+    );
+    await assertChatMediaUploaded(
+      storagePath,
+      thumbStoragePath: thumbStoragePath,
+    );
     final patch = mediaUploadFinalizePatch(
-      downloadUrl: downloadUrl,
       storagePath: storagePath,
-      thumbUrl: thumbUrl,
+      thumbStoragePath: thumbStoragePath,
       fileName: fileName,
     );
-    final ref = messagesCol(tenantId, threadId).doc(messageId);
+    final ref = ChatPublishVerificationService.messageDocRef(
+      igrejaId: resolvedTenant,
+      threadId: threadId,
+      messageId: messageId,
+    );
     try {
       await FirestoreWebGuard.runChatWriteWithRecovery(() => ref.update(patch));
     } on FirebaseException catch (e) {
-      if (patch.containsKey('thumbUrl') && e.code == 'permission-denied') {
-        patch.remove('thumbUrl');
+      if (patch.containsKey('thumbStoragePath') && e.code == 'permission-denied') {
+        patch.remove('thumbStoragePath');
         await ref.update(patch);
       } else {
         rethrow;
       }
     }
+    await ChatPublishVerificationService.verifyDocumentExists(ref);
+    await ChatPublishVerificationService.logPublishPhase(
+      phase: 'after',
+      igrejaId: resolvedTenant,
+      threadId: threadId,
+      messageId: messageId,
+      storagePath: storagePath,
+    );
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isNotEmpty) {
       final kind = (await ref.get()).data()?['type']?.toString() ?? 'image';
@@ -2409,7 +2450,7 @@ class ChurchChatService {
         fileName: fileName,
       );
       try {
-        await threadRef(tenantId, threadId).set(
+        await threadRef(resolvedTenant, threadId).set(
           threadLastMessageIndexPatch(
             preview: preview,
             senderUid: uid,
@@ -2419,7 +2460,7 @@ class ChurchChatService {
         );
         unawaited(
           ChurchChatLocalConversations.recordFromOutbound(
-            tenantId: tenantId,
+            tenantId: resolvedTenant,
             myUid: uid,
             threadId: threadId,
             preview: preview,
@@ -2436,10 +2477,9 @@ class ChurchChatService {
     required String tenantId,
     required String threadId,
     required String messageId,
-    required String downloadUrl,
     required String storagePath,
     String? fileName,
-    String? thumbUrl,
+    String? thumbStoragePath,
     int? fileSize,
     int maxAttempts = 5,
   }) async {
@@ -2456,10 +2496,9 @@ class ChurchChatService {
           tenantId: tenantId,
           threadId: threadId,
           messageId: messageId,
-          downloadUrl: downloadUrl,
           storagePath: storagePath,
           fileName: fileName,
-          thumbUrl: thumbUrl,
+          thumbStoragePath: thumbStoragePath,
           fileSize: fileSize,
         );
       } catch (e) {
@@ -2601,6 +2640,7 @@ class ChurchChatService {
       );
       url = await snap.ref.getDownloadURL();
     }
+    await assertChatMediaUploaded(path);
     return (url: url, path: path);
   }
 

@@ -2303,8 +2303,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
 
     final shellFullscreen = widget.onShellBack != null;
-    final webCompact =
-        kIsWeb && MediaQuery.sizeOf(context).width >= 720;
+    /// Painel web embutido: ocupa toda a área útil (não simula telefone 440px).
+    final webPanelEmbedded = kIsWeb && widget.embeddedInShell;
+    final webPhoneFrame = kIsWeb &&
+        !widget.embeddedInShell &&
+        MediaQuery.sizeOf(context).width >= 720;
 
     Widget hubCore = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2408,23 +2411,29 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       ],
     );
 
-    if (webCompact) {
+    if (webPanelEmbedded || webPhoneFrame) {
       hubCore = Material(
         color: const Color(0xFFF0F2F5),
         child: hubCore,
       );
     }
 
+    if (webPanelEmbedded) {
+      return SizedBox.expand(child: hubCore);
+    }
+
     return DecoratedBox(
       decoration: const BoxDecoration(
         gradient: churchChatHubBackgroundGradient,
       ),
-      child: webCompact
+      child: webPhoneFrame
           ? Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: 440,
-                  maxHeight: 920,
+                constraints: BoxConstraints(
+                  maxWidth: (MediaQuery.sizeOf(context).width * 0.92)
+                      .clamp(480.0, 720.0),
+                  maxHeight: (MediaQuery.sizeOf(context).height * 0.92)
+                      .clamp(640.0, 960.0),
                 ),
                 child: Material(
                   elevation: 8,

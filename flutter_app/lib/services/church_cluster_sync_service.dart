@@ -9,20 +9,13 @@ class ChurchClusterSyncService {
 
   static final Set<String> _attempted = <String>{};
 
-  static bool _isBpcCluster(String tenantId) {
-    final t = tenantId.trim().toLowerCase();
-    return t.contains('brasilparacristo') ||
-        t.contains('brasil_para_cristo') ||
-        t.contains('iobpc');
-  }
-
-  /// Uma vez por sessão — cópia em background (web / Android / iOS); não bloqueia UI.
+  /// Uma vez por sessão — consolida dados no doc canónico (todas as igrejas).
   static void syncForOperationalTenant(
     String operationalTenantId, {
     bool force = false,
   }) {
     final tid = operationalTenantId.trim();
-    if (tid.isEmpty || !_isBpcCluster(tid)) return;
+    if (tid.isEmpty) return;
     if (!force && _attempted.contains(tid)) return;
     _attempted.add(tid);
     unawaited(_callClusterSync(tid, force: force));
@@ -47,7 +40,6 @@ class ChurchClusterSyncService {
     } catch (_) {}
 
     final tid = operational.trim().isEmpty ? seed : operational.trim();
-    if (!_isBpcCluster(tid) && !_isBpcCluster(seed)) return;
     syncForOperationalTenant(tid, force: force);
   }
 

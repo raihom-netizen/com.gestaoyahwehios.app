@@ -760,7 +760,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   static Stream<QuerySnapshot<Map<String, dynamic>>> _createMembersSnapshotStream(
     List<String> allIds,
   ) {
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     final lim = _dashboardMembersLimit;
     if (allIds.isEmpty) {
       return Stream<QuerySnapshot<Map<String, dynamic>>>.value(
@@ -848,7 +848,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   static Stream<QuerySnapshot<Map<String, dynamic>>> _createDepartmentsSnapshotStream(
     List<String> allIds,
   ) {
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     if (allIds.isEmpty) {
       return Stream<QuerySnapshot<Map<String, dynamic>>>.value(
         const MergedFirestoreQuerySnapshot([]),
@@ -8508,7 +8508,7 @@ Future<void> _painelDestaqueToggleLike(
     var photo = FirebaseAuth.instance.currentUser?.photoURL?.trim() ?? '';
     if (name.isEmpty) {
       try {
-        final uDoc = await FirebaseFirestore.instance
+        final uDoc = await firebaseDefaultFirestore
             .collection('users')
             .doc(uid)
             .get();
@@ -9444,7 +9444,7 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
     var photo = user.photoURL?.trim() ?? '';
     if (name.isEmpty) {
       try {
-        final uDoc = await FirebaseFirestore.instance
+        final uDoc = await firebaseDefaultFirestore
             .collection('users')
             .doc(user.uid)
             .get();

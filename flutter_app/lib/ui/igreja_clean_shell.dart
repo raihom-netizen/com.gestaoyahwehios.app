@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/services/church_tenant_dashboard_warmup_service.da
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_cluster_sync_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_consolidation_service.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
@@ -173,6 +174,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   /// Doc canónico (`departamentos`, chat, slug) — resolvido uma vez no arranque/resume.
   String? _operationalTenantId;
+
+  /// Evita montar módulos com tenant errado antes do resolve (web IndexedStack).
+  bool _tenantResolveComplete = false;
+
+  ValueKey _shellPageKey(int index) =>
+      ValueKey('page_${index}_$_moduleTenantId');
 
   String get _moduleTenantId {
     final op = _operationalTenantId?.trim() ?? '';
@@ -379,6 +386,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       }
       await _resolveOperationalTenant(forceRefresh: true);
       if (!mounted) return;
+      setState(() => _tenantResolveComplete = true);
+      ChurchTenantConsolidationService.ensureConsolidated(
+        _moduleTenantId,
+        source: 'igreja_clean_shell',
+      );
       reportChurchClientSessionToUserDoc();
       _runMembersToMembrosMigration();
       unawaited(ChurchTenantOfflineWarmupService.instance
@@ -433,29 +445,63 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final raw = widget.tenantId.trim();
     if (raw.isEmpty) return;
     final uid = firebaseDefaultAuth.currentUser?.uid;
-    try {
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(
-        raw,
+    if (forceRefresh) {
+      ChurchOperationalPaths.invalidateResolved(raw, userUid: uid);
+      TenantResolverService.invalidateOperationalChurchDocCache(
+        seedId: raw,
         userUid: uid,
-        forceRefresh: forceRefresh,
-      ).timeout(const Duration(seconds: 16));
-      if (!mounted) return;
-      final effective = tid.isEmpty ? raw : tid;
-      if (tid.isNotEmpty && tid != _operationalTenantId) {
-        TenantResolverService.invalidateOperationalChurchDocCache(
-          seedId: raw,
+      );
+      TenantResolverService.invalidateRegistrationContextCache(
+        seedId: raw,
+        userUid: uid,
+      );
+    }
+    try {
+      var effective = raw;
+      try {
+        final op = await TenantResolverService.resolveOperationalChurchDocId(
+          raw,
           userUid: uid,
-        );
+          forceRefresh: forceRefresh,
+        ).timeout(const Duration(seconds: 12));
+        if (op.trim().isNotEmpty) effective = op.trim();
+      } catch (_) {}
+
+      try {
+        final moduleRead =
+            await TenantResolverService.resolveModuleReadTenantId(
+          effective,
+          userUid: uid,
+        ).timeout(const Duration(seconds: 18));
+        if (moduleRead.trim().isNotEmpty) effective = moduleRead.trim();
+      } catch (_) {}
+
+      if (!mounted) return;
+      final changed = effective != (_operationalTenantId ?? '').trim();
+      ChurchOperationalPaths.rememberResolved(raw, effective, userUid: uid);
+      if (changed || _operationalTenantId == null) {
         setState(() {
-          _operationalTenantId = tid;
+          _operationalTenantId = effective;
           for (var i = 0; i < _pageCache.length; i++) {
             _pageCache[i] = null;
           }
         });
-        _reconfigureFcmForOperationalTenant(tid);
+        _reconfigureFcmForOperationalTenant(effective);
       }
       ChurchClusterSyncService.syncForOperationalTenant(effective);
-    } catch (_) {}
+      ChurchTenantConsolidationService.ensureConsolidated(
+        effective,
+        force: forceRefresh,
+        source: 'shell_resolve_tenant',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      if (_operationalTenantId == null || _operationalTenantId!.trim().isEmpty) {
+        final fallback = TenantResolverService.syncStorageTenantId(raw);
+        ChurchOperationalPaths.rememberResolved(raw, fallback, userUid: uid);
+        setState(() => _operationalTenantId = fallback);
+      }
+    }
   }
 
   void _reconfigureFcmForOperationalTenant(String operationalId) {
@@ -478,7 +524,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
       _operationalTenantId = null;
-      unawaited(_resolveOperationalTenant(forceRefresh: true));
+      _tenantResolveComplete = false;
+      unawaited(() async {
+        await _resolveOperationalTenant(forceRefresh: true);
+        if (mounted) setState(() => _tenantResolveComplete = true);
+      }());
       unawaited(_bootstrapChatPresenceHeartbeat());
     }
   }
@@ -596,6 +646,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       MaterialPageRoute(
         builder: (_) => MuralAvisoEditorPage(
           tenantId: tid,
+          resolvedTenantId: op,
           postsCollection: avisos,
           doc: doc,
           type: 'aviso',
@@ -1950,7 +2001,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     switch (index) {
       case 0:
         return IgrejaDashboardModerno(
-          key: const ValueKey('page_0'),
+          key: _shellPageKey(0),
           tenantId: _moduleTenantId,
           role: widget.role,
           cpf: widget.cpf,
@@ -1964,13 +2015,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 1:
         return IgrejaCadastroPage(
-            key: const ValueKey('page_1'),
+            key: _shellPageKey(1),
             tenantId: _moduleTenantId,
             role: widget.role,
             embeddedInShell: true);
       case 2:
         return ConfiguracoesPage(
-          key: const ValueKey('page_2'),
+          key: _shellPageKey(2),
           tenantId: _moduleTenantId,
           role: widget.role,
           permissions: widget.permissions,
@@ -1994,7 +2045,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           });
         }
         return MembersPage(
-          key: const ValueKey('page_3'),
+          key: _shellPageKey(3),
           tenantId: _moduleTenantId,
           role: widget.role,
           subscription: widget.subscription,
@@ -2006,20 +2057,20 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 4:
         return DepartmentsPage(
-            key: ValueKey('page_4_$_moduleTenantId'),
+            key: _shellPageKey(4),
             tenantId: _moduleTenantId,
             role: widget.role,
             permissions: widget.permissions,
             embeddedInShell: true);
       case 5:
         return VisitorsPage(
-            key: const ValueKey('page_5'),
+            key: _shellPageKey(5),
             tenantId: _moduleTenantId,
             role: widget.role,
             embeddedInShell: true);
       case 6:
         return CargosPage(
-            key: const ValueKey('page_6'),
+            key: _shellPageKey(6),
             tenantId: _moduleTenantId,
             role: widget.role,
             embeddedInShell: true,
@@ -2039,7 +2090,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           });
         }
         return MuralPage(
-            key: const ValueKey('page_7'),
+            key: _shellPageKey(7),
             tenantId: _moduleTenantId,
             role: widget.role,
             permissions: widget.permissions,
@@ -2059,7 +2110,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           });
         }
         return EventsManagerPage(
-            key: const ValueKey('page_8'),
+            key: _shellPageKey(8),
             tenantId: _moduleTenantId,
             role: widget.role,
             permissions: widget.permissions,
@@ -2068,34 +2119,34 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             initialOpenEventDocId: bootEventDoc);
       case 9:
         return PrayerRequestsPage(
-            key: const ValueKey('page_9'),
+            key: _shellPageKey(9),
             tenantId: _moduleTenantId,
             role: widget.role,
             embeddedInShell: true);
       case 10:
         return CalendarPage(
-            key: const ValueKey('page_10'),
+            key: _shellPageKey(10),
             tenantId: _moduleTenantId,
             role: widget.role,
             permissions: widget.permissions,
             embeddedInShell: true);
       case 11:
         return MySchedulesPage(
-            key: const ValueKey('page_11'),
+            key: _shellPageKey(11),
             tenantId: _moduleTenantId,
             cpf: widget.cpf,
             role: widget.role,
             embeddedInShell: true);
       case 12:
         return SchedulesPage(
-            key: const ValueKey('page_12'),
+            key: _shellPageKey(12),
             tenantId: _moduleTenantId,
             role: widget.role,
             cpf: widget.cpf,
             embeddedInShell: true);
       case 13:
         return MemberCardPage(
-          key: const ValueKey('page_13'),
+          key: _shellPageKey(13),
           tenantId: _moduleTenantId,
           role: widget.role,
           cpf: widget.cpf,
@@ -2110,12 +2161,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 14:
         return CertificadosPage(
-            key: const ValueKey('page_14'),
+            key: _shellPageKey(14),
             tenantId: _moduleTenantId,
             role: widget.role);
       case 15:
         return ChurchLettersPage(
-          key: const ValueKey('page_15'),
+          key: _shellPageKey(15),
           tenantId: _moduleTenantId,
           role: widget.role,
           cpf: widget.cpf,
@@ -2124,7 +2175,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 16:
         return RelatoriosPage(
-          key: const ValueKey('page_16'),
+          key: _shellPageKey(16),
           tenantId: _moduleTenantId,
           role: widget.role,
           podeVerFinanceiro: widget.podeVerFinanceiro,
@@ -2135,10 +2186,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 17:
         return SistemaInformacoesPage(
-            key: const ValueKey('page_17'), tenantId: _moduleTenantId);
+            key: _shellPageKey(17), tenantId: _moduleTenantId);
       case 18:
         return AprovarMembrosPendentesPage(
-          key: const ValueKey('page_18'),
+          key: _shellPageKey(18),
           tenantId: _moduleTenantId,
           gestorRole: widget.role,
           permissions: widget.permissions,
@@ -2146,7 +2197,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 19:
         return FinancePage(
-          key: const ValueKey('page_19'),
+          key: _shellPageKey(19),
           tenantId: _moduleTenantId,
           role: widget.role,
           cpf: widget.cpf,
@@ -2168,7 +2219,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           });
         }
         return PatrimonioPage(
-          key: const ValueKey('page_20'),
+          key: _shellPageKey(20),
           tenantId: _moduleTenantId,
           role: widget.role,
           podeVerPatrimonio: widget.podeVerPatrimonio,
@@ -2179,7 +2230,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 21:
         return FornecedoresPage(
-          key: const ValueKey('page_21'),
+          key: _shellPageKey(21),
           tenantId: _moduleTenantId,
           role: widget.role,
           podeVerFinanceiro: widget.podeVerFinanceiro,
@@ -2190,13 +2241,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       case 22:
         if (IosPaymentsGate.isIosNative) {
           return IosDonationReaderView(
-            key: const ValueKey('page_22_ios_donation'),
+            key: ValueKey('page_22_ios_donation_$_moduleTenantId'),
             tenantId: _moduleTenantId,
             embeddedInShell: true,
           );
         }
         return ChurchDonationsPage(
-          key: const ValueKey('page_22'),
+          key: _shellPageKey(22),
           tenantId: _moduleTenantId,
           role: widget.role,
           cpf: widget.cpf,
@@ -2204,7 +2255,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 23:
         return ChurchChatHubPage(
-          key: const ValueKey('page_23'),
+          key: _shellPageKey(23),
           tenantId: _moduleTenantId,
           cpf: widget.cpf,
           role: widget.role,
@@ -2228,6 +2279,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   Widget _buildContent() {
+    if (!_tenantResolveComplete) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: CircularProgressIndicator(strokeWidth: 2.5),
+        ),
+      );
+    }
     if (_selectedIndex < 0 || _selectedIndex >= _pageCache.length) {
       return RepaintBoundary(child: _buildPageForIndex(0));
     }
@@ -2240,8 +2299,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       return RepaintBoundary(child: _buildPageForIndex(0));
     }
 
-    /// Desktop: mantém páginas visitadas no [IndexedStack] (troca rápida, mais RAM).
-    if (_isDesktop) {
+    /// Desktop nativo: mantém páginas visitadas no [IndexedStack].
+    /// Web: só a aba activa — evita dezenas de listeners Firestore (INTERNAL ASSERTION).
+    if (_isDesktop && !kIsWeb) {
       if (_pageCache[_selectedIndex] == null) {
         _pageCache[_selectedIndex] = _buildPageForIndex(_selectedIndex);
       }
@@ -2524,7 +2584,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                 if (_selectedIndex != 0 &&
                                     _selectedIndex != 21 &&
                                     _selectedIndex != 20 &&
-                                    _selectedIndex != 24)
+                                    _selectedIndex != ChurchShellIndices.chatIgreja)
                                   ModuleHeaderPremium(
                                     title: _items[_selectedIndex].label,
                                     icon: _items[_selectedIndex].icon,
@@ -2545,8 +2605,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                     child: Padding(
                                       padding: EdgeInsets.zero,
                                       child: SaaSContentViewport(
-                                        maxWidthOverride:
-                                            _selectedIndex == 20 ? 10000 : null,
+                                        maxWidthOverride: _selectedIndex ==
+                                                    ChurchShellIndices
+                                                        .patrimonio ||
+                                                _selectedIndex ==
+                                                    ChurchShellIndices.chatIgreja
+                                            ? 10000
+                                            : null,
                                         child: _buildContent(),
                                       ),
                                     ),

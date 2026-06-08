@@ -81,12 +81,10 @@ class FirestoreReadResilience {
               );
             } catch (_) {}
           }
-        } else if (kIsWeb) {
-          await FirestoreWebGuard.ensurePanelReadReady();
         }
-        final snap = kIsWeb
-            ? await firestoreDocumentGetReliable(ref).timeout(attemptTimeout)
-            : await ref.get().timeout(attemptTimeout);
+        final snap = await ref
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(attemptTimeout);
         if (key.isNotEmpty) _lastDocByKey[key] = snap;
         return snap;
       } catch (e) {
@@ -139,12 +137,10 @@ class FirestoreReadResilience {
               );
             } catch (_) {}
           }
-        } else if (kIsWeb) {
-          await FirestoreWebGuard.ensurePanelReadReady();
         }
-        final snap = kIsWeb
-            ? await firestoreQueryGetReliable(query).timeout(attemptTimeout)
-            : await query.get().timeout(attemptTimeout);
+        final snap = await query
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(attemptTimeout);
         if (key.isNotEmpty) _lastGoodByKey[key] = snap;
         return snap;
       } catch (e) {

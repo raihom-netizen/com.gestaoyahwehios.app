@@ -98,6 +98,7 @@ export function buildRootDocPatch(
   if (!str(d["tenantId"])) patch.tenantId = canonical;
   if (!str(d["igrejaId"])) patch.igrejaId = canonical;
   if (!str(d["churchId"])) patch.churchId = canonical;
+  if (!str(d["canonicalTenantId"])) patch.canonicalTenantId = canonical;
 
   const isBpcCanonical = canonical === BPC_CANONICAL_IGREJA_ID;
   const slug = isBpcCanonical

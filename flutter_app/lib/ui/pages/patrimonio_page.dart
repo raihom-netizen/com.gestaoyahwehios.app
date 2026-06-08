@@ -42,7 +42,7 @@ import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
-import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
+import 'package:gestao_yahweh/services/patrimonio_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
     show kMaxPatrimonioPhotosPerItem;
@@ -7621,7 +7621,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       final valor = parseBrCurrencyInput(_valor.text);
       final vidaUtil = int.tryParse(_vidaUtil.text);
 
-      Map<String, dynamic> buildPayload(List<String> urls, List<String> paths) {
+      Map<String, dynamic> buildCorePayload() {
         return <String, dynamic>{
           'nome': _nome.text.trim(),
           'descricao': _desc.text.trim(),
@@ -7639,72 +7639,28 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           'numeroSerie': _serie.text.trim(),
           'status': _status,
           'observacoes': _obs.text.trim(),
-          'fotoUrls': urls,
-          if (paths.isNotEmpty) 'fotoStoragePaths': paths,
-          if (urls.isNotEmpty) 'imageUrl': urls.first,
-          if (urls.isNotEmpty) 'defaultImageUrl': urls.first,
-          if (urls.isNotEmpty) 'thumbnail': urls.first,
-          if (paths.isNotEmpty) 'imageStoragePath': paths.first,
-          'atualizadoEm': FieldValue.serverTimestamp(),
         };
       }
 
-      /// Metadados no Firestore antes do upload — UI pode fechar na hora.
       if (nBatch > 0) {
-        final early = buildPayload(
-          List<String>.from(_existingUrls),
-          List<String>.from(allPaths),
-        );
-        early[PatrimonioPublishService.photoUploadStateField] =
-            PatrimonioPublishService.stateUploading;
-        if (isNewItem) {
-          early['criadoEm'] = FieldValue.serverTimestamp();
-          await FirestoreWebGuard.runWithWebRecovery(() => itemRef.set(early));
-          _itemStubEnsured = true;
-        } else {
-          early['imageVariants'] = FieldValue.delete();
-          early['fotoVariants'] = FieldValue.delete();
-          await FirestoreWebGuard.runWithWebRecovery(
-            () => itemRef.set(early, SetOptions(merge: true)),
-          );
-        }
-        YahwehFlowLog.patrimonioFirestoreOk();
-        final imagesCopy =
-            List<Uint8List>.from(_newImages.take(nBatch));
-        final prevData = widget.doc?.data();
-        PatrimonioPublishService.schedulePhotosAfterFirestoreSave(
-          itemRef: itemRef,
-          tenantId: tenantId,
+        if (mounted) setState(() => _uploadProgress = 0.35);
+        final imagesCopy = List<Uint8List>.from(_newImages.take(nBatch));
+        await PatrimonioStrictPublishService.publish(
+          seedTenantId: tenantId,
           itemId: itemId,
+          corePayload: buildCorePayload(),
+          isNewDoc: isNewItem,
           newImages: imagesCopy,
           startSlot: startSlot,
-          existingUrls: List<String>.from(_existingUrls),
           existingPaths: List<String>.from(allPaths),
-          buildPayload: buildPayload,
-          previousDoc: prevData,
-          onPathsForCleanup: (urls, paths) {
-            unawaited(() async {
-              try {
-                await Future.wait([
-                  for (var s = urls.length; s < _maxFotosPorItem; s++)
-                    FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-                      tenantId: tenantId,
-                      itemDocId: itemId,
-                      slot: s,
-                    ),
-                ]);
-              } catch (e, st) {
-                YahwehCatchLog.log(e, st, tag: 'patrimonio_slot_cleanup');
-              }
-            }());
-          },
         );
+        _itemStubEnsured = true;
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
             widget.doc == null
-                ? 'Bem cadastrado — fotos a concluir em segundo plano.'
-                : 'Patrimônio atualizado — fotos a concluir em segundo plano.',
+                ? 'Bem cadastrado com sucesso!'
+                : 'Patrimônio atualizado com sucesso!',
           ),
         );
         Navigator.pop(context, true);
@@ -7739,22 +7695,15 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
       final occupiedSlots = allUrls.length;
 
-      if (mounted) {
-        setState(() => _uploadProgress = nBatch > 0 ? 0.92 : 0.92);
-      }
-      final payload = buildPayload(allUrls, allPaths);
-      if (widget.doc != null) {
-        payload['imageVariants'] = FieldValue.delete();
-        payload['fotoVariants'] = FieldValue.delete();
-      }
-      if (widget.doc == null && nBatch == 0) {
-        payload['criadoEm'] = FieldValue.serverTimestamp();
-        await FirestoreWebGuard.runWithWebRecovery(() => itemRef.set(payload));
-      } else if (widget.doc != null) {
-        await FirestoreWebGuard.runWithWebRecovery(
-          () => itemRef.set(payload, SetOptions(merge: true)),
-        );
-      }
+      if (mounted) setState(() => _uploadProgress = 0.85);
+      await PatrimonioStrictPublishService.publishMetadataOnly(
+        seedTenantId: tenantId,
+        itemId: itemId,
+        corePayload: buildCorePayload(),
+        isNewDoc: isNewItem,
+        existingPaths: allPaths,
+      );
+      _itemStubEnsured = true;
       YahwehFlowLog.patrimonioFirestoreOk();
       FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(
         tenantId: tenantId,

@@ -81,8 +81,7 @@ abstract final class ChurchChatInstantSendService {
   static void enqueueSticker({
     required String tenantId,
     required String threadId,
-    required String downloadUrl,
-    String? storagePath,
+    required String storagePath,
     String stickerSource = 'upload',
     Map<String, dynamic>? replyTo,
     String? senderDisplayName,
@@ -96,7 +95,6 @@ abstract final class ChurchChatInstantSendService {
         final begun = await ChurchChatService.beginStickerMessage(
           tenantId: tenantId,
           threadId: threadId,
-          downloadUrl: downloadUrl,
           storagePath: storagePath,
           stickerSource: stickerSource,
           replyTo: replyTo,
@@ -114,7 +112,6 @@ abstract final class ChurchChatInstantSendService {
           tenantId: tenantId,
           threadId: threadId,
           messageId: messageId,
-          downloadUrl: downloadUrl,
           storagePath: storagePath,
           stickerSource: stickerSource,
         );

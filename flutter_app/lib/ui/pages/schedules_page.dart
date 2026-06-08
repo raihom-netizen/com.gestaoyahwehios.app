@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:gestao_yahweh/services/church_chat_church_features.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
@@ -2044,7 +2045,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       );
     }
 
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = firebaseDefaultFirestore.batch();
     final tsNow = Timestamp.now();
     final genUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     final genName = FirebaseAuth.instance.currentUser?.displayName ?? '';
@@ -4473,14 +4474,14 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     );
     if (ok != true) return;
     try {
-      WriteBatch batch = FirebaseFirestore.instance.batch();
+      WriteBatch batch = firebaseDefaultFirestore.batch();
       var ops = 0;
       for (final d in toDelete) {
         batch.delete(d.reference);
         ops++;
         if (ops >= 450) {
           await batch.commit();
-          batch = FirebaseFirestore.instance.batch();
+          batch = firebaseDefaultFirestore.batch();
           ops = 0;
         }
       }

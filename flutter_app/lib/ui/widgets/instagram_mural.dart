@@ -50,6 +50,7 @@ import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
 import 'package:gestao_yahweh/core/mural_video_warmup.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
@@ -109,6 +110,9 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
+import 'package:gestao_yahweh/services/evento_strict_publish_service.dart';
+import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 
 /// Diagnóstico no Console (F12): prefixo pedido para filtrar falhas de Storage/CORS/decode.
 /// Leitura rápida: [SafeNetworkImage] / [StableStorageImage] = cache disco+RAM (CDN Storage).
@@ -522,12 +526,24 @@ class InstagramMuralState extends State<InstagramMural> {
       }
       return;
     }
+    final uid = firebaseDefaultAuth.currentUser?.uid;
+    final igrejaId = await ChurchOperationalPaths.resolveCached(
+      widget.tenantId,
+      userUid: uid,
+    );
+    final postsCollection = type == 'evento'
+        ? ChurchOperationalPaths.churchDoc(igrejaId)
+            .collection(ChurchTenantPostsCollections.eventos)
+        : ChurchOperationalPaths.churchDoc(igrejaId)
+            .collection(ChurchTenantPostsCollections.avisos);
+    if (!mounted) return;
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
           builder: (_) => MuralAvisoEditorPage(
                 tenantId: widget.tenantId,
-                postsCollection: type == 'evento' ? _noticias : _avisos,
+                resolvedTenantId: igrejaId,
+                postsCollection: postsCollection,
                 doc: doc,
                 type: type,
                 churchSlug: widget.churchSlug,
@@ -547,8 +563,14 @@ class InstagramMuralState extends State<InstagramMural> {
     return 'agora';
   }
 
-  Query<Map<String, dynamic>> _feedBaseQuery() {
-    return _avisos.orderBy('createdAt', descending: true);
+  Query<Map<String, dynamic>> _feedBaseQuery({bool filtered = true}) {
+    if (!filtered) {
+      return _avisos.orderBy('createdAt', descending: true);
+    }
+    return _avisos
+        .where('ativo', isEqualTo: true)
+        .where('publicado', isEqualTo: true)
+        .orderBy('createdAt', descending: true);
   }
 
   Future<void> _startFeedLiveSync() async {
@@ -639,12 +661,25 @@ class InstagramMuralState extends State<InstagramMural> {
           ).timeout(const Duration(seconds: 8));
         });
       } else {
-        snap = await FirestoreWebGuard.runWithWebRecovery(() {
-          return FirestoreReadResilience.getQuery(
-            q,
-            cacheKey:
-                'mural_avisos_${_tid}_${_feedLastCursor?.id ?? 'head'}',
-          ).timeout(const Duration(seconds: 14));
+        snap = await FirestoreWebGuard.runWithWebRecovery(() async {
+          try {
+            return await FirestoreReadResilience.getQuery(
+              q,
+              cacheKey:
+                  'mural_avisos_${_tid}_${_feedLastCursor?.id ?? 'head'}',
+            ).timeout(const Duration(seconds: 14));
+          } catch (_) {
+            Query<Map<String, dynamic>> legacyQ =
+                _feedBaseQuery(filtered: false).limit(_feedPageSize);
+            if (!reset && _feedLastCursor != null) {
+              legacyQ = legacyQ.startAfterDocument(_feedLastCursor!);
+            }
+            return FirestoreReadResilience.getQuery(
+              legacyQ,
+              cacheKey:
+                  'mural_avisos_legacy_${_tid}_${_feedLastCursor?.id ?? 'head'}',
+            ).timeout(const Duration(seconds: 14));
+          }
         });
       }
       if (!mounted || requestEpoch != _feedRequestEpoch) return;
@@ -708,17 +743,115 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   bool _docVisibleInFeed(Map<String, dynamic> data) {
+    if (data['ativo'] == false) return false;
+    if (data['publicado'] == false) return false;
     final ps = (data['publishState'] ?? '').toString();
     final uid = _user?.uid ?? '';
     final author = (data['createdByUid'] ?? '').toString();
     final isAuthor = uid.isNotEmpty && author == uid;
     if (ps.isEmpty || ps == MuralFastPublishService.statePublished) return true;
-    if (ps == MuralFastPublishService.stateDraft ||
+    if (ps == EntityPublishStatus.creating ||
+        ps == MuralFastPublishService.stateDraft ||
         ps == MuralFastPublishService.stateUploading ||
         ps == MuralFastPublishService.stateFailed) {
       return isAuthor;
     }
     return true;
+  }
+
+  Future<void> _showAvisosDiagnostic() async {
+    if (!_canManageAll || !mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        content: Padding(
+          padding: EdgeInsets.all(20),
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
+        ),
+      ),
+    );
+    AvisosDiagnosticReport report;
+    try {
+      report = await AvisosDiagnosticService.run(
+        seedTenantId: widget.tenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
+    } catch (e) {
+      report = AvisosDiagnosticReport(
+        tenantAtual: widget.tenantId,
+        tenantResolvido: _tid,
+        colecaoUtilizada:
+            AvisosPublishVerificationService.collectionPathFor(_tid),
+        quantidadeAvisos: 0,
+        ultimoErro: e.toString(),
+      );
+    }
+    if (!mounted) return;
+    Navigator.pop(context);
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Diagnóstico Avisos'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Tenant atual: ${report.tenantAtual}'),
+              const SizedBox(height: 8),
+              Text('Tenant resolvido: ${report.tenantResolvido}'),
+              const SizedBox(height: 8),
+              Text('Coleção: ${report.colecaoUtilizada}'),
+              const SizedBox(height: 8),
+              Text('Quantidade de avisos: ${report.quantidadeAvisos}'),
+              if (report.ultimoAvisoDocId != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Último aviso: ${report.ultimoAvisoTitulo ?? '(sem título)'}',
+                ),
+                Text('Doc ID: ${report.ultimoAvisoDocId}'),
+                if (report.ultimoAvisoCreatedAt != null)
+                  Text(
+                    'Criado: ${DateFormat('dd/MM/yyyy HH:mm').format(report.ultimoAvisoCreatedAt!)}',
+                  ),
+              ],
+              if (report.ultimoErro != null && report.ultimoErro!.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Último erro:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: ThemeCleanPremium.error,
+                  ),
+                ),
+                Text(
+                  report.ultimoErro!,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Fechar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              unawaited(refreshFeed());
+            },
+            child: const Text('Recarregar feed'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _maybeLoadMoreFromScroll(ScrollMetrics metrics) {
@@ -1038,6 +1171,16 @@ class InstagramMuralState extends State<InstagramMural> {
                                       letterSpacing: -0.3),
                                 ),
                               ),
+                              if (_canManageAll)
+                                IconButton(
+                                  tooltip: 'Diagnóstico Avisos',
+                                  onPressed: () =>
+                                      unawaited(_showAvisosDiagnostic()),
+                                  icon: Icon(
+                                    Icons.medical_information_outlined,
+                                    color: ThemeCleanPremium.primary,
+                                  ),
+                                ),
                               if (_canEdit)
                                 FilledButton.icon(
                                   onPressed: () => _openEditor(type: 'aviso'),
@@ -1088,6 +1231,18 @@ class InstagramMuralState extends State<InstagramMural> {
                             const SizedBox(width: 16),
                             Expanded(child: searchField),
                             const SizedBox(width: 12),
+                            if (_canManageAll) ...[
+                              IconButton(
+                                tooltip: 'Diagnóstico Avisos',
+                                onPressed: () =>
+                                    unawaited(_showAvisosDiagnostic()),
+                                icon: Icon(
+                                  Icons.medical_information_outlined,
+                                  color: ThemeCleanPremium.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                            ],
                             if (_canEdit)
                               FilledButton.icon(
                                 onPressed: () => _openEditor(type: 'aviso'),
@@ -3294,6 +3449,7 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
 /// Formulário de aviso/evento do mural — público para abertura a partir da busca global (shell).
 class MuralAvisoEditorPage extends StatefulWidget {
   final String tenantId;
+  final String resolvedTenantId;
   final CollectionReference<Map<String, dynamic>> postsCollection;
   final DocumentSnapshot<Map<String, dynamic>>? doc;
   final String type;
@@ -3301,6 +3457,7 @@ class MuralAvisoEditorPage extends StatefulWidget {
   const MuralAvisoEditorPage({
     super.key,
     required this.tenantId,
+    required this.resolvedTenantId,
     required this.postsCollection,
     this.doc,
     required this.type,
@@ -3531,6 +3688,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   @override
   void initState() {
     super.initState();
+    _operationalTenantId = widget.resolvedTenantId.trim();
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
     _bodyDescription = TextEditingController(
@@ -3608,7 +3766,60 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   }
 
   String get _editorTenantId =>
-      (_operationalTenantId ?? widget.tenantId).trim();
+      (_operationalTenantId ?? widget.resolvedTenantId).trim();
+
+  Future<DocumentReference<Map<String, dynamic>>> _resolveAvisoDocRefForPublish(
+    String igrejaId,
+  ) async {
+    final docId = _editorPostRef.id;
+    final docRef = AvisosPublishVerificationService.avisoDocRef(
+      igrejaId: igrejaId,
+      docId: docId,
+    );
+    return docRef;
+  }
+
+  Future<({DocumentReference<Map<String, dynamic>> docRef, String igrejaId})>
+      _prepareEventoPublishContext() async {
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    final igrejaId =
+        await EventosPublishVerificationService.resolveTenantForPublish(
+      seedTenantId: widget.tenantId,
+      userUid: uid.isEmpty ? null : uid,
+    );
+    if (mounted) setState(() => _operationalTenantId = igrejaId);
+    final docRef = EventosPublishVerificationService.eventoDocRef(
+      igrejaId: igrejaId,
+      docId: _editorPostRef.id,
+    );
+    return (docRef: docRef, igrejaId: igrejaId);
+  }
+
+  Future<({DocumentReference<Map<String, dynamic>> docRef, String igrejaId})>
+      _prepareAvisoPublishContext() async {
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    final igrejaId =
+        await AvisosPublishVerificationService.resolveTenantForPublish(
+      seedTenantId: widget.tenantId,
+      userUid: uid.isEmpty ? null : uid,
+    );
+    if (mounted) setState(() => _operationalTenantId = igrejaId);
+    final docRef = await _resolveAvisoDocRefForPublish(igrejaId);
+    return (docRef: docRef, igrejaId: igrejaId);
+  }
+
+  Future<void> _showPublishVerifiedSuccess({required bool isNewDoc}) async {
+    if (!mounted) return;
+    unawaited(IosPublishMemory.releaseAfterHeavyWork());
+    final isEvento = widget.type == 'evento';
+    final msg = isEvento
+        ? (isNewDoc ? 'Evento publicado' : 'Evento atualizado')
+        : (isNewDoc ? 'Publicado com sucesso' : 'Atualizado com sucesso');
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.successSnackBar(msg),
+    );
+    Navigator.pop(context, true);
+  }
 
   /// Monta o endereço completo a partir do doc da igreja (tenant).
   static String _buildEnderecoFromTenant(Map<String, dynamic> data) {
@@ -4173,6 +4384,17 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       final refDate = _validUntil ?? DateTime.now();
       final expiresAt = refDate.add(const Duration(days: 1));
       payload['avisoExpiresAt'] = Timestamp.fromDate(expiresAt);
+      payload['ativo'] = true;
+      payload['publicado'] = true;
+      payload['status'] = 'publicado';
+    }
+    if (widget.type == 'evento') {
+      final fotoPaths =
+          EventosPublishVerificationService.storagePathsFromUrls(allUrls);
+      payload['fotos'] = fotoPaths;
+      payload['ativo'] = true;
+      payload['publicado'] = true;
+      payload['status'] = 'publicado';
     }
     payload['publicSite'] = _publicSite;
     if (widget.type == 'evento' && !isNewDoc) {
@@ -4204,7 +4426,22 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   Future<void> _retryPublishFirestoreFirst() async {
     await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
-    final docRef = _editorPostRef;
+    final isAviso = widget.type == 'aviso';
+    final isEvento = widget.type == 'evento';
+    late final DocumentReference<Map<String, dynamic>> docRef;
+    late final String publishTenantId;
+    if (isAviso) {
+      final ctx = await _prepareAvisoPublishContext();
+      docRef = ctx.docRef;
+      publishTenantId = ctx.igrejaId;
+    } else if (isEvento) {
+      final ctx = await _prepareEventoPublishContext();
+      docRef = ctx.docRef;
+      publishTenantId = ctx.igrejaId;
+    } else {
+      docRef = _editorPostRef;
+      publishTenantId = _editorTenantId;
+    }
     final isNewDoc = widget.doc == null && !_draftStubEnsured;
     final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
     final hasNewImages = _newPhotoCount > 0;
@@ -4230,7 +4467,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       }
       await FeedMediaPublishService.publish(
         docRef: docRef,
-        tenantId: _editorTenantId,
+        tenantId: publishTenantId,
         postId: docRef.id,
         postType: widget.type,
         corePayload: _buildCorePayload(
@@ -4284,8 +4521,48 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       await FeedPublishPreflight.prepareForFirestoreSave(
         inFlightCount: () => _inFlightPhotoUploads,
       );
-      final docRef = _editorPostRef;
+      final isAviso = widget.type == 'aviso';
+      final isEvento = widget.type == 'evento';
+      late final DocumentReference<Map<String, dynamic>> docRef;
+      late final String publishTenantId;
+      if (isAviso) {
+        final ctx = await _prepareAvisoPublishContext();
+        docRef = ctx.docRef;
+        publishTenantId = ctx.igrejaId;
+      } else if (isEvento) {
+        final ctx = await _prepareEventoPublishContext();
+        docRef = ctx.docRef;
+        publishTenantId = ctx.igrejaId;
+      } else {
+        docRef = _editorPostRef;
+        publishTenantId = _editorTenantId;
+      }
       final isNewDoc = widget.doc == null && !_draftStubEnsured;
+      final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+      final titulo = _title.text.trim();
+      if (isAviso) {
+        await AvisosPublishVerificationService.logPublishPhase(
+          phase: 'before',
+          igrejaId: publishTenantId,
+          uid: uid,
+          titulo: titulo,
+          docId: docRef.id,
+          storagePath: _existingUrls.isNotEmpty
+              ? firebaseStorageObjectPathFromHttpUrl(_existingUrls.first)
+              : null,
+        );
+      } else if (isEvento) {
+        await EventosPublishVerificationService.logPublishPhase(
+          phase: 'before',
+          igrejaId: publishTenantId,
+          uid: uid,
+          titulo: titulo,
+          eventoId: docRef.id,
+          fotos: EventosPublishVerificationService.storagePathsFromUrls(
+            _existingUrls,
+          ),
+        );
+      }
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
       if (!hasNewImages && existingUrls.isNotEmpty) {
@@ -4316,31 +4593,56 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           aspectRatio: aspectRatio,
           isNewDoc: isNewDoc,
         );
-        final n = bytes?.length ?? paths?.length ?? 0;
-        await FeedMediaPublishService.publish(
-          docRef: docRef,
-          tenantId: _editorTenantId,
-          postId: docRef.id,
-          postType: widget.type,
-          corePayload: corePayload,
-          isNewDoc: isNewDoc,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlot,
-          hasVideo: widget.type != kChurchPostTypeAviso &&
-              _videoUrl.text.trim().isNotEmpty,
-          newImagesBytes: bytes,
-          newImagePaths: paths,
-          publicSite: _publicSite,
-        );
-        if (mounted) {
-          unawaited(IosPublishMemory.releaseAfterHeavyWork());
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-              isNewDoc ? 'Publicado com sucesso' : 'Atualizado com sucesso',
-            ),
+        if (isEvento) {
+          await EventoStrictPublishService.publish(
+            docRef: docRef,
+            tenantId: publishTenantId,
+            corePayload: corePayload,
+            isNewDoc: isNewDoc,
+            existingUrls: existingUrls,
+            startSlotIndex: startSlot,
+            hasVideo: _videoUrl.text.trim().isNotEmpty,
+            newImagesBytes: bytes,
+            newImagePaths: paths,
+            publicSite: _publicSite,
           );
-          Navigator.pop(context, true);
+          await EventosPublishVerificationService.logPublishPhase(
+            phase: 'after',
+            igrejaId: publishTenantId,
+            uid: uid,
+            titulo: titulo,
+            eventoId: docRef.id,
+          );
+          EventosPublishVerificationService.clearLastError();
+        } else {
+          await FeedMediaPublishService.publish(
+            docRef: docRef,
+            tenantId: publishTenantId,
+            postId: docRef.id,
+            postType: widget.type,
+            corePayload: corePayload,
+            isNewDoc: isNewDoc,
+            existingUrls: existingUrls,
+            startSlotIndex: startSlot,
+            hasVideo: widget.type != kChurchPostTypeAviso &&
+                _videoUrl.text.trim().isNotEmpty,
+            newImagesBytes: bytes,
+            newImagePaths: paths,
+            publicSite: _publicSite,
+          );
+          if (isAviso) {
+            await AvisosPublishVerificationService.verifyDocumentExists(docRef);
+            await AvisosPublishVerificationService.logPublishPhase(
+              phase: 'after',
+              igrejaId: publishTenantId,
+              uid: uid,
+              titulo: titulo,
+              docId: docRef.id,
+            );
+            AvisosPublishVerificationService.clearLastError();
+          }
         }
+        await _showPublishVerifiedSuccess(isNewDoc: isNewDoc);
         return;
       }
       final payload = _buildCorePayload(
@@ -4355,16 +4657,41 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         postType: widget.type,
         publicSite: _publicSite,
       );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
+      if (isAviso) {
+        await AvisosPublishVerificationService.verifyDocumentExists(docRef);
+        await AvisosPublishVerificationService.logPublishPhase(
+          phase: 'after',
+          igrejaId: publishTenantId,
+          uid: uid,
+          titulo: titulo,
+          docId: docRef.id,
         );
-        Navigator.pop(context, true);
+        AvisosPublishVerificationService.clearLastError();
+      } else if (isEvento) {
+        await EventosPublishVerificationService.verifyDocumentExists(docRef);
+        await EventosPublishVerificationService.logPublishPhase(
+          phase: 'after',
+          igrejaId: publishTenantId,
+          uid: uid,
+          titulo: titulo,
+          eventoId: docRef.id,
+        );
+        EventosPublishVerificationService.clearLastError();
       }
+      await _showPublishVerifiedSuccess(isNewDoc: isNewDoc);
     } catch (e, st) {
       ChurchPublishFlowLog.logCatch(e, st, label: 'mural_save');
+      if (widget.type == 'aviso') {
+        AvisosPublishVerificationService.rememberLastError(e);
+      } else if (widget.type == 'evento') {
+        EventosPublishVerificationService.rememberLastError(e);
+      }
       await CrashlyticsService.record(e, st, reason: 'avisos_publish');
       final msg = e.toString();
+      final verifyFailed = msg.contains('Documento não localizado no Firestore') ||
+          msg.contains(AvisosPublishVerificationService.kPublishVerifyFailedMessage) ||
+          msg.contains(EventosPublishVerificationService.kPublishVerifyFailedMessage) ||
+          msg.contains(EventosPublishVerificationService.kStorageVerifyFailedMessage);
       final isAssertionOrPerm = msg.contains('INTERNAL ASSERTION') ||
           msg.contains('permission-denied') ||
           msg.contains('WatchChangeAggregator') ||
@@ -4373,12 +4700,22 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       if (mounted && isAssertionOrPerm) {
         try {
           await _retryPublishFirestoreFirst();
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar('Publicado com sucesso'),
+          if (widget.type == 'aviso') {
+            final ctx = await _prepareAvisoPublishContext();
+            await AvisosPublishVerificationService.verifyDocumentExists(
+              ctx.docRef,
             );
-            Navigator.pop(context, true);
+            AvisosPublishVerificationService.clearLastError();
+          } else if (widget.type == 'evento') {
+            final ctx = await _prepareEventoPublishContext();
+            await EventosPublishVerificationService.verifyDocumentExists(
+              ctx.docRef,
+            );
+            EventosPublishVerificationService.clearLastError();
           }
+          await _showPublishVerifiedSuccess(
+            isNewDoc: widget.doc == null && !_draftStubEnsured,
+          );
           return;
         } catch (e2, st2) {
           ChurchPublishFlowLog.logCatch(e2, st2, label: 'mural_retry');
@@ -4405,7 +4742,16 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.errorSnackBarWithRetry(
-            formatUploadErrorForUser(e),
+            verifyFailed
+                ? (msg.contains('Storage')
+                    ? EventosPublishVerificationService
+                        .kStorageVerifyFailedMessage
+                    : (widget.type == 'evento'
+                        ? EventosPublishVerificationService
+                            .kPublishVerifyFailedMessage
+                        : AvisosPublishVerificationService
+                            .kPublishVerifyFailedMessage))
+                : formatUploadErrorForUser(e),
             onRetry: _save,
           ),
         );

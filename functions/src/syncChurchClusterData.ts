@@ -8,6 +8,7 @@ import {
   addAnchoredCluster,
   resolveAnchoredCanonicalTenantId,
 } from "./churchClusterAnchors";
+import { resolveCanonicalChurchDocId } from "./churchCanonicalResolve";
 
 const META_DOC = "cluster_data_sync_v1";
 const BATCH_LIMIT = 350;
@@ -28,6 +29,16 @@ const MIGRATE_COLLECTIONS = [
   "escalas",
   "avisos",
   "eventos",
+  "noticias",
+  "chats",
+  "chat_threads",
+  "users",
+  "usersIndex",
+  "pedidosOracao",
+  "cultos",
+  "presencas",
+  "categorias_despesas",
+  "escala_templates",
 ] as const;
 
 const CONFIG_DOCS = [
@@ -89,8 +100,12 @@ async function scoreTenantData(tenantId: string): Promise<number> {
     contas: 3,
     departamentos: 3,
     escalas: 3,
+    chats: 3,
     event_templates: 2,
     agenda: 2,
+    avisos: 2,
+    eventos: 2,
+    visitantes: 2,
   };
   await Promise.all(
     MIGRATE_COLLECTIONS.map(async (col) => {
@@ -181,7 +196,7 @@ export async function runSyncChurchClusterDataFromRichest(
   tenantId: string,
   options?: { force?: boolean },
 ): Promise<Record<string, unknown>> {
-  const target = resolveAnchoredCanonicalTenantId(String(tenantId || "").trim());
+  const target = await resolveCanonicalChurchDocId(String(tenantId || "").trim());
   if (!target) {
     throw new functions.https.HttpsError("invalid-argument", "tenantId obrigatório");
   }

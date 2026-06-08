@@ -47,7 +47,9 @@ import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
+import 'package:gestao_yahweh/services/church_chat_diagnostic_service.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
+import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
@@ -61,6 +63,8 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_thread_foreground_notif_she
 import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_department_chat_members_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_inline_audio_player.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_storage_media.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_upload_progress.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_starred_messages_sheet.dart';
 import 'package:gestao_yahweh/services/church_chat_stuck_cleanup_service.dart';
@@ -279,6 +283,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _startWebMessagesPoll();
     unawaited(_primeRecentMessagesFromCacheOrServer());
     unawaited(_initChatThreadTenantAndStreams());
+    unawaited(
+      ChurchChatDiagnosticService.runOnChatOpen(
+        tenantIdHint: _tid,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      ),
+    );
     _messagesPrimeFallbackTimer = Timer(const Duration(seconds: 3), () {
       if (!mounted) return;
       if (_latestRecentDocs.isEmpty) {
@@ -941,13 +951,22 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       threadId: widget.threadId,
     ));
     final replyPayload = _replyDraft?.toReplyPayload();
-    final sp = pick.storagePath?.trim();
+    final sp = (pick.storagePath ?? '').trim();
+    if (sp.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Figurinha sem caminho no Storage — reenvie ou atualize o app.'),
+          ),
+        );
+      }
+      return;
+    }
     if (mounted) setState(() => _replyDraft = null);
     ChurchChatInstantSendService.enqueueSticker(
       tenantId: _tid,
       threadId: widget.threadId,
-      downloadUrl: pick.mediaUrl,
-      storagePath: (sp != null && sp.isNotEmpty) ? sp : null,
+      storagePath: sp,
       stickerSource: pick.stickerSource,
       replyTo: replyPayload,
       senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
@@ -3131,8 +3150,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         widget.peerUid != null &&
         widget.peerUid!.isNotEmpty &&
         _prefs.isBlockedPeer(widget.peerUid!);
-    final webCompact =
-        kIsWeb && MediaQuery.sizeOf(context).width >= 720;
+    final webPhoneFrame = kIsWeb && MediaQuery.sizeOf(context).width >= 720;
     final scaffold = Scaffold(
       backgroundColor: const Color(0xFFE0F2FE),
       appBar: AppBar(
@@ -4042,6 +4060,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                   type: type,
                                   data: m,
                                   mine: mine,
+                                  tenantId: _tid,
                                   replyQuoteAccent: quoteAccent,
                                   onOpenAttachment: _openAttachmentExternally,
                                   albumDocs: albumDocs,
@@ -4377,12 +4396,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         ],
       ),
     );
-    if (webCompact) {
+    if (webPhoneFrame) {
       return DecoratedBox(
         decoration: const BoxDecoration(color: Color(0xFF111B21)),
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 900, maxHeight: 960),
+            constraints: BoxConstraints(
+              maxWidth: (MediaQuery.sizeOf(context).width * 0.94)
+                  .clamp(720.0, 1200.0),
+              maxHeight: (MediaQuery.sizeOf(context).height * 0.94)
+                  .clamp(720.0, 980.0),
+            ),
             child: Material(
               elevation: 10,
               shadowColor: Colors.black45,
@@ -4498,6 +4522,7 @@ class _MessageBody extends StatelessWidget {
   final String type;
   final Map<String, dynamic> data;
   final bool mine;
+  final String tenantId;
   final Color? replyQuoteAccent;
   final Future<void> Function(String rawUrl)? onOpenAttachment;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>>? albumDocs;
@@ -4507,6 +4532,7 @@ class _MessageBody extends StatelessWidget {
     required this.type,
     required this.data,
     required this.mine,
+    required this.tenantId,
     this.replyQuoteAccent,
     this.onOpenAttachment,
     this.albumDocs,
@@ -4602,20 +4628,32 @@ class _MessageBody extends StatelessWidget {
     for (final d in docs) {
       final dm = d.data();
       final t = (dm['type'] ?? 'image').toString();
-      final url = (dm['mediaUrl'] ?? '').toString().trim();
-      final delivery = (dm['deliveryStatus'] ?? '').toString();
-      if (url.isEmpty &&
+      final sp = ChurchChatMessageFields.storagePath(dm);
+      final legacyUrl = ChurchChatMessageFields.mediaUrl(dm);
+      final delivery = ChurchChatMessageFields.status(dm);
+      final hasMedia = ChurchChatMessageFields.hasResolvableMedia(dm);
+      if (!hasMedia &&
           (delivery == ChurchChatService.deliveryUploading ||
               delivery == ChurchChatService.deliverySending)) {
         cells.add(ChurchChatAlbumCell(type: t));
         continue;
       }
       cells.add(ChurchChatAlbumCell(
-        url: url.isEmpty ? null : url,
+        url: legacyUrl.isEmpty ? null : legacyUrl,
         type: t == 'video' ? 'video' : 'image',
-        onTap: url.isEmpty
+        onTap: !hasMedia
             ? null
-            : () => churchChatOpenImageZoom(context, url),
+            : () async {
+                final resolved =
+                    await ChurchChatMediaResolver.resolveDownloadUrl(
+                  storagePath: sp,
+                  tenantId: tenantId,
+                );
+                final zoomUrl = resolved ?? legacyUrl;
+                if (zoomUrl.isNotEmpty && context.mounted) {
+                  await churchChatOpenImageZoom(context, zoomUrl);
+                }
+              },
       ));
     }
     final maxW = MediaQuery.sizeOf(context).width * 0.72;
@@ -4650,18 +4688,6 @@ class _MessageBody extends StatelessWidget {
       );
     }
     if (type == 'sticker') {
-      final surl = (data['mediaUrl'] ?? '').toString();
-      if (surl.isEmpty) {
-        return Column(
-          crossAxisAlignment:
-              mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ..._quotePrefix(context),
-            const Text('[figurinha indisponível]'),
-          ],
-        );
-      }
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -4669,8 +4695,7 @@ class _MessageBody extends StatelessWidget {
         children: [
           ..._quotePrefix(context),
           Container(
-            constraints:
-                const BoxConstraints(maxWidth: 176, maxHeight: 176),
+            constraints: const BoxConstraints(maxWidth: 176, maxHeight: 176),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
@@ -4685,19 +4710,21 @@ class _MessageBody extends StatelessWidget {
               ],
             ),
             clipBehavior: Clip.antiAlias,
-            child: SafeNetworkImage(
-              imageUrl: surl,
-              fit: BoxFit.contain,
+            child: ChurchChatStorageMediaImage(
+              data: data,
+              tenantId: tenantId,
+              messageId: messageId,
               height: 168,
-              skipFreshDisplayUrl: true,
+              fit: BoxFit.contain,
+              borderRadius: BorderRadius.circular(14),
             ),
           ),
         ],
       );
     }
-    final url = (data['mediaUrl'] ?? '').toString();
-    final delivery = (data['deliveryStatus'] ?? '').toString();
-    if (url.isEmpty) {
+    final delivery = ChurchChatMessageFields.status(data);
+    final hasMedia = ChurchChatMessageFields.hasResolvableMedia(data);
+    if (!hasMedia) {
       if (delivery == ChurchChatService.deliveryUploading ||
           delivery == ChurchChatService.deliverySending ||
           delivery == ChurchChatService.deliveryQueued) {
@@ -4751,6 +4778,7 @@ class _MessageBody extends StatelessWidget {
             builder: (context, c) {
               final maxW = c.maxWidth.isFinite ? c.maxWidth : 280.0;
               final w = maxW.clamp(140.0, 280.0);
+              final dpr = MediaQuery.devicePixelRatioOf(context);
               return Align(
                 alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
                 child: SizedBox(
@@ -4760,27 +4788,35 @@ class _MessageBody extends StatelessWidget {
                     child: Stack(
                       alignment: Alignment.bottomCenter,
                       children: [
-                        GestureDetector(
-                          onTap: () => churchChatOpenImageZoom(context, url),
-                          child: AspectRatio(
-                            aspectRatio: 4 / 3,
-                            child: SafeNetworkImage(
-                              imageUrl: url,
-                              fit: BoxFit.cover,
-                              width: w,
-                              skipFreshDisplayUrl: true,
-                              memCacheWidth: (MediaQuery.devicePixelRatioOf(
-                                          context) *
-                                      w)
-                                  .round()
-                                  .clamp(96, 320),
-                              memCacheHeight: (MediaQuery.devicePixelRatioOf(
-                                          context) *
-                                      w *
-                                      0.75)
-                                  .round()
-                                  .clamp(72, 240),
-                            ),
+                        AspectRatio(
+                          aspectRatio: 4 / 3,
+                          child: ChurchChatStorageMediaImage(
+                            data: data,
+                            tenantId: tenantId,
+                            messageId: messageId,
+                            width: w,
+                            fit: BoxFit.cover,
+                            memCacheWidth: (dpr * w).round().clamp(96, 320),
+                            memCacheHeight:
+                                (dpr * w * 0.75).round().clamp(72, 240),
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () async {
+                              final sp =
+                                  ChurchChatMessageFields.storagePath(data);
+                              final resolved =
+                                  await ChurchChatMediaResolver
+                                      .resolveDownloadUrl(
+                                storagePath: sp,
+                                tenantId: tenantId,
+                                messageId: messageId,
+                              );
+                              final zoomUrl = resolved ??
+                                  ChurchChatMessageFields.mediaUrl(data);
+                              if (zoomUrl.isNotEmpty && context.mounted) {
+                                await churchChatOpenImageZoom(
+                                    context, zoomUrl);
+                              }
+                            },
                           ),
                         ),
                         Positioned(
@@ -4808,29 +4844,29 @@ class _MessageBody extends StatelessWidget {
                                       foregroundColor: Colors.white,
                                       visualDensity: VisualDensity.compact,
                                     ),
-                                    onPressed: () =>
-                                        churchChatOpenImageZoom(context, url),
+                                    onPressed: () async {
+                                      final sp = ChurchChatMessageFields
+                                          .storagePath(data);
+                                      final resolved =
+                                          await ChurchChatMediaResolver
+                                              .resolveDownloadUrl(
+                                        storagePath: sp,
+                                        tenantId: tenantId,
+                                        messageId: messageId,
+                                      );
+                                      final zoomUrl = resolved ??
+                                          ChurchChatMessageFields.mediaUrl(
+                                              data);
+                                      if (zoomUrl.isNotEmpty &&
+                                          context.mounted) {
+                                        await churchChatOpenImageZoom(
+                                            context, zoomUrl);
+                                      }
+                                    },
                                     icon: const Icon(Icons.zoom_in_rounded,
                                         size: 22),
                                     label: const Text(
                                       'Ampliar',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                  TextButton.icon(
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: Colors.white,
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                    onPressed: () =>
-                                        churchChatSaveImageUrl(context, url),
-                                    icon: const Icon(Icons.download_rounded,
-                                        size: 22),
-                                    label: const Text(
-                                      'Guardar',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700,
                                         fontSize: 13,
@@ -4853,24 +4889,22 @@ class _MessageBody extends StatelessWidget {
       );
     }
     if (type == 'video') {
-      final thumb = ChurchChatMessageFields.thumbnailUrl(data);
+      final thumbPath = ChurchChatMessageFields.thumbStoragePath(data);
+      final thumbData = thumbPath.isNotEmpty
+          ? <String, dynamic>{'storagePath': thumbPath}
+          : data;
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
-          ChurchChatVideoMessageBubble(
-            videoUrl: url,
-            thumbnailUrl: thumb.isEmpty ? null : thumb,
-            fileName: (data['fileName'] ?? '').toString(),
+          _ChatVideoFromStoragePath(
+            data: data,
+            thumbData: thumbData,
+            tenantId: tenantId,
+            messageId: messageId,
             mine: mine,
-            onDownload: (videoUrl, {fileName = ''}) =>
-                churchChatShareDownloadVideo(
-              context,
-              videoUrl,
-              fileName: fileName,
-            ),
           ),
         ],
       );
@@ -4919,7 +4953,17 @@ class _MessageBody extends StatelessWidget {
             child: InkWell(
               borderRadius: BorderRadius.circular(14),
               onTap: () async {
-                await onOpenAttachment?.call(url);
+                final sp = ChurchChatMessageFields.storagePath(data);
+                final resolved = await ChurchChatMediaResolver.resolveDownloadUrl(
+                  storagePath: sp,
+                  tenantId: tenantId,
+                  messageId: messageId,
+                );
+                final openUrl =
+                    resolved ?? ChurchChatMessageFields.mediaUrl(data);
+                if (openUrl.isNotEmpty) {
+                  await onOpenAttachment?.call(openUrl);
+                }
               },
               child: Padding(
                 padding: const EdgeInsets.symmetric(
@@ -4972,7 +5016,8 @@ class _MessageBody extends StatelessWidget {
       );
     }
     if (type == 'audio') {
-      final sp = (data['storagePath'] ?? '').toString().trim();
+      final sp = ChurchChatMessageFields.storagePath(data);
+      final legacyUrl = ChurchChatMessageFields.mediaUrl(data);
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -4980,7 +5025,7 @@ class _MessageBody extends StatelessWidget {
         children: [
           ..._quotePrefix(context),
           ChurchChatInlineAudioPlayer(
-            mediaUrl: url,
+            mediaUrl: legacyUrl,
             storagePath: sp.isEmpty ? null : sp,
             messageId: messageId,
             mine: mine,
@@ -4996,7 +5041,17 @@ class _MessageBody extends StatelessWidget {
         ..._quotePrefix(context),
         InkWell(
           onTap: () async {
-            await onOpenAttachment?.call(url);
+            final sp = ChurchChatMessageFields.storagePath(data);
+            final resolved = await ChurchChatMediaResolver.resolveDownloadUrl(
+              storagePath: sp,
+              tenantId: tenantId,
+              messageId: messageId,
+            );
+            final openUrl =
+                resolved ?? ChurchChatMessageFields.mediaUrl(data);
+            if (openUrl.isNotEmpty) {
+              await onOpenAttachment?.call(openUrl);
+            }
           },
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -5011,6 +5066,105 @@ class _MessageBody extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Vídeo do chat — resolve URL do [storagePath] só ao reproduzir.
+class _ChatVideoFromStoragePath extends StatelessWidget {
+  const _ChatVideoFromStoragePath({
+    required this.data,
+    required this.thumbData,
+    required this.tenantId,
+    required this.messageId,
+    required this.mine,
+  });
+
+  final Map<String, dynamic> data;
+  final Map<String, dynamic> thumbData;
+  final String tenantId;
+  final String messageId;
+  final bool mine;
+
+  Future<String?> _resolveVideoUrl() async {
+    final sp = ChurchChatMessageFields.storagePath(data);
+    if (sp.isNotEmpty) {
+      return ChurchChatMediaResolver.resolveDownloadUrl(
+        storagePath: sp,
+        tenantId: tenantId,
+        messageId: messageId,
+      );
+    }
+    final legacy = ChurchChatMessageFields.mediaUrl(data);
+    return legacy.isEmpty ? null : legacy;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: SizedBox(
+        width: 260,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Material(
+            color: Colors.black,
+            child: InkWell(
+              onTap: () async {
+                final videoUrl = await _resolveVideoUrl();
+                if (videoUrl == null || videoUrl.isEmpty || !context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Falha ao carregar vídeo. Tente novamente.'),
+                    ),
+                  );
+                  return;
+                }
+                try {
+                  await showChurchHostedVideoTheater(
+                    context,
+                    videoUrl: videoUrl,
+                    title: ChurchChatMessageFields.fileName(data).isEmpty
+                        ? 'Vídeo'
+                        : ChurchChatMessageFields.fileName(data),
+                    autoPlay: true,
+                  );
+                } catch (_) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Não foi possível abrir o vídeo.'),
+                      ),
+                    );
+                  }
+                }
+              },
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    ChurchChatStorageMediaImage(
+                      data: thumbData,
+                      tenantId: tenantId,
+                      messageId: messageId,
+                      fit: BoxFit.cover,
+                    ),
+                    const ColoredBox(color: Color(0x44000000)),
+                    const Center(
+                      child: Icon(
+                        Icons.play_arrow_rounded,
+                        color: Colors.white,
+                        size: 48,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

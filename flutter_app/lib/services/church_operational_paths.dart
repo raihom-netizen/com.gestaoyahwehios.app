@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
@@ -74,7 +75,7 @@ abstract final class ChurchOperationalPaths {
         userUid: userUid ?? _currentUid,
       );
     } catch (_) {
-      return seed;
+      return TenantResolverService.syncStorageTenantId(seed);
     }
   }
 
@@ -91,6 +92,26 @@ abstract final class ChurchOperationalPaths {
   static void clearSessionCache() {
     _resolveInflight.clear();
     _resolvedMemory.clear();
+  }
+
+  /// Após [TenantResolverService.resolveModuleReadTenantId] no shell — evita re-resolver em cada módulo.
+  static void rememberResolved(
+    String seed,
+    String operationalId, {
+    String? userUid,
+  }) {
+    final op = operationalId.trim();
+    if (op.isEmpty) return;
+    final s = seed.trim();
+    _resolvedMemory[_cacheKey(s, userUid)] = op;
+    if (op != s) {
+      _resolvedMemory[_cacheKey(op, userUid)] = op;
+    }
+    TenantResolverService.rememberModuleReadTenantId(
+      s,
+      op,
+      userUid: userUid,
+    );
   }
 
   /// Referência com ID **já resolvido** (preferir após [resolveCached]).
@@ -125,12 +146,16 @@ abstract final class ChurchOperationalPaths {
     String? userUid,
     bool preferServer = false,
   }) async {
-    final tid = await resolveModuleReadTenantId(seed, userUid: userUid);
-    if (tid.isEmpty) return {};
-    return TenantResolverService.loadIgrejaCadastroDocDirect(
-      tid,
-      preferServer: preferServer,
-    );
+    try {
+      final result = await ChurchRepository.loadChurchData(
+        seedTenantId: seed,
+        userUid: userUid,
+        forceRefresh: preferServer,
+      );
+      return result.data;
+    } on ChurchRepositoryException {
+      rethrow;
+    }
   }
 
   /// Resolve slug/legado → doc canónico + doc com subcoleções reais (leituras).

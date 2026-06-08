@@ -40,6 +40,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:gestao_yahweh/utils/carteirinha_zip_export.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
@@ -4674,8 +4675,8 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     for (final path in ChurchStorageLayout.certificateTemplateBackgroundPaths(
         widget.tenantId, vt.storageStem)) {
       try {
-        final u = await FirebaseStorage.instance.ref(path).getDownloadURL();
-        if (u.isNotEmpty) return sanitizeImageUrl(u);
+        final u = await StorageMediaService.downloadUrlFromPathOrUrl(path);
+        if (u != null && u.isNotEmpty) return sanitizeImageUrl(u);
       } catch (_) {}
     }
     return null;

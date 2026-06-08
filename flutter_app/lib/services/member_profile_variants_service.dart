@@ -113,11 +113,18 @@ abstract final class MemberProfileVariantsService {
   static String? listPhotoUrl(Map<String, dynamic>? data) {
     if (data == null) return null;
     for (final k in [
+      'photoThumbStoragePath',
+      'fotoThumbPath',
       YahwehPerformanceV4.profileThumbField,
       YahwehPerformanceV4.profileThumbFieldLegacy,
     ]) {
       final thumb = (data[k] ?? '').toString().trim();
-      if (thumb.startsWith('http')) return thumb;
+      if (thumb.isEmpty) continue;
+      if (thumb.startsWith('http') ||
+          thumb.startsWith('gs://') ||
+          thumb.contains('igrejas/')) {
+        return thumb;
+      }
     }
     final pv = data['photoVariants'];
     if (pv is Map) {
@@ -135,6 +142,8 @@ abstract final class MemberProfileVariantsService {
   static String? profilePhotoUrl(Map<String, dynamic>? data) {
     if (data == null) return null;
     for (final k in [
+      'photoStoragePath',
+      'fotoPath',
       YahwehPerformanceV4.profileFullField,
       'foto_url',
       'FOTO_URL_OU_ID',
@@ -142,7 +151,12 @@ abstract final class MemberProfileVariantsService {
       'photoUrl',
     ]) {
       final s = (data[k] ?? '').toString().trim();
-      if (s.startsWith('http')) return s;
+      if (s.isEmpty) continue;
+      if (s.startsWith('http') ||
+          s.startsWith('gs://') ||
+          s.contains('igrejas/')) {
+        return s;
+      }
     }
     final full = imageUrlFromMap(data);
     return full.isNotEmpty ? full : null;

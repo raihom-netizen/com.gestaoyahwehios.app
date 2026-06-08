@@ -100,33 +100,46 @@ class TenantResolverService {
     String seedId, {
     String? userUid,
   }) async {
+    final seed = seedId.trim();
+    if (seed.isEmpty) return seed;
+
+    final cached = peekModuleReadTenantId(seed, userUid: userUid);
+    if (cached != null && cached.isNotEmpty) return cached;
+
     final operational = await resolveOperationalChurchDocId(
-      seedId,
+      seed,
       userUid: userUid,
     );
     final op = operational.trim();
     if (op.isEmpty) return op;
 
+    final cachedOp = peekModuleReadTenantId(op, userUid: userUid);
+    if (cachedOp != null && cachedOp.isNotEmpty) return cachedOp;
+
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
 
+    var resolved = op;
     try {
       final withDepts = await resolveChurchDocIdPreferringNonEmptyDepartments(op)
-          .timeout(const Duration(seconds: 12));
+          .timeout(const Duration(seconds: 10));
       final deptId = withDepts.trim();
-      if (deptId.isNotEmpty && deptId != op) return deptId;
+      if (deptId.isNotEmpty) resolved = deptId;
     } catch (_) {}
 
-    try {
-      final rich = await resolveChurchDocIdPreferringRichestCluster(
-        op,
-        preferId: op,
-      ).timeout(const Duration(seconds: 12));
-      if (rich.trim().isNotEmpty) return rich.trim();
-    } catch (_) {}
+    if (resolved == op) {
+      try {
+        final rich = await resolveChurchDocIdPreferringRichestCluster(
+          op,
+          preferId: op,
+        ).timeout(const Duration(seconds: 10));
+        if (rich.trim().isNotEmpty) resolved = rich.trim();
+      } catch (_) {}
+    }
 
-    return op;
+    rememberModuleReadTenantId(seed, resolved, userUid: userUid);
+    return resolved;
   }
 
   /// Irmãos para leitura com fallback — `_sistema` e cluster ancorado primeiro; teto evita N× queries lentas.
@@ -488,10 +501,31 @@ class TenantResolverService {
   }
 
   static final Map<String, _OperationalTenantCacheEntry> _operationalByKey = {};
+  static final Map<String, String> _moduleReadByKey = {};
   static const Duration _operationalCacheTtl = Duration(minutes: 45);
 
   static String _operationalCacheKey(String seedId, String? userUid) =>
       '${(userUid ?? '').trim()}\x00${seedId.trim()}';
+
+  /// Shell grava o doc com subcoleções reais — módulos leem sem re-scan do cluster.
+  static void rememberModuleReadTenantId(
+    String seed,
+    String moduleReadId, {
+    String? userUid,
+  }) {
+    final op = moduleReadId.trim();
+    if (op.isEmpty) return;
+    for (final id in {seed.trim(), op}) {
+      if (id.isEmpty) continue;
+      _moduleReadByKey[_operationalCacheKey(id, userUid)] = op;
+    }
+  }
+
+  static String? peekModuleReadTenantId(String seed, {String? userUid}) {
+    final s = seed.trim();
+    if (s.isEmpty) return null;
+    return _moduleReadByKey[_operationalCacheKey(s, userUid)];
+  }
 
   /// ID canónico para subcoleções (`membros`, `escalas`, `agenda`, `event_templates`, …):
   /// vínculo em `users` + doc irmão com mais dados no cluster (slug / `_sistema`).
@@ -569,9 +603,12 @@ class TenantResolverService {
   }) {
     if (seedId == null) {
       _operationalByKey.clear();
+      _moduleReadByKey.clear();
       return;
     }
-    _operationalByKey.remove(_operationalCacheKey(seedId, userUid));
+    final key = _operationalCacheKey(seedId, userUid);
+    _operationalByKey.remove(key);
+    _moduleReadByKey.remove(key);
   }
 
   static String _slugFromIgrejaData(Map<String, dynamic>? data) {
@@ -840,7 +877,7 @@ class TenantResolverService {
     );
     final profile = await _richestProfileInCluster(
       operational,
-      preferServer: kIsWeb,
+      preferServer: false,
     );
     _registrationByKey[cacheKey] = _RegistrationContextCacheEntry(
       operationalId: operational,

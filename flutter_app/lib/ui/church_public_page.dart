@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
@@ -1430,7 +1431,6 @@ class _PublicSocialProofStats {
 
 Future<_PublicSocialProofStats> _loadPublicSocialProofStats(
     String igrejaId) async {
-  final db = FirebaseFirestore.instance;
   try {
     final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
     final membersAgg = await         ChurchOperationalPaths.churchDoc(op)
@@ -1555,11 +1555,14 @@ Future<_ChurchPublicTenantResolved?> _resolveChurchPublicTenantBySlug(
               .timeout(const Duration(seconds: 12));
 
       if (resolved != null && resolved.isNotEmpty) {
-        var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
-          resolved,
-          preferServer: kIsWeb || attempt == 0,
-        );
-        if (profile.isEmpty) {
+        Map<String, dynamic> profile = const {};
+        try {
+          final load = await ChurchRepository.loadChurchData(
+            seedTenantId: resolved,
+            forceRefresh: kIsWeb && attempt == 0,
+          );
+          profile = load.data;
+        } catch (_) {
           profile = await TenantResolverService.richestChurchProfileForCadastro(
             resolved,
             preferServer: kIsWeb,
@@ -1589,7 +1592,7 @@ Future<_ChurchPublicTenantResolved?> _resolveChurchPublicTenantBySlug(
       }
 
       for (final field in const ['slug', 'alias', 'slugId']) {
-        final q = await FirebaseFirestore.instance
+        final q = await firebaseDefaultFirestore
             .collection('igrejas')
             .where(field, isEqualTo: slug)
             .limit(1)
@@ -2462,7 +2465,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                             StreamBuilder<
                                                 DocumentSnapshot<
                                                     Map<String, dynamic>>>(
-                                              stream: FirebaseFirestore.instance
+                                              stream: firebaseDefaultFirestore
                                                   .doc('config/appDownloads')
                                                   .watchSafe(),
                                               builder: (context, dlSnap) {
@@ -4719,7 +4722,7 @@ class _ChurchTenantFallback extends StatelessWidget {
       }
     } catch (_) {}
 
-    final db = FirebaseFirestore.instance;
+    final db = firebaseDefaultFirestore;
     for (final field in const ['slug', 'alias', 'slugId']) {
       try {
         final q = await db
@@ -5023,7 +5026,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: FirebaseFirestore.instance
+                    stream: firebaseDefaultFirestore
                         .doc('config/appDownloads')
                         .watchSafe(),
                     builder: (context, dlSnap) {

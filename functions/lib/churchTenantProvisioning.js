@@ -114,6 +114,8 @@ function buildRootDocPatch(docId, data) {
         patch.igrejaId = canonical;
     if (!str(d["churchId"]))
         patch.churchId = canonical;
+    if (!str(d["canonicalTenantId"]))
+        patch.canonicalTenantId = canonical;
     const isBpcCanonical = canonical === churchClusterAnchors_1.BPC_CANONICAL_IGREJA_ID;
     const slug = isBpcCanonical
         ? churchClusterAnchors_1.BPC_PUBLIC_SLUG

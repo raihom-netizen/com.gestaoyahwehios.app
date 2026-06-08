@@ -22,9 +22,20 @@ abstract final class ChurchChatMessageFields {
     return p.isEmpty ? null : p;
   }
 
+  /// Legado — novas mensagens usam só [storagePath]; URL gerada na exibição.
   static String mediaUrl(Map<String, dynamic> data) =>
       (data['mediaUrl'] ?? data['fileUrl'] ?? '').toString().trim();
 
+  /// Caminho canónico no bucket (`igrejas/{id}/chat_media/...`).
+  static String storagePath(Map<String, dynamic> data) =>
+      (data['storagePath'] ?? data['storage_path'] ?? '').toString().trim();
+
+  static String thumbStoragePath(Map<String, dynamic> data) =>
+      (data['thumbStoragePath'] ?? data['thumb_storage_path'] ?? '')
+          .toString()
+          .trim();
+
+  /// Legado — preferir [thumbStoragePath] + resolver dinâmico.
   static String thumbnailUrl(Map<String, dynamic> data) =>
       (data['thumbnailUrl'] ??
               data['thumbUrl'] ??
@@ -32,6 +43,12 @@ abstract final class ChurchChatMessageFields {
               '')
           .toString()
           .trim();
+
+  static bool hasResolvableMedia(Map<String, dynamic> data) {
+    if (storagePath(data).isNotEmpty) return true;
+    if (mediaUrl(data).isNotEmpty) return true;
+    return false;
+  }
 
   static String status(Map<String, dynamic> data) =>
       (data['status'] ?? data['deliveryStatus'] ?? '').toString().trim();

@@ -1,10 +1,14 @@
-# Script unico para subir a versao do Gestao YAHWEH.
-# Atualiza: lib/app_version.dart, pubspec.yaml e web/version.json.
-# Uso: .\scripts\bump_version.ps1   (incrementa patch: 9.0.2 -> 9.0.3)
-# Ou:  .\scripts\bump_version.ps1 -Patch 2  (sobe 2 patches)
+# Incrementa APENAS o build (+N) — marketing fixo em 11.2.305.
+# Google Play / App Store exigem versionCode/CFBundleVersion sempre maior.
+# Uso (raiz): .\scripts\bump_version.ps1
+# Ou: .\scripts\bump_version.ps1 -Increment 3
+#
+# Para mudar a versão de marketing (ex.: 11.2.306), use explicitamente:
+# .\scripts\bump_version.ps1 -NewMarketing "11.2.306"
 
 param(
-    [int]$Patch = 1
+    [int]$Increment = 1,
+    [string]$NewMarketing = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,66 +18,63 @@ $versionFile = Join-Path $appDir "lib\app_version.dart"
 $pubspecFile = Join-Path $appDir "pubspec.yaml"
 $webVersionFile = Join-Path $appDir "web\version.json"
 
+$LockedMarketing = "11.2.305"
+
 if (-not (Test-Path $versionFile)) {
     Write-Error "Arquivo nao encontrado: $versionFile"
     exit 1
 }
 
-# Ler versao atual de app_version.dart (ex: '9.0.2')
 $content = Get-Content $versionFile -Raw -Encoding UTF8
-if ($content -match "appVersion\s*=\s*'([^']+)'") {
-    $current = $Matches[1]
-} else {
+if ($content -notmatch "appVersion\s*=\s*'([^']+)'") {
     Write-Error "Nao foi possivel ler appVersion em app_version.dart"
     exit 1
 }
+$currentMarketing = $Matches[1]
 
-$segments = $current -split '\.'
-$major = [int]($segments[0])
-$minor = [int]($segments[1])
-$patchVal = if ($segments.Length -ge 3) { [int]($segments[2]) } else { 0 }
-$patchVal += $Patch
-$newVersion = "$major.$minor.$patchVal"
-
-# Ler build number do pubspec (ex: 9.0.2+3 -> 3)
 $pubContent = Get-Content $pubspecFile -Raw -Encoding UTF8
-$buildNum = 1
-if ($pubContent -match "version:\s*[\d.]+\+(\d+)") {
-    $buildNum = [int]$Matches[1] + $Patch
+if ($pubContent -notmatch "version:\s*([\d.]+)\+(\d+)") {
+    Write-Error "Nao foi possivel ler version: X.Y.Z+N em pubspec.yaml"
+    exit 1
 }
-$versionLine = "version: $newVersion+$buildNum"
+$pubMarketing = $Matches[1]
+$buildNum = [int]$Matches[2] + $Increment
 
-# Atualizar app_version.dart (marketing + build; labels completos derivam em Dart)
-$content = $content -replace "appVersion\s*=\s*'[^']+'", "appVersion = '$newVersion'"
+$marketing = if ($NewMarketing.Trim().Length -gt 0) {
+    $NewMarketing.Trim()
+} else {
+    $LockedMarketing
+}
+
+if ($NewMarketing.Trim().Length -eq 0 -and $currentMarketing -ne $LockedMarketing) {
+    Write-Host "Aviso: app_version.dart tinha $currentMarketing — realinhando marketing para $LockedMarketing" -ForegroundColor Yellow
+}
+if ($NewMarketing.Trim().Length -eq 0 -and $pubMarketing -ne $LockedMarketing) {
+    Write-Host "Aviso: pubspec.yaml tinha $pubMarketing — realinhando marketing para $LockedMarketing" -ForegroundColor Yellow
+}
+
+$versionLine = "version: $marketing+$buildNum"
+
+$content = $content -replace "appVersion\s*=\s*'[^']+'", "appVersion = '$marketing'"
 if ($content -match "appBuildNumber\s*=") {
     $content = $content -replace "const String appBuildNumber = '\d+'", "const String appBuildNumber = '$buildNum'"
 }
 Set-Content $versionFile -Value $content -NoNewline -Encoding UTF8
 
-# Atualizar pubspec.yaml (linha version: X.Y.Z+N)
 $pubContent = $pubContent -replace "version:\s*[\d.]+\+\d+", $versionLine
 Set-Content $pubspecFile -Value $pubContent -NoNewline -Encoding UTF8
 
-# Gerar web/version.json (copiado no build para build/web)
-$versionJson = @{
-    app_name = "gestao_yahweh"
-    version = $newVersion
-    build_number = $buildNum.ToString()
-    package_name = "gestao_yahweh"
-} | ConvertTo-Json -Compress
 $versionJsonPretty = @{
-    app_name = "gestao_yahweh"
-    version = $newVersion
+    app_name     = "gestao_yahweh"
+    version      = $marketing
     build_number = $buildNum.ToString()
     package_name = "gestao_yahweh"
 } | ConvertTo-Json
-$webDir = Join-Path $appDir "web"
-if (-not (Test-Path $webDir)) { New-Item -ItemType Directory -Path $webDir | Out-Null }
-Set-Content (Join-Path $webDir "version.json") -Value $versionJsonPretty -Encoding UTF8
+Set-Content $webVersionFile -Value $versionJsonPretty -Encoding UTF8
 
-Write-Host "Versao atualizada para $newVersion (build $buildNum)"
+Write-Host "Versao atualizada: $marketing+$buildNum" -ForegroundColor Green
 Write-Host "  - lib/app_version.dart"
 Write-Host "  - pubspec.yaml"
 Write-Host "  - web/version.json"
 Write-Host ""
-Write-Host "Proximo passo: flutter build web (ou deploy). O version.json sera incluido no build."
+Write-Host "Marketing fixo: $LockedMarketing (use -NewMarketing apenas se pedido explicitamente)."

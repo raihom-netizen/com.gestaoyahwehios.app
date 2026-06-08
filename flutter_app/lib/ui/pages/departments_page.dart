@@ -149,9 +149,18 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   Future<void> _ensureReadTenantResolved() async {
     final seed = widget.tenantId.trim();
     if (seed.isEmpty) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final peek = TenantResolverService.peekModuleReadTenantId(
+      seed,
+      userUid: uid,
+    );
+    if (peek != null && peek.isNotEmpty) {
+      if (mounted && peek.trim() != _effectiveTenantId.trim()) {
+        setState(() => _effectiveTenantId = peek.trim());
+      }
+      return;
+    }
     try {
-      await ChurchTenantResilientReads.preparePanelRead(refreshToken: kIsWeb);
-      final uid = FirebaseAuth.instance.currentUser?.uid;
       final readId = await TenantResolverService.resolveModuleReadTenantId(
         seed,
         userUid: uid,
@@ -187,10 +196,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       final snap = await ChurchTenantResilientReads.departamentos(
         seed,
         limit: 120,
-      ).timeout(
-        const Duration(seconds: 6),
-        onTimeout: () => const MergedFirestoreQuerySnapshot([]),
-      );
+      ).timeout(const Duration(seconds: 24));
       if (!mounted) return;
       if (snap.docs.isNotEmpty) {
         _DepartmentsRamCache.put(seed, snap.docs);

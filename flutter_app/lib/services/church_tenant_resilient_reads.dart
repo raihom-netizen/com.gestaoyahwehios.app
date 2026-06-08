@@ -32,17 +32,15 @@ abstract final class ChurchTenantResilientReads {
     final seed = tenantId.trim();
     if (seed.isEmpty) return seed;
     final uid = (userUid ?? FirebaseAuth.instance.currentUser?.uid ?? '').trim();
+    final peek = TenantResolverService.peekModuleReadTenantId(
+      seed,
+      userUid: uid.isEmpty ? null : uid,
+    );
+    if (peek != null && peek.isNotEmpty) return peek;
     try {
-      return await TenantResolverService.resolveModuleReadTenantId(
-        seed,
-        userUid: uid.isEmpty ? null : uid,
-      );
+      return await operationalTenantId(seed, userUid: uid.isEmpty ? null : uid);
     } catch (_) {
-      try {
-        return await operationalTenantId(seed, userUid: uid.isEmpty ? null : uid);
-      } catch (_) {
-        return seed;
-      }
+      return seed;
     }
   }
 
@@ -258,16 +256,28 @@ abstract final class ChurchTenantResilientReads {
           return await FirestoreReadResilience.getQuery(
             church
                 .collection('avisos')
+                .where('ativo', isEqualTo: true)
+                .where('publicado', isEqualTo: true)
                 .orderBy('createdAt', descending: true)
                 .limit(limit),
-            cacheKey: _key(tenantId, 'avisos_feed_$limit'),
+            cacheKey: _key(tenantId, 'avisos_feed_pub_$limit'),
           );
         } catch (_) {
-          final plain = await FirestoreReadResilience.getQuery(
-            church.collection('avisos').limit(limit),
-            cacheKey: _key(tenantId, 'avisos_plain_$limit'),
-          );
-          return _sortAvisosSnapshot(plain);
+          try {
+            return await FirestoreReadResilience.getQuery(
+              church
+                  .collection('avisos')
+                  .orderBy('createdAt', descending: true)
+                  .limit(limit),
+              cacheKey: _key(tenantId, 'avisos_feed_$limit'),
+            );
+          } catch (_) {
+            final plain = await FirestoreReadResilience.getQuery(
+              church.collection('avisos').limit(limit),
+              cacheKey: _key(tenantId, 'avisos_plain_$limit'),
+            );
+            return _sortAvisosSnapshot(plain);
+          }
         }
       });
 
@@ -318,16 +328,28 @@ abstract final class ChurchTenantResilientReads {
           return await FirestoreReadResilience.getQuery(
             church
                 .collection('eventos')
+                .where('ativo', isEqualTo: true)
+                .where('publicado', isEqualTo: true)
                 .orderBy('startAt', descending: true)
                 .limit(limit),
-            cacheKey: _key(tenantId, 'noticias_start_$limit'),
+            cacheKey: _key(tenantId, 'noticias_start_pub_$limit'),
           );
         } catch (_) {
-          final plain = await FirestoreReadResilience.getQuery(
-            church.collection('eventos').limit(limit),
-            cacheKey: _key(tenantId, 'noticias_plain_$limit'),
-          );
-          return _sortNoticiasByStartAtSnapshot(plain);
+          try {
+            return await FirestoreReadResilience.getQuery(
+              church
+                  .collection('eventos')
+                  .orderBy('startAt', descending: true)
+                  .limit(limit),
+              cacheKey: _key(tenantId, 'noticias_start_$limit'),
+            );
+          } catch (_) {
+            final plain = await FirestoreReadResilience.getQuery(
+              church.collection('eventos').limit(limit),
+              cacheKey: _key(tenantId, 'noticias_plain_$limit'),
+            );
+            return _sortNoticiasByStartAtSnapshot(plain);
+          }
         }
       });
 
@@ -384,11 +406,14 @@ abstract final class ChurchTenantResilientReads {
     String tenantId,
     Future<QuerySnapshot<Map<String, dynamic>>> Function(String tid) loadFor, {
     String? userUid,
+    bool tenantAlreadyResolved = false,
   }) async {
     var primary = tenantId.trim();
     if (primary.isEmpty) return const MergedFirestoreQuerySnapshot([]);
 
-    primary = await _readTenantId(primary, userUid: userUid);
+    if (!tenantAlreadyResolved) {
+      primary = await _readTenantId(primary, userUid: userUid);
+    }
 
     QuerySnapshot<Map<String, dynamic>> snap;
     try {
@@ -628,6 +653,7 @@ abstract final class ChurchTenantResilientReads {
           ),
         ),
         userUid: uid,
+        tenantAlreadyResolved: true,
       ),
     );
   }
@@ -650,6 +676,7 @@ abstract final class ChurchTenantResilientReads {
           cacheKey: _key(id, 'funcoes_controle_$limit'),
         ),
         userUid: uid,
+        tenantAlreadyResolved: true,
       ),
     );
   }
@@ -669,6 +696,7 @@ abstract final class ChurchTenantResilientReads {
         tid,
         (id) => _cargosQueryResilient(id, limit: limit),
         userUid: uid,
+        tenantAlreadyResolved: true,
       ),
     );
   }

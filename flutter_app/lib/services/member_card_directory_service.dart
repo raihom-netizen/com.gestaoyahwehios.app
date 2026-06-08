@@ -219,12 +219,14 @@ abstract final class MemberCardDirectoryService {
         if (nome.isEmpty) continue;
         final url =
             (d['assinaturaUrl'] ?? d['assinatura_url'] ?? '').toString().trim();
+        final path = (d['assinaturaStoragePath'] ?? '').toString().trim();
+        final display = url.isNotEmpty ? url : path;
         byId[doc.id] = MemberCardSignatory(
           memberId: doc.id,
           nome: nome,
           cargo: signatoryCargoDisplayLabel(d),
           cpf: null,
-          assinaturaUrl: url.isEmpty ? null : url,
+          assinaturaUrl: display.isEmpty ? null : display,
         );
       }
     }

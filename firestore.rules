@@ -1317,11 +1317,12 @@ service cloud.firestore {
           && resource.data.senderUid == request.auth.uid
           && resource.data.deliveryStatus in ['uploading', 'queued']
           && request.resource.data.deliveryStatus == 'sent'
-          && request.resource.data.mediaUrl is string
-          && request.resource.data.mediaUrl.size() > 8
+          && request.resource.data.storagePath is string
+          && request.resource.data.storagePath.size() > 16
+          && request.resource.data.storagePath.matches('^igrejas/.+/chat_media/.+')
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
             'mediaUrl', 'fileUrl', 'storagePath', 'fileName', 'deliveryStatus', 'status',
-            'uploadProgress', 'thumbUrl', 'thumbnailUrl', 'fileSize', 'size'
+            'uploadProgress', 'thumbUrl', 'thumbnailUrl', 'thumbStoragePath', 'fileSize', 'size'
           ]);
       }
 
