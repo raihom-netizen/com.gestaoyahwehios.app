@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/church_chat_local_conversations.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
+import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_threads_list_cache.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -1761,6 +1762,56 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
   }
 
+  Future<void> _deleteGroupThreadWithConfirm({
+    required String tenantId,
+    required String threadId,
+    required String title,
+  }) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir grupo?'),
+        content: Text(
+          'Apaga o histórico de «$title» para todos os membros. '
+          'Esta ação não pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Excluir grupo'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final deleted = await ChurchChatService.deleteGroupThread(
+      tenantId: tenantId,
+      threadId: threadId,
+    );
+    if (!mounted) return;
+    if (!deleted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Não foi possível excluir o grupo. Verifique a sua permissão ou tente de novo.',
+          ),
+          backgroundColor: ThemeCleanPremium.error,
+        ),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Grupo excluído.')),
+    );
+  }
+
   Future<void> _commitBulkHideSelectedDmThreads(String tenantId) async {
     final ids = _selectedDmThreadIds.toList();
     if (ids.isEmpty) return;
@@ -1913,7 +1964,10 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     required bool isDepartment,
     required String? peerUid,
     required ChurchChatMemberPrefsModel prefs,
+    required String memberRole,
   }) async {
+    final canDeleteGroup =
+        isDepartment && ChurchChatModeration.canDeleteGroupConversation(memberRole);
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: ThemeCleanPremium.surface,
@@ -2085,6 +2139,48 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     );
                   },
                 ),
+                if (!isDepartment) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(
+                      Icons.delete_outline_rounded,
+                      color: ThemeCleanPremium.error,
+                    ),
+                    title: const Text('Excluir conversa'),
+                    subtitle: const Text(
+                      'Remove da sua lista. A outra pessoa mantém o histórico.',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await _hideDmThreadWithConfirm(
+                        tenantId: tenantId,
+                        threadId: threadId,
+                      );
+                    },
+                  ),
+                ] else if (canDeleteGroup) ...[
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: Icon(
+                      Icons.delete_forever_rounded,
+                      color: ThemeCleanPremium.error,
+                    ),
+                    title: const Text('Excluir grupo'),
+                    subtitle: const Text(
+                      'Apaga o histórico para todos os membros (pastor, administrador ou secretário).',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await _deleteGroupThreadWithConfirm(
+                        tenantId: tenantId,
+                        threadId: threadId,
+                        title: title,
+                      );
+                    },
+                  ),
+                ],
                 ListTile(
                   leading: Icon(
                     Icons.graphic_eq_rounded,
@@ -2139,26 +2235,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                         tenantId: tenantId,
                         peerUid: peerUid,
                         value: !prefs.isBlockedPeer(peerUid),
-                      );
-                    },
-                  ),
-                ],
-                if (!isDepartment) ...[
-                  ListTile(
-                    leading: Icon(
-                      Icons.delete_outline_rounded,
-                      color: ThemeCleanPremium.error,
-                    ),
-                    title: const Text('Apagar conversa (só para mim)'),
-                    subtitle: const Text(
-                      'Some da lista de conversas. A outra pessoa mantém o histórico no aparelho dela.',
-                      style: TextStyle(fontSize: 11),
-                    ),
-                    onTap: () async {
-                      Navigator.pop(ctx);
-                      await _hideDmThreadWithConfirm(
-                        tenantId: tenantId,
-                        threadId: threadId,
                       );
                     },
                   ),
@@ -3381,6 +3457,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               isDepartment: false,
               peerUid: peer,
               prefs: prefs,
+              memberRole: widget.role,
             ),
       onMoreTap: selectionMode
           ? null
@@ -3392,6 +3469,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               isDepartment: false,
               peerUid: peer,
               prefs: prefs,
+              memberRole: widget.role,
             ),
     );
   }
@@ -3445,6 +3523,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         isDepartment: true,
         peerUid: null,
         prefs: prefs,
+        memberRole: widget.role,
       ),
       onMoreTap: () => _showThreadActionsSheet(
         context: context,
@@ -3454,6 +3533,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         isDepartment: true,
         peerUid: null,
         prefs: prefs,
+        memberRole: widget.role,
       ),
     );
   }
@@ -3538,6 +3618,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         isDepartment: true,
         peerUid: null,
         prefs: prefs,
+        memberRole: widget.role,
       ),
       onMoreTap: () => _showThreadActionsSheet(
         context: context,
@@ -3547,6 +3628,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         isDepartment: true,
         peerUid: null,
         prefs: prefs,
+        memberRole: widget.role,
       ),
     );
   }

@@ -4,7 +4,11 @@
  */
 import * as admin from "firebase-admin";
 import type { Firestore } from "firebase-admin/firestore";
-import { resolveAnchoredCanonicalTenantId } from "./churchClusterAnchors";
+import {
+  BPC_CANONICAL_IGREJA_ID,
+  BPC_PUBLIC_SLUG,
+  resolveAnchoredCanonicalTenantId,
+} from "./churchClusterAnchors";
 import {
   ensureConfiguracoesStorageFolder,
   ensureFinanceiroStorageFolder,
@@ -95,12 +99,20 @@ export function buildRootDocPatch(
   if (!str(d["igrejaId"])) patch.igrejaId = canonical;
   if (!str(d["churchId"])) patch.churchId = canonical;
 
-  const slug =
-    str(d["slug"]) || str(d["slugId"]) || str(d["alias"]) || slugHintFromDocId(docId);
+  const isBpcCanonical = canonical === BPC_CANONICAL_IGREJA_ID;
+  const slug = isBpcCanonical
+    ? BPC_PUBLIC_SLUG
+    : str(d["slug"]) || str(d["slugId"]) || str(d["alias"]) || slugHintFromDocId(docId);
   if (slug) {
-    if (!str(d["slug"])) patch.slug = slug;
-    if (!str(d["slugId"])) patch.slugId = slug;
-    if (!str(d["alias"])) patch.alias = slug;
+    if (isBpcCanonical || !str(d["slug"])) patch.slug = slug;
+    if (isBpcCanonical || !str(d["slugId"])) patch.slugId = slug;
+    if (isBpcCanonical || !str(d["alias"])) patch.alias = slug;
+  }
+  if (isBpcCanonical) {
+    patch.tenantId = BPC_CANONICAL_IGREJA_ID;
+    patch.igrejaId = BPC_CANONICAL_IGREJA_ID;
+    patch.churchId = BPC_CANONICAL_IGREJA_ID;
+    patch.canonicalTenantId = BPC_CANONICAL_IGREJA_ID;
   }
 
   if (d["ativa"] === undefined && d["active"] === undefined) {

@@ -5852,7 +5852,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         _newNames.add(displayName);
       });
     } else {
-      mobilePath = await FeedEditorMediaService.persistXFileToTemp(
+      final encodedPath = encoded.path.trim();
+      if (encodedPath.isNotEmpty) {
+        final existing = File(encodedPath);
+        if (existing.existsSync() && existing.lengthSync() > 0) {
+          mobilePath = encodedPath;
+        }
+      }
+      mobilePath ??= await FeedEditorMediaService.persistXFileToTemp(
         encoded,
         prefix: 'gy_event',
       );

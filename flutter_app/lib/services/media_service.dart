@@ -105,25 +105,40 @@ abstract final class MediaService {
     if (kIsWeb || !file.existsSync()) return null;
     try {
       final tempDir = await getTemporaryDirectory();
-      final ext = _fileExtFor(profile);
-      final targetPath =
-          '${tempDir.path}/gy_${DateTime.now().millisecondsSinceEpoch}.$ext';
       final edge = _edgeFor(profile);
       final minH = profile == MediaImageProfile.feed
           ? edge
           : (edge * feedImageMaxHeight / feedImageMaxEdge).round();
+      final quality = _qualityFor(profile);
 
-      final result = await FlutterImageCompress.compressAndGetFile(
-        file.absolute.path,
-        targetPath,
-        quality: _qualityFor(profile),
-        minWidth: edge,
-        minHeight: minH,
-        format: _formatFor(profile),
-      );
-      if (result == null || result.path.isEmpty) return null;
-      final out = File(result.path);
-      return out.existsSync() ? out : null;
+      for (final format in <CompressFormat>[
+        _formatFor(profile),
+        if (_formatFor(profile) != CompressFormat.jpeg) CompressFormat.jpeg,
+      ]) {
+        final ext = format == CompressFormat.webp ? 'webp' : 'jpg';
+        final targetPath =
+            '${tempDir.path}/gy_${DateTime.now().millisecondsSinceEpoch}.$ext';
+        final result = await FlutterImageCompress.compressAndGetFile(
+          file.absolute.path,
+          targetPath,
+          quality: quality,
+          minWidth: edge,
+          minHeight: minH,
+          format: format,
+        );
+        if (result != null && result.path.isNotEmpty) {
+          final out = File(result.path);
+          if (out.existsSync() && out.lengthSync() > 0) return out;
+        }
+      }
+
+      final raw = await file.readAsBytes();
+      if (raw.isEmpty) return null;
+      final fallbackPath =
+          '${tempDir.path}/gy_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final fallback = File(fallbackPath);
+      await fallback.writeAsBytes(raw, flush: true);
+      return fallback.existsSync() && fallback.lengthSync() > 0 ? fallback : null;
     } catch (_) {
       return null;
     }
@@ -140,16 +155,23 @@ abstract final class MediaService {
     }
 
     final edge = _edgeFor(profile);
-    try {
-      final out = await FlutterImageCompress.compressWithList(
-        input,
-        minWidth: edge,
-        minHeight: edge,
-        quality: _qualityFor(profile),
-        format: _formatFor(profile),
-      );
-      if (out.isNotEmpty) return Uint8List.fromList(out);
-    } catch (_) {}
+    final quality = _qualityFor(profile);
+    final formats = <CompressFormat>[
+      _formatFor(profile),
+      if (_formatFor(profile) != CompressFormat.jpeg) CompressFormat.jpeg,
+    ];
+    for (final format in formats) {
+      try {
+        final out = await FlutterImageCompress.compressWithList(
+          input,
+          minWidth: edge,
+          minHeight: edge,
+          quality: quality,
+          format: format,
+        );
+        if (out.isNotEmpty) return Uint8List.fromList(out);
+      } catch (_) {}
+    }
     return input;
   }
 

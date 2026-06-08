@@ -4306,7 +4306,7 @@ async function applyMemberAuthSideEffects(
 }
 
 /** Busca membro em igrejas/.../membros (id, authUid ou CPF), depois coleções legadas. */
-async function findMemberDocument(
+async function findMemberDocumentInTenant(
   tenantId: string,
   memberId: string
 ): Promise<{ ref: DocumentReference; data: DocumentData } | null> {
@@ -4348,6 +4348,23 @@ async function findMemberDocument(
   for (const ref of legacy) {
     const snap = await ref.get();
     if (snap.exists) return { ref, data: snap.data() || {} };
+  }
+  return null;
+}
+
+async function findMemberDocument(
+  tenantId: string,
+  memberId: string
+): Promise<{ ref: DocumentReference; data: DocumentData } | null> {
+  const cluster = new Set<string>();
+  const seed = String(tenantId || "").trim();
+  if (!seed) return null;
+  cluster.add(seed);
+  cluster.add(resolveAnchoredCanonicalTenantId(seed));
+  addAnchoredCluster(seed, cluster);
+  for (const tid of cluster) {
+    const hit = await findMemberDocumentInTenant(tid, memberId);
+    if (hit) return hit;
   }
   return null;
 }
@@ -7433,6 +7450,7 @@ export {
 
 export { syncChurchMercadoPagoFromCluster } from "./syncChurchMercadoPagoCluster";
 export { syncChurchClusterDataFromRichest } from "./syncChurchClusterData";
+export { consolidateBpcChurchToCanonical, consolidateBpcChurchToCanonicalHttp, syncBpcMemberTenantLinkage, syncBpcMemberTenantLinkageHttp } from "./consolidateBpcCluster";
 
 export { masterApplyTenantLicense } from "./masterTenantLicense";
 

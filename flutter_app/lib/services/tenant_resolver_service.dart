@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resolve o ID do tenant ou igreja para carregar membros.
 /// Suporta tenants e igrejas (quando membros estão em igrejas/{id}/membros).
@@ -18,15 +20,17 @@ class TenantResolverService {
   static const String kBpcCanonicalIgrejaDocId =
       'igreja_o_brasil_para_cristo_jardim_goiano';
 
-  /// Clusters conhecidos cujo slug/alias não bate (BPC: legado vs stub `_sistema`).
+  /// IDs legados — migrados para [kBpcCanonicalIgrejaDocId]; redirecionados via `church_aliases`.
+  static const List<String> kBpcLegacyTenantIds = [
+    'brasilparacristo',
+    'brasilparacristo_sistema',
+    'iobpc-jardim-goiano',
+    'o-brasil-cristo-jardim-goiano',
+  ];
+
+  /// Cluster operacional — após consolidação BPC, só o doc canónico.
   static const Map<String, List<String>> _anchoredChurchClusters = {
-    kBpcCanonicalIgrejaDocId: [
-      kBpcCanonicalIgrejaDocId,
-      'brasilparacristo',
-      'brasilparacristo_sistema',
-      'iobpc-jardim-goiano',
-      'o-brasil-cristo-jardim-goiano',
-    ],
+    kBpcCanonicalIgrejaDocId: [kBpcCanonicalIgrejaDocId],
   };
 
   /// Slugs públicos (URL `/igreja/{slug}/cadastro-membro`) → doc canónico operacional.
@@ -53,12 +57,76 @@ class TenantResolverService {
   static void _addAnchoredClusterMembers(String raw, Set<String> result) {
     final t = raw.trim();
     if (t.isEmpty) return;
+    if (t == kBpcCanonicalIgrejaDocId || kBpcLegacyTenantIds.contains(t)) {
+      result.add(kBpcCanonicalIgrejaDocId);
+    }
     for (final entry in _anchoredChurchClusters.entries) {
       if (entry.key == t || entry.value.contains(t)) {
         result.add(entry.key);
         result.addAll(entry.value);
       }
     }
+  }
+
+  /// Normalização síncrona para paths Storage (antes do resolver async terminar).
+  static String syncStorageTenantId(String seedId) {
+    final t = seedId.trim();
+    if (t.isEmpty) return t;
+    if (t == kBpcCanonicalIgrejaDocId) return t;
+    if (kBpcLegacyTenantIds.contains(t)) return kBpcCanonicalIgrejaDocId;
+    final slugCanon = _publicSlugToCanonicalDocId[t.toLowerCase()];
+    if (slugCanon != null && slugCanon.isNotEmpty) return slugCanon;
+    return t;
+  }
+
+  /// IDs do cluster ancorado — BPC consolidado = só canónico; legado via `church_aliases`.
+  static List<String> anchoredClusterIdsFor(String id) {
+    final t = id.trim();
+    if (t.isEmpty) return const [];
+    if (t == kBpcCanonicalIgrejaDocId || kBpcLegacyTenantIds.contains(t)) {
+      return const [kBpcCanonicalIgrejaDocId];
+    }
+    for (final entry in _anchoredChurchClusters.entries) {
+      if (entry.key == t || entry.value.contains(t)) {
+        final out = <String>[entry.key, ...entry.value];
+        return out.where((x) => x.trim().isNotEmpty).toSet().toList();
+      }
+    }
+    return const [];
+  }
+
+  /// Doc com subcoleções/perfil reais — canónico de escrita + irmão com dados (BPC).
+  static Future<String> resolveModuleReadTenantId(
+    String seedId, {
+    String? userUid,
+  }) async {
+    final operational = await resolveOperationalChurchDocId(
+      seedId,
+      userUid: userUid,
+    );
+    final op = operational.trim();
+    if (op.isEmpty) return op;
+
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+
+    try {
+      final withDepts = await resolveChurchDocIdPreferringNonEmptyDepartments(op)
+          .timeout(const Duration(seconds: 12));
+      final deptId = withDepts.trim();
+      if (deptId.isNotEmpty && deptId != op) return deptId;
+    } catch (_) {}
+
+    try {
+      final rich = await resolveChurchDocIdPreferringRichestCluster(
+        op,
+        preferId: op,
+      ).timeout(const Duration(seconds: 12));
+      if (rich.trim().isNotEmpty) return rich.trim();
+    } catch (_) {}
+
+    return op;
   }
 
   /// Irmãos para leitura com fallback — `_sistema` e cluster ancorado primeiro; teto evita N× queries lentas.
@@ -596,30 +664,50 @@ class TenantResolverService {
     final id = churchDocId.trim();
     if (id.isEmpty) return {};
     await _ensureFirestore();
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
     final ref = _firestore.collection('igrejas').doc(id);
-    final timeout = Duration(seconds: preferServer || kIsWeb ? 18 : 10);
 
-    Future<Map<String, dynamic>> readWith(Source source) async {
-      final snap = await ref.get(GetOptions(source: source)).timeout(timeout);
-      if (snap.exists && snap.data() != null) {
-        return Map<String, dynamic>.from(snap.data()!);
-      }
+    Future<Map<String, dynamic>> readDoc(String docId) async {
+      final t = docId.trim();
+      if (t.isEmpty) return {};
+      final docRef = t == id ? ref : _firestore.collection('igrejas').doc(t);
+      try {
+        final snap = await FirestoreWebGuard.runWithWebRecovery(
+          () => FirestoreReadResilience.getDocument(
+            docRef,
+            cacheKey: 'igreja_cadastro_$t',
+            maxAttempts: kIsWeb ? 3 : 2,
+            attemptTimeout: Duration(
+              seconds: preferServer || kIsWeb ? 18 : 10,
+            ),
+          ),
+        );
+        if (snap.exists && snap.data() != null) {
+          return Map<String, dynamic>.from(snap.data()!);
+        }
+      } catch (_) {}
       return {};
     }
 
-    final sources = <Source>[
-      if (preferServer || kIsWeb) Source.server else Source.serverAndCache,
-      Source.serverAndCache,
-      Source.cache,
-    ];
-    final seen = <Source>{};
-    for (final src in sources) {
-      if (!seen.add(src)) continue;
-      try {
-        final data = await readWith(src);
-        if (data.isNotEmpty) return data;
-      } catch (_) {}
+    var data = await readDoc(id);
+    if (data.isNotEmpty &&
+        _churchProfileScore(data) >= _richProfileEarlyExitScore) {
+      return data;
     }
+
+    for (final sibling in anchoredClusterIdsFor(id)) {
+      if (sibling == id) continue;
+      final alt = await readDoc(sibling);
+      if (_churchProfileScore(alt) > _churchProfileScore(data)) {
+        data = alt;
+      }
+      if (_churchProfileScore(data) >= _richProfileEarlyExitScore) break;
+    }
+
+    if (data.isNotEmpty) return data;
+
     final peek = peekRegistrationContext(id);
     if (peek != null && peek.profile.isNotEmpty) {
       return Map<String, dynamic>.from(peek.profile);
@@ -799,11 +887,21 @@ class TenantResolverService {
       final t = id.trim();
       if (t.isEmpty) return;
       try {
-        final snap = await _firestore
-            .collection('igrejas')
-            .doc(t)
-            .get(GetOptions(source: source))
-            .timeout(timeout);
+        final snap = await FirestoreWebGuard.runWithWebRecovery(() async {
+          if (kIsWeb && (preferServer || source == Source.server)) {
+            return FirestoreReadResilience.getDocument(
+              _firestore.collection('igrejas').doc(t),
+              cacheKey: 'igreja_profile_richest_$t',
+              maxAttempts: 3,
+              attemptTimeout: timeout,
+            );
+          }
+          return _firestore
+              .collection('igrejas')
+              .doc(t)
+              .get(GetOptions(source: source))
+              .timeout(timeout);
+        });
         if (!snap.exists) return;
         final data = snap.data() ?? {};
         final sc = _churchProfileScore(data);
@@ -812,6 +910,20 @@ class TenantResolverService {
           best = Map<String, dynamic>.from(data);
         }
       } catch (_) {}
+    }
+
+    final anchored = anchoredClusterIdsFor(primary);
+    if (anchored.isNotEmpty) {
+      await Future.wait(
+        anchored.map(
+          (id) => consider(
+            id,
+            source: networkSource,
+            timeout: networkTimeout,
+          ),
+        ),
+      );
+      if (bestScore >= _richProfileEarlyExitScore) return best;
     }
 
     if (!preferServer) {
@@ -955,13 +1067,15 @@ class TenantResolverService {
       final t = tid.trim();
       if (t.isEmpty) return null;
       try {
-        final snap = await _firestore
-            .collection('igrejas')
-            .doc(t)
-            .collection('departamentos')
-            .limit(1)
-            .get(GetOptions(source: src))
-            .timeout(const Duration(seconds: 14));
+        final snap = await FirestoreWebGuard.runWithWebRecovery(() async {
+          return _firestore
+              .collection('igrejas')
+              .doc(t)
+              .collection('departamentos')
+              .limit(1)
+              .get(GetOptions(source: src))
+              .timeout(const Duration(seconds: 14));
+        });
         return snap.docs.isNotEmpty ? t : null;
       } on TimeoutException {
         return null;
@@ -994,6 +1108,9 @@ class TenantResolverService {
       } else {
         addUnique('$raw$suf');
       }
+    }
+    for (final anchoredId in anchoredClusterIdsFor(raw)) {
+      addUnique(anchoredId);
     }
 
     var hit = await _firstNonEmptyParallel(phase1, Source.serverAndCache);

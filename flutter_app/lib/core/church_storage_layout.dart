@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_logo_storage_naming.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
 /// Layout canônico do **Firebase Storage** por igreja (tenant = id do doc em `igrejas/{id}`).
 ///
@@ -118,7 +119,10 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/comprovantes/$id.$safeExt';
   }
 
-  static String churchRoot(String tenantId) => 'igrejas/${tenantId.trim()}';
+  static String churchRoot(String tenantId) {
+    final tid = TenantResolverService.syncStorageTenantId(tenantId);
+    return 'igrejas/$tid';
+  }
 
   /// `igrejas/{tenantId}/marketing_destaque/capa.jpg` (único ficheiro; sem `thumb_*`).
   static String marketingClienteShowcaseCapaPath(String tenantId) {

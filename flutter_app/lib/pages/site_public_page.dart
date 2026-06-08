@@ -22,6 +22,13 @@ import "package:gestao_yahweh/ui/widgets/modern_store_download_button.dart";
 
 String money(double v) => "R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}";
 
+Future<void> sitePublicLaunchStoreUrl(String url) async {
+  if (url.trim().isEmpty) return;
+  final uri = Uri.tryParse(url.trim());
+  if (uri == null) return;
+  await launchUrl(uri, mode: LaunchMode.externalApplication);
+}
+
 /// Cores de destaque por índice (mesma ordem de planosOficiais).
 const _planAccents = [
   Color(0xFF1E5AA8),
@@ -119,12 +126,44 @@ class _SitePublicPageState extends State<SitePublicPage>
     final narrow = MediaQuery.sizeOf(context).width < _kAppBarCompactWidth;
     if (narrow) {
       return [
+        IconButton(
+          tooltip: 'Google Play (Android)',
+          onPressed: () {
+            unawaited(PublicSiteAnalytics.logMarketingAction(
+                'marketing_bar_play'));
+            unawaited(sitePublicLaunchStoreUrl(
+                AppConstants.gestaoYahwehPlayStoreUrl));
+          },
+          icon: const Icon(Icons.android_rounded, color: Colors.white, size: 22),
+        ),
+        IconButton(
+          tooltip: 'TestFlight (iPhone)',
+          onPressed: () {
+            unawaited(PublicSiteAnalytics.logMarketingAction(
+                'marketing_bar_testflight'));
+            unawaited(sitePublicLaunchStoreUrl(
+                AppConstants.gestaoYahwehTestFlightUrl));
+          },
+          icon: const Icon(Icons.apple_rounded, color: Colors.white, size: 22),
+        ),
         PopupMenuButton<String>(
           tooltip: 'Menu',
           icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
           color: Colors.white,
           onSelected: (value) {
             switch (value) {
+              case 'play':
+                unawaited(PublicSiteAnalytics.logMarketingAction(
+                    'marketing_menu_play'));
+                unawaited(sitePublicLaunchStoreUrl(
+                    AppConstants.gestaoYahwehPlayStoreUrl));
+                break;
+              case 'testflight':
+                unawaited(PublicSiteAnalytics.logMarketingAction(
+                    'marketing_menu_testflight'));
+                unawaited(sitePublicLaunchStoreUrl(
+                    AppConstants.gestaoYahwehTestFlightUrl));
+                break;
               case 'planos':
                 unawaited(PublicSiteAnalytics.logMarketingAction(
                     'marketing_menu_planos'));
@@ -141,6 +180,23 @@ class _SitePublicPageState extends State<SitePublicPage>
             }
           },
           itemBuilder: (ctx) => const [
+            PopupMenuItem(
+              value: 'play',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.android_rounded,
+                    size: 22, color: Color(0xFF01875F)),
+                title: Text('Google Play (Android)'),
+              ),
+            ),
+            PopupMenuItem(
+              value: 'testflight',
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.apple_rounded, size: 22),
+                title: Text('TestFlight (iPhone)'),
+              ),
+            ),
             PopupMenuItem(
               value: 'planos',
               child: ListTile(
@@ -237,6 +293,26 @@ class _SitePublicPageState extends State<SitePublicPage>
     }
 
     return [
+      navChip(
+        label: 'Google Play',
+        icon: Icons.android_rounded,
+        onTap: () {
+          unawaited(PublicSiteAnalytics.logMarketingAction(
+              'marketing_bar_play'));
+          unawaited(
+              sitePublicLaunchStoreUrl(AppConstants.gestaoYahwehPlayStoreUrl));
+        },
+      ),
+      navChip(
+        label: 'TestFlight',
+        icon: Icons.apple_rounded,
+        onTap: () {
+          unawaited(PublicSiteAnalytics.logMarketingAction(
+              'marketing_bar_testflight'));
+          unawaited(sitePublicLaunchStoreUrl(
+              AppConstants.gestaoYahwehTestFlightUrl));
+        },
+      ),
       navChip(
         label: 'VER PLANOS',
         icon: Icons.auto_awesome_rounded,
@@ -920,6 +996,36 @@ class _LeftHero extends StatelessWidget {
               spacing: 12,
               runSpacing: 12,
               children: [
+                ModernStoreDownloadButton(
+                  label: 'Google Play',
+                  subtitle: 'Android',
+                  icon: Icons.android_rounded,
+                  gradient: const [
+                    Color(0xFF01875F),
+                    Color(0xFF00A86B),
+                  ],
+                  onTap: () {
+                    unawaited(PublicSiteAnalytics.logMarketingAction(
+                        'marketing_hero_play'));
+                    unawaited(sitePublicLaunchStoreUrl(
+                        AppConstants.gestaoYahwehPlayStoreUrl));
+                  },
+                ),
+                ModernStoreDownloadButton(
+                  label: 'TestFlight',
+                  subtitle: 'iPhone / iPad',
+                  icon: Icons.apple_rounded,
+                  gradient: const [
+                    Color(0xFF1C1C1E),
+                    Color(0xFF3A3A3C),
+                  ],
+                  onTap: () {
+                    unawaited(PublicSiteAnalytics.logMarketingAction(
+                        'marketing_hero_testflight'));
+                    unawaited(sitePublicLaunchStoreUrl(
+                        AppConstants.gestaoYahwehTestFlightUrl));
+                  },
+                ),
                 heroBtn(
                   filled: true,
                   label: 'VER PLANOS',
@@ -1337,12 +1443,6 @@ class _PremiumFeatureTile extends StatelessWidget {
 }
 
 class _DownloadsSection extends StatelessWidget {
-  Future<void> _open(String url) async {
-    if (url.isEmpty) return;
-    final uri = Uri.parse(url);
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -1398,7 +1498,7 @@ class _DownloadsSection extends StatelessWidget {
                         Color(0xFF01875F),
                         Color(0xFF00A86B),
                       ],
-                      onTap: () => _open(androidEffective),
+                      onTap: () => sitePublicLaunchStoreUrl(androidEffective),
                     ),
                     ModernStoreDownloadButton(
                       label: 'TestFlight',
@@ -1411,11 +1511,11 @@ class _DownloadsSection extends StatelessWidget {
                       enabled: iosEffective.isNotEmpty,
                       onTap: iosEffective.isEmpty
                           ? null
-                          : () => _open(iosEffective),
+                          : () => sitePublicLaunchStoreUrl(iosEffective),
                     ),
                     if (folderUrl.isNotEmpty)
                       OutlinedButton.icon(
-                        onPressed: () => _open(folderUrl),
+                        onPressed: () => sitePublicLaunchStoreUrl(folderUrl),
                         icon: const Icon(Icons.folder_open_rounded),
                         label: const Text('Pasta de downloads'),
                         style: OutlinedButton.styleFrom(

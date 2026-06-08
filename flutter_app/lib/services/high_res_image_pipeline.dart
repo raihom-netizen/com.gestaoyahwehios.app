@@ -2,12 +2,13 @@ import 'dart:io';
 
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, kDebugMode, debugPrint;
+import 'package:flutter/foundation.dart' show compute, defaultTargetPlatform, kIsWeb, kDebugMode, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
+import 'package:gestao_yahweh/services/feed_image_encode_isolate.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_feed_photo_confirm_screen.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
@@ -214,8 +215,64 @@ Future<XFile?> _encodeFeedImageFromXFile(XFile picked) async {
     picked,
     prefix: 'gy_feed_enc',
   );
-  if (path == null) return null;
-  return _encodeFeedImageFile(path);
+  if (path != null) {
+    final encoded = await _encodeFeedImageFile(path);
+    if (encoded != null) return encoded;
+  }
+  try {
+    final rawBytes = await picked.readAsBytes();
+    if (rawBytes.isEmpty) return null;
+    final encoded = await _encodeFeedRawBytes(rawBytes);
+    if (encoded != null) return encoded;
+  } catch (e) {
+    if (kDebugMode) debugPrint('_encodeFeedImageFromXFile fallback: $e');
+  }
+  return null;
+}
+
+Future<XFile?> _encodeFeedRawBytes(Uint8List rawBytes) async {
+  if (rawBytes.isEmpty) return null;
+  final edge = kEffectiveFeedEncodeMaxEdgePx;
+  final viaPlugin = await _bytesToWebpXFile(
+    rawBytes,
+    quality: kEffectiveMuralFeedWebpQuality,
+    encodeMaxWidth: edge,
+    encodeMaxHeight: edge,
+  );
+  if (viaPlugin != null) return viaPlugin;
+  return _bytesToFeedJpegViaPureDart(rawBytes);
+}
+
+Future<XFile?> _bytesToFeedJpegViaPureDart(Uint8List rawBytes) async {
+  if (rawBytes.isEmpty) return null;
+  try {
+    final out = kIsWeb
+        ? encodeFeedImageForUploadIsolate(rawBytes)
+        : await compute(encodeFeedImageForUploadIsolate, rawBytes);
+    if (out.isEmpty) return null;
+    return _writeFeedEncodedBytesToXFile(out, ext: 'jpg', mime: 'image/jpeg');
+  } catch (e) {
+    if (kDebugMode) debugPrint('_bytesToFeedJpegViaPureDart: $e');
+    return null;
+  }
+}
+
+Future<XFile?> _writeFeedEncodedBytesToXFile(
+  Uint8List out, {
+  required String ext,
+  required String mime,
+}) async {
+  if (out.isEmpty) return null;
+  final name = 'gy_${DateTime.now().millisecondsSinceEpoch}.$ext';
+  if (kIsWeb) {
+    return XFile.fromData(out, mimeType: mime, name: name);
+  }
+  final dir = await getTemporaryDirectory();
+  final filePath = '${dir.path}/$name';
+  final f = File(filePath);
+  await f.writeAsBytes(out, flush: true);
+  if (!f.existsSync() || f.lengthSync() <= 0) return null;
+  return XFile(f.path, mimeType: mime, name: name);
 }
 
 /// Reduz bytes brutos da câmara antes do ecrã «Confirmar» (evita OOM e acelera o recorte).
@@ -242,13 +299,17 @@ Future<XFile?> _encodeFeedImageFile(String pathIn) async {
       f,
       profile: MediaImageProfile.feed,
     );
-    if (out == null || !out.existsSync()) return null;
-    final lower = out.path.toLowerCase();
-    final mime = lower.endsWith('.webp')
-        ? 'image/webp'
-        : 'image/jpeg';
-    final name = out.path.split(Platform.pathSeparator).last;
-    return XFile(out.path, mimeType: mime, name: name);
+    if (out != null && out.existsSync() && out.lengthSync() > 0) {
+      final lower = out.path.toLowerCase();
+      final mime = lower.endsWith('.webp')
+          ? 'image/webp'
+          : 'image/jpeg';
+      final name = out.path.split(Platform.pathSeparator).last;
+      return XFile(out.path, mimeType: mime, name: name);
+    }
+    final raw = await f.readAsBytes();
+    if (raw.isEmpty) return null;
+    return _encodeFeedRawBytes(raw);
   } catch (e) {
     if (kDebugMode) debugPrint('encodeFeedImageFile: $e');
     return null;
@@ -298,15 +359,18 @@ Future<XFile?> encodeFeedPickedWebAuto(
   int webpOutputQuality = kPremiumMuralFeedWebpQuality,
 }) async {
   try {
+    if (!kIsWeb) {
+      final stable = await FeedEditorMediaService.persistXFileToTemp(
+        picked,
+        prefix: 'gy_feed_web',
+      );
+      if (stable != null) {
+        return _encodeFeedImageFile(stable);
+      }
+    }
     final rawBytes = await picked.readAsBytes();
     if (rawBytes.isEmpty) return null;
-    final edge = kEffectiveFeedEncodeMaxEdgePx;
-    return _bytesToWebpXFile(
-      rawBytes,
-      quality: webpOutputQuality,
-      encodeMaxWidth: edge,
-      encodeMaxHeight: edge,
-    );
+    return _encodeFeedRawBytes(rawBytes);
   } catch (e) {
     if (kDebugMode) debugPrint('encodeFeedPickedWebAuto: $e');
     return null;
@@ -322,15 +386,21 @@ Future<List<XFile>> pickMultiEncodeFeedTurboFast(
 }) async {
   if (picked.isEmpty) return const [];
   final out = <XFile>[];
+  // Materializa já (sequencial) — URIs Android expiram antes do encode em paralelo.
+  final stable = <XFile>[];
+  for (var i = 0; i < picked.length; i++) {
+    onPickedBeforeEncode?.call(picked[i], i, picked.length);
+    final path = await FeedEditorMediaService.persistXFileToTemp(
+      picked[i],
+      prefix: 'gy_gallery',
+    );
+    stable.add(path != null ? XFile(path) : picked[i]);
+  }
   final batch = kEffectiveFeedCropParallel.clamp(1, 6);
-  for (var start = 0; start < picked.length; start += batch) {
-    final chunk = picked.skip(start).take(batch).toList();
+  for (var start = 0; start < stable.length; start += batch) {
+    final chunk = stable.skip(start).take(batch).toList();
     final encoded = await Future.wait(
-      chunk.asMap().entries.map((entry) async {
-        final globalIndex = start + entry.key;
-        onPickedBeforeEncode?.call(entry.value, globalIndex, picked.length);
-        return _encodeFeedImageFromXFile(entry.value);
-      }),
+      chunk.map(_encodeFeedImageFromXFile),
     );
     for (var j = 0; j < encoded.length; j++) {
       final file = encoded[j];
@@ -359,8 +429,15 @@ Future<List<XFile>> pickMultiCropEncodeFeedWebpSequential(
   final out = <XFile>[];
   for (var i = 0; i < picked.length; i++) {
     onPickedBeforeEncode?.call(picked[i], i, picked.length);
+    final stablePath = !kIsWeb
+        ? await FeedEditorMediaService.persistXFileToTemp(
+            picked[i],
+            prefix: 'gy_gallery',
+          )
+        : null;
+    final working = stablePath != null ? XFile(stablePath) : picked[i];
     final encoded = await cropEncodePickedToWebp(
-      picked[i],
+      working,
       profile: HighResCropProfile.feedFree,
       webCropContext: webCropContext,
       webpOutputQuality: webpOutputQuality,
@@ -566,27 +643,30 @@ Future<XFile?> _bytesToWebpXFile(
 }) async {
   if (rawBytes.isEmpty) return null;
   try {
-    final out = await MediaService.compressImageBytes(
+    var out = await MediaService.compressImageBytes(
       rawBytes,
       profile: MediaImageProfile.feed,
     );
-    if (out.isEmpty) return null;
-    final ext = _feedIosUsesStableJpeg ? 'jpg' : 'webp';
-    final mime = ext == 'webp' ? 'image/webp' : 'image/jpeg';
-    final name = 'gy_${DateTime.now().millisecondsSinceEpoch}.$ext';
-    // Importante: mobile precisa de `path` válido (para o editor carregar e
-    // re-lê bytes no `_copyNewImagesForPublish`). Bytes-only (`fromData`)
-    // deixam o `path` vazio e quebram o publish síncrono.
-    if (kIsWeb) {
-      return XFile.fromData(out, mimeType: mime, name: name);
+    if (out.isEmpty) {
+      return _bytesToFeedJpegViaPureDart(rawBytes);
     }
-    final dir = await getTemporaryDirectory();
-    final filePath = '${dir.path}/$name';
-    final f = File(filePath);
-    await f.writeAsBytes(out, flush: true);
-    return XFile(f.path, mimeType: mime, name: name);
-  } catch (_) {
-    return null;
+    var ext = _feedIosUsesStableJpeg ? 'jpg' : 'webp';
+    if (bytesLookLikeWebp(out)) {
+      ext = 'webp';
+    } else if (out.length >= 2 && out[0] == 0xFF && out[1] == 0xD8) {
+      ext = 'jpg';
+    }
+    final mime = ext == 'webp' ? 'image/webp' : 'image/jpeg';
+    final written = await _writeFeedEncodedBytesToXFile(
+      out,
+      ext: ext,
+      mime: mime,
+    );
+    if (written != null) return written;
+    return _bytesToFeedJpegViaPureDart(rawBytes);
+  } catch (e) {
+    if (kDebugMode) debugPrint('_bytesToWebpXFile: $e');
+    return _bytesToFeedJpegViaPureDart(rawBytes);
   }
 }
 

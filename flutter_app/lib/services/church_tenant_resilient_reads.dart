@@ -33,9 +33,16 @@ abstract final class ChurchTenantResilientReads {
     if (seed.isEmpty) return seed;
     final uid = (userUid ?? FirebaseAuth.instance.currentUser?.uid ?? '').trim();
     try {
-      return await operationalTenantId(seed, userUid: uid.isEmpty ? null : uid);
+      return await TenantResolverService.resolveModuleReadTenantId(
+        seed,
+        userUid: uid.isEmpty ? null : uid,
+      );
     } catch (_) {
-      return seed;
+      try {
+        return await operationalTenantId(seed, userUid: uid.isEmpty ? null : uid);
+      } catch (_) {
+        return seed;
+      }
     }
   }
 

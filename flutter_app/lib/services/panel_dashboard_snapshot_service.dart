@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 
 import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
 /// Membro leve no cache do painel (`_panel_cache/dashboard_summary`).
 class PanelHomeMemberLite {
@@ -215,6 +216,76 @@ class PanelDashboardSnapshotService {
   static final _functions =
       FirebaseFunctions.instanceFor(region: 'us-central1');
 
+  /// Docs `igrejas/{id}` do cluster (BPC legado + canónico) — painel/líderes/corpo.
+  static Future<List<String>> clusterDocIdsForPanel(String seed) async {
+    final s = seed.trim();
+    if (s.isEmpty) return const [];
+    final out = <String>{s};
+    try {
+      out.addAll(
+        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(s),
+      );
+    } catch (_) {}
+    out.addAll(TenantResolverService.anchoredClusterIdsFor(s));
+    try {
+      final readId = await TenantResolverService.resolveModuleReadTenantId(s);
+      if (readId.trim().isNotEmpty) out.add(readId.trim());
+    } catch (_) {}
+    try {
+      final op = await ChurchOperationalPaths.resolveCached(s);
+      if (op.trim().isNotEmpty) out.add(op.trim());
+    } catch (_) {}
+    return out.where((e) => e.isNotEmpty).toList();
+  }
+
+  static int _snapshotRichnessScore(PanelDashboardSnapshot s) {
+    return s.membersTotalCount +
+        s.homeLeaders.length * 8 +
+        s.homeCorpoAdmin.length * 8 +
+        s.homeAvisos.length * 3 +
+        s.birthdaysToday.length * 2;
+  }
+
+  static Future<PanelDashboardSnapshot> _readBestPanelCache(
+    List<String> clusterIds,
+  ) async {
+    var best = const PanelDashboardSnapshot();
+    var bestScore = -1;
+    for (final id in clusterIds) {
+      for (final src in [Source.cache, Source.serverAndCache]) {
+        try {
+          final snap = await cacheRef(id).get(GetOptions(source: src));
+          final parsed = _fromCacheDoc(snap);
+          final sc = _snapshotRichnessScore(parsed);
+          if (sc > bestScore) {
+            bestScore = sc;
+            best = parsed;
+          }
+        } catch (_) {}
+      }
+    }
+    return best;
+  }
+
+  static Future<String> _moduleReadTenantId(String seed) async {
+    try {
+      final readId = await TenantResolverService.resolveModuleReadTenantId(seed);
+      if (readId.trim().isNotEmpty) return readId.trim();
+    } catch (_) {}
+    try {
+      final op = await ChurchOperationalPaths.resolveCached(seed);
+      if (op.trim().isNotEmpty) return op.trim();
+    } catch (_) {}
+    return seed.trim();
+  }
+
+  /// Doc onde o servidor grava `_panel_cache` (canónico do cluster BPC, etc.).
+  static String _panelCacheWriteTenantId(String seed) {
+    final anchored = TenantResolverService.anchoredClusterIdsFor(seed);
+    if (anchored.isNotEmpty) return anchored.first;
+    return seed.trim();
+  }
+
   /// Spec produção: `dashboard_stats` — no projeto canónico = `_panel_cache/dashboard_summary`.
   static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
     return         ChurchOperationalPaths.churchDoc(tenantId.trim())
@@ -238,21 +309,24 @@ class PanelDashboardSnapshotService {
     if (tid.isEmpty) {
       return Stream.value(const PanelDashboardSnapshot());
     }
-    return Stream.fromFuture(ChurchOperationalPaths.resolveCached(tid))
-        .asyncExpand((op) => FirestoreStreamUtils.documentWatchBootstrap(cacheRef(op)).map(
-      (snap) {
-        final data = snap.data();
-        if (data == null) return const PanelDashboardSnapshot();
-        final summary = data['summary'];
-        final base = summary is Map
-            ? Map<String, dynamic>.from(summary)
-            : Map<String, dynamic>.from(data);
-        if (data['updatedAt'] is Timestamp) {
-          base['updatedAt'] = data['updatedAt'];
-        }
-        return PanelDashboardSnapshot.fromMap(base);
-      },
-    ));
+    return Stream.fromFuture(_moduleReadTenantId(tid)).asyncExpand(
+      (readId) => FirestoreStreamUtils.documentWatchBootstrap(
+        cacheRef(_panelCacheWriteTenantId(readId)),
+      ).map(
+        (snap) {
+          final data = snap.data();
+          if (data == null) return const PanelDashboardSnapshot();
+          final summary = data['summary'];
+          final base = summary is Map
+              ? Map<String, dynamic>.from(summary)
+              : Map<String, dynamic>.from(data);
+          if (data['updatedAt'] is Timestamp) {
+            base['updatedAt'] = data['updatedAt'];
+          }
+          return PanelDashboardSnapshot.fromMap(base);
+        },
+      ),
+    );
   }
 
   static PanelDashboardSnapshot _fromCacheDoc(
@@ -275,7 +349,10 @@ class PanelDashboardSnapshotService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const PanelDashboardSnapshot();
     YahwehFlowLog.dashboardStart();
-    final statsRef = dashboardStatsRef(tid);
+    final cluster = await clusterDocIdsForPanel(tid);
+    final readId = await _moduleReadTenantId(tid);
+
+    final statsRef = dashboardStatsRef(readId);
     if (statsRef != null) {
       try {
         final statsSnap = await statsRef.get(
@@ -294,30 +371,29 @@ class PanelDashboardSnapshotService {
         }
       } catch (_) {}
     }
-    try {
-      final cached = await cacheRef(tid).get(
-        const GetOptions(source: Source.cache),
-      );
-      final fromCache = _fromCacheDoc(cached);
-      if (fromCache.isFreshForInstantPanel) {
-        YahwehFlowLog.dashboardSuccess();
-        return fromCache;
-      }
-    } catch (_) {}
-    try {
-      final snap = await cacheRef(tid).get();
-      final out = _fromCacheDoc(snap);
-      if (out.isFreshForInstantPanel && out.membersTotalCount > 0) {
-        YahwehFlowLog.dashboardSuccess();
-        return out;
-      }
-    } catch (_) {}
+
+    final fromCluster = await _readBestPanelCache(
+      cluster.isNotEmpty ? cluster : [readId],
+    );
+    if (fromCluster.isFreshForInstantPanel) {
+      YahwehFlowLog.dashboardSuccess();
+      return fromCluster;
+    }
 
     try {
-      final warmed = await warmFromCallableIfStale(tid);
+      final warmed = await warmFromCallableIfStale(readId);
+      if (_snapshotRichnessScore(warmed) >= _snapshotRichnessScore(fromCluster)) {
+        YahwehFlowLog.dashboardSuccess();
+        return warmed;
+      }
+      if (_snapshotRichnessScore(fromCluster) > 0) {
+        YahwehFlowLog.dashboardSuccess();
+        return fromCluster;
+      }
       YahwehFlowLog.dashboardSuccess();
       return warmed;
     } catch (_) {
+      if (_snapshotRichnessScore(fromCluster) > 0) return fromCluster;
       return const PanelDashboardSnapshot();
     }
   }
@@ -338,14 +414,15 @@ class PanelDashboardSnapshotService {
   ) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const PanelDashboardSnapshot();
+    final readId = await _moduleReadTenantId(tid);
     try {
-      final doc = await cacheRef(tid).get();
+      final doc = await cacheRef(_panelCacheWriteTenantId(readId)).get();
       final u = doc.data()?['updatedAt'];
       if (u is Timestamp && _isFresh(u)) {
         return _fromCacheDoc(doc);
       }
     } catch (_) {}
-    return warmFromCallable(tenantId: tid);
+    return warmFromCallable(tenantId: readId);
   }
 
   /// Aquece o cache no servidor se estiver ausente ou velho.

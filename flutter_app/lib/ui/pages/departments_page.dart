@@ -146,9 +146,30 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     unawaited(_openDepartmentsFast());
   }
 
+  Future<void> _ensureReadTenantResolved() async {
+    final seed = widget.tenantId.trim();
+    if (seed.isEmpty) return;
+    try {
+      await ChurchTenantResilientReads.preparePanelRead(refreshToken: kIsWeb);
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final readId = await TenantResolverService.resolveModuleReadTenantId(
+        seed,
+        userUid: uid,
+      ).timeout(
+        const Duration(seconds: 14),
+        onTimeout: () => _effectiveTenantId.isNotEmpty ? _effectiveTenantId : seed,
+      );
+      if (!mounted || readId.trim().isEmpty) return;
+      if (readId.trim() != _effectiveTenantId.trim()) {
+        setState(() => _effectiveTenantId = readId.trim());
+      }
+    } catch (_) {}
+  }
+
   /// 1.º frame: Hive/Firestore cache; rede + tenant operacional em background.
   Future<void> _openDepartmentsFast() async {
-    final seed = widget.tenantId.trim();
+    await _ensureReadTenantResolved();
+    final seed = _tid.trim().isNotEmpty ? _tid : widget.tenantId.trim();
     if (seed.isEmpty) {
       unawaited(_startDeptLoad(forceServer: false));
       return;
@@ -3116,6 +3137,17 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                               ConnectionState.waiting &&
                           !deptSnap.hasData &&
                           !hasHydratedNonEmpty) {
+                        if (!_deptLoading) {
+                          return Center(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: padding.horizontal,
+                                vertical: ThemeCleanPremium.spaceLg,
+                              ),
+                              child: _emptyDepartmentsMessage(),
+                            ),
+                          );
+                        }
                         return const ChurchPanelLoadingBody();
                       }
                       int welcomeOrder(

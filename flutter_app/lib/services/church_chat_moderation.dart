@@ -68,4 +68,17 @@ abstract final class ChurchChatModeration {
       departmentData: departmentData,
     );
   }
+
+  /// Excluir **grupo** de departamento (thread + histórico) — pastor, administrador (adm/gestor) e secretário.
+  static bool canDeleteGroupConversation(String memberRole) {
+    final n = ChurchRolePermissions.normalize(memberRole);
+    return const {
+      ChurchRoleKeys.pastor,
+      ChurchRoleKeys.pastorAuxiliar,
+      ChurchRoleKeys.pastorPresidente,
+      ChurchRoleKeys.adm,
+      ChurchRoleKeys.gestor,
+      ChurchRoleKeys.secretario,
+    }.contains(n);
+  }
 }

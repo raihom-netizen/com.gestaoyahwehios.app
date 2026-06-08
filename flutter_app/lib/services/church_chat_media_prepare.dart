@@ -53,22 +53,23 @@ abstract final class ChurchChatMediaPrepare {
     if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
       final f = File(localPath);
       if (await f.exists() && await f.length() > 0) {
-        final full = await SafeImageBytes.fromPath(
-          localPath,
-          maxEdge: imageMaxEdge,
-          quality: imageQuality,
-        );
-        final thumb = await _encodeWebp(
-          full,
-          minSide: thumbEdge,
-          quality: thumbQuality,
-        );
-        return PreparedChatImage(
-          fullBytes: full,
-          fullMime: 'image/webp',
-          fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.webp',
-          thumbBytes: thumb.isNotEmpty ? thumb : null,
-        );
+        try {
+          final full = await SafeImageBytes.fromPath(
+            localPath,
+            maxEdge: imageMaxEdge,
+            quality: imageQuality,
+          );
+          final thumb = await _encodeWebp(
+            full,
+            minSide: thumbEdge,
+            quality: thumbQuality,
+          );
+          return _buildPrepared(full, thumb);
+        } catch (_) {
+          final raw = await f.readAsBytes();
+          if (raw.isEmpty) rethrow;
+          return _buildPrepared(raw, null);
+        }
       }
     }
     if (bytes != null && bytes.isNotEmpty) {
@@ -83,14 +84,32 @@ abstract final class ChurchChatMediaPrepare {
         minSide: thumbEdge,
         quality: thumbQuality,
       );
-      return PreparedChatImage(
-        fullBytes: full,
-        fullMime: 'image/webp',
-        fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.webp',
-        thumbBytes: thumb.isNotEmpty ? thumb : null,
-      );
+      return _buildPrepared(full, thumb);
     }
     throw StateError('Sem dados para preparar a foto.');
+  }
+
+  static PreparedChatImage _buildPrepared(Uint8List full, Uint8List? thumb) {
+    final webp = _bytesLookLikeWebp(full);
+    return PreparedChatImage(
+      fullBytes: full,
+      fullMime: webp ? 'image/webp' : 'image/jpeg',
+      fullFileName:
+          'chat_${DateTime.now().millisecondsSinceEpoch}.${webp ? 'webp' : 'jpg'}',
+      thumbBytes: thumb != null && thumb.isNotEmpty ? thumb : null,
+    );
+  }
+
+  static bool _bytesLookLikeWebp(Uint8List list) {
+    return list.length >= 12 &&
+        list[0] == 0x52 &&
+        list[1] == 0x49 &&
+        list[2] == 0x46 &&
+        list[3] == 0x46 &&
+        list[8] == 0x57 &&
+        list[9] == 0x45 &&
+        list[10] == 0x42 &&
+        list[11] == 0x50;
   }
 
   static Future<PreparedChatVideo?> prepareVideo(
@@ -134,16 +153,18 @@ abstract final class ChurchChatMediaPrepare {
     required int quality,
   }) async {
     if (raw.isEmpty) return raw;
-    try {
-      final out = await FlutterImageCompress.compressWithList(
-        raw,
-        quality: quality.clamp(70, 85),
-        format: CompressFormat.webp,
-        minWidth: minSide,
-        minHeight: minSide,
-      );
-      if (out.isNotEmpty) return Uint8List.fromList(out);
-    } catch (_) {}
+    for (final format in [CompressFormat.webp, CompressFormat.jpeg]) {
+      try {
+        final out = await FlutterImageCompress.compressWithList(
+          raw,
+          quality: quality.clamp(70, 85),
+          format: format,
+          minWidth: minSide,
+          minHeight: minSide,
+        );
+        if (out.isNotEmpty) return Uint8List.fromList(out);
+      } catch (_) {}
+    }
     return raw;
   }
 }

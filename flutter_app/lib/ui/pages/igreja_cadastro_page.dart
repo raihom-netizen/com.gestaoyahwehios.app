@@ -437,18 +437,38 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         );
         await ChurchTenantResilientReads.preparePanelRead(refreshToken: true);
 
-        var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
+        final readId = await TenantResolverService.resolveModuleReadTenantId(
           resolved,
+          userUid: uid,
+        ).timeout(
+          const Duration(seconds: 12),
+          onTimeout: () => resolved,
+        );
+        final profileDocId = readId.trim().isNotEmpty ? readId.trim() : resolved;
+
+        var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
+          profileDocId,
           preferServer: true,
         );
         var score =
             TenantResolverService.churchProfileRichnessScore(profile);
         if (profile.isEmpty || score < 8) {
           profile = await TenantResolverService.richestChurchProfileForCadastro(
-            resolved,
+            profileDocId,
             preferServer: true,
           );
           score = TenantResolverService.churchProfileRichnessScore(profile);
+        }
+        if ((profile.isEmpty || score < 8) && profileDocId != resolved) {
+          final fallback = await TenantResolverService.richestChurchProfileForCadastro(
+            resolved,
+            preferServer: true,
+          );
+          if (TenantResolverService.churchProfileRichnessScore(fallback) >
+              score) {
+            profile = fallback;
+            score = TenantResolverService.churchProfileRichnessScore(profile);
+          }
         }
         AgentDebugLog.log(
           location: 'igreja_cadastro_page.dart:profile',
@@ -466,6 +486,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           },
         );
         if (profile.isNotEmpty) {
+          _formHydrated = false;
+          _hydratedProfileScore = -1;
           _hydrateFormFromFirestoreDoc(resolved, profile);
         }
         if (_igrejaLiveSub == null) {

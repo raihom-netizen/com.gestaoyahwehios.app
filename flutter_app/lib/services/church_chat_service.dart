@@ -2657,4 +2657,50 @@ class ChurchChatService {
       SetOptions(merge: true),
     );
   }
+
+  /// Apaga thread de grupo (`dept_*`) e mensagens — só roles autorizados (regras Firestore).
+  static Future<bool> deleteGroupThread({
+    required String tenantId,
+    required String threadId,
+  }) async {
+    final tid = threadId.trim();
+    if (!tid.startsWith('dept_')) return false;
+    try {
+      await ensureFirebaseReadyForChatSend();
+      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final resolved = op.trim().isEmpty ? tenantId.trim() : op.trim();
+
+      final messages = messagesCol(resolved, tid);
+      while (true) {
+        final snap = await messages.limit(400).get();
+        if (snap.docs.isEmpty) break;
+        final batch = _db.batch();
+        for (final doc in snap.docs) {
+          batch.delete(doc.reference);
+        }
+        await batch.commit();
+      }
+
+      try {
+        final typing = threadRef(resolved, tid).collection('typing');
+        final typingSnap = await typing.limit(200).get();
+        if (typingSnap.docs.isNotEmpty) {
+          final batch = _db.batch();
+          for (final doc in typingSnap.docs) {
+            batch.delete(doc.reference);
+          }
+          await batch.commit();
+        }
+      } catch (_) {}
+
+      await threadRef(resolved, tid).delete();
+      return true;
+    } catch (e) {
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('deleteGroupThread: $e');
+      }
+      return false;
+    }
+  }
 }

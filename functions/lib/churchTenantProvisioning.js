@@ -114,14 +114,23 @@ function buildRootDocPatch(docId, data) {
         patch.igrejaId = canonical;
     if (!str(d["churchId"]))
         patch.churchId = canonical;
-    const slug = str(d["slug"]) || str(d["slugId"]) || str(d["alias"]) || slugHintFromDocId(docId);
+    const isBpcCanonical = canonical === churchClusterAnchors_1.BPC_CANONICAL_IGREJA_ID;
+    const slug = isBpcCanonical
+        ? churchClusterAnchors_1.BPC_PUBLIC_SLUG
+        : str(d["slug"]) || str(d["slugId"]) || str(d["alias"]) || slugHintFromDocId(docId);
     if (slug) {
-        if (!str(d["slug"]))
+        if (isBpcCanonical || !str(d["slug"]))
             patch.slug = slug;
-        if (!str(d["slugId"]))
+        if (isBpcCanonical || !str(d["slugId"]))
             patch.slugId = slug;
-        if (!str(d["alias"]))
+        if (isBpcCanonical || !str(d["alias"]))
             patch.alias = slug;
+    }
+    if (isBpcCanonical) {
+        patch.tenantId = churchClusterAnchors_1.BPC_CANONICAL_IGREJA_ID;
+        patch.igrejaId = churchClusterAnchors_1.BPC_CANONICAL_IGREJA_ID;
+        patch.churchId = churchClusterAnchors_1.BPC_CANONICAL_IGREJA_ID;
+        patch.canonicalTenantId = churchClusterAnchors_1.BPC_CANONICAL_IGREJA_ID;
     }
     if (d["ativa"] === undefined && d["active"] === undefined) {
         patch.ativa = true;

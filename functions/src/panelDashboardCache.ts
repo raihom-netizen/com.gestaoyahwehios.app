@@ -3,12 +3,220 @@ import * as admin from "firebase-admin";
 import { recomputeMembersDirectoryFromDocs } from "./membersDirectoryCache";
 import { recomputePanelMediaPrefetch } from "./panelMediaPrefetch";
 import { resolveTenantIdForCallable } from "./tenantCallableResolve";
+import {
+  addAnchoredCluster,
+  resolveAnchoredCanonicalTenantId,
+} from "./churchClusterAnchors";
 
 const RECOMPUTE_MIN_INTERVAL_MS = 45_000;
 const RECENT_AVISOS = 8;
 const RECENT_EVENTOS = 8;
 const MEMBERS_SCAN_LIMIT = 800;
 const DEPT_SCAN_LIMIT = 120;
+
+function clusterDocIdsForPanel(seed: string): string[] {
+  const out = new Set<string>();
+  const t = String(seed || "").trim();
+  if (!t) return [];
+  out.add(t);
+  addAnchoredCluster(t, out);
+  return Array.from(out).filter(Boolean);
+}
+
+function memberDedupeKey(
+  doc: admin.firestore.QueryDocumentSnapshot,
+): string {
+  const d = doc.data();
+  let cpf = canonicalCpf(pickString(d, ["CPF", "cpf"]));
+  if (cpf.length !== 11) {
+    const idDigits = normCpf(doc.id);
+    if (idDigits.length >= 9 && idDigits.length <= 11) {
+      cpf = canonicalCpf(idDigits);
+    }
+  }
+  if (cpf.length === 11) return `cpf:${cpf}`;
+  return `id:${doc.ref.path}`;
+}
+
+async function mergeMemberDocs(
+  db: admin.firestore.Firestore,
+  clusterIds: string[],
+): Promise<admin.firestore.QueryDocumentSnapshot[]> {
+  const seen = new Set<string>();
+  const merged: admin.firestore.QueryDocumentSnapshot[] = [];
+  for (const id of clusterIds) {
+    try {
+      const snap = await db
+        .collection("igrejas")
+        .doc(id)
+        .collection("membros")
+        .limit(MEMBERS_SCAN_LIMIT)
+        .get();
+      for (const doc of snap.docs) {
+        const key = memberDedupeKey(doc);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(doc);
+      }
+    } catch (e) {
+      functions.logger.warn("panelDashboardCache: merge membros", { id, e });
+    }
+  }
+  return merged;
+}
+
+async function mergeDepartmentDocs(
+  db: admin.firestore.Firestore,
+  clusterIds: string[],
+): Promise<admin.firestore.QueryDocumentSnapshot[]> {
+  const seen = new Set<string>();
+  const merged: admin.firestore.QueryDocumentSnapshot[] = [];
+  for (const id of clusterIds) {
+    try {
+      const snap = await db
+        .collection("igrejas")
+        .doc(id)
+        .collection("departamentos")
+        .limit(DEPT_SCAN_LIMIT)
+        .get();
+      for (const doc of snap.docs) {
+        const data = doc.data();
+        const name = String(data.name ?? data.nome ?? doc.id).trim().toLowerCase();
+        const key = name || doc.id;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(doc);
+      }
+    } catch (e) {
+      functions.logger.warn("panelDashboardCache: merge departamentos", { id, e });
+    }
+  }
+  return merged;
+}
+
+async function mergeRecentPosts(
+  db: admin.firestore.Firestore,
+  clusterIds: string[],
+  collection: "avisos" | "eventos",
+  orderField: "createdAt" | "startAt",
+  limit: number,
+): Promise<admin.firestore.QueryDocumentSnapshot[]> {
+  const byId = new Map<string, admin.firestore.QueryDocumentSnapshot>();
+  for (const id of clusterIds) {
+    try {
+      const snap = await db
+        .collection("igrejas")
+        .doc(id)
+        .collection(collection)
+        .orderBy(orderField, "desc")
+        .limit(limit)
+        .get();
+      for (const doc of snap.docs) {
+        if (!byId.has(doc.id)) byId.set(doc.id, doc);
+      }
+    } catch (e) {
+      functions.logger.warn(`panelDashboardCache: merge ${collection}`, { id, e });
+    }
+  }
+  const docs = Array.from(byId.values());
+  docs.sort((a, b) => {
+    const av = a.data()[orderField];
+    const bv = b.data()[orderField];
+    const am =
+      av instanceof admin.firestore.Timestamp ? av.toMillis() : 0;
+    const bm =
+      bv instanceof admin.firestore.Timestamp ? bv.toMillis() : 0;
+    return bm - am;
+  });
+  return docs.slice(0, limit);
+}
+
+async function mergeUpcomingEventDocs(
+  db: admin.firestore.Firestore,
+  clusterIds: string[],
+): Promise<admin.firestore.QueryDocumentSnapshot[]> {
+  const byId = new Map<string, admin.firestore.QueryDocumentSnapshot>();
+  for (const id of clusterIds) {
+    try {
+      const snap = await db
+        .collection("igrejas")
+        .doc(id)
+        .collection("eventos")
+        .where("type", "==", "evento")
+        .orderBy("startAt", "asc")
+        .limit(24)
+        .get();
+      for (const doc of snap.docs) {
+        if (!byId.has(doc.id)) byId.set(doc.id, doc);
+      }
+    } catch (e) {
+      functions.logger.warn("panelDashboardCache: merge upcoming eventos", { id, e });
+    }
+  }
+  const docs = Array.from(byId.values());
+  docs.sort((a, b) => {
+    const av = a.data().startAt;
+    const bv = b.data().startAt;
+    const am =
+      av instanceof admin.firestore.Timestamp ? av.toMillis() : 0;
+    const bm =
+      bv instanceof admin.firestore.Timestamp ? bv.toMillis() : 0;
+    return am - bm;
+  });
+  return docs.slice(0, 24);
+}
+
+async function loadBirthdayMemberDocsCluster(
+  db: admin.firestore.Firestore,
+  clusterIds: string[],
+): Promise<admin.firestore.QueryDocumentSnapshot[]> {
+  const seen = new Set<string>();
+  const merged: admin.firestore.QueryDocumentSnapshot[] = [];
+  const month = new Date().getMonth() + 1;
+  for (const id of clusterIds) {
+    try {
+      const membrosCol = db.collection("igrejas").doc(id).collection("membros");
+      const snap = await membrosCol
+        .where("birthMonth", "==", month)
+        .limit(120)
+        .get();
+      for (const doc of snap.docs) {
+        const key = memberDedupeKey(doc);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(doc);
+      }
+    } catch (e) {
+      functions.logger.warn("panelDashboardCache: birthMonth cluster", { id, e });
+    }
+  }
+  return merged;
+}
+
+async function richestChurchData(
+  db: admin.firestore.Firestore,
+  clusterIds: string[],
+): Promise<Record<string, unknown> | undefined> {
+  let best: Record<string, unknown> | undefined;
+  let bestScore = -1;
+  for (const id of clusterIds) {
+    try {
+      const snap = await db.collection("igrejas").doc(id).get();
+      if (!snap.exists) continue;
+      const data = snap.data() as Record<string, unknown>;
+      let score = Object.keys(data).length;
+      const depts = data.departamentos ?? data.departments;
+      if (Array.isArray(depts)) score += depts.length * 4;
+      if (pickString(data, ["slug", "slugId", "alias"])) score += 20;
+      if (pickString(data, ["name", "nome"])) score += 10;
+      if (score > bestScore) {
+        bestScore = score;
+        best = data;
+      }
+    } catch (_) {}
+  }
+  return best;
+}
 
 async function safeCount(q: admin.firestore.Query): Promise<number> {
   try {
@@ -18,6 +226,20 @@ async function safeCount(q: admin.firestore.Query): Promise<number> {
     functions.logger.warn("panelDashboardCache: count falhou", { e });
     return 0;
   }
+}
+
+async function sumCountsAcrossCluster(
+  db: admin.firestore.Firestore,
+  clusterIds: string[],
+  counter: (churchRef: admin.firestore.DocumentReference) => Promise<number>,
+): Promise<number> {
+  let total = 0;
+  for (const id of clusterIds) {
+    try {
+      total += await counter(db.collection("igrejas").doc(id));
+    } catch (_) {}
+  }
+  return total;
 }
 
 function pickString(data: Record<string, unknown>, keys: string[]): string {
@@ -452,8 +674,12 @@ function computeCorpoAdmin(
  */
 export async function recomputePanelDashboardSummary(tenantId: string): Promise<void> {
   const db = admin.firestore();
-  const tid = String(tenantId || "").trim();
+  const canonical = resolveAnchoredCanonicalTenantId(String(tenantId || "").trim());
+  const tid = canonical || String(tenantId || "").trim();
   if (!tid) return;
+
+  const clusterIds = clusterDocIdsForPanel(tid);
+  const scanIds = clusterIds.length > 0 ? clusterIds : [tid];
 
   const churchRef = db.collection("igrejas").doc(tid);
   const cacheCol = churchRef.collection("_panel_cache");
@@ -473,46 +699,42 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
     { merge: true },
   );
 
-  const membrosCol = churchRef.collection("membros");
-  const avisosCol = churchRef.collection("avisos");
-  const noticiasCol = churchRef.collection("eventos");
-
-  const churchSnap = await churchRef.get();
-  const corpoRolesConfigured = configuredCorpoAdminRoles(
-    churchSnap.data() as Record<string, unknown> | undefined,
-  );
+  const richestChurch = await richestChurchData(db, scanIds);
+  const corpoRolesConfigured = configuredCorpoAdminRoles(richestChurch);
 
   const [
     pendingMembers,
     newVisitors,
     openPrayers,
-    membersTotal,
-    avisosSnap,
-    eventosSnap,
-    eventosProximosSnap,
-    membrosSnap,
-    deptSnap,
+    avisosDocs,
+    eventosDocs,
+    eventosProximosDocs,
+    membrosMerged,
+    deptMerged,
     birthdayMonthDocs,
   ] = await Promise.all([
-    safeCount(membrosCol.where("status", "==", "pendente")),
-    safeCount(churchRef.collection("visitantes").where("status", "==", "Novo")),
-    safeCount(churchRef.collection("pedidosOracao").where("respondida", "==", false)),
-    safeCount(membrosCol),
-    avisosCol.orderBy("createdAt", "desc").limit(RECENT_AVISOS).get(),
-    noticiasCol.orderBy("startAt", "desc").limit(RECENT_EVENTOS).get(),
-    noticiasCol
-      .where("type", "==", "evento")
-      .orderBy("startAt", "asc")
-      .limit(24)
-      .get(),
-    membrosCol.limit(MEMBERS_SCAN_LIMIT).get(),
-    churchRef.collection("departamentos").limit(DEPT_SCAN_LIMIT).get(),
-    loadBirthdayMemberDocs(membrosCol),
+    sumCountsAcrossCluster(db, scanIds, (ref) =>
+      safeCount(ref.collection("membros").where("status", "==", "pendente")),
+    ),
+    sumCountsAcrossCluster(db, scanIds, (ref) =>
+      safeCount(ref.collection("visitantes").where("status", "==", "Novo")),
+    ),
+    sumCountsAcrossCluster(db, scanIds, (ref) =>
+      safeCount(ref.collection("pedidosOracao").where("respondida", "==", false)),
+    ),
+    mergeRecentPosts(db, scanIds, "avisos", "createdAt", RECENT_AVISOS),
+    mergeRecentPosts(db, scanIds, "eventos", "startAt", RECENT_EVENTOS),
+    mergeUpcomingEventDocs(db, scanIds),
+    mergeMemberDocs(db, scanIds),
+    mergeDepartmentDocs(db, scanIds),
+    loadBirthdayMemberDocsCluster(db, scanIds),
   ]);
+
+  const membersTotal = membrosMerged.length;
 
   const membersByCpf = new Map<string, admin.firestore.QueryDocumentSnapshot>();
   const authUidToCpf = new Map<string, string>();
-  for (const doc of membrosSnap.docs) {
+  for (const doc of membrosMerged) {
     const d = doc.data();
     let cpf = canonicalCpf(pickString(d, ["CPF", "cpf"]));
     if (cpf.length !== 11) {
@@ -529,13 +751,13 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
   }
 
   const birthdaySource =
-    birthdayMonthDocs.length > 0 ? birthdayMonthDocs : membrosSnap.docs;
+    birthdayMonthDocs.length > 0 ? birthdayMonthDocs : membrosMerged;
   const birthdayBuckets = computeBirthdayBuckets(birthdaySource);
-  const homeLeaders = computeLeaders(deptSnap.docs, membersByCpf, authUidToCpf);
-  const homeCorpoAdmin = computeCorpoAdmin(membrosSnap.docs, corpoRolesConfigured);
+  const homeLeaders = computeLeaders(deptMerged, membersByCpf, authUidToCpf);
+  const homeCorpoAdmin = computeCorpoAdmin(membrosMerged, corpoRolesConfigured);
 
   const nowMsEvt = Date.now();
-  const upcomingDocs = eventosProximosSnap.docs.filter((d) => {
+  const upcomingDocs = eventosProximosDocs.filter((d) => {
     const st = d.data().startAt;
     if (st instanceof admin.firestore.Timestamp) {
       return st.toMillis() >= nowMsEvt - 86_400_000;
@@ -551,8 +773,8 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
       newVisitorsCount: newVisitors,
       openPrayerRequestsCount: openPrayers,
       membersTotalCount: membersTotal,
-      recentAvisos: avisosSnap.docs.map((d) => lightPost(d, "aviso")),
-      recentEventos: eventosSnap.docs.map((d) => lightPost(d, "evento")),
+      recentAvisos: avisosDocs.map((d) => lightPost(d, "aviso")),
+      recentEventos: eventosDocs.map((d) => lightPost(d, "evento")),
       upcomingEventos: upcomingDocs.map((d) => lightPost(d, "evento")),
       ...birthdayBuckets,
       homeLeaders,
@@ -574,7 +796,7 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
     { merge: true },
   );
 
-  await recomputeMembersDirectoryFromDocs(tid, membrosSnap.docs, membersTotal);
+  await recomputeMembersDirectoryFromDocs(tid, membrosMerged, membersTotal);
 
   try {
     await recomputePanelMediaPrefetch(tid);
@@ -593,7 +815,8 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
 }
 
 function scheduleRecompute(tenantId: string) {
-  recomputePanelDashboardSummary(tenantId).catch((e) => {
+  const canonical = resolveAnchoredCanonicalTenantId(tenantId);
+  recomputePanelDashboardSummary(canonical || tenantId).catch((e) => {
     functions.logger.error("panelDashboardCache: recompute", { tenantId, e });
   });
 }
@@ -629,15 +852,25 @@ export const onChurchMembroWritePanelDashboard = dashboardTrigger(
 );
 /** Atualiza só `recentAvisos` no cache (rápido) — evita recompute completo a cada aviso. */
 async function patchRecentAvisosInDashboard(tenantId: string): Promise<void> {
-  const tid = String(tenantId || "").trim();
+  const tid = resolveAnchoredCanonicalTenantId(String(tenantId || "").trim());
   if (!tid) return;
   const db = admin.firestore();
-  const churchRef = db.collection("igrejas").doc(tid);
-  const avisosCol = churchRef.collection("avisos");
-  const summaryRef = churchRef.collection("_panel_cache").doc("dashboard_summary");
+  const clusterIds = clusterDocIdsForPanel(tid);
+  const scanIds = clusterIds.length > 0 ? clusterIds : [tid];
+  const summaryRef = db
+    .collection("igrejas")
+    .doc(tid)
+    .collection("_panel_cache")
+    .doc("dashboard_summary");
 
-  const avisosSnap = await avisosCol.orderBy("createdAt", "desc").limit(RECENT_AVISOS).get();
-  const recentAvisos = avisosSnap.docs.map((d) => lightPost(d, "aviso"));
+  const avisosDocs = await mergeRecentPosts(
+    db,
+    scanIds,
+    "avisos",
+    "createdAt",
+    RECENT_AVISOS,
+  );
+  const recentAvisos = avisosDocs.map((d) => lightPost(d, "aviso"));
 
   await summaryRef.set(
     {
@@ -666,25 +899,25 @@ export const onChurchAvisoWritePanelDashboard = functions
   });
 /** Atualiza só blocos de eventos no cache (rápido) — publicar evento no app nativo não dispara recompute pesado. */
 async function patchRecentEventosInDashboard(tenantId: string): Promise<void> {
-  const tid = String(tenantId || "").trim();
+  const tid = resolveAnchoredCanonicalTenantId(String(tenantId || "").trim());
   if (!tid) return;
   const db = admin.firestore();
-  const churchRef = db.collection("igrejas").doc(tid);
-  const noticiasCol = churchRef.collection("eventos");
-  const summaryRef = churchRef.collection("_panel_cache").doc("dashboard_summary");
+  const clusterIds = clusterDocIdsForPanel(tid);
+  const scanIds = clusterIds.length > 0 ? clusterIds : [tid];
+  const summaryRef = db
+    .collection("igrejas")
+    .doc(tid)
+    .collection("_panel_cache")
+    .doc("dashboard_summary");
 
-  const [eventosSnap, eventosProximosSnap] = await Promise.all([
-    noticiasCol.orderBy("startAt", "desc").limit(RECENT_EVENTOS).get(),
-    noticiasCol
-      .where("type", "==", "evento")
-      .orderBy("startAt", "asc")
-      .limit(24)
-      .get(),
+  const [eventosDocs, eventosProximosDocs] = await Promise.all([
+    mergeRecentPosts(db, scanIds, "eventos", "startAt", RECENT_EVENTOS),
+    mergeUpcomingEventDocs(db, scanIds),
   ]);
 
-  const recentEventos = eventosSnap.docs.map((d) => lightPost(d, "evento"));
+  const recentEventos = eventosDocs.map((d) => lightPost(d, "evento"));
   const nowMsEvt = Date.now();
-  const upcomingEventos = eventosProximosSnap.docs
+  const upcomingEventos = eventosProximosDocs
     .filter((d) => {
       const st = d.data().startAt;
       if (st instanceof admin.firestore.Timestamp) {
@@ -746,11 +979,12 @@ export const getChurchPanelSnapshot = functions
     if (!tenantId) {
       throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
     }
+    const canonical = resolveAnchoredCanonicalTenantId(tenantId);
 
     const db = admin.firestore();
     const summaryRef = db
       .collection("igrejas")
-      .doc(tenantId)
+      .doc(canonical)
       .collection("_panel_cache")
       .doc("dashboard_summary");
 
@@ -765,12 +999,12 @@ export const getChurchPanelSnapshot = functions
 
     const mediaRef = db
       .collection("igrejas")
-      .doc(tenantId)
+      .doc(canonical)
       .collection("_panel_cache")
       .doc("media_prefetch");
 
     if (isStale) {
-      await recomputePanelDashboardSummary(tenantId);
+      await recomputePanelDashboardSummary(canonical);
       summary = (await summaryRef.get()).data();
     }
 
@@ -782,16 +1016,16 @@ export const getChurchPanelSnapshot = functions
       Date.now() - mpUpdated.toMillis() > staleMs;
     if (mpStale) {
       try {
-        await recomputePanelMediaPrefetch(tenantId);
+        await recomputePanelMediaPrefetch(canonical);
         mediaPrefetch = (await mediaRef.get()).data();
       } catch (e) {
-        functions.logger.warn("getChurchPanelSnapshot: media_prefetch", { tenantId, e });
+        functions.logger.warn("getChurchPanelSnapshot: media_prefetch", { tenantId: canonical, e });
       }
     }
 
     return {
       ok: true,
-      tenantId,
+      tenantId: canonical,
       summary: summary ?? {},
       mediaPrefetch: mediaPrefetch ?? {},
     };
@@ -813,8 +1047,9 @@ export const warmChurchTenantCaches = functions
     if (!tenantId) {
       throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
     }
-    await recomputePanelDashboardSummary(tenantId);
-    return { ok: true, tenantId, warmed: true };
+    const canonical = resolveAnchoredCanonicalTenantId(tenantId);
+    await recomputePanelDashboardSummary(canonical);
+    return { ok: true, tenantId: canonical, warmed: true };
   });
 
 /** Mantém `_panel_cache` fresco para apps nativos (leitura de 1 documento). */

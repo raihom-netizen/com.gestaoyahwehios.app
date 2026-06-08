@@ -3300,6 +3300,51 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   );
                   Navigator.of(context).pop();
                 }
+              } else if (v == 'delete_group') {
+                final confirm = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Excluir grupo?'),
+                    content: Text(
+                      'Apaga o histórico de «${widget.title}» para todos os membros. '
+                      'Esta ação não pode ser desfeita.',
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancelar'),
+                      ),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: ThemeCleanPremium.error,
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: const Text('Excluir grupo'),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirm != true || !context.mounted) return;
+                final deleted = await ChurchChatService.deleteGroupThread(
+                  tenantId: _tid,
+                  threadId: widget.threadId,
+                );
+                if (!context.mounted) return;
+                if (!deleted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Não foi possível excluir o grupo. Verifique a sua permissão.',
+                      ),
+                      backgroundColor: ThemeCleanPremium.error,
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Grupo excluído.')),
+                  );
+                  Navigator.of(context).pop();
+                }
               } else if (v == 'my_photo') {
                 await showChurchChatProfilePhotoSheet(
                   context,
@@ -3477,9 +3522,28 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       Icons.delete_outline_rounded,
                       color: ThemeCleanPremium.error,
                     ),
-                    title: const Text('Apagar conversa (só para mim)'),
+                    title: const Text('Excluir conversa'),
                     subtitle: const Text(
-                      'Some da lista de conversas.',
+                      'Remove da sua lista de conversas.',
+                      style: TextStyle(fontSize: 11),
+                    ),
+                  ),
+                ),
+              if (widget.isDepartment &&
+                  ChurchChatModeration.canDeleteGroupConversation(
+                    widget.memberRole,
+                  ))
+                PopupMenuItem(
+                  value: 'delete_group',
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(
+                      Icons.delete_forever_rounded,
+                      color: ThemeCleanPremium.error,
+                    ),
+                    title: const Text('Excluir grupo'),
+                    subtitle: const Text(
+                      'Apaga o histórico para todos (pastor, administrador ou secretário).',
                       style: TextStyle(fontSize: 11),
                     ),
                   ),

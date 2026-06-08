@@ -61,6 +61,7 @@ import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -296,10 +297,21 @@ class _MembersPageState extends State<MembersPage> {
   Future<Set<String>> _resolvedFirestoreTenantIds(String tenantKey) async {
     final t = tenantKey.trim();
     if (t.isEmpty) return {};
-    final ids =
-        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(t);
-    if (ids.isEmpty) return {t};
-    return ids.toSet();
+    final out = <String>{t};
+    try {
+      out.addAll(
+        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(t),
+      );
+    } catch (_) {}
+    out.addAll(TenantResolverService.anchoredClusterIdsFor(t));
+    try {
+      final readId = await TenantResolverService.resolveModuleReadTenantId(
+        t,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
+      if (readId.trim().isNotEmpty) out.add(readId.trim());
+    } catch (_) {}
+    return out.where((e) => e.trim().isNotEmpty).toSet();
   }
 
   String _filtroGenero = 'todos'; // todos, masculino, feminino
@@ -5100,6 +5112,10 @@ class _MembersPageState extends State<MembersPage> {
     setState(() => _optimisticRemovedMemberIds.add(mid));
     try {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      var loginPurgeWarning = '';
       try {
         final payload = <String, dynamic>{
           'tenantId': _effectiveTenantId,
@@ -5111,15 +5127,8 @@ class _MembersPageState extends State<MembersPage> {
             .call(payload);
       } catch (e, st) {
         debugPrint('purgeMemberFirebaseLogin $e $st');
-        if (mounted) {
-          setState(() => _optimisticRemovedMemberIds.remove(mid));
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar(
-              'Não foi possível remover o login (servidor). Verifique permissão ou tente de novo. $e',
-            ),
-          );
-        }
-        return;
+        loginPurgeWarning =
+            ' Login Firebase pode não ter sido removido — verifique depois.';
       }
       await FirebaseStorageCleanupService.deleteMemberRelatedFiles(
         tenantId: _effectiveTenantId,
@@ -5127,18 +5136,13 @@ class _MembersPageState extends State<MembersPage> {
         data: member.data,
       );
       final db = FirebaseFirestore.instance;
-      final allTenantIds =
-          await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
-              _effectiveTenantId);
+      final allDocIds = await _resolvedFirestoreTenantIds(_effectiveTenantId);
 
       final refs = <DocumentReference<Map<String, dynamic>>>[];
-      for (final tid in allTenantIds) {
+      for (final tid in allDocIds) {
         if (tid.isEmpty) continue;
-        final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-        refs.add(
-            ChurchOperationalPaths.churchDoc(op).collection('membros').doc(mid));
-        refs.add(
-            ChurchOperationalPaths.churchDoc(op).collection('members').doc(mid));
+        refs.add(db.collection('igrejas').doc(tid).collection('membros').doc(mid));
+        refs.add(db.collection('igrejas').doc(tid).collection('members').doc(mid));
       }
       final userDocIds = <String>{};
       if (authUid.isNotEmpty) userDocIds.add(authUid);
@@ -5147,12 +5151,32 @@ class _MembersPageState extends State<MembersPage> {
         refs.add(db.collection('users').doc(uid));
       }
 
+      var deletedMembroDoc = false;
+      Object? lastDeleteError;
       for (final r in refs) {
         try {
-          await r.delete();
+          final exists = (await r.get()).exists;
+          if (!exists) continue;
+          await FirestoreWebGuard.runWithWebRecovery(() => r.delete());
+          if (r.path.contains('/membros/')) deletedMembroDoc = true;
         } catch (e) {
+          lastDeleteError = e;
           debugPrint('members_page._deleteMember skip ref=$r: $e');
         }
+      }
+
+      if (!deletedMembroDoc) {
+        if (!mounted) return;
+        setState(() => _optimisticRemovedMemberIds.remove(mid));
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            lastDeleteError != null
+                ? 'Não foi possível excluir o membro no banco: $lastDeleteError'
+                : 'Membro não encontrado nos documentos da igreja (já excluído?).',
+          ),
+        );
+        _refreshMembers(forceServer: true);
+        return;
       }
 
       if (mounted) {
@@ -5160,7 +5184,10 @@ class _MembersPageState extends State<MembersPage> {
           DashboardStatsCounterService.onMemberDeleted(_effectiveTenantId),
         );
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar('"$name" excluído.'));
+          ThemeCleanPremium.successSnackBar(
+            '"$name" excluído.$loginPurgeWarning',
+          ),
+        );
         _refreshMembers(
           forceServer: true,
           clearOptimisticRemovedMemberId: mid,

@@ -3356,7 +3356,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         _newNames.add(displayName);
       });
     } else {
-      mobilePath = await FeedEditorMediaService.persistXFileToTemp(encoded);
+      final encodedPath = encoded.path.trim();
+      if (encodedPath.isNotEmpty) {
+        final existing = File(encodedPath);
+        if (existing.existsSync() && existing.lengthSync() > 0) {
+          mobilePath = encodedPath;
+        }
+      }
+      mobilePath ??= await FeedEditorMediaService.persistXFileToTemp(encoded);
       if (mobilePath == null || !File(mobilePath).existsSync()) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

@@ -125,13 +125,23 @@ abstract final class ChurchOperationalPaths {
     String? userUid,
     bool preferServer = false,
   }) async {
-    final tid = await resolve(seed, userUid: userUid);
+    final tid = await resolveModuleReadTenantId(seed, userUid: userUid);
     if (tid.isEmpty) return {};
     return TenantResolverService.loadIgrejaCadastroDocDirect(
       tid,
       preferServer: preferServer,
     );
   }
+
+  /// Resolve slug/legado → doc canónico + doc com subcoleções reais (leituras).
+  static Future<String> resolveModuleReadTenantId(
+    String seed, {
+    String? userUid,
+  }) =>
+      TenantResolverService.resolveModuleReadTenantId(
+        seed,
+        userUid: userUid ?? _currentUid,
+      );
 
   /// IDs do cluster (canónico + irmãos) para leituras master / migração.
   static Future<List<String>> clusterDocIds(String seed) async {

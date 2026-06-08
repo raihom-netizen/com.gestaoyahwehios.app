@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -372,7 +373,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       setState(() => _selectedIndex = idx);
     });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      unawaited(ensureFirebaseReadyForPanelRead().catchError((_) {}));
+      await ensureFirebaseReadyForPanelRead().catchError((_) {});
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
       await _resolveOperationalTenant(forceRefresh: true);
       if (!mounted) return;
       reportChurchClientSessionToUserDoc();
@@ -2002,7 +2006,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         );
       case 4:
         return DepartmentsPage(
-            key: const ValueKey('page_4'),
+            key: ValueKey('page_4_$_moduleTenantId'),
             tenantId: _moduleTenantId,
             role: widget.role,
             permissions: widget.permissions,

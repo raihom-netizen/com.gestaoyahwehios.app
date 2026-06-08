@@ -95,14 +95,20 @@ abstract final class SafeImageBytes {
       final raw = await YahwehHeavyWork.readFileBytes(path);
       return _compressList(Uint8List.fromList(raw), maxEdge: maxEdge, quality: quality);
     }
-    final result = await YahwehHeavyWork.run(
-      _compressPathIsolate,
-      _CompressPathMessage(path, maxEdge, quality),
-    );
-    if (result.isEmpty) {
-      throw StateError('Não foi possível comprimir a imagem.');
+    for (final format in [CompressFormat.webp, CompressFormat.jpeg]) {
+      final result = await YahwehHeavyWork.run(
+        _compressPathIsolate,
+        _CompressPathMessage(path, maxEdge, quality, format),
+      );
+      if (result.isNotEmpty) {
+        return Uint8List.fromList(result);
+      }
     }
-    return Uint8List.fromList(result);
+    final raw = await YahwehHeavyWork.readFileBytes(path);
+    if (raw.isEmpty) {
+      throw StateError('Não foi possível ler a imagem.');
+    }
+    return Uint8List.fromList(raw);
   }
 
   static Future<Uint8List> _compressList(
@@ -111,28 +117,31 @@ abstract final class SafeImageBytes {
     required int quality,
   }) async {
     if (raw.isEmpty) return raw;
-    final result = kIsWeb
-        ? await FlutterImageCompress.compressWithList(
-            raw,
-            minWidth: maxEdge,
-            minHeight: maxEdge,
-            quality: quality,
-            format: CompressFormat.webp,
-          )
-        : await YahwehHeavyWork.run(
-            _compressListIsolate,
-            _CompressListMessage(raw, maxEdge, quality),
-          );
-    if (result.isEmpty) return raw;
-    return Uint8List.fromList(result);
+    for (final format in [CompressFormat.webp, CompressFormat.jpeg]) {
+      final result = kIsWeb
+          ? await FlutterImageCompress.compressWithList(
+              raw,
+              minWidth: maxEdge,
+              minHeight: maxEdge,
+              quality: quality,
+              format: format,
+            )
+          : await YahwehHeavyWork.run(
+              _compressListIsolate,
+              _CompressListMessage(raw, maxEdge, quality, format),
+            );
+      if (result.isNotEmpty) return Uint8List.fromList(result);
+    }
+    return raw;
   }
 }
 
 class _CompressPathMessage {
-  const _CompressPathMessage(this.path, this.maxEdge, this.quality);
+  const _CompressPathMessage(this.path, this.maxEdge, this.quality, this.format);
   final String path;
   final int maxEdge;
   final int quality;
+  final CompressFormat format;
 }
 
 Future<List<int>> _compressPathIsolate(_CompressPathMessage msg) async {
@@ -141,16 +150,17 @@ Future<List<int>> _compressPathIsolate(_CompressPathMessage msg) async {
     minWidth: msg.maxEdge,
     minHeight: msg.maxEdge,
     quality: msg.quality,
-    format: CompressFormat.webp,
+    format: msg.format,
   );
   return out ?? <int>[];
 }
 
 class _CompressListMessage {
-  const _CompressListMessage(this.bytes, this.maxEdge, this.quality);
+  const _CompressListMessage(this.bytes, this.maxEdge, this.quality, this.format);
   final Uint8List bytes;
   final int maxEdge;
   final int quality;
+  final CompressFormat format;
 }
 
 Future<List<int>> _compressListIsolate(_CompressListMessage msg) async {
@@ -159,6 +169,6 @@ Future<List<int>> _compressListIsolate(_CompressListMessage msg) async {
     minWidth: msg.maxEdge,
     minHeight: msg.maxEdge,
     quality: msg.quality,
-    format: CompressFormat.webp,
+    format: msg.format,
   );
 }

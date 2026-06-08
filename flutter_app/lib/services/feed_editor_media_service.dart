@@ -56,6 +56,9 @@ abstract final class FeedEditorMediaService {
   }
 
   /// Garante ficheiro temporário legível no disco (iOS/Android).
+  ///
+  /// **Nunca** devolve o path efémero do Photo Picker — copia sempre para temp
+  /// da app (URIs/content:// expiram antes do encode em avisos/eventos).
   static Future<String?> persistXFileToTemp(
     XFile file, {
     String prefix = 'gy_feed',
@@ -64,24 +67,42 @@ abstract final class FeedEditorMediaService {
       final p = file.path.trim();
       return p.isNotEmpty ? p : null;
     }
-    final trimmed = file.path.trim();
-    if (trimmed.isNotEmpty) {
-      final f = File(trimmed);
-      if (await f.exists() && await f.length() > 0) return trimmed;
-    }
+    final dir = await getTemporaryDirectory();
+    final ext = _extensionForXFile(file);
+    final outPath =
+        '${dir.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+
     try {
       final bytes = await file.readAsBytes();
-      if (bytes.isEmpty) return null;
-      final dir = await getTemporaryDirectory();
-      final ext = _extensionForXFile(file);
-      final outPath =
-          '${dir.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      if (bytes.isNotEmpty) {
+        final out = File(outPath);
+        await out.writeAsBytes(bytes, flush: true);
+        if (await out.length() > 0) return out.path;
+      }
+    } catch (_) {}
+
+    try {
       final out = File(outPath);
-      await out.writeAsBytes(bytes, flush: true);
-      return out.path;
-    } catch (_) {
-      return null;
-    }
+      final sink = out.openWrite();
+      await sink.addStream(file.openRead());
+      await sink.close();
+      if (await out.length() > 0) return out.path;
+    } catch (_) {}
+
+    try {
+      final trimmed = file.path.trim();
+      if (trimmed.isNotEmpty) {
+        final src = File(trimmed);
+        if (await src.exists() && await src.length() > 0) {
+          await src.copy(outPath);
+          if (File(outPath).existsSync() && File(outPath).lengthSync() > 0) {
+            return outPath;
+          }
+        }
+      }
+    } catch (_) {}
+
+    return null;
   }
 
   /// Paths existentes no disco (mobile) antes do publish síncrono.
