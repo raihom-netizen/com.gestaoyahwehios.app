@@ -13,8 +13,9 @@ abstract final class SessionRestoreService {
 
   static bool _restoreAttempted = false;
 
-  static const _diskPollAttempts = 16;
-  static const _diskPollDelay = Duration(milliseconds: 80);
+  static int get _diskPollAttempts => kIsWeb ? 4 : 16;
+  static Duration get _diskPollDelay =>
+      kIsWeb ? const Duration(milliseconds: 50) : const Duration(milliseconds: 80);
 
   /// Aguarda `currentUser` do Firebase Auth (memória + persistência local).
   static Future<User?> waitForPersistedFirebaseUser() async {

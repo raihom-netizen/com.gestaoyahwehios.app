@@ -4,7 +4,7 @@ import * as admin from "firebase-admin";
 import { getFirestore, type DocumentReference, type DocumentData } from "firebase-admin/firestore";
 import { ensureChurchWelcomeSeed } from "./churchWelcomeSeed";
 import { trySendPublicSignupConfirmationEmail } from "./publicSignupEmail";
-import { topicPushNovo } from "./pushNovoConteudo";
+import { topicPushNovo, sendGyTopicPushCluster } from "./pushNovoConteudo";
 import { notifyGestoresNewMember } from "./memberRegistrationNotify";
 import { buildGyTopicMessage } from "./notificationBranding";
 import { gerarReceitasRecorrentesPendentesForTenant } from "./receitasRecorrentesScheduled";
@@ -14,6 +14,7 @@ import {
   parseCarteirinhaQueryParams,
   validateCarteirinhaCore,
 } from "./carteirinhaValidarPublic";
+import { resolveAnchoredCanonicalTenantId, addAnchoredCluster } from "./churchClusterAnchors";
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -214,16 +215,23 @@ async function canManageTenant(uid: string, tokenRole: unknown, tokenTenantId: u
 
 async function callerBelongsToTenant(callerUid: string, tenantId: string): Promise<boolean> {
   if (!tenantId) return false;
+  const effective = resolveAnchoredCanonicalTenantId(tenantId);
+  const cluster = new Set<string>([tenantId, effective]);
+  addAnchoredCluster(tenantId, cluster);
+  addAnchoredCluster(effective, cluster);
   try {
     const u = await db.collection("users").doc(callerUid).get();
     const data = u.exists ? u.data() || {} : {};
     const ut = String((data as any).tenantId || (data as any).igrejaId || "").trim();
-    if (ut === tenantId) return true;
+    if (ut && cluster.has(ut)) return true;
+    if (ut && resolveAnchoredCanonicalTenantId(ut) === effective) return true;
   } catch (_) {}
-  try {
-    const iu = await db.collection("igrejas").doc(tenantId).collection("users").doc(callerUid).get();
-    if (iu.exists) return true;
-  } catch (_) {}
+  for (const tid of cluster) {
+    try {
+      const iu = await db.collection("igrejas").doc(tid).collection("users").doc(callerUid).get();
+      if (iu.exists) return true;
+    } catch (_) {}
+  }
   return false;
 }
 
@@ -267,6 +275,34 @@ async function callerCanEditMembersDirectory(
   ]);
   if (allowed.has(role)) return true;
   return false;
+}
+
+/** Gestor, admin, pastor ou secretário — alinhado a [ChurchRolePermissions.approvePendingMembers]. */
+async function callerCanApprovePendingMembers(
+  callerUid: string,
+  tokenRole: unknown,
+  tokenTenantId: unknown,
+  tenantId: string,
+  email: string
+): Promise<boolean> {
+  if (await isAdminPanelActor(callerUid, tokenRole, email)) return true;
+  if (!(await callerBelongsToTenant(callerUid, tenantId))) return false;
+  if (await canManageTenant(callerUid, tokenRole, tokenTenantId, tenantId)) return true;
+
+  const role = normalizeRole(await resolveRoleFromTokenOrDb(callerUid, tokenRole));
+  const allowed = new Set([
+    "MASTER",
+    "ADMIN",
+    "ADM",
+    "GESTOR",
+    "PASTOR_PRESIDENTE",
+    "PASTOR",
+    "PASTORA",
+    "PASTOR_AUXILIAR",
+    "SECRETARIO",
+    "SECRETARIA",
+  ]);
+  return allowed.has(role);
 }
 
 async function getDrive() {
@@ -3895,7 +3931,7 @@ export const seedGestorBrasilParaCristo = functions
       throw new functions.https.HttpsError("permission-denied", "Acesso restrito");
     }
 
-    const tenantId = "brasilparacristo_sistema";
+    const tenantId = "igreja_o_brasil_para_cristo_jardim_goiano";
     const cpf = "94536368191";
     const email = "raihom@gmail.com";
     const password = "ca341982";
@@ -4002,7 +4038,7 @@ export const syncGestorBrasilParaCristo = functions
     if (email !== "raihom@gmail.com") {
       throw new functions.https.HttpsError("permission-denied", "Apenas o gestor Brasil para Cristo pode usar esta função.");
     }
-    const tenantId = "brasilparacristo_sistema";
+    const tenantId = "igreja_o_brasil_para_cristo_jardim_goiano";
     const cpf = "94536368191";
     const gestorName = "RAIHOM SEVERINO BARBOSA";
     const uid = context.auth.uid;
@@ -5145,13 +5181,22 @@ export const setMemberApproved = functions
     }
     const role = String((context.auth.token?.role as string) || "").toUpperCase();
     const igrejaId = context.auth.token?.igrejaId || context.auth.token?.tenantId;
-    const isGestor =
-      ["ADMIN", "ADM", "GESTOR", "MASTER"].includes(role) &&
-      (String(igrejaId) === tenantId || role === "MASTER");
-    if (!isGestor) {
-      throw new functions.https.HttpsError("permission-denied", "Apenas gestor pode aprovar.");
+    const email = String(context.auth.token?.email || "").trim().toLowerCase();
+    const effectiveTenantId = resolveAnchoredCanonicalTenantId(tenantId);
+    const canApprove = await callerCanApprovePendingMembers(
+      context.auth.uid,
+      role,
+      igrejaId,
+      effectiveTenantId,
+      email,
+    );
+    if (!canApprove) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "Sem permissão para aprovar cadastros (gestor, pastor ou secretário).",
+      );
     }
-    const found = await findMemberDocument(tenantId, memberId);
+    const found = await findMemberDocument(effectiveTenantId, memberId);
     if (!found) {
       throw new functions.https.HttpsError("not-found", "Membro não encontrado.");
     }
@@ -5167,7 +5212,7 @@ export const setMemberApproved = functions
     );
     try {
       await ensureCodigoMembroOnMember(
-        tenantId,
+        effectiveTenantId,
         memberId,
         found.data as Record<string, unknown>
       );
@@ -5178,7 +5223,12 @@ export const setMemberApproved = functions
     const d = after.data() || {};
     let authUid = String(d.authUid || "").trim();
     if (!authUid) {
-      const r = await ensureMemberFirebaseAuth(tenantId, memberId, memberRef, { ...d, STATUS: "ativo", status: "ativo" });
+      const r = await ensureMemberFirebaseAuth(
+        effectiveTenantId,
+        memberId,
+        memberRef,
+        { ...d, STATUS: "ativo", status: "ativo" },
+      );
       authUid = r.uid;
     }
     try {
@@ -5188,8 +5238,8 @@ export const setMemberApproved = functions
     }
     await admin.auth().setCustomUserClaims(authUid, {
       role: "membro",
-      igrejaId: tenantId,
-      tenantId,
+      igrejaId: effectiveTenantId,
+      tenantId: effectiveTenantId,
       active: true,
       isUser: true,
       isDriver: false,
@@ -5201,13 +5251,13 @@ export const setMemberApproved = functions
       const idx = { active: true, pendingApproval: false };
       await db
         .collection("tenants")
-        .doc(tenantId)
+        .doc(effectiveTenantId)
         .collection("usersIndex")
         .doc(cpf)
         .set(idx, { merge: true });
       await db
         .collection("igrejas")
-        .doc(tenantId)
+        .doc(effectiveTenantId)
         .collection("usersIndex")
         .doc(cpf)
         .set(idx, { merge: true });
@@ -5359,7 +5409,7 @@ export const ensureBrasilParaCristoAccess = functions
     }
 
     try {
-    const tenantId = "brasilparacristo_sistema";
+    const tenantId = "igreja_o_brasil_para_cristo_jardim_goiano";
     const cpf = "94536368191";
     const email = "raihom@gmail.com";
     const name = "Brasil para Cristo";
@@ -5498,6 +5548,16 @@ export const ensureBrasilParaCristoAccess = functions
       console.warn("ensureBrasilParaCristoAccess clusterSync", clusterErr);
     }
 
+    let financeiroFolder: Record<string, unknown> = { skipped: true };
+    try {
+      const { ensureFinanceiroStorageFolder } = await import(
+        "./churchStorageStructure"
+      );
+      financeiroFolder = await ensureFinanceiroStorageFolder(tenantId);
+    } catch (finErr) {
+      console.warn("ensureBrasilParaCristoAccess financeiroFolder", finErr);
+    }
+
     return {
       ok: true,
       tenantId,
@@ -5506,6 +5566,7 @@ export const ensureBrasilParaCristoAccess = functions
       uid: authUser?.uid ?? null,
       mpSync,
       clusterSync,
+      financeiroFolder,
       message: authUser
         ? "Acesso garantido. Use CPF 94536368191 ou e-mail raihom@gmail.com em 'Carregar igreja' e faça login."
         : "Igreja e índice CPF criados. Crie o usuário Auth com seedGestorBrasilParaCristo (senha) para poder fazer login.",
@@ -6428,20 +6489,20 @@ export const onScheduleCreate = functions
       });
 
     try {
-      await admin.messaging().send(
+      await sendGyTopicPushCluster(tenantId, "escala", (effectiveTenantId) =>
         buildGyTopicMessage({
-          topic: topicPushNovo(tenantId, "escala"),
+          topic: topicPushNovo(effectiveTenantId, "escala"),
           title: "📋 Nova escala",
           body,
           data: {
-            tenantId,
+            tenantId: effectiveTenantId,
             departmentId: deptId,
             scheduleId: context.params.id,
             type: "nova_escala",
             click_action: "FLUTTER_NOTIFICATION_CLICK",
           },
           module: "escala",
-        })
+        }),
       );
     } catch (e) {
       console.error("FCM send error (nova escala / gypush):", e);

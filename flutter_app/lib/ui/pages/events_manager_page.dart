@@ -6687,6 +6687,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     try {
       final remaining =
           (_maxPhotosPerEvent - totalAtual).clamp(1, _maxPhotosPerEvent);
+      var encodeSkipped = 0;
       await MediaHandlerService.instance.pickMultiCropEncodeFeedWebpFromGallery(
         context,
         maxPickCount: remaining,
@@ -6697,7 +6698,19 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           }
           await _addEncodedEventPhoto(encoded);
         },
+        onEncodeSkipped: (_, __) => encodeSkipped++,
       );
+      if (encodeSkipped > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            encodeSkipped == 1
+                ? 'Não foi possível preparar 1 foto. Tente outra imagem ou reinicie o app.'
+                : 'Não foi possível preparar $encodeSkipped fotos. Tente outras imagens.',
+          ),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(

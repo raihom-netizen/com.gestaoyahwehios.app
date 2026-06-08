@@ -3,7 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
-/// Sincroniza dados do cluster (doc legado → operacional `_sistema`) no servidor.
+/// Sincroniza dados do cluster BPC no servidor (canónico = doc legado com Storage).
 class ChurchClusterSyncService {
   ChurchClusterSyncService._();
 

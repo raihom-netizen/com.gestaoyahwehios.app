@@ -13,15 +13,41 @@ class TenantResolverService {
   static FirebaseFirestore get _firestore => firebaseDefaultFirestore;
   static const int _scanLimit = 350;
 
-  /// Clusters conhecidos cujo slug/alias não bate (ex.: BPC legado vs `_sistema`).
+  /// Doc Firestore + Storage canónico da Igreja Brasil para Cristo (BPC).
+  static const String kBpcCanonicalIgrejaDocId =
+      'igreja_o_brasil_para_cristo_jardim_goiano';
+
+  /// Clusters conhecidos cujo slug/alias não bate (BPC: legado vs stub `_sistema`).
   static const Map<String, List<String>> _anchoredChurchClusters = {
-    'brasilparacristo_sistema': [
-      'brasilparacristo_sistema',
+    kBpcCanonicalIgrejaDocId: [
+      kBpcCanonicalIgrejaDocId,
       'brasilparacristo',
-      'igreja_o_brasil_para_cristo_jardim_goiano',
+      'brasilparacristo_sistema',
       'iobpc-jardim-goiano',
+      'o-brasil-cristo-jardim-goiano',
     ],
   };
+
+  /// Slugs públicos (URL `/igreja/{slug}/cadastro-membro`) → doc canónico operacional.
+  static const Map<String, String> _publicSlugToCanonicalDocId = {
+    'o-brasil-cristo-jardim-goiano': kBpcCanonicalIgrejaDocId,
+    'iobpc-jardim-goiano': kBpcCanonicalIgrejaDocId,
+    'brasil-para-cristo': kBpcCanonicalIgrejaDocId,
+    'brasilparacristo': kBpcCanonicalIgrejaDocId,
+  };
+
+  /// ID operacional do cluster ancorado (Storage + subcoleções).
+  static String? _anchoredCanonicalOperationalId(Set<String> candidates) {
+    for (final entry in _anchoredChurchClusters.entries) {
+      final canonical = entry.key.trim();
+      if (canonical.isEmpty) continue;
+      final clusterIds = <String>{canonical, ...entry.value};
+      for (final c in candidates) {
+        if (clusterIds.contains(c.trim())) return canonical;
+      }
+    }
+    return null;
+  }
 
   static void _addAnchoredClusterMembers(String raw, Set<String> result) {
     final t = raw.trim();
@@ -53,22 +79,23 @@ class TenantResolverService {
       bucket.add(t);
     }
 
-    for (final s in siblings) {
-      if (s.trim().endsWith('_sistema')) addUnique(priority, s);
-    }
-    for (final members in _anchoredChurchClusters.values) {
-      for (final id in members) {
+    for (final entry in _anchoredChurchClusters.entries) {
+      addUnique(priority, entry.key);
+      for (final id in entry.value) {
         addUnique(priority, id);
       }
     }
     for (final s in siblings) {
       addUnique(rest, s);
     }
+    for (final s in siblings) {
+      if (s.trim().endsWith('_sistema')) addUnique(rest, s);
+    }
 
     return <String>[...priority, ...rest].take(maxExtra).toList();
   }
 
-  /// Doc canónico para **escritas** e Storage — prefere vínculo do utilizador e variante `_sistema`.
+  /// Doc canónico para **escritas** e Storage — cluster ancorado + doc com mais dados.
   static Future<String> _resolveCanonicalOperationalId(
     String bound,
     String claimId,
@@ -81,22 +108,17 @@ class TenantResolverService {
       if (t.isNotEmpty) candidates.add(t);
     }
 
+    final anchored = _anchoredCanonicalOperationalId(candidates);
+    if (anchored != null) return anchored;
+
     if (claimId.trim().isNotEmpty && candidates.contains(claimId.trim())) {
       return claimId.trim();
-    }
-
-    for (final c in candidates) {
-      if (c.endsWith('_sistema')) return c;
-    }
-
-    if (candidates.contains('brasilparacristo_sistema')) {
-      return 'brasilparacristo_sistema';
     }
 
     try {
       return await resolveChurchDocIdPreferringRichestCluster(
         bound,
-        preferId: claimId.trim().isEmpty ? null : claimId.trim(),
+        preferId: claimId.trim().isEmpty ? bound.trim() : claimId.trim(),
       );
     } catch (_) {
       return bound.trim().isEmpty ? claimId.trim() : bound.trim();
@@ -104,6 +126,35 @@ class TenantResolverService {
   }
 
   static Future<void> _ensureFirestore() => ensureFirebaseReadyForPanelRead();
+
+  /// Resolve `igrejas/{id}` a partir do slug da URL pública (cadastro de membro / site).
+  static Future<String?> resolveIgrejaDocIdFromPublicSlug(String rawSlug) async {
+    final slugTrim = rawSlug.trim();
+    if (slugTrim.isEmpty) return null;
+
+    final slugLower = slugTrim.toLowerCase();
+    final anchored = _publicSlugToCanonicalDocId[slugLower];
+    if (anchored != null && anchored.isNotEmpty) return anchored;
+
+    await _ensureFirestore();
+    for (final field in const ['slug', 'alias', 'slugId']) {
+      try {
+        final q = await _firestore
+            .collection('igrejas')
+            .where(field, isEqualTo: slugTrim)
+            .limit(1)
+            .get();
+        if (q.docs.isNotEmpty) return q.docs.first.id;
+      } catch (_) {}
+    }
+
+    final norm = slugLower.replaceAll(RegExp(r'[\s_\-]+'), '');
+    for (final entry in _publicSlugToCanonicalDocId.entries) {
+      final kNorm = entry.key.replaceAll(RegExp(r'[\s_\-]+'), '');
+      if (kNorm == norm) return entry.value;
+    }
+    return null;
+  }
 
   static String _normalize(String s) {
     if (s.isEmpty) return '';
@@ -364,10 +415,44 @@ class TenantResolverService {
     bump('cnpj');
     bump('CNPJ');
     bump('gestorNome');
+    bump('gestorEmail');
+    bump('gestorTelefone');
+    bump('gestorCpf');
+    bump('endereco');
+    bump('instagramUrl');
     bump('logoUrl');
     bump('logoProcessedUrl');
     if (data['registrationComplete'] == true) score += 3;
     return score;
+  }
+
+  /// Leitura directa do doc canónico `igrejas/{id}` — cadastro web (sem `tenants/`).
+  static Future<Map<String, dynamic>> loadIgrejaCadastroDocDirect(
+    String churchDocId, {
+    bool preferServer = false,
+  }) async {
+    final id = churchDocId.trim();
+    if (id.isEmpty) return {};
+    await _ensureFirestore();
+    try {
+      final snap = await _firestore
+          .collection('igrejas')
+          .doc(id)
+          .get(
+            GetOptions(
+              source: preferServer || kIsWeb
+                  ? Source.server
+                  : Source.serverAndCache,
+            ),
+          )
+          .timeout(
+            Duration(seconds: preferServer || kIsWeb ? 18 : 10),
+          );
+      if (snap.exists && snap.data() != null) {
+        return Map<String, dynamic>.from(snap.data()!);
+      }
+    } catch (_) {}
+    return {};
   }
 
   /// Score público — módulo Cadastro da Igreja decide se re-hidrata com doc mais completo.

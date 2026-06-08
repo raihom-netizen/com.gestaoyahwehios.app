@@ -2363,6 +2363,28 @@ class ChurchChatService {
     return (messageId: msgRef.id, storagePath: storagePath);
   }
 
+  /// Patch permitido pelas regras Firestore (`chatMessageMediaDeliveryPatchAllowed`).
+  static Map<String, dynamic> mediaUploadFinalizePatch({
+    required String downloadUrl,
+    required String storagePath,
+    String? thumbUrl,
+    String? fileName,
+  }) {
+    final patch = <String, dynamic>{
+      'mediaUrl': downloadUrl,
+      'storagePath': storagePath,
+      'deliveryStatus': deliverySent,
+      'uploadProgress': 1,
+    };
+    if (thumbUrl != null && thumbUrl.trim().isNotEmpty) {
+      patch['thumbUrl'] = thumbUrl.trim();
+    }
+    if (fileName != null && fileName.trim().isNotEmpty) {
+      patch['fileName'] = fileName.trim();
+    }
+    return patch;
+  }
+
   /// Completa o stub após upload no Storage.
   static Future<bool> completeMediaUploadMessage({
     required String tenantId,
@@ -2374,33 +2396,18 @@ class ChurchChatService {
     String? thumbUrl,
     int? fileSize,
   }) async {
-    final patch = ChurchChatMessageFields.withCanonicalAliases({
-      'mediaUrl': downloadUrl,
-      'fileUrl': downloadUrl,
-      'storagePath': storagePath,
-      'deliveryStatus': deliverySent,
-      'status': deliverySent,
-      'uploadProgress': 1,
-      if (fileSize != null && fileSize > 0) 'fileSize': fileSize,
-      if (fileSize != null && fileSize > 0) 'size': fileSize,
-    });
-    if (thumbUrl != null && thumbUrl.trim().isNotEmpty) {
-      final t = thumbUrl.trim();
-      patch['thumbUrl'] = t;
-      patch['thumbnailUrl'] = t;
-    }
-    if (fileName != null && fileName.trim().isNotEmpty) {
-      patch['fileName'] = fileName.trim();
-    }
+    final patch = mediaUploadFinalizePatch(
+      downloadUrl: downloadUrl,
+      storagePath: storagePath,
+      thumbUrl: thumbUrl,
+      fileName: fileName,
+    );
     final ref = messagesCol(tenantId, threadId).doc(messageId);
     try {
       await FirestoreWebGuard.runChatWriteWithRecovery(() => ref.update(patch));
     } on FirebaseException catch (e) {
-      if (thumbUrl != null &&
-          patch.containsKey('thumbUrl') &&
-          e.code == 'permission-denied') {
+      if (patch.containsKey('thumbUrl') && e.code == 'permission-denied') {
         patch.remove('thumbUrl');
-        patch.remove('thumbnailUrl');
         await ref.update(patch);
       } else {
         rethrow;

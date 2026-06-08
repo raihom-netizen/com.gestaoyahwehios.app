@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_feed_photo_confirm_screen.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
@@ -112,11 +113,11 @@ Future<XFile?> _androidFeedCropAndEncode(
   int webpOutputQuality,
 ) async {
   if (webCropContext == null || !webCropContext.mounted) {
-    return _encodeFeedImageFile(working.path);
+    return _encodeFeedImageFromXFile(working);
   }
   try {
-    final rawBytes = await File(working.path).readAsBytes();
-    if (rawBytes.isEmpty) return null;
+    final rawBytes = await _readPickedImageBytes(working);
+    if (rawBytes == null) return null;
     final previewBytes = await _downscaleBytesForFeedCropUi(rawBytes);
     // ignore: use_build_context_synchronously
     if (!webCropContext.mounted) return null;
@@ -138,7 +139,7 @@ Future<XFile?> _androidFeedCropAndEncode(
     );
   } catch (e) {
     if (kDebugMode) debugPrint('androidFeedCrop: $e');
-    return _encodeFeedImageFile(working.path);
+    return _encodeFeedImageFromXFile(working);
   }
 }
 
@@ -147,7 +148,7 @@ Future<XFile?> _iosFeedConfirmAndEncode(
   XFile working,
   BuildContext? webCropContext,
 ) async {
-  final prepared = await _encodeFeedImageFile(working.path);
+  final prepared = await _encodeFeedImageFromXFile(working);
   if (prepared == null) return null;
   final path = prepared.path;
   if (path.isEmpty) return prepared;
@@ -171,10 +172,13 @@ Future<XFile?> _iosFeedConfirmAndEncode(
 Future<XFile> _mobilePreparePickedForCrop(XFile picked) async {
   if (kIsWeb) return picked;
   try {
-    final f = File(picked.path);
-    if (!f.existsSync()) return picked;
+    final diskPath = await FeedEditorMediaService.persistXFileToTemp(
+      picked,
+      prefix: 'gy_precrop',
+    );
+    if (diskPath == null) return picked;
     final pre = await MediaService.compressImage(
-      f,
+      File(diskPath),
       profile: MediaImageProfile.feed,
     );
     if (pre != null && pre.existsSync()) {
@@ -184,6 +188,34 @@ Future<XFile> _mobilePreparePickedForCrop(XFile picked) async {
     if (kDebugMode) debugPrint('mobile pre-crop compress: $e');
   }
   return picked;
+}
+
+/// Android Photo Picker: path pode não existir — lê do disco ou [XFile.readAsBytes].
+Future<Uint8List?> _readPickedImageBytes(XFile picked) async {
+  try {
+    final trimmed = picked.path.trim();
+    if (trimmed.isNotEmpty) {
+      final f = File(trimmed);
+      if (await f.exists() && await f.length() > 0) {
+        return await f.readAsBytes();
+      }
+    }
+    final bytes = await picked.readAsBytes();
+    return bytes.isEmpty ? null : bytes;
+  } catch (e) {
+    if (kDebugMode) debugPrint('readPickedImageBytes: $e');
+    return null;
+  }
+}
+
+/// Materializa galeria (content:// / Google Fotos) e codifica para feed.
+Future<XFile?> _encodeFeedImageFromXFile(XFile picked) async {
+  final path = await FeedEditorMediaService.persistXFileToTemp(
+    picked,
+    prefix: 'gy_feed_enc',
+  );
+  if (path == null) return null;
+  return _encodeFeedImageFile(path);
 }
 
 /// Reduz bytes brutos da câmara antes do ecrã «Confirmar» (evita OOM e acelera o recorte).
@@ -297,7 +329,7 @@ Future<List<XFile>> pickMultiEncodeFeedTurboFast(
       chunk.asMap().entries.map((entry) async {
         final globalIndex = start + entry.key;
         onPickedBeforeEncode?.call(entry.value, globalIndex, picked.length);
-        return _encodeFeedImageFile(entry.value.path);
+        return _encodeFeedImageFromXFile(entry.value);
       }),
     );
     for (var j = 0; j < encoded.length; j++) {
@@ -510,7 +542,10 @@ Future<XFile?> cropEncodePickedToWebp(
   final feedEncoded = profile == HighResCropProfile.feedFree;
 
   if (!kIsWeb && feedEncoded) {
-    return _encodeFeedImageFile(pathIn);
+    if (cropped != null) {
+      return _encodeFeedImageFile(pathIn);
+    }
+    return _encodeFeedImageFromXFile(working);
   }
 
   final rawBytes = await XFile(pathIn).readAsBytes();

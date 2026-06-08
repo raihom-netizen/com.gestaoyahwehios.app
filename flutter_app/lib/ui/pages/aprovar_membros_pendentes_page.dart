@@ -212,8 +212,16 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         ? (e.message != null && e.message!.isNotEmpty
             ? e.message!
             : 'Sem permissão ou falha de rede (${e.code}).')
-        : e.toString();
+        : e is FirebaseFunctionsException
+            ? (e.message ?? 'Falha ao concluir aprovação (${e.code}).')
+            : e.toString();
     ThemeCleanPremium.showErrorSnackBarWithRetry(context, msg);
+  }
+
+  Future<void> _invokeSetMemberApproved(String memberId) async {
+    await FirebaseFunctions.instanceFor(region: 'us-central1')
+        .httpsCallable('setMemberApproved')
+        .call({'tenantId': _tid, 'memberId': memberId});
   }
 
   Future<void> _aprovarUm(String id) async {
@@ -227,12 +235,15 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         'STATUS': 'ativo',
         'aprovadoEm': FieldValue.serverTimestamp(),
       });
-      try {
-        await FirebaseFunctions.instanceFor(region: 'us-central1')
-            .httpsCallable('setMemberApproved')
-            .call({'tenantId': widget.tenantId, 'memberId': id});
-      } catch (_) {}
-      if (mounted) setState(() => _selecionados.remove(id));
+      await _invokeSetMemberApproved(id);
+      if (mounted) {
+        setState(() => _selecionados.remove(id));
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            'Membro aprovado. Login criado (senha inicial 123456).',
+          ),
+        );
+      }
     } catch (e) {
       _showApprovalError(e);
     }
@@ -335,13 +346,8 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       }
       await batch.commit();
       if (newStatus == 'ativo') {
-        final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
         for (final id in ids) {
-          try {
-            await functions
-                .httpsCallable('setMemberApproved')
-                .call({'tenantId': widget.tenantId, 'memberId': id});
-          } catch (_) {}
+          await _invokeSetMemberApproved(id);
         }
       }
       if (mounted) {
@@ -386,13 +392,8 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         });
       }
       await batch.commit();
-      final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
       for (final d in docs) {
-        try {
-          await functions
-              .httpsCallable('setMemberApproved')
-              .call({'tenantId': widget.tenantId, 'memberId': d.id});
-        } catch (_) {}
+        await _invokeSetMemberApproved(d.id);
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

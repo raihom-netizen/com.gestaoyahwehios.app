@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 /// ├── avisos/imagens/
 /// ├── eventos/imagens/ + eventos/videos/ + eventos/thumbs/
 /// ├── patrimonio/imagens/ + patrimonio/thumbs/
+/// ├── financeiro/YYYY_MM/   (comprovantes de lançamentos)
 /// └── chat_media/{images|videos|audio|docs}/ + chat_media/thumbs/
 /// ```
 ///
@@ -25,6 +26,7 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 /// | avisos | `avisos/imagens/{postId}_*.webp` |
 /// | eventos | `eventos/imagens/`, `eventos/videos/`, `eventos/thumbs/` |
 /// | patrimonio | `patrimonio/imagens/`, `patrimonio/thumbs/` |
+/// | financeiro | `financeiro/YYYY_MM/{lancamentoId}.jpg` (comprovantes) |
 /// | chat_media | `chat_media/{tipo}/`, `chat_media/thumbs/` |
 ///
 /// Legado (leitura): `membros/{id}/foto_perfil.jpg`, pastas por post/item — helpers `*Legacy()`.
@@ -95,6 +97,25 @@ abstract final class ChurchStorageLayout {
     final ym = '${dt.year}_${dt.month.toString().padLeft(2, '0')}';
     final safeExt = ext.replaceAll('.', '').trim().isEmpty ? 'jpg' : ext.replaceAll('.', '');
     return '${churchRoot(tid)}/$kSegFinanceiro/${ym}/$id.$safeExt';
+  }
+
+  /// Materializa `igrejas/{id}/financeiro/` no bucket (placeholder PNG 1×1).
+  static String financeiroFolderPlaceholderPath(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return '';
+    return '${churchRoot(tid)}/$kSegFinanceiro/_structure/placeholder.png';
+  }
+
+  /// Legado: `igrejas/{id}/comprovantes/{lancamentoId}.jpg`.
+  static String financeComprovantePathLegacy({
+    required String tenantId,
+    required String lancamentoId,
+    String ext = 'jpg',
+  }) {
+    final tid = tenantId.trim();
+    final id = _safeDocId(lancamentoId);
+    final safeExt = ext.replaceAll('.', '').trim().isEmpty ? 'jpg' : ext.replaceAll('.', '');
+    return '${churchRoot(tid)}/comprovantes/$id.$safeExt';
   }
 
   static String churchRoot(String tenantId) => 'igrejas/${tenantId.trim()}';

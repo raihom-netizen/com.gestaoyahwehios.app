@@ -17,6 +17,44 @@ abstract final class FeedEditorMediaService {
     return 'webp';
   }
 
+  /// Vídeo da galeria (Android Photo Picker): copia em stream para temp sem carregar tudo em RAM.
+  static Future<String?> persistVideoXFileToTemp(
+    XFile file, {
+    String prefix = 'gy_video',
+  }) async {
+    if (kIsWeb) {
+      final p = file.path.trim();
+      return p.isNotEmpty ? p : null;
+    }
+    final trimmed = file.path.trim();
+    if (trimmed.isNotEmpty) {
+      final f = File(trimmed);
+      if (await f.exists() && await f.length() > 0) return trimmed;
+    }
+    try {
+      final dir = await getTemporaryDirectory();
+      final name = file.name.trim().toLowerCase();
+      var ext = 'mp4';
+      if (name.endsWith('.mov')) {
+        ext = 'mov';
+      } else if (name.endsWith('.m4v')) {
+        ext = 'm4v';
+      } else if (name.endsWith('.webm')) {
+        ext = 'webm';
+      }
+      final outPath =
+          '${dir.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      final out = File(outPath);
+      final sink = out.openWrite();
+      await sink.addStream(file.openRead());
+      await sink.close();
+      if (await out.length() > 0) return outPath;
+    } catch (_) {
+      return null;
+    }
+    return null;
+  }
+
   /// Garante ficheiro temporário legível no disco (iOS/Android).
   static Future<String?> persistXFileToTemp(
     XFile file, {

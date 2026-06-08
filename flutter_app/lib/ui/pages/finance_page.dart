@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
+import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
@@ -1137,6 +1138,11 @@ class _FinancePageState extends State<FinancePage>
         _notifyFinanceChanged();
       }
       final effective = _tid;
+      unawaited(
+        FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(
+          effective,
+        ),
+      );
       unawaited(
         Future.wait([
           ChurchTenantResilientReads.financeRecent(

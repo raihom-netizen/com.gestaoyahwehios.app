@@ -12,10 +12,12 @@ import '../services/ios_payments_gate.dart';
 import 'pages/biometric_lock_page.dart';
 import 'pages/change_password_page.dart';
 import 'pages/completar_cadastro_membro_page.dart';
+import 'login_page.dart';
 import 'igreja_clean_shell.dart';
 import 'widgets/global_announcement_overlay.dart';
 import 'widgets/gestao_foreground_notification_snackbar.dart';
 import '../services/app_connectivity_service.dart';
+import '../services/app_shell_session_cache.dart';
 import '../services/auth_profile_cache_service.dart';
 import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
@@ -508,8 +510,8 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     if (!kIsWeb) return;
     _webSessionCapTimer?.cancel();
     final delay = AppSessionStability.hasReturningSessionHints()
-        ? const Duration(seconds: 12)
-        : const Duration(seconds: 5);
+        ? const Duration(seconds: 3)
+        : const Duration(milliseconds: 900);
     _webSessionCapTimer = Timer(delay, () async {
       if (!mounted) return;
       final sync = FirebaseAuth.instance.currentUser;
@@ -598,6 +600,8 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         }
       }
       if (!mounted) return;
+      await AppShellSessionCache.clear();
+      AppSessionStability.clearStickyUser();
       await ChurchSignOutNavigation.redirectAfterSignOut();
     });
   }
@@ -1269,6 +1273,19 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         );
 
         if (user == null || user.isAnonymous) {
+          final hasHints = AppSessionStability.hasReturningSessionHints();
+
+          // Mobile: sem sessão nem pistas — login imediato (evita tela branca após chat/mídia).
+          if (!kIsWeb &&
+              !hasHints &&
+              snap.connectionState == ConnectionState.active) {
+            return LoginPage(
+              title: 'Entrar — Painel da Igreja',
+              afterLoginRoute: '/painel',
+              showFleetBranding: false,
+            );
+          }
+
           if (kIsWeb && _webSessionCapHit) {
             if (!_scheduledLoginRedirect) {
               _scheduledLoginRedirect = true;
@@ -1277,10 +1294,9 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
             return _authGateWaitingScaffold(message: 'A ir para o login…');
           }
 
-          final sessionRestorePending =
-              !_webSessionCapHit &&
-              (snap.connectionState == ConnectionState.waiting ||
-                  AppSessionStability.hasReturningSessionHints());
+          final sessionRestorePending = !_webSessionCapHit &&
+              hasHints &&
+              snap.connectionState == ConnectionState.waiting;
           if (sessionRestorePending) {
             _kickSessionRestore();
             final sticky = AppSessionStability.effectiveAuthUser(
@@ -1651,12 +1667,14 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     final roleTxt = (p['role'] ?? '').toString().toLowerCase();
 
     if (!kIsWeb) {
-      FcmService.instance.configure(
-        uid: user.uid,
-        tenantId: igrejaId,
-        cpf: cpf,
-        role: roleTxt,
-        onForegroundMessage: (msg) {
+      unawaited(
+        FcmService.instance.configure(
+          uid: user.uid,
+          tenantId: igrejaId,
+          cpf: cpf,
+          role: roleTxt,
+          forceRefresh: true,
+          onForegroundMessage: (msg) {
           unawaited(() async {
             if (!context.mounted) return;
             if (await ChurchChatNotificationPrefs.shouldSuppressForegroundSnack(
@@ -1675,6 +1693,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
             }
           }());
         },
+        ),
       );
     }
     final dashboard = IgrejaCleanShell(

@@ -63,13 +63,13 @@ async function notifyGestoresNewMember(params) {
     const body = publicSignup
         ? `${nome} cadastrou-se pelo site público. Toque para ver ou aprovar.`
         : `${nome} foi cadastrado(a) na igreja. Toque para ver a ficha.`;
-    await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
-        topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "gestores"),
+    await (0, pushNovoConteudo_1.sendGyTopicPushCluster)(tenantId, "gestores", (effectiveTenantId) => (0, notificationBranding_1.buildGyTopicMessage)({
+        topic: (0, pushNovoConteudo_1.topicPushNovo)(effectiveTenantId, "gestores"),
         title: publicSignup ? "⚡ Novo cadastro (site)" : "👤 Novo membro",
         body,
         data: {
             type: "new_member",
-            tenantId,
+            tenantId: effectiveTenantId,
             memberId: membroId,
             publicSignup: publicSignup ? "1" : "0",
             click_action: "FLUTTER_NOTIFICATION_CLICK",

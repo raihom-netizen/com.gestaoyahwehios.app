@@ -32,6 +32,7 @@ import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
+import 'package:gestao_yahweh/services/church_chat_local_file_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -224,6 +225,27 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   String? _effectiveTenantId;
 
   String get _tid => (_effectiveTenantId ?? widget.tenantId).trim();
+
+  Future<String> _awaitOperationalTenantId() async {
+    final cached = (_effectiveTenantId ?? '').trim();
+    if (cached.isNotEmpty) return cached;
+    try {
+      final tid = await TenantResolverService.resolveOperationalChurchDocId(
+        widget.tenantId,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+        forceRefresh: false,
+      );
+      final resolved = tid.trim();
+      if (resolved.isEmpty) return widget.tenantId.trim();
+      if (mounted && _effectiveTenantId != resolved) {
+        setState(() => _effectiveTenantId = resolved);
+        _bindChatFirestoreStreams(resolved);
+      }
+      return resolved;
+    } catch (_) {
+      return widget.tenantId.trim();
+    }
+  }
 
   double _chatBubbleMaxWidth(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
@@ -1775,8 +1797,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       if (!ok || !mounted) return;
     }
     if (!kIsWeb && (x.path ?? '').isNotEmpty) {
+      final mat = await ChurchChatLocalFileService.materializeXFile(x);
+      if (mat == null || mat.isEmpty) {
+        if (mounted) {
+          _showChatAttachmentError(
+            'Não foi possível ler a foto. Tente outra imagem.',
+          );
+        }
+        return;
+      }
       unawaited(_uploadAndSendFromPath(
-        x.path!,
+        mat,
         name,
         mime,
         kind,
@@ -1879,7 +1910,19 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       if (!ok || !mounted) return;
     }
     if (!kIsWeb && x.path != null && x.path!.isNotEmpty) {
-      unawaited(_uploadAndSendFromPath(x.path!, name, mime, kind));
+      final mat = await ChurchChatLocalFileService.materializeXFile(
+        x,
+        video: true,
+      );
+      if (mat == null || mat.isEmpty) {
+        if (mounted) {
+          _showChatAttachmentError(
+            'Não foi possível ler o vídeo. Tente outro ficheiro.',
+          );
+        }
+        return;
+      }
+      unawaited(_uploadAndSendFromPath(mat, name, mime, kind));
       return;
     }
     final bytes = await x.readAsBytes();
@@ -1936,9 +1979,18 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
       return;
     }
-    if (!kIsWeb && (f.path ?? '').isNotEmpty) {
+    if (!kIsWeb) {
+      final mat = await ChurchChatLocalFileService.materializePlatformFile(f);
+      if (mat == null || mat.isEmpty) {
+        if (mounted) {
+          _showChatAttachmentError(
+            'Não foi possível ler «$name». Tente outro ficheiro.',
+          );
+        }
+        return;
+      }
       unawaited(_uploadAndSendFromPath(
-        f.path!,
+        mat,
         name,
         mime,
         kind,
@@ -2309,6 +2361,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required List<int>? bytes,
     required String? localPath,
   }) async {
+    await _awaitOperationalTenantId();
     _enqueuePending(pending);
     _setPendingProgress(pending.localId, 0.02);
     if (bytes != null && bytes.isNotEmpty) {
@@ -2385,6 +2438,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       _showChatAttachmentError(blocked);
       return;
     }
+    await _awaitOperationalTenantId();
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
@@ -2497,6 +2551,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       _showChatAttachmentError(blocked);
       return;
     }
+    await _awaitOperationalTenantId();
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChurchChatService.clearTypingForMe(
@@ -3015,12 +3070,24 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
     if (voicePath == null || voicePath.isEmpty) return;
 
-    final path = voicePath;
-    final lower = path.toLowerCase();
+    final mat = await ChurchChatLocalFileService.materializeLocalPath(voicePath);
+    if (mat == null || mat.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Não foi possível ler o áudio gravado. Tente de novo.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    final lower = mat.toLowerCase();
     final ext = lower.endsWith('.wav') ? 'wav' : 'm4a';
     final name = 'voice_${DateTime.now().millisecondsSinceEpoch}.$ext';
     final mime = ChurchChatAttachmentUtils.mimeFromFileName(name);
-    unawaited(_uploadAndSendFromPath(path, name, mime, 'audio'));
+    unawaited(_uploadAndSendFromPath(mat, name, mime, 'audio'));
   }
 
   Future<void> _openAttachmentExternally(String rawUrl) async {

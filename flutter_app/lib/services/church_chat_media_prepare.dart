@@ -51,22 +51,25 @@ abstract final class ChurchChatMediaPrepare {
     String? localPath,
   }) async {
     if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
-      final full = await SafeImageBytes.fromPath(
-        localPath,
-        maxEdge: imageMaxEdge,
-        quality: imageQuality,
-      );
-      final thumb = await _encodeWebp(
-        full,
-        minSide: thumbEdge,
-        quality: thumbQuality,
-      );
-      return PreparedChatImage(
-        fullBytes: full,
-        fullMime: 'image/webp',
-        fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.webp',
-        thumbBytes: thumb.isNotEmpty ? thumb : null,
-      );
+      final f = File(localPath);
+      if (await f.exists() && await f.length() > 0) {
+        final full = await SafeImageBytes.fromPath(
+          localPath,
+          maxEdge: imageMaxEdge,
+          quality: imageQuality,
+        );
+        final thumb = await _encodeWebp(
+          full,
+          minSide: thumbEdge,
+          quality: thumbQuality,
+        );
+        return PreparedChatImage(
+          fullBytes: full,
+          fullMime: 'image/webp',
+          fullFileName: 'chat_${DateTime.now().millisecondsSinceEpoch}.webp',
+          thumbBytes: thumb.isNotEmpty ? thumb : null,
+        );
+      }
     }
     if (bytes != null && bytes.isNotEmpty) {
       final source = Uint8List.fromList(bytes);

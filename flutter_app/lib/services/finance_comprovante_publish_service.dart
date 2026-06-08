@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/storage_service.dart';
+import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 /// Financeiro — lançamento gravado primeiro; comprovante em background.
@@ -71,6 +72,9 @@ abstract final class FinanceComprovantePublishService {
     void Function(String url)? onSuccess,
   }) async {
     YahwehFlowLog.uploadStart('comprovante');
+    await FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(
+      tenantId,
+    );
     final path = ChurchStorageLayout.financeComprovantePath(
       tenantId: tenantId,
       lancamentoId: docRef.id,

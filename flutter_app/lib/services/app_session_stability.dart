@@ -122,6 +122,11 @@ abstract final class AppSessionStability {
     }
   }
 
+  /// Limpa utilizador «sticky» após falha de restauração (evita AuthGate preso).
+  static void clearStickyUser() {
+    _stickyUser = null;
+  }
+
   /// Utilizador efetivo para [StreamBuilder] de auth — evita logout fantasma.
   static User? effectiveAuthUser(
     User? streamUser, {
@@ -136,11 +141,11 @@ abstract final class AppSessionStability {
       _stickyUser = sync;
       return sync;
     }
+    // Só durante «waiting» — em «active» sem Firebase o sticky causa tela branca no AuthGate.
     final sticky = _stickyUser;
     if (sticky != null &&
         !sticky.isAnonymous &&
-        (connectionState == ConnectionState.waiting ||
-            connectionState == ConnectionState.active)) {
+        connectionState == ConnectionState.waiting) {
       return sticky;
     }
     return streamUser;

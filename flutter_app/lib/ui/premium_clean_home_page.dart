@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
 /// ✅ Landing Premium Clean (fundo branco, logo grande, módulos modernos)
 /// - Campo CPF (11 dígitos) → consulta via Cloud Function `resolveCpfToEmail`
@@ -21,7 +22,10 @@ class _PremiumCleanHomePageState extends State<PremiumCleanHomePage> {
   Map<String, dynamic>? _profile;
 
   String _prettyTenant(String tenantId) {
-    if (tenantId == 'brasilparacristo_sistema') return 'Brasil para Cristo (BPC)';
+    if (tenantId == TenantResolverService.kBpcCanonicalIgrejaDocId ||
+        tenantId == 'brasilparacristo_sistema') {
+      return 'Brasil para Cristo (BPC)';
+    }
     return tenantId.replaceAll('_', ' ');
   }
 

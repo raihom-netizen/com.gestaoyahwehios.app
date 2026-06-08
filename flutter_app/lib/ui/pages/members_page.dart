@@ -338,7 +338,8 @@ class _MembersPageState extends State<MembersPage> {
   /// Bytes JPEG/WebP já comprimidos — mostra a foto na lista antes do upload concluir.
   final Map<String, Uint8List> _optimisticProfilePhotoBytes = {};
   static const int _membersPageSize = YahwehPerformanceV4.defaultPageSize;
-  static const int _membersListInstantCap = 100;
+  /// Lista completa via `_panel_cache/members_directory` (62+ membros) — não paginar na UI.
+  static const int _membersListInstantCap = 500;
   int _membersVisibleCount = _membersPageSize;
 
   /// Cache `_panel_cache/members_directory` — lista + fotos antes do load Firestore.
@@ -363,19 +364,44 @@ class _MembersPageState extends State<MembersPage> {
     return age;
   }
 
+  /// Busca sem acentos (ex.: «cata» → «Catalina», «raih» → «Raihom»).
+  static String _foldSearchText(String raw) {
+    var s = raw.trim().toLowerCase();
+    if (s.isEmpty) return s;
+    const pairs = <(String, String)>[
+      ('á', 'a'), ('à', 'a'), ('â', 'a'), ('ã', 'a'), ('ä', 'a'),
+      ('é', 'e'), ('è', 'e'), ('ê', 'e'), ('ë', 'e'),
+      ('í', 'i'), ('ì', 'i'), ('î', 'i'), ('ï', 'i'),
+      ('ó', 'o'), ('ò', 'o'), ('ô', 'o'), ('õ', 'o'), ('ö', 'o'),
+      ('ú', 'u'), ('ù', 'u'), ('û', 'u'), ('ü', 'u'),
+      ('ç', 'c'), ('ñ', 'n'),
+    ];
+    for (final p in pairs) {
+      s = s.replaceAll(p.$1, p.$2);
+    }
+    return s;
+  }
+
+  static bool _searchFieldMatches(String? field, String qFold, String qRaw) {
+    if (field == null || field.trim().isEmpty) return false;
+    final raw = field.trim().toLowerCase();
+    if (raw.contains(qRaw)) return true;
+    return _foldSearchText(raw).contains(qFold);
+  }
+
   /// [applySearch] false = painel estatístico ignora a caixa de busca (lista continua a usar).
   List<_MemberDoc> _aplicarFiltros(List<_MemberDoc> docs,
       {bool applySearch = true}) {
     var out = docs;
     if (applySearch && _q.isNotEmpty) {
+      final qFold = _foldSearchText(_q);
       final qDigits = _q.replaceAll(RegExp(r'\D'), '');
       out = out.where((d) {
         final m = d.data;
         final name = (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
-            .toString()
-            .toLowerCase();
-        final email = (m['EMAIL'] ?? m['email'] ?? '').toString().toLowerCase();
-        final cpf = (m['CPF'] ?? m['cpf'] ?? '').toString().toLowerCase();
+            .toString();
+        final email = (m['EMAIL'] ?? m['email'] ?? '').toString();
+        final cpf = (m['CPF'] ?? m['cpf'] ?? '').toString();
         final phoneRaw = (m['TELEFONES'] ??
                 m['TELEFONE'] ??
                 m['telefone'] ??
@@ -383,7 +409,9 @@ class _MembersPageState extends State<MembersPage> {
                 '')
             .toString();
         final phone = phoneRaw.toLowerCase().replaceAll(RegExp(r'\D'), '');
-        if (name.contains(_q) || email.contains(_q) || cpf.contains(_q)) {
+        if (_searchFieldMatches(name, qFold, _q) ||
+            _searchFieldMatches(email, qFold, _q) ||
+            _searchFieldMatches(cpf, qFold, _q)) {
           return true;
         }
         if (phoneRaw.toLowerCase().contains(_q)) return true;
@@ -393,13 +421,12 @@ class _MembersPageState extends State<MembersPage> {
                 m['role'] ??
                 m['FUNCAO_PERMISSOES'] ??
                 '')
-            .toString()
-            .toLowerCase();
-        if (cargo.contains(_q)) return true;
+            .toString();
+        if (_searchFieldMatches(cargo, qFold, _q)) return true;
         final funcoes = m['FUNCOES'] ?? m['funcoes'];
         if (funcoes is List) {
           for (final e in funcoes) {
-            if (e.toString().toLowerCase().contains(_q)) return true;
+            if (_searchFieldMatches(e.toString(), qFold, _q)) return true;
           }
         }
         return false;
@@ -706,8 +733,11 @@ class _MembersPageState extends State<MembersPage> {
       ..sort((a, b) => a.displayName
           .toLowerCase()
           .compareTo(b.displayName.toLowerCase()));
-    if (sorted.length > 600) {
-      sorted.removeRange(600, sorted.length);
+    if (_directoryCache.totalCount > 0 &&
+        sorted.length > _directoryCache.totalCount + 20) {
+      sorted.removeRange(_directoryCache.totalCount, sorted.length);
+    } else if (_directoryCache.totalCount <= 0 && sorted.length > 800) {
+      sorted.removeRange(800, sorted.length);
     }
 
     setState(() {
@@ -811,10 +841,8 @@ class _MembersPageState extends State<MembersPage> {
     setState(() {
       _directoryCache = cache;
       if (cache.hasEntries) {
-        _membersVisibleCount = cache.entries.length.clamp(
-          _membersPageSize,
-          _membersListInstantCap,
-        );
+        final n = cache.entries.length;
+        _membersVisibleCount = n.clamp(_membersPageSize, _membersListInstantCap);
       }
     });
     if (!cache.hasEntries || !mounted) return;
@@ -829,7 +857,7 @@ class _MembersPageState extends State<MembersPage> {
         context: context,
         tenantId: tid,
         directory: cache,
-        maxMembers: cache.entries.length.clamp(24, 80),
+        maxMembers: cache.entries.length.clamp(32, 160),
       );
     });
   }
@@ -840,6 +868,56 @@ class _MembersPageState extends State<MembersPage> {
         .map(_memberWithOptimisticOverlay)
         .where((m) => !_optimisticRemovedMemberIds.contains(m.id))
         .toList();
+  }
+
+  /// Cache `_panel_cache/members_directory` (completo) + docs Firestore (fotos/campos frescos).
+  List<_MemberDoc> _mergeMembersListWithDirectoryCache(List<_MemberDoc> fromQuery) {
+    if (!_directoryCache.hasEntries) return fromQuery;
+    final fromCache = _memberDocsFromDirectoryCache();
+    if (fromCache.isEmpty) return fromQuery;
+    if (fromQuery.isEmpty) return fromCache;
+    final byId = <String, _MemberDoc>{for (final m in fromCache) m.id: m};
+    for (final m in fromQuery) {
+      final cur = byId[m.id];
+      if (cur == null) {
+        byId[m.id] = m;
+      } else {
+        byId[m.id] =
+            _MemberDoc(m.id, _mergeMemberPhotoFields(cur.data, m.data));
+      }
+    }
+    return byId.values.toList();
+  }
+
+  /// Exportação PDF/CSV — directory cache (rápido) com fallback Firestore.
+  Future<List<_MemberDoc>> _membersDocsForExport() async {
+    final tid = _effectiveTenantId.trim().isNotEmpty
+        ? _effectiveTenantId.trim()
+        : widget.tenantId.trim();
+    if (tid.isEmpty) return const [];
+
+    var cache = _directoryCache;
+    final complete = cache.totalCount > 0
+        ? cache.entries.length >= cache.totalCount
+        : cache.entries.length >= 20;
+    if (!cache.hasEntries || !complete) {
+      cache = await MembersDirectorySnapshotService.warmFromCallableIfStale(tid);
+      if (cache.hasEntries && mounted) {
+        _applyDirectoryCacheState(cache);
+      }
+    }
+    if (cache.hasEntries) {
+      return _aplicarFiltros(_memberDocsFromDirectoryCache());
+    }
+
+    final snap = await FirebaseFirestore.instance
+        .collection('igrejas')
+        .doc(tid)
+        .collection('membros')
+        .limit(YahwehPerformanceV4.adminExportBatchLimit)
+        .get();
+    final docs = snap.docs.map(_MemberDoc.fromQueryDoc).toList();
+    return _aplicarFiltros(docs);
   }
 
   bool _membersListFiltersActive() {
@@ -949,7 +1027,7 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
-  static const int _membersLoadLimit = YahwehPerformanceV4.defaultPageSize;
+  static const int _membersLoadLimit = YahwehPerformanceV4.adminExportBatchLimit;
   static const Duration _membersCoreLoadTimeout = Duration(seconds: 18);
   static const int _maxRelatedTenantMemberQueries = 3;
 
@@ -5398,8 +5476,8 @@ class _MembersPageState extends State<MembersPage> {
       ChurchGalleryPhotoWarmup.schedule(
         context: context,
         tenantId: tid,
-        maxMembers: (visibleCount + 16).clamp(16, 72),
-        members: docs.take(visibleCount + 16).map((m) {
+        maxMembers: (visibleCount + 32).clamp(32, docs.length.clamp(32, 160)),
+        members: docs.take(visibleCount + 32).map((m) {
           final cpf = (m.data['CPF'] ?? m.data['cpf'] ?? '')
               .toString()
               .replaceAll(RegExp(r'\D'), '');
@@ -6175,40 +6253,13 @@ class _MembersPageState extends State<MembersPage> {
 
   Future<void> _exportCsv(BuildContext context) async {
     try {
-      final snapMembers = await _members.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
-      final snapMembros = await _membros.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
-      final snapMembersIgrejas = await _membersIgrejas.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
-      final snapMembrosIgrejas = await _membrosIgrejas.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
-      final snapUsersT = await FirebaseFirestore.instance
-          .collection('users')
-          .where('tenantId', isEqualTo: _effectiveTenantId)
-          .limit(YahwehPerformanceV4.adminExportBatchLimit)
-          .get();
-      final snapUsersI = await FirebaseFirestore.instance
-          .collection('users')
-          .where('igrejaId', isEqualTo: _effectiveTenantId)
-          .limit(YahwehPerformanceV4.adminExportBatchLimit)
-          .get();
-      final combined = <String, _MemberDoc>{};
-      for (final d in snapMembers.docs)
-        combined[d.id] = _MemberDoc.fromQueryDoc(d);
-      for (final d in snapMembros.docs)
-        combined.putIfAbsent(d.id, () => _MemberDoc.fromQueryDoc(d));
-      for (final d in snapMembersIgrejas.docs)
-        combined.putIfAbsent(d.id, () => _MemberDoc.fromQueryDoc(d));
-      for (final d in snapMembrosIgrejas.docs)
-        combined.putIfAbsent(d.id, () => _MemberDoc.fromQueryDoc(d));
-      for (final d in snapUsersT.docs)
-        combined.putIfAbsent(d.id, () => _MemberDoc.fromUserDoc(d));
-      for (final d in snapUsersI.docs)
-        combined.putIfAbsent(d.id, () => _MemberDoc.fromUserDoc(d));
-      var docs = combined.values.toList();
-      docs = _aplicarFiltros(docs);
+      final docs = await _membersDocsForExport();
       if (docs.isEmpty) {
-        if (context.mounted)
+        if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar(
-                  'Nenhum membro para exportar.'));
+            ThemeCleanPremium.successSnackBar('Nenhum membro para exportar.'),
+          );
+        }
         return;
       }
       const sep = ';';
@@ -6235,43 +6286,29 @@ class _MembersPageState extends State<MembersPage> {
 
   Future<void> _exportPdf(BuildContext context) async {
     try {
-      final snapMembers = await _members.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
-      final snapMembros = await _membros.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
-      final snapMembersIgrejas = await _membersIgrejas.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
-      final snapMembrosIgrejas = await _membrosIgrejas.limit(YahwehPerformanceV4.adminExportBatchLimit).get();
-      final snapUsersT = await FirebaseFirestore.instance
-          .collection('users')
-          .where('tenantId', isEqualTo: _effectiveTenantId)
-          .limit(YahwehPerformanceV4.adminExportBatchLimit)
-          .get();
-      final snapUsersI = await FirebaseFirestore.instance
-          .collection('users')
-          .where('igrejaId', isEqualTo: _effectiveTenantId)
-          .limit(YahwehPerformanceV4.adminExportBatchLimit)
-          .get();
-      final combined = <String, _MemberDoc>{};
-      for (final d in snapMembers.docs)
-        combined[d.id] = _MemberDoc.fromQueryDoc(d);
-      for (final d in snapMembros.docs)
-        combined.putIfAbsent(d.id, () => _MemberDoc.fromQueryDoc(d));
-      for (final d in snapMembersIgrejas.docs)
-        combined.putIfAbsent(d.id, () => _MemberDoc.fromQueryDoc(d));
-      for (final d in snapMembrosIgrejas.docs)
-        combined.putIfAbsent(d.id, () => _MemberDoc.fromQueryDoc(d));
-      for (final d in snapUsersT.docs)
-        combined.putIfAbsent(d.id, () => _MemberDoc.fromUserDoc(d));
-      for (final d in snapUsersI.docs)
-        combined.putIfAbsent(d.id, () => _MemberDoc.fromUserDoc(d));
-      var docs = combined.values.toList();
-      docs = _aplicarFiltros(docs);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Gerando PDF…'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      final results = await Future.wait<Object?>([
+        _membersDocsForExport(),
+        loadReportPdfBranding(_effectiveTenantId),
+      ]);
+      final docs = results[0] as List<_MemberDoc>;
+      final branding = results[1] as ReportPdfBranding;
       if (docs.isEmpty) {
-        if (context.mounted)
+        if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar(
-                  'Nenhum membro para exportar.'));
+            ThemeCleanPremium.successSnackBar('Nenhum membro para exportar.'),
+          );
+        }
         return;
       }
-      final branding = await loadReportPdfBranding(_effectiveTenantId);
       final data = docs.asMap().entries.map((e) {
         final m = e.value.data;
         final st = (m['STATUS'] ?? m['status'] ?? '').toString().trim();
@@ -7177,10 +7214,12 @@ class _MembersPageState extends State<MembersPage> {
         for (final d in list[0].docs) putOrMerge(d, _MemberDoc.fromQueryDoc);
         for (final d in list[4].docs) putOrMerge(d, _MemberDoc.fromUserDoc);
         for (final d in list[5].docs) putOrMerge(d, _MemberDoc.fromUserDoc);
-        final allDocs = combined.values
-            .map(_memberWithOptimisticOverlay)
-            .where((m) => !_optimisticRemovedMemberIds.contains(m.id))
-            .toList();
+        final allDocs = _mergeMembersListWithDirectoryCache(
+          combined.values
+              .map(_memberWithOptimisticOverlay)
+              .where((m) => !_optimisticRemovedMemberIds.contains(m.id))
+              .toList(),
+        );
         final docs = _aplicarFiltros(allDocs);
         if (docs.length <= _membersListInstantCap &&
             _membersVisibleCount < docs.length) {
@@ -7736,10 +7775,12 @@ class _MembersPageState extends State<MembersPage> {
     for (final d in list[5].docs) {
       putOrMerge(d, _MemberDoc.fromUserDoc);
     }
-    return combined.values
-        .map(_memberWithOptimisticOverlay)
-        .where((m) => !_optimisticRemovedMemberIds.contains(m.id))
-        .toList();
+    return _mergeMembersListWithDirectoryCache(
+      combined.values
+          .map(_memberWithOptimisticOverlay)
+          .where((m) => !_optimisticRemovedMemberIds.contains(m.id))
+          .toList(),
+    );
   }
 }
 

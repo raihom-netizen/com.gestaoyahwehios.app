@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'church_panel_navigation_bridge.dart';
@@ -15,6 +18,47 @@ class FcmService {
   bool _configured = false;
   String? _lastUid;
   String? _lastTenantId;
+  StreamSubscription<RemoteMessage>? _onMessageSub;
+  StreamSubscription<RemoteMessage>? _onMessageOpenedSub;
+  StreamSubscription<String>? _onTokenRefreshSub;
+  void Function(RemoteMessage message)? _foregroundHandler;
+
+  static const _prefPushTenant = 'church_fcm_push_tenant';
+  static const _prefGypushTopics = 'church_fcm_gypush_topics';
+  static const _legacyWrongTenantIds = <String>[
+    'brasilparacristo_sistema',
+    'brasilparacristo',
+  ];
+  static const _gypushKinds = <String>[
+    'aviso',
+    'evento',
+    'escala',
+    'chat',
+    'aniversario',
+    'gestores',
+    'financeiro',
+    'fornecedor_agenda',
+  ];
+
+  /// Doc Firestore + tópicos FCM (`gypush_{tenant}_…`) — alinhado ao Storage.
+  static Future<String> resolvePushTenantId(
+    String seed, {
+    String? userUid,
+    bool forceRefresh = false,
+  }) async {
+    final s = seed.trim();
+    if (s.isEmpty) return s;
+    try {
+      final op = await TenantResolverService.resolveOperationalChurchDocId(
+        s,
+        userUid: userUid,
+        forceRefresh: forceRefresh,
+      );
+      return op.trim().isEmpty ? s : op.trim();
+    } catch (_) {
+      return s;
+    }
+  }
 
   /// Alinhado a Cloud Functions [topicPushNovo] (`gypush_{tenant}_{aviso|evento|…}`).
   static String fcmTenantSafe(String tenantId) =>
@@ -31,16 +75,31 @@ class FcmService {
     required String cpf,
     required String role,
     void Function(RemoteMessage message)? onForegroundMessage,
+    bool forceRefresh = false,
   }) async {
     if (kIsWeb) return;
-    final tid = tenantId.trim();
-    if (tid.isEmpty || uid.trim().isEmpty) return;
+    if (uid.trim().isEmpty) return;
 
-    if (_configured && _lastUid == uid && _lastTenantId == tid) return;
+    final tid = await resolvePushTenantId(
+      tenantId,
+      userUid: uid,
+      forceRefresh: forceRefresh,
+    );
+    if (tid.isEmpty) return;
+
+    if (!forceRefresh &&
+        _configured &&
+        _lastUid == uid &&
+        _lastTenantId == tid) {
+      return;
+    }
 
     _lastUid = uid;
     _lastTenantId = tid;
     _configured = true;
+    if (onForegroundMessage != null) {
+      _foregroundHandler = onForegroundMessage;
+    }
 
     try {
       await _configureImpl(
@@ -48,7 +107,6 @@ class FcmService {
         tenantId: tid,
         cpf: cpf,
         role: role,
-        onForegroundMessage: onForegroundMessage,
       );
     } catch (e, st) {
       debugPrint('FcmService.configure: $e\n$st');
@@ -60,7 +118,6 @@ class FcmService {
     required String tenantId,
     required String cpf,
     required String role,
-    void Function(RemoteMessage message)? onForegroundMessage,
   }) async {
     await PanelNotificationService.instance.registerAndroidChannelsForBoot();
     await PanelNotificationService.instance
@@ -74,8 +131,10 @@ class FcmService {
       sound: true,
     );
 
-    final token = await messaging.getToken();
-    if (token != null && token.isNotEmpty) {
+    await _migratePushTopics(messaging, tenantId);
+
+    Future<void> persistToken(String token) async {
+      if (token.isEmpty) return;
       try {
         await FirebaseFirestore.instance
             .collection('users')
@@ -91,6 +150,12 @@ class FcmService {
         }, SetOptions(merge: true));
       } catch (_) {}
     }
+
+    final token = await messaging.getToken();
+    if (token != null) await persistToken(token);
+
+    await _onTokenRefreshSub?.cancel();
+    _onTokenRefreshSub = messaging.onTokenRefresh.listen(persistToken);
 
     List<String> deptIds = <String>[];
     var cargoLabel = '';
@@ -168,12 +233,14 @@ class FcmService {
       );
     }
 
-    FirebaseMessaging.onMessage.listen((message) {
+    await _onMessageSub?.cancel();
+    await _onMessageOpenedSub?.cancel();
+    _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
       YahwehPushCacheRefresh.handleMessage(message);
-      onForegroundMessage?.call(message);
+      _foregroundHandler?.call(message);
     });
-
-    FirebaseMessaging.onMessageOpenedApp.listen(routeNotificationTap);
+    _onMessageOpenedSub =
+        FirebaseMessaging.onMessageOpenedApp.listen(routeNotificationTap);
     final initialOpen = await FirebaseMessaging.instance.getInitialMessage();
     if (initialOpen != null) {
       routeNotificationTap(initialOpen);
@@ -181,6 +248,54 @@ class FcmService {
 
     await prefs.setStringList('church_fcm_topics', nextTopics);
     await syncPreferencePushTopics(uid: uid, tenantId: tid);
+    await prefs.setString(_prefPushTenant, tid);
+  }
+
+  static Future<void> _migratePushTopics(
+    FirebaseMessaging messaging,
+    String newTenantId,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final prevTenant = (prefs.getString(_prefPushTenant) ?? '').trim();
+    if (prevTenant == newTenantId && prevTenant.isNotEmpty) {
+      await _unsubscribeLegacyWrongTopics(messaging);
+      return;
+    }
+
+    final prevGypush = prefs.getStringList(_prefGypushTopics) ?? const [];
+    for (final t in prevGypush) {
+      try {
+        await messaging.unsubscribeFromTopic(t);
+      } catch (_) {}
+    }
+
+    await _unsubscribeLegacyWrongTopics(messaging);
+
+    if (prevTenant.isNotEmpty && prevTenant != newTenantId) {
+      for (final k in _gypushKinds) {
+        try {
+          await messaging.unsubscribeFromTopic(topicPushNovo(prevTenant, k));
+        } catch (_) {}
+      }
+      try {
+        await messaging.unsubscribeFromTopic(topicIgrejaBroadcast(prevTenant));
+      } catch (_) {}
+    }
+  }
+
+  static Future<void> _unsubscribeLegacyWrongTopics(
+    FirebaseMessaging messaging,
+  ) async {
+    for (final wrong in _legacyWrongTenantIds) {
+      for (final k in _gypushKinds) {
+        try {
+          await messaging.unsubscribeFromTopic(topicPushNovo(wrong, k));
+        } catch (_) {}
+      }
+      try {
+        await messaging.unsubscribeFromTopic(topicIgrejaBroadcast(wrong));
+      } catch (_) {}
+    }
   }
 
   static Future<void> _setTopicSubscribed(
@@ -203,7 +318,7 @@ class FcmService {
     required String tenantId,
   }) async {
     if (kIsWeb) return;
-    final tid = tenantId.trim();
+    final tid = await resolvePushTenantId(tenantId, userUid: uid);
     if (tid.isEmpty) return;
 
     final messaging = FirebaseMessaging.instance;
@@ -261,15 +376,19 @@ class FcmService {
       );
     }
 
+    final subscribed = <String>[
+      for (final entry in topics.entries)
+        if (flags[entry.key] == true) entry.value,
+    ];
+
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList(
         'church_fcm_pref_topics',
-        [
-          for (final entry in topics.entries)
-            if (flags[entry.key] == true) entry.value,
-        ],
+        subscribed,
       );
+      await prefs.setStringList(_prefGypushTopics, subscribed);
+      await prefs.setString(_prefPushTenant, tid);
     } catch (_) {}
   }
 

@@ -219,6 +219,34 @@ class FirebaseStorageService {
     }
   }
 
+  /// Materializa `igrejas/{id}/financeiro/` no bucket (comprovantes — Controle Total).
+  static Future<void> ensureFinanceiroFolderPlaceholderIfAbsent(
+      String tenantId) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    final path = ChurchStorageLayout.financeiroFolderPlaceholderPath(tid);
+    if (path.isEmpty) return;
+    try {
+      await FirebaseStorage.instance.ref(path).getMetadata();
+      return;
+    } catch (_) {}
+    if (kIsWeb) {
+      await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
+      try {
+        await FirebaseAuth.instance.currentUser?.getIdToken();
+      } catch (_) {}
+    }
+    try {
+      await FirebaseStorage.instance.ref(path).putData(
+            ChurchStorageLayout.kMinimalTransparentIdentityPng,
+            SettableMetadata(contentType: 'image/png'),
+          );
+    } catch (e) {
+      debugPrint(
+          'FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent: $e');
+    }
+  }
+
   static final Map<String, String?> _pastorSigConfigUrlCache = {};
 
   /// Assinatura do pastor em `igrejas/{id}/configuracoes/assinatura.png` (ou `.jpg`).

@@ -378,11 +378,13 @@ void main() async {
   // Controle Total: um único initializeApp (firebase/firebase_bootstrap.dart).
   await FirebaseBootstrap.ensureInitialized();
   try {
-    if (kIsWeb) {
-      unawaited(OfflineFirstCoordinator.initialize());
-    } else {
-      await OfflineFirstCoordinator.initialize();
-    }
+    unawaited(
+      OfflineFirstCoordinator.initialize().catchError((Object e, StackTrace st) {
+        if (kDebugMode) {
+          debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
+        }
+      }),
+    );
   } catch (e, st) {
     if (kDebugMode) {
       debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
@@ -441,7 +443,7 @@ void main() async {
     LoginPreferences.warmUpForStartup(),
     AppShellSessionCache.warmUp(),
   ]);
-  await AuthProfileCacheService.warmUpForStartup();
+  unawaited(AuthProfileCacheService.warmUpForStartup());
   if (!firebaseBoot.isReady) {
     runApp(
       MaterialApp(
@@ -457,14 +459,228 @@ void main() async {
   await runGestaoYahwehAfterFirebaseBootstrap();
 }
 
+String _normalizeWebAppPath(String raw) {
+  var path = raw.trim().isEmpty ? '/' : raw.trim();
+  if (!path.startsWith('/')) path = '/$path';
+  if (path.length > 1 && path.endsWith('/')) {
+    path = path.replaceFirst(RegExp(r'/$'), '');
+  }
+  final low = path.toLowerCase();
+  if (low == '/index.html' || low.endsWith('/index.html')) {
+    return '/';
+  }
+  return path;
+}
+
+/// Rota inicial web **sem** SharedPreferences nem poll de sessão — 1.º frame rápido.
+String _resolveWebInitialRouteFast() {
+  var initialRoute =
+      Uri.base.path.isNotEmpty ? _normalizeWebAppPath(Uri.base.path) : '/';
+  if (initialRoute == '/' || initialRoute.isEmpty) {
+    final subdomainSlug = _extractChurchSlugFromHost(Uri.base.host);
+    if (subdomainSlug != null && subdomainSlug.isNotEmpty) {
+      initialRoute = '/igreja/$subdomainSlug';
+    }
+  }
+  final syncUser = FirebaseAuth.instance.currentUser;
+  if (syncUser != null && !syncUser.isAnonymous) {
+    const entryRoutes = {'/', '', '/login', '/igreja/login'};
+    if (entryRoutes.contains(initialRoute)) {
+      return '/painel';
+    }
+  }
+  return initialRoute;
+}
+
+Future<String> _resolveWebInitialRouteWithSession(String bootRoute) async {
+  var initialRoute = bootRoute;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    if (initialRoute == '/painel' ||
+        initialRoute == '/admin' ||
+        initialRoute.startsWith('/painel') ||
+        initialRoute.startsWith('/admin')) {
+      await prefs.setString('last_route', '/painel');
+    }
+    final last = prefs.getString('last_route');
+    final hasSession = AuthService.hasActiveSession;
+    if (last != null && last.isNotEmpty) {
+      final isPublicRoot = initialRoute == '/' || initialRoute.isEmpty;
+      if (!isPublicRoot) {
+        final keepCurrent = initialRoute != '/' && initialRoute != '';
+        final isPublicSignupDeep =
+            PublicWebRouteParser.isPublicSignupDeepRoute(initialRoute);
+        if (!keepCurrent && !isPublicSignupDeep) {
+          if (hasSession) {
+            initialRoute = '/painel';
+          } else {
+            initialRoute = last;
+          }
+        }
+      }
+    }
+    if (hasSession && (initialRoute == '/' || initialRoute.isEmpty)) {
+      initialRoute = '/painel';
+    }
+    final autoPainel = await ChurchAutoSessionService
+        .painelRouteIfSessionRestored(initialRoute)
+        .timeout(const Duration(seconds: 2), onTimeout: () => null);
+    if (autoPainel != null) {
+      initialRoute = autoPainel;
+    }
+  } catch (_) {}
+  return initialRoute;
+}
+
+/// Android/iOS: 1.º frame rápido — sem poll de sessão nem SharedPreferences.
+String _resolveNativeInitialRouteFast() {
+  if (LoginPreferences.startupAccountSwitchPending == true) {
+    return AppStartupRoute.nativeLoginRoute;
+  }
+  final syncUser = FirebaseAuth.instance.currentUser;
+  if (syncUser != null && !syncUser.isAnonymous) {
+    return '/painel';
+  }
+  if (LoginPreferences.autoPainelLoginSync) {
+    final shellUid = AppShellSessionCache.cachedUidSync();
+    if (shellUid != null && shellUid.isNotEmpty) {
+      return '/painel';
+    }
+  }
+  return AppStartupRoute.nativeLoginRoute;
+}
+
+Future<String> _resolveNativeInitialRouteWithSession(String bootRoute) async {
+  var initialRoute = bootRoute;
+  try {
+    initialRoute = await AppStartupRoute.finalizeNativeRoute(initialRoute);
+    final autoPainel = await ChurchAutoSessionService
+        .painelRouteIfSessionRestored(initialRoute)
+        .timeout(const Duration(seconds: 1), onTimeout: () => null);
+    if (autoPainel != null) {
+      initialRoute = autoPainel;
+    }
+    if (initialRoute == '/painel' || initialRoute.startsWith('/painel/')) {
+      if (!await AuthSessionService.hasSession()) {
+        initialRoute = AppStartupRoute.nativeLoginRoute;
+      }
+    }
+  } catch (_) {}
+  return initialRoute;
+}
+
+Future<void> _finalizeNativeStartupAfterFirstFrame(String bootRoute) async {
+  try {
+    await AppConnectivityService.instance.start();
+    AppFinalizeBootstrap.bindOnColdStart();
+  } catch (_) {}
+
+  final resolved = await _resolveNativeInitialRouteWithSession(bootRoute);
+  final painelReopen =
+      resolved == '/painel' || resolved.startsWith('/painel/');
+  if (painelReopen) {
+    unawaited(
+      PanelPreheatCoordinator.preheatOnce().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {},
+      ),
+    );
+    AppStartupPreheat.scheduleBackgroundWarmup();
+  }
+
+  if (resolved == bootRoute) return;
+  final page = _explicitStartupPage(resolved);
+  if (page == null) return;
+  final nav = appRootNavigatorKey.currentState;
+  if (nav == null) return;
+  nav.pushReplacement(
+    MaterialPageRoute<void>(
+      settings: RouteSettings(name: resolved),
+      builder: (_) => page,
+    ),
+  );
+}
+
+Future<void> _finalizeWebStartupAfterFirstFrame(String bootRoute) async {
+  try {
+    await AuthService.configurePersistentSession();
+  } catch (_) {}
+  try {
+    await FirestoreWebGuard.bindWebHostingDomainSession();
+  } catch (_) {}
+  try {
+    await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
+  } catch (_) {}
+  try {
+    await AppConnectivityService.instance.start();
+    AppFinalizeBootstrap.bindOnColdStart();
+  } catch (_) {}
+
+  final resolved = await _resolveWebInitialRouteWithSession(bootRoute);
+  final painelReopen =
+      resolved == '/painel' || resolved.startsWith('/painel/');
+  if (painelReopen) {
+    unawaited(
+      PanelPreheatCoordinator.preheatOnce().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () {},
+      ),
+    );
+  }
+
+  if (resolved == bootRoute) return;
+  const entryRoutes = {'/', '', '/login', '/igreja/login'};
+  if (!entryRoutes.contains(bootRoute)) return;
+  if (resolved != '/painel' &&
+      !resolved.startsWith('/painel/') &&
+      resolved != '/admin' &&
+      !resolved.startsWith('/admin/')) {
+    return;
+  }
+
+  final page = _explicitStartupPage(resolved);
+  if (page == null) return;
+  final nav = appRootNavigatorKey.currentState;
+  if (nav == null) return;
+  nav.pushReplacement(
+    MaterialPageRoute<void>(
+      settings: RouteSettings(name: resolved),
+      builder: (_) => page,
+    ),
+  );
+}
+
+void _installFriendlyErrorWidget() {
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return Material(
+      color: const Color(0xFFF7F8FA),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Não foi possível abrir esta tela. Feche e abra o app de novo.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey.shade800,
+            ),
+          ),
+        ),
+      ),
+    );
+  };
+}
+
 /// Continuação do arranque após Firebase OK (ou após ecrã de recuperação).
 Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
+  _installFriendlyErrorWidget();
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS)) {
-    try {
-      await PersistentAuthSessionService.warmColdStart();
-    } catch (_) {}
+    unawaited(
+      PersistentAuthSessionService.warmColdStart().catchError((_) => false),
+    );
   }
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
@@ -550,52 +766,48 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       return true;
     };
   }
-  // Garante que a sessão não “some” quando o usuário fechar/renovar a aba no web
-  // ou ao reabrir pelo ícone (fica até o usuário clicar em Sair).
-  try {
-    await AuthService.configurePersistentSession();
-  } catch (_) {}
-  if (kIsWeb) {
+  if (!kIsWeb) {
     try {
-      await FirestoreWebGuard.bindWebHostingDomainSession();
+      await IosPaymentsGate.initialize();
     } catch (_) {}
   }
+
+  if (AppStartupRoute.isNativeMobile) {
+    final initialRoute = _resolveNativeInitialRouteFast();
+    AppDeepLink.registerWarmLinkHandler();
+    unawaited(
+      initializeDateFormatting('pt_BR', null).catchError((Object e, StackTrace st) {
+        debugPrint('initializeDateFormatting(pt_BR): $e\n$st');
+      }),
+    );
+    runApp(UpdateChecker(
+      child: _AppWithTheme(initialRoute: initialRoute),
+    ));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_finalizeNativeStartupAfterFirstFrame(initialRoute));
+    });
+    return;
+  }
+
   if (kIsWeb) {
-    try {
-      await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
-    } catch (_) {}
+    final initialRoute = _resolveWebInitialRouteFast();
+    AppDeepLink.registerWarmLinkHandler();
+    unawaited(
+      initializeDateFormatting('pt_BR', null).catchError((Object e, StackTrace st) {
+        debugPrint('initializeDateFormatting(pt_BR): $e\n$st');
+      }),
+    );
+    runApp(UpdateChecker(
+      child: _AppWithTheme(initialRoute: initialRoute),
+    ));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_finalizeWebStartupAfterFirstFrame(initialRoute));
+      unawaited(DomainDailyHitService.recordIfEligible());
+    });
+    return;
   }
-  // Apple Guideline 3.1.1: em iOS, le `exibir_pagamento_ios` do Remote Config
-  // antes de qualquer rota que possa exibir checkout/precos. Nao bloqueante:
-  // mantem default conservador (sem cobranca no app) se o fetch falhar.
-  try {
-    await IosPaymentsGate.initialize();
-  } catch (_) {}
-  try {
-    await AppConnectivityService.instance.start();
-    AppFinalizeBootstrap.bindOnColdStart();
-  } catch (_) {}
-  String initialRoute =
-      kIsWeb && Uri.base.path.isNotEmpty ? Uri.base.path : '/';
-  if (kIsWeb && initialRoute != '/') {
-    if (!initialRoute.startsWith('/')) initialRoute = '/$initialRoute';
-    if (initialRoute.length > 1 && initialRoute.endsWith('/')) {
-      initialRoute = initialRoute.replaceFirst(RegExp(r'/$'), '');
-    }
-  }
-  // Hosting SPA: alguns proxies/CDNs expõem /index.html — tratar como raiz (site de divulgação).
-  if (kIsWeb) {
-    final p = initialRoute.toLowerCase();
-    if (p == '/index.html' || p.endsWith('/index.html')) {
-      initialRoute = '/';
-    }
-  }
-  if (kIsWeb && (initialRoute == '/' || initialRoute.isEmpty)) {
-    final subdomainSlug = _extractChurchSlugFromHost(Uri.base.host);
-    if (subdomainSlug != null && subdomainSlug.isNotEmpty) {
-      initialRoute = '/igreja/$subdomainSlug';
-    }
-  }
+
+  String initialRoute = '/';
   AppDeepLink.registerWarmLinkHandler();
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
@@ -1207,14 +1419,12 @@ class _AppWithThemeState extends State<_AppWithTheme>
   }
 }
 
-/// Home inicial: web abre a rota-alvo sem splash (evita spinner infinito no PWA).
+/// Home inicial: rotas críticas sem splash (web + Android/iOS).
 Widget _initialAppHome(String rawRoute) {
   final r = rawRoute.trim().isEmpty ? '/' : rawRoute.trim();
   if (r == '/') return const SitePublicPage();
-  if (kIsWeb) {
-    final page = _explicitStartupPage(r);
-    if (page != null) return page;
-  }
+  final page = _explicitStartupPage(r);
+  if (page != null) return page;
   return _StartupSplashGate(targetRoute: r);
 }
 
@@ -1314,12 +1524,13 @@ class _StartupSplashGateState extends State<_StartupSplashGate> {
     var route = widget.targetRoute.trim().isEmpty ? '/' : widget.targetRoute;
 
     if (AppStartupRoute.isNativeMobile) {
-      route = await AppStartupRoute.finalizeNativeRoute(route);
+      route = await AppStartupRoute.finalizeNativeRoute(route)
+          .timeout(const Duration(seconds: 2), onTimeout: () => route);
       if (route == '/painel' || route.startsWith('/painel/')) {
         if (!await AuthSessionService.hasSession()) {
           route = AppStartupRoute.nativeLoginRoute;
         } else {
-          await AppStartupPreheat.preheatForDashboard();
+          AppStartupPreheat.scheduleBackgroundWarmup();
         }
       }
     }

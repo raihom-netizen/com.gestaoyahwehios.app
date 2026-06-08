@@ -4,6 +4,7 @@
  */
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import { tenantIdsForPushTopic } from "./churchClusterAnchors";
 import { buildGyTopicMessage } from "./notificationBranding";
 
 function safeTid(t: string): string {
@@ -55,6 +56,29 @@ async function recordTenantNotification(
   }
 }
 
+async function sendTopicPushCluster(
+  tenantId: string,
+  kind: Parameters<typeof topicPushNovo>[1],
+  build: (effectiveTenantId: string) => admin.messaging.Message,
+): Promise<void> {
+  const sent = new Set<string>();
+  for (const tid of tenantIdsForPushTopic(tenantId)) {
+    const topic = topicPushNovo(tid, kind);
+    if (sent.has(topic)) continue;
+    sent.add(topic);
+    await admin.messaging().send(build(tid));
+  }
+}
+
+/** Push FCM para todos os alias do cluster (BPC legado + canónico). */
+export async function sendGyTopicPushCluster(
+  tenantId: string,
+  kind: Parameters<typeof topicPushNovo>[1],
+  build: (effectiveTenantId: string) => admin.messaging.Message,
+): Promise<void> {
+  await sendTopicPushCluster(tenantId, kind, build);
+}
+
 async function sendNovoAvisoMuralPush(
   tenantId: string,
   postId: string,
@@ -63,14 +87,14 @@ async function sendNovoAvisoMuralPush(
   const title = clip(String(d.title || d.titulo || "Novo aviso"), 80) || "Novo aviso";
   const rawBody = String(d.text || d.body || d.mensagem || "").trim();
   const body = clip(rawBody, 140) || title;
-  await admin.messaging().send(
+  await sendTopicPushCluster(tenantId, "aviso", (effectiveTenantId) =>
     buildGyTopicMessage({
-      topic: topicPushNovo(tenantId, "aviso"),
+      topic: topicPushNovo(effectiveTenantId, "aviso"),
       title: "📢 Novo aviso",
       body,
       data: {
         type: "novo_aviso",
-        tenantId,
+        tenantId: effectiveTenantId,
         postId,
         click_action: "FLUTTER_NOTIFICATION_CLICK",
       },
@@ -144,14 +168,14 @@ async function sendNovoEventoNoticiaPush(
     extra = ` • ${dt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}`;
   }
   const body = clip(`${title}${extra}`, 180);
-  await admin.messaging().send(
+  await sendTopicPushCluster(tenantId, "evento", (effectiveTenantId) =>
     buildGyTopicMessage({
-      topic: topicPushNovo(tenantId, "evento"),
+      topic: topicPushNovo(effectiveTenantId, "evento"),
       title: "📅 Novo evento",
       body,
       data: {
         type: "novo_evento",
-        tenantId,
+        tenantId: effectiveTenantId,
         postId,
         click_action: "FLUTTER_NOTIFICATION_CLICK",
       },

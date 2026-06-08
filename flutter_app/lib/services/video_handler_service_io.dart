@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 
+import 'feed_editor_media_service.dart';
 import 'firebase_storage_cleanup_service.dart';
 import 'media_upload_service.dart';
 import 'video_handler_service_types.dart';
@@ -44,9 +45,18 @@ class VideoHandlerService implements IVideoHandlerService {
       source: ImageSource.gallery,
       maxDuration: effectiveMaxDuration,
     );
-    if (xfile == null || xfile.path.isEmpty) return null;
+    if (xfile == null) return null;
+    final localPath = await FeedEditorMediaService.persistVideoXFileToTemp(
+      xfile,
+      prefix: 'gy_event_video',
+    );
+    if (localPath == null || localPath.isEmpty) {
+      throw StateError(
+        'Não foi possível ler o vídeo da galeria. Tente outro ficheiro ou grave em MP4.',
+      );
+    }
     return compressAndUploadFromPath(
-      localPath: xfile.path,
+      localPath: localPath,
       tenantId: tenantId,
       eventPostDocId: eventPostDocId,
       videoSlotIndex: videoSlotIndex,

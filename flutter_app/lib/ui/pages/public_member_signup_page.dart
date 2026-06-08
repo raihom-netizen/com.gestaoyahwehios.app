@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
@@ -389,6 +390,52 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     });
   }
 
+  Future<void> _applyTenantFromChurchDoc(
+    DocumentSnapshot<Map<String, dynamic>> d,
+  ) async {
+    final data = d.data() ?? {};
+    final churchWithId = Map<String, dynamic>.from(data)..['id'] = d.id;
+    final operational = await TenantResolverService.resolveOperationalChurchDocId(
+      d.id,
+    );
+    final resolvedLogo = await _prefetchChurchLogoUrl(
+      tenantDocId: operational,
+      churchWithId: churchWithId,
+    );
+    if (!mounted) return;
+    final endereco = (data['endereco'] ?? '').toString().trim();
+    final rua = (data['rua'] ?? '').toString().trim();
+    final bairro = (data['bairro'] ?? '').toString().trim();
+    final cidade = (data['cidade'] ?? '').toString().trim();
+    final estado = (data['estado'] ?? '').toString().trim();
+    final cep = (data['cep'] ?? '').toString().trim();
+    final enderecoCompleto = endereco.isNotEmpty
+        ? endereco
+        : _buildEndereco(
+            rua: rua,
+            bairro: bairro,
+            cidade: cidade,
+            estado: estado,
+            cep: cep,
+          );
+    setState(() {
+      _tenantId = operational;
+      _tenantChurchData = churchWithId;
+      _tenantName = (data['name'] ?? data['nome'] ?? 'Igreja').toString();
+      _tenantBlocked = SubscriptionGuard.evaluate(church: data).blocked;
+      _tenantLogoUrl = _logoUrlFromChurchDoc(data);
+      _resolvedChurchLogoUrl = resolvedLogo;
+      _tenantEndereco = enderecoCompleto;
+      _tenantAlias =
+          (data['alias'] ?? data['slug'] ?? operational).toString().trim();
+      _tenantSlug =
+          (data['slug'] ?? data['alias'] ?? operational).toString().trim();
+      if (_tenantAlias.isEmpty) _tenantAlias = operational;
+      if (_tenantSlug.isEmpty) _tenantSlug = operational;
+      _loading = false;
+    });
+  }
+
   Future<void> _loadTenant() async {
     try {
       if (widget.tenantId != null && widget.tenantId!.isNotEmpty) {
@@ -397,48 +444,25 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
             .doc(widget.tenantId!)
             .get();
         if (d.exists) {
-          final data = d.data() ?? {};
-          final churchWithId = Map<String, dynamic>.from(data)..['id'] = d.id;
-          final resolvedLogo =
-              await _prefetchChurchLogoUrl(
-                  tenantDocId: d.id, churchWithId: churchWithId);
-          if (!mounted) return;
-          final endereco = (data['endereco'] ?? '').toString().trim();
-          final rua = (data['rua'] ?? '').toString().trim();
-          final bairro = (data['bairro'] ?? '').toString().trim();
-          final cidade = (data['cidade'] ?? '').toString().trim();
-          final estado = (data['estado'] ?? '').toString().trim();
-          final cep = (data['cep'] ?? '').toString().trim();
-          final enderecoCompleto = endereco.isNotEmpty
-              ? endereco
-              : _buildEndereco(
-                  rua: rua,
-                  bairro: bairro,
-                  cidade: cidade,
-                  estado: estado,
-                  cep: cep);
-          setState(() {
-            _tenantId = d.id;
-            _tenantChurchData = churchWithId;
-            _tenantName = (data['name'] ?? data['nome'] ?? 'Igreja').toString();
-            _tenantBlocked = SubscriptionGuard.evaluate(church: data).blocked;
-            _tenantLogoUrl = _logoUrlFromChurchDoc(data);
-            _resolvedChurchLogoUrl = resolvedLogo;
-            _tenantEndereco = enderecoCompleto;
-            _tenantAlias =
-                (data['alias'] ?? data['slug'] ?? d.id).toString().trim();
-            _tenantSlug =
-                (data['slug'] ?? data['alias'] ?? d.id).toString().trim();
-            if (_tenantAlias.isEmpty) _tenantAlias = d.id;
-            if (_tenantSlug.isEmpty) _tenantSlug = d.id;
-            _loading = false;
-          });
+          await _applyTenantFromChurchDoc(d);
           return;
         }
       }
       if (widget.slug != null && widget.slug!.trim().isNotEmpty) {
         final slugTrim = widget.slug!.trim();
-        // Primeiro tenta por 'slug'; se não achar, tenta por 'alias' (igreja correta)
+        final resolvedId =
+            await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(slugTrim);
+        if (resolvedId != null && resolvedId.isNotEmpty) {
+          final d = await FirebaseFirestore.instance
+              .collection('igrejas')
+              .doc(resolvedId)
+              .get();
+          if (d.exists) {
+            await _applyTenantFromChurchDoc(d);
+            return;
+          }
+        }
+        // Fallback: query directa slug/alias (igrejas sem cluster conhecido).
         var q = await FirebaseFirestore.instance
             .collection('igrejas')
             .where('slug', isEqualTo: slugTrim)
@@ -452,43 +476,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
               .get();
         }
         if (q.docs.isNotEmpty) {
-          final d = q.docs.first;
-          final data = d.data();
-          final churchWithId = Map<String, dynamic>.from(data)..['id'] = d.id;
-          final resolvedLogo =
-              await _prefetchChurchLogoUrl(
-                  tenantDocId: d.id, churchWithId: churchWithId);
-          if (!mounted) return;
-          final endereco = (data['endereco'] ?? '').toString().trim();
-          final rua = (data['rua'] ?? '').toString().trim();
-          final bairro = (data['bairro'] ?? '').toString().trim();
-          final cidade = (data['cidade'] ?? '').toString().trim();
-          final estado = (data['estado'] ?? '').toString().trim();
-          final cep = (data['cep'] ?? '').toString().trim();
-          final enderecoCompleto = endereco.isNotEmpty
-              ? endereco
-              : _buildEndereco(
-                  rua: rua,
-                  bairro: bairro,
-                  cidade: cidade,
-                  estado: estado,
-                  cep: cep);
-          setState(() {
-            _tenantId = d.id;
-            _tenantChurchData = churchWithId;
-            _tenantName = (data['name'] ?? data['nome'] ?? 'Igreja').toString();
-            _tenantBlocked = SubscriptionGuard.evaluate(church: data).blocked;
-            _tenantLogoUrl = _logoUrlFromChurchDoc(data);
-            _resolvedChurchLogoUrl = resolvedLogo;
-            _tenantEndereco = enderecoCompleto;
-            _tenantAlias =
-                (data['alias'] ?? data['slug'] ?? d.id).toString().trim();
-            _tenantSlug =
-                (data['slug'] ?? data['alias'] ?? d.id).toString().trim();
-            if (_tenantAlias.isEmpty) _tenantAlias = d.id;
-            if (_tenantSlug.isEmpty) _tenantSlug = d.id;
-            _loading = false;
-          });
+          await _applyTenantFromChurchDoc(q.docs.first);
           return;
         }
       }
@@ -1095,6 +1083,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     setState(() => _saving = true);
 
     try {
+      if (isPublicVisitor) {
+        await PublicSiteMediaAuth.ensurePublicVisitorMediaAccess();
+      }
       final ref = editingDocId != null
           ? col.doc(editingDocId)
           : (cpfDigits.length == 11 ? col.doc(cpfDigits) : col.doc());
@@ -1167,12 +1158,17 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         updateData.remove('CRIADO_EM');
         await ref.update(updateData);
       } else {
-        final codigoMembro =
-            await MemberCodigoService.allocateNext(_tenantId!);
-        data.addAll(MemberCodigoService.fieldsForFirestore(codigoMembro));
+        if (!isPublicVisitor) {
+          final codigoMembro =
+              await MemberCodigoService.allocateNext(_tenantId!);
+          data.addAll(MemberCodigoService.fieldsForFirestore(codigoMembro));
+        }
         await ref.set(data);
         if (_tenantId != null && _tenantId!.trim().isNotEmpty) {
-          DashboardStatsCounterService.onMemberCreated(_tenantId!.trim());
+          unawaited(
+            DashboardStatsCounterService.onMemberCreated(_tenantId!.trim())
+                .catchError((_) {}),
+          );
         }
       }
 

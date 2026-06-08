@@ -37,12 +37,11 @@ exports.syncChurchMercadoPagoFromCluster = void 0;
 exports.runSyncChurchMercadoPagoFromCluster = runSyncChurchMercadoPagoFromCluster;
 /**
  * Sincroniza Mercado Pago (credenciais + config + conta tesouraria 323)
- * do doc irmão mais completo do cluster → doc operacional da igreja.
- *
- * Caso típico: credenciais em `igreja_o_brasil_...` e painel em `brasilparacristo_sistema`.
+ * do doc irmão mais completo do cluster → doc operacional canónico da igreja.
  */
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const churchClusterAnchors_1 = require("./churchClusterAnchors");
 function db() {
     return admin.firestore();
 }
@@ -62,26 +61,6 @@ function isMpConta(data) {
     const nome = String(data.nome || "").toLowerCase();
     return nome.includes("mercado pago");
 }
-const ANCHORED_CLUSTERS = {
-    brasilparacristo_sistema: [
-        "brasilparacristo_sistema",
-        "brasilparacristo",
-        "igreja_o_brasil_para_cristo_jardim_goiano",
-        "iobpc-jardim-goiano",
-    ],
-};
-function addAnchoredCluster(seed, out) {
-    const t = String(seed || "").trim();
-    if (!t)
-        return;
-    for (const [key, members] of Object.entries(ANCHORED_CLUSTERS)) {
-        if (key === t || members.includes(t)) {
-            out.add(key);
-            for (const m of members)
-                out.add(m);
-        }
-    }
-}
 async function collectRelatedIgrejaDocIds(seed) {
     const ids = new Set();
     const add = (x) => {
@@ -93,7 +72,7 @@ async function collectRelatedIgrejaDocIds(seed) {
     if (!raw)
         return [];
     add(raw);
-    addAnchoredCluster(raw, ids);
+    (0, churchClusterAnchors_1.addAnchoredCluster)(raw, ids);
     for (const suf of ["_sistema", "_bpc"]) {
         if (raw.endsWith(suf))
             add(raw.slice(0, -suf.length));
@@ -128,7 +107,7 @@ async function collectRelatedIgrejaDocIds(seed) {
         /* ignore */
     }
     for (const id of Array.from(ids))
-        addAnchoredCluster(id, ids);
+        (0, churchClusterAnchors_1.addAnchoredCluster)(id, ids);
     return Array.from(ids);
 }
 async function scoreMpReadiness(tenantId) {
@@ -225,7 +204,7 @@ async function targetHasMpConta(tenantId) {
     }
 }
 async function runSyncChurchMercadoPagoFromCluster(tenantId, options) {
-    const target = String(tenantId || "").trim();
+    const target = (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(String(tenantId || "").trim());
     if (!target) {
         throw new functions.https.HttpsError("invalid-argument", "tenantId obrigatório");
     }

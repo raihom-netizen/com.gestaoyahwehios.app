@@ -240,6 +240,7 @@ abstract final class YahwehMediaUploadPipeline {
   static void hideProgress() => GlobalUploadProgress.instance.end();
 
   /// Bytes já comprimidos (ex. patrimônio WebP) — `putData` directo, sem fila offline.
+  /// [requireAuth] false: cadastro público de membro (Storage permite write sem login).
   static Future<String> uploadPreparedBytes({
     required String storagePath,
     required Uint8List bytes,
@@ -247,9 +248,13 @@ abstract final class YahwehMediaUploadPipeline {
     int maxAttempts = 4,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
+    bool requireAuth = true,
   }) async {
     if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-      await ensureUploadBootstrapForStoragePath(storagePath);
+      await _ensureStorageBootstrap(
+        storagePath: storagePath,
+        requireAuth: requireAuth,
+      );
     }
     return _putDataDirect(
       storagePath: storagePath,
@@ -259,7 +264,20 @@ abstract final class YahwehMediaUploadPipeline {
       onProgress: onProgress,
       onTaskStarted: onUploadTaskCreated,
       skipBootstrap: true,
+      requireAuth: requireAuth,
     );
+  }
+
+  static Future<void> _ensureStorageBootstrap({
+    required String storagePath,
+    required bool requireAuth,
+  }) async {
+    if (requireAuth) {
+      await ensureUploadBootstrapForStoragePath(storagePath);
+      return;
+    }
+    await FirebaseBootstrap.ensureInitialized();
+    FirebaseBootstrapService.refreshCachedApp();
   }
 
   static Future<String> _putDataDirect({
@@ -271,9 +289,13 @@ abstract final class YahwehMediaUploadPipeline {
     void Function(UploadTask task)? onTaskStarted,
     String cacheControl = 'public, max-age=31536000',
     bool skipBootstrap = false,
+    bool requireAuth = true,
   }) async {
     if (!skipBootstrap) {
-      await ensureUploadBootstrapForStoragePath(storagePath);
+      await _ensureStorageBootstrap(
+        storagePath: storagePath,
+        requireAuth: requireAuth,
+      );
     }
     Object? lastError;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {

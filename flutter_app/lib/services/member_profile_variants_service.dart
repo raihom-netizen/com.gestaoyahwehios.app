@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap;
@@ -63,6 +65,7 @@ abstract final class MemberProfileVariantsService {
     required Uint8List thumbBytes,
     required Uint8List fullBytes,
     void Function(double progress)? onProgress,
+    bool requireAuth = true,
   }) async {
     final thumbPath = ChurchStorageLayout.memberProfileThumbPath(
       tenantId,
@@ -77,17 +80,24 @@ abstract final class MemberProfileVariantsService {
       onProgress?.call(((i + p) / 2).clamp(0.0, 1.0));
     }
 
-    await FastMediaPublishBootstrap.warmForFeedPublish();
+    if (requireAuth) {
+      await FastMediaPublishBootstrap.warmForFeedPublish();
+    } else {
+      await FirebaseBootstrap.ensureInitialized();
+      FirebaseBootstrapService.refreshCachedApp();
+    }
     final urls = await Future.wait([
       FeedPostMediaUpload.uploadFeedPhotoBytes(
         storagePath: thumbPath,
         bytes: thumbBytes,
         onProgress: (p) => report(0, p),
+        requireAuth: requireAuth,
       ),
       FeedPostMediaUpload.uploadFeedPhotoBytes(
         storagePath: fullPath,
         bytes: fullBytes,
         onProgress: (p) => report(1, p),
+        requireAuth: requireAuth,
       ),
     ]);
 

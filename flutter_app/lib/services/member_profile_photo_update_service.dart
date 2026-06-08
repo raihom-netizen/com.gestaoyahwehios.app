@@ -262,6 +262,7 @@ class MemberProfilePhotoUpdateService {
       memberDocId: memberDocId,
       thumbBytes: tiers.thumb,
       fullBytes: tiers.full,
+      requireAuth: requireAuth,
     );
     final photoUrl = sanitizeImageUrl(uploaded.photoFull);
     final thumbUrl = sanitizeImageUrl(uploaded.photoThumb);

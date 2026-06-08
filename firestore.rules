@@ -1268,7 +1268,8 @@ service cloud.firestore {
           && request.resource.data.mediaUrl is string
           && request.resource.data.mediaUrl.size() > 8
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-            'mediaUrl', 'storagePath', 'fileName', 'deliveryStatus', 'uploadProgress', 'thumbUrl'
+            'mediaUrl', 'fileUrl', 'storagePath', 'fileName', 'deliveryStatus', 'status',
+            'uploadProgress', 'thumbUrl', 'thumbnailUrl', 'fileSize', 'size'
           ]);
       }
 

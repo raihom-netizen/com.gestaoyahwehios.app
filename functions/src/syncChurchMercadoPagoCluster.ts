@@ -1,11 +1,13 @@
 /**
  * Sincroniza Mercado Pago (credenciais + config + conta tesouraria 323)
- * do doc irmão mais completo do cluster → doc operacional da igreja.
- *
- * Caso típico: credenciais em `igreja_o_brasil_...` e painel em `brasilparacristo_sistema`.
+ * do doc irmão mais completo do cluster → doc operacional canónico da igreja.
  */
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import {
+  addAnchoredCluster,
+  resolveAnchoredCanonicalTenantId,
+} from "./churchClusterAnchors";
 
 function db() {
   return admin.firestore();
@@ -21,26 +23,6 @@ function isMpConta(data: Record<string, unknown> | undefined): boolean {
   if (String(data.seedPreset || "") === "tesouraria_mercado_pago") return true;
   const nome = String(data.nome || "").toLowerCase();
   return nome.includes("mercado pago");
-}
-
-const ANCHORED_CLUSTERS: Record<string, string[]> = {
-  brasilparacristo_sistema: [
-    "brasilparacristo_sistema",
-    "brasilparacristo",
-    "igreja_o_brasil_para_cristo_jardim_goiano",
-    "iobpc-jardim-goiano",
-  ],
-};
-
-function addAnchoredCluster(seed: string, out: Set<string>) {
-  const t = String(seed || "").trim();
-  if (!t) return;
-  for (const [key, members] of Object.entries(ANCHORED_CLUSTERS)) {
-    if (key === t || members.includes(t)) {
-      out.add(key);
-      for (const m of members) out.add(m);
-    }
-  }
 }
 
 async function collectRelatedIgrejaDocIds(seed: string): Promise<string[]> {
@@ -171,7 +153,7 @@ export async function runSyncChurchMercadoPagoFromCluster(
   tenantId: string,
   options?: { force?: boolean },
 ): Promise<Record<string, unknown>> {
-  const target = String(tenantId || "").trim();
+  const target = resolveAnchoredCanonicalTenantId(String(tenantId || "").trim());
   if (!target) {
     throw new functions.https.HttpsError("invalid-argument", "tenantId obrigatório");
   }

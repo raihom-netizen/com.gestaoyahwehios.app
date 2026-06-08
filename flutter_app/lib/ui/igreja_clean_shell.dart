@@ -24,6 +24,7 @@ import 'package:gestao_yahweh/services/church_tenant_dashboard_warmup_service.da
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_cluster_sync_service.dart';
+import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
@@ -446,9 +447,25 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             _pageCache[i] = null;
           }
         });
+        _reconfigureFcmForOperationalTenant(tid);
       }
       ChurchClusterSyncService.syncForOperationalTenant(effective);
     } catch (_) {}
+  }
+
+  void _reconfigureFcmForOperationalTenant(String operationalId) {
+    if (kIsWeb) return;
+    final u = firebaseDefaultAuth.currentUser;
+    if (u == null) return;
+    unawaited(
+      FcmService.instance.configure(
+        uid: u.uid,
+        tenantId: operationalId,
+        cpf: widget.cpf,
+        role: widget.role,
+        forceRefresh: true,
+      ),
+    );
   }
 
   @override

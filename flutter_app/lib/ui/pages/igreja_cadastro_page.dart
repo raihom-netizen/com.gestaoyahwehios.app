@@ -26,6 +26,7 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -324,7 +325,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       _slugCtrl.text = _slugFromChurchName(_nameCtrl.text);
     }
     _bindIgrejaLiveWatch(resolved);
-    if (mounted) {
+    if (mounted && (profile.isNotEmpty || !kIsWeb)) {
       setState(() {
         _cadastroBootstrapDone = true;
         _cadastroBootstrapError = null;
@@ -335,6 +336,17 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<void> _bootstrapCadastro({bool forceRefresh = false}) async {
     final seed = widget.tenantId.trim();
     final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    if (kIsWeb) {
+      TenantResolverService.invalidateOperationalChurchDocCache(
+        seedId: seed,
+        userUid: uid,
+      );
+      TenantResolverService.invalidateRegistrationContextCache(
+        seedId: seed,
+        userUid: uid,
+      );
+    }
 
     if (!forceRefresh && !kIsWeb) {
       final peek = TenantResolverService.peekRegistrationContext(
@@ -376,19 +388,71 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<void> _finishCadastroBootstrap({bool forceRefresh = false}) async {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
+      final seed = widget.tenantId.trim();
       if (kIsWeb && forceRefresh) {
         TenantResolverService.invalidateRegistrationContextCache(
-          seedId: widget.tenantId,
+          seedId: seed,
           userUid: uid,
         );
       }
+
+      if (kIsWeb) {
+        TenantResolverService.invalidateOperationalChurchDocCache(
+          seedId: seed,
+          userUid: uid,
+        );
+        final resolved = await TenantResolverService
+            .resolveOperationalChurchDocId(
+          seed,
+          userUid: uid,
+          forceRefresh: true,
+        ).timeout(
+          const Duration(seconds: 14),
+          onTimeout: () => seed,
+        );
+        if (!mounted) return;
+        if (resolved.isEmpty) {
+          setState(() {
+            _cadastroBootstrapDone = true;
+            _cadastroBootstrapError = 'Igreja não identificada';
+          });
+          return;
+        }
+        _operationalTenantId = resolved;
+        await ChurchTenantResilientReads.preparePanelRead(refreshToken: true);
+
+        var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
+          resolved,
+          preferServer: true,
+        );
+        if (profile.isEmpty ||
+            TenantResolverService.churchProfileRichnessScore(profile) < 8) {
+          profile = await TenantResolverService.richestChurchProfileForCadastro(
+            resolved,
+            preferServer: true,
+          );
+        }
+        if (profile.isNotEmpty) {
+          _hydrateFormFromFirestoreDoc(resolved, profile);
+        }
+        if (_igrejaLiveSub == null) {
+          _bindIgrejaLiveWatch(resolved);
+        }
+        if (!mounted) return;
+        setState(() {
+          _cadastroBootstrapDone = true;
+          _cadastroBootstrapError = profile.isEmpty
+              ? 'Não foi possível carregar os dados da igreja. Toque em Tentar novamente.'
+              : null;
+        });
+        return;
+      }
+
       final ctx = await TenantResolverService.loadChurchRegistrationContext(
         widget.tenantId,
         userUid: uid,
-        forceRefresh: forceRefresh || kIsWeb,
-      ).timeout(
-        kIsWeb ? const Duration(seconds: 28) : const Duration(seconds: 20),
-      );
+        forceRefresh: forceRefresh,
+      ).timeout(const Duration(seconds: 20));
       if (!mounted) return;
       final resolved = ctx.operationalId.trim();
       if (resolved.isEmpty) {
@@ -404,9 +468,16 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       var profile = ctx.profile;
       if (profile.isEmpty ||
           TenantResolverService.churchProfileRichnessScore(profile) < 8) {
+        profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
+          resolved,
+          preferServer: false,
+        );
+      }
+      if (profile.isEmpty ||
+          TenantResolverService.churchProfileRichnessScore(profile) < 8) {
         profile = await TenantResolverService.richestChurchProfileForCadastro(
           resolved,
-          preferServer: kIsWeb,
+          preferServer: false,
         );
       }
       if (profile.isNotEmpty) {
@@ -418,7 +489,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (!mounted) return;
       setState(() {
         _cadastroBootstrapDone = true;
-        _cadastroBootstrapError = null;
+        _cadastroBootstrapError = profile.isEmpty
+            ? 'Não foi possível carregar os dados da igreja. Toque em Tentar novamente.'
+            : null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -451,15 +524,23 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final tid = resolvedId.trim();
     if (tid.isEmpty) return;
     try {
+      var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
+        tid,
+        preferServer: kIsWeb,
+      );
+      if (!mounted) return;
+      if (profile.isNotEmpty) {
+        _hydrateFormFromFirestoreDoc(tid, profile);
+        return;
+      }
       if (kIsWeb) {
-        final richest =
-            await TenantResolverService.richestChurchProfileForCadastro(
+        profile = await TenantResolverService.richestChurchProfileForCadastro(
           tid,
           preferServer: true,
         );
         if (!mounted) return;
-        if (richest.isNotEmpty) {
-          _hydrateFormFromFirestoreDoc(tid, richest);
+        if (profile.isNotEmpty) {
+          _hydrateFormFromFirestoreDoc(tid, profile);
           return;
         }
       }
@@ -757,8 +838,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _cidadeCtrl.text = (data['cidade'] ?? data['localidade'] ?? '').toString();
     _estadoCtrl.text = (data['estado'] ?? data['uf'] ?? '').toString();
     _bairroCtrl.text = (data['bairro'] ?? '').toString();
-    _ruaCtrl.text =
-        (data['rua'] ?? data['address'] ?? data['endereco'] ?? '').toString();
+    _ruaCtrl.text = (data['rua'] ?? data['address'] ?? '').toString();
     _quadraLoteNumeroCtrl.text = (data['quadraLoteNumero'] ??
             data['quadra_lote_numero'] ??
             data['qdLtNumero'] ??
@@ -823,9 +903,82 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           'whatsappLink',
           'linkWhatsapp',
         ]));
+    _hydrateAddressFromCompositeEndereco(data);
     _lastHydratedCpf = null;
     _gestorMemberDocId = null;
     _gestorMemberData = null;
+  }
+
+  /// `endereco` legado (string única) → CEP, rua, bairro, cidade, UF.
+  void _hydrateAddressFromCompositeEndereco(Map<String, dynamic> data) {
+    final hasParts = _cepCtrl.text.trim().isNotEmpty ||
+        _ruaCtrl.text.trim().isNotEmpty ||
+        _bairroCtrl.text.trim().isNotEmpty ||
+        _cidadeCtrl.text.trim().isNotEmpty;
+    if (hasParts) return;
+
+    final raw = (data['endereco'] ??
+            data['ENDERECO'] ??
+            data['enderecoCompleto'] ??
+            '')
+        .toString()
+        .trim();
+    if (raw.isEmpty) return;
+
+    final cepMatch =
+        RegExp(r'CEP\s*(\d{5})-?(\d{3})', caseSensitive: false).firstMatch(raw);
+    if (cepMatch != null) {
+      _cepCtrl.text = '${cepMatch.group(1)!}-${cepMatch.group(2)!}';
+    }
+
+    final cityState = RegExp(
+      r',\s*([^,]+?)\s*-\s*([A-Za-z]{2})\s*(?:,|\s*CEP|$)',
+      caseSensitive: false,
+    ).firstMatch(raw);
+    if (cityState != null) {
+      if (_cidadeCtrl.text.trim().isEmpty) {
+        _cidadeCtrl.text = cityState.group(1)!.trim();
+      }
+      if (_estadoCtrl.text.trim().isEmpty) {
+        _estadoCtrl.text = cityState.group(2)!.trim().toUpperCase();
+      }
+    }
+
+    final parts = raw
+        .split(',')
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.length >= 2 && _bairroCtrl.text.trim().isEmpty) {
+      for (var i = parts.length - 2; i >= 0; i--) {
+        final p = parts[i];
+        if (RegExp(r'CEP\s*\d', caseSensitive: false).hasMatch(p)) continue;
+        if (RegExp(r'-\s*[A-Za-z]{2}$').hasMatch(p)) continue;
+        if (p.toUpperCase() == _cidadeCtrl.text.trim().toUpperCase()) continue;
+        _bairroCtrl.text = p;
+        break;
+      }
+    }
+
+    if (_ruaCtrl.text.trim().isEmpty) {
+      var rua = raw;
+      if (cepMatch != null) {
+        rua = rua.replaceAll(cepMatch.group(0)!, '').trim();
+      }
+      rua = rua.replaceAll(RegExp(r',\s*$'), '').trim();
+      if (parts.isNotEmpty && _bairroCtrl.text.trim().isNotEmpty) {
+        final bairro = _bairroCtrl.text.trim();
+        final idx = parts.indexWhere(
+          (p) => p.toUpperCase() == bairro.toUpperCase(),
+        );
+        if (idx > 0) {
+          rua = parts.take(idx).join(', ');
+        } else if (idx == 0 && parts.length > 1) {
+          rua = parts.first;
+        }
+      }
+      _ruaCtrl.text = rua;
+    }
   }
 
   String _effectiveGestorMemberDocId() {

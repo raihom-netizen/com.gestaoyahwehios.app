@@ -62,14 +62,41 @@ class _MercadoPagoChurchSettingsSectionState
       final seed = widget.tenantId.trim();
       if (seed.isNotEmpty) {
         final uid = FirebaseAuth.instance.currentUser?.uid;
+        TenantResolverService.invalidateOperationalChurchDocCache(
+          seedId: seed,
+          userUid: uid,
+        );
         _operationalTenantId = await TenantResolverService
-            .resolveOperationalChurchDocId(seed, userUid: uid)
-            .timeout(const Duration(seconds: 10), onTimeout: () => seed);
+            .resolveOperationalChurchDocId(
+          seed,
+          userUid: uid,
+          forceRefresh: kIsWeb,
+        ).timeout(const Duration(seconds: 12), onTimeout: () => seed);
       }
-      final d = await ChurchTenantResilientReads.configDoc(
-        _effectiveTenantId,
+      await ChurchTenantResilientReads.preparePanelRead(
+        refreshToken: kIsWeb,
+      );
+      final tid = _effectiveTenantId;
+      var d = await ChurchTenantResilientReads.configDoc(
+        tid,
         'mercado_pago',
       );
+      if (!(d.exists && (d.data() ?? {}).isNotEmpty)) {
+        if (kIsWeb && tid.isNotEmpty) {
+          try {
+            d = await FirebaseFirestore.instance
+                .collection('igrejas')
+                .doc(tid)
+                .collection('config')
+                .doc('mercado_pago')
+                .get(const GetOptions(source: Source.server))
+                .timeout(const Duration(seconds: 12));
+          } catch (_) {}
+        }
+        if (!(d.exists && (d.data() ?? {}).isNotEmpty) && tid != seed) {
+          d = await ChurchTenantResilientReads.configDoc(seed, 'mercado_pago');
+        }
+      }
       _cfg = d.data();
       _publicKeyCtrl.text = (_cfg?['publicKey'] ?? '').toString();
       _clientIdCtrl.text = (_cfg?['clientId'] ?? '').toString();

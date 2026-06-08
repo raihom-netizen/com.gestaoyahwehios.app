@@ -49,6 +49,7 @@ const receitasRecorrentesScheduled_1 = require("./receitasRecorrentesScheduled")
 const churchMercadoPago_1 = require("./churchMercadoPago");
 const memberCodigo_1 = require("./memberCodigo");
 const carteirinhaValidarPublic_1 = require("./carteirinhaValidarPublic");
+const churchClusterAnchors_1 = require("./churchClusterAnchors");
 admin.initializeApp();
 const db = admin.firestore();
 /** Banco Firestore separado para frotas (frotasveiculo). */
@@ -254,20 +255,28 @@ async function canManageTenant(uid, tokenRole, tokenTenantId, tenantId) {
 async function callerBelongsToTenant(callerUid, tenantId) {
     if (!tenantId)
         return false;
+    const effective = (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(tenantId);
+    const cluster = new Set([tenantId, effective]);
+    (0, churchClusterAnchors_1.addAnchoredCluster)(tenantId, cluster);
+    (0, churchClusterAnchors_1.addAnchoredCluster)(effective, cluster);
     try {
         const u = await db.collection("users").doc(callerUid).get();
         const data = u.exists ? u.data() || {} : {};
         const ut = String(data.tenantId || data.igrejaId || "").trim();
-        if (ut === tenantId)
+        if (ut && cluster.has(ut))
+            return true;
+        if (ut && (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(ut) === effective)
             return true;
     }
     catch (_) { }
-    try {
-        const iu = await db.collection("igrejas").doc(tenantId).collection("users").doc(callerUid).get();
-        if (iu.exists)
-            return true;
+    for (const tid of cluster) {
+        try {
+            const iu = await db.collection("igrejas").doc(tid).collection("users").doc(callerUid).get();
+            if (iu.exists)
+                return true;
+        }
+        catch (_) { }
     }
-    catch (_) { }
     return false;
 }
 /** Alinhado a [AppPermissions.canEditMembersDirectory] + pertença à igreja. */
@@ -309,6 +318,29 @@ async function callerCanEditMembersDirectory(callerUid, tokenRole, tokenTenantId
     if (allowed.has(role))
         return true;
     return false;
+}
+/** Gestor, admin, pastor ou secretário — alinhado a [ChurchRolePermissions.approvePendingMembers]. */
+async function callerCanApprovePendingMembers(callerUid, tokenRole, tokenTenantId, tenantId, email) {
+    if (await isAdminPanelActor(callerUid, tokenRole, email))
+        return true;
+    if (!(await callerBelongsToTenant(callerUid, tenantId)))
+        return false;
+    if (await canManageTenant(callerUid, tokenRole, tokenTenantId, tenantId))
+        return true;
+    const role = normalizeRole(await resolveRoleFromTokenOrDb(callerUid, tokenRole));
+    const allowed = new Set([
+        "MASTER",
+        "ADMIN",
+        "ADM",
+        "GESTOR",
+        "PASTOR_PRESIDENTE",
+        "PASTOR",
+        "PASTORA",
+        "PASTOR_AUXILIAR",
+        "SECRETARIO",
+        "SECRETARIA",
+    ]);
+    return allowed.has(role);
 }
 async function getDrive() {
     const { google } = await Promise.resolve().then(() => __importStar(require("googleapis")));
@@ -3273,7 +3305,7 @@ exports.seedGestorBrasilParaCristo = functions
     if (!isMaster && !secretMatch) {
         throw new functions.https.HttpsError("permission-denied", "Acesso restrito");
     }
-    const tenantId = "brasilparacristo_sistema";
+    const tenantId = "igreja_o_brasil_para_cristo_jardim_goiano";
     const cpf = "94536368191";
     const email = "raihom@gmail.com";
     const password = "ca341982";
@@ -3365,7 +3397,7 @@ exports.syncGestorBrasilParaCristo = functions
     if (email !== "raihom@gmail.com") {
         throw new functions.https.HttpsError("permission-denied", "Apenas o gestor Brasil para Cristo pode usar esta função.");
     }
-    const tenantId = "brasilparacristo_sistema";
+    const tenantId = "igreja_o_brasil_para_cristo_jardim_goiano";
     const cpf = "94536368191";
     const gestorName = "RAIHOM SEVERINO BARBOSA";
     const uid = context.auth.uid;
@@ -4336,12 +4368,13 @@ exports.setMemberApproved = functions
     }
     const role = String(context.auth.token?.role || "").toUpperCase();
     const igrejaId = context.auth.token?.igrejaId || context.auth.token?.tenantId;
-    const isGestor = ["ADMIN", "ADM", "GESTOR", "MASTER"].includes(role) &&
-        (String(igrejaId) === tenantId || role === "MASTER");
-    if (!isGestor) {
-        throw new functions.https.HttpsError("permission-denied", "Apenas gestor pode aprovar.");
+    const email = String(context.auth.token?.email || "").trim().toLowerCase();
+    const effectiveTenantId = (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(tenantId);
+    const canApprove = await callerCanApprovePendingMembers(context.auth.uid, role, igrejaId, effectiveTenantId, email);
+    if (!canApprove) {
+        throw new functions.https.HttpsError("permission-denied", "Sem permissão para aprovar cadastros (gestor, pastor ou secretário).");
     }
-    const found = await findMemberDocument(tenantId, memberId);
+    const found = await findMemberDocument(effectiveTenantId, memberId);
     if (!found) {
         throw new functions.https.HttpsError("not-found", "Membro não encontrado.");
     }
@@ -4353,7 +4386,7 @@ exports.setMemberApproved = functions
         aprovadoEm: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     try {
-        await (0, memberCodigo_1.ensureCodigoMembroOnMember)(tenantId, memberId, found.data);
+        await (0, memberCodigo_1.ensureCodigoMembroOnMember)(effectiveTenantId, memberId, found.data);
     }
     catch (codErr) {
         console.warn("setMemberApproved codigoMembro", codErr);
@@ -4362,7 +4395,7 @@ exports.setMemberApproved = functions
     const d = after.data() || {};
     let authUid = String(d.authUid || "").trim();
     if (!authUid) {
-        const r = await ensureMemberFirebaseAuth(tenantId, memberId, memberRef, { ...d, STATUS: "ativo", status: "ativo" });
+        const r = await ensureMemberFirebaseAuth(effectiveTenantId, memberId, memberRef, { ...d, STATUS: "ativo", status: "ativo" });
         authUid = r.uid;
     }
     try {
@@ -4373,8 +4406,8 @@ exports.setMemberApproved = functions
     }
     await admin.auth().setCustomUserClaims(authUid, {
         role: "membro",
-        igrejaId: tenantId,
-        tenantId,
+        igrejaId: effectiveTenantId,
+        tenantId: effectiveTenantId,
         active: true,
         isUser: true,
         isDriver: false,
@@ -4386,13 +4419,13 @@ exports.setMemberApproved = functions
         const idx = { active: true, pendingApproval: false };
         await db
             .collection("tenants")
-            .doc(tenantId)
+            .doc(effectiveTenantId)
             .collection("usersIndex")
             .doc(cpf)
             .set(idx, { merge: true });
         await db
             .collection("igrejas")
-            .doc(tenantId)
+            .doc(effectiveTenantId)
             .collection("usersIndex")
             .doc(cpf)
             .set(idx, { merge: true });
@@ -4545,7 +4578,7 @@ exports.ensureBrasilParaCristoAccess = functions
         throw new functions.https.HttpsError("permission-denied", "Acesso restrito ao gestor ou MASTER.");
     }
     try {
-        const tenantId = "brasilparacristo_sistema";
+        const tenantId = "igreja_o_brasil_para_cristo_jardim_goiano";
         const cpf = "94536368191";
         const email = "raihom@gmail.com";
         const name = "Brasil para Cristo";
@@ -4663,6 +4696,14 @@ exports.ensureBrasilParaCristoAccess = functions
         catch (clusterErr) {
             console.warn("ensureBrasilParaCristoAccess clusterSync", clusterErr);
         }
+        let financeiroFolder = { skipped: true };
+        try {
+            const { ensureFinanceiroStorageFolder } = await Promise.resolve().then(() => __importStar(require("./churchStorageStructure")));
+            financeiroFolder = await ensureFinanceiroStorageFolder(tenantId);
+        }
+        catch (finErr) {
+            console.warn("ensureBrasilParaCristoAccess financeiroFolder", finErr);
+        }
         return {
             ok: true,
             tenantId,
@@ -4671,6 +4712,7 @@ exports.ensureBrasilParaCristoAccess = functions
             uid: authUser?.uid ?? null,
             mpSync,
             clusterSync,
+            financeiroFolder,
             message: authUser
                 ? "Acesso garantido. Use CPF 94536368191 ou e-mail raihom@gmail.com em 'Carregar igreja' e faça login."
                 : "Igreja e índice CPF criados. Crie o usuário Auth com seedGestorBrasilParaCristo (senha) para poder fazer login.",
@@ -5502,12 +5544,12 @@ exports.onScheduleCreate = functions
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     try {
-        await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
-            topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "escala"),
+        await (0, pushNovoConteudo_1.sendGyTopicPushCluster)(tenantId, "escala", (effectiveTenantId) => (0, notificationBranding_1.buildGyTopicMessage)({
+            topic: (0, pushNovoConteudo_1.topicPushNovo)(effectiveTenantId, "escala"),
             title: "📋 Nova escala",
             body,
             data: {
-                tenantId,
+                tenantId: effectiveTenantId,
                 departmentId: deptId,
                 scheduleId: context.params.id,
                 type: "nova_escala",

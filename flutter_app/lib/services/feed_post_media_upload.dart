@@ -104,6 +104,7 @@ abstract final class FeedPostMediaUpload {
     required String storagePath,
     required Uint8List bytes,
     void Function(double progress)? onProgress,
+    bool requireAuth = true,
   }) async {
     final webp = bytesLookLikeWebp(bytes);
     final prepared = webp ? await prepareFeedWebpBytes(bytes) : bytes;
@@ -111,7 +112,12 @@ abstract final class FeedPostMediaUpload {
       throw StateError('Falha ao preparar imagem para envio.');
     }
     if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
-      await ensureUploadBootstrapForStoragePath(storagePath);
+      if (requireAuth) {
+        await ensureUploadBootstrapForStoragePath(storagePath);
+      } else {
+        await FirebaseBootstrap.ensureInitialized();
+        FirebaseBootstrapService.refreshCachedApp();
+      }
     }
     final url = await YahwehMediaUploadPipeline.uploadPreparedBytes(
       storagePath: storagePath,
@@ -119,6 +125,7 @@ abstract final class FeedPostMediaUpload {
       contentType: webp ? 'image/webp' : 'image/jpeg',
       maxAttempts: 3,
       onProgress: onProgress,
+      requireAuth: requireAuth,
     );
     return url;
   }

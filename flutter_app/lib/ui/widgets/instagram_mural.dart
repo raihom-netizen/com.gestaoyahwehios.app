@@ -3926,6 +3926,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
               _existingUrls.length -
               _newPhotoCount)
           .clamp(1, _maxPhotosPerPost);
+      var encodeSkipped = 0;
       await MediaHandlerService.instance.pickMultiCropEncodeFeedWebpFromGallery(
         context,
         maxPickCount: remaining,
@@ -3936,7 +3937,19 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           }
           await _addEncodedFeedPhoto(encoded);
         },
+        onEncodeSkipped: (_, __) => encodeSkipped++,
       );
+      if (encodeSkipped > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+            encodeSkipped == 1
+                ? 'Não foi possível preparar 1 foto. Tente outra imagem ou reinicie o app.'
+                : 'Não foi possível preparar $encodeSkipped fotos. Tente outras imagens.',
+          ),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
