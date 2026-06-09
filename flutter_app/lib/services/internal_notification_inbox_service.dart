@@ -58,4 +58,55 @@ abstract final class InternalNotificationInboxService {
       return 0;
     }
   }
+
+  static Stream<int> watchUnreadCount(String uid) {
+    final u = uid.trim();
+    if (u.isEmpty) return Stream.value(0);
+    return watch(u, limit: 120).map((snap) {
+      var n = 0;
+      for (final d in snap.docs) {
+        if (d.data()['read'] != true) n++;
+      }
+      return n;
+    });
+  }
+
+  static Future<void> markAllRead(String uid) async {
+    final u = uid.trim();
+    if (u.isEmpty) return;
+    try {
+      final snap = await _inbox(u)
+          .where('read', isEqualTo: false)
+          .limit(120)
+          .get();
+      if (snap.docs.isEmpty) return;
+      final batch = firebaseDefaultFirestore.batch();
+      for (final d in snap.docs) {
+        batch.update(d.reference, {
+          'read': true,
+          'readAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    } catch (_) {}
+  }
+
+  /// Espelha push FCM na caixa pessoal (feed unificado no sino).
+  static Future<void> deliverFromRemoteMessage({
+    required String uid,
+    required String type,
+    required String title,
+    String? body,
+    String? tenantId,
+    Map<String, dynamic>? meta,
+  }) async {
+    await deliver(
+      uid: uid,
+      type: type,
+      title: title,
+      body: body,
+      tenantId: tenantId,
+      meta: meta,
+    );
+  }
 }

@@ -60,6 +60,7 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/membro_strict_publish_service.dart';
+import 'package:gestao_yahweh/services/membro_strict_update_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
@@ -195,7 +196,7 @@ class _MembersPageState extends State<MembersPage> {
   /// 0 = lista + filtros; 1 = painel estatístico (gráficos e números).
   int _membersMainTabIndex = 0;
 
-  /// Tenant ID efetivo (documento em tenants): resolvido por slug/alias quando o usuário tem igreja "Brasil para Cristo" etc.
+  /// churchId canónico (`igrejas/{id}`) — via [ChurchContextService] após login.
   String? _resolvedTenantId;
 
   /// Cache da ligação igreja (alias/slug) para incluir em toda escrita de membro.
@@ -203,10 +204,10 @@ class _MembersPageState extends State<MembersPage> {
 
   String get _effectiveTenantId => _resolvedTenantId ?? widget.tenantId;
 
-  /// Doc operacional do cluster (membros, escalas, financeiro, …).
+  /// Doc operacional — `igrejas/{churchId}` (contexto da sessão).
   Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.resolveOperationalChurchDocId(
-        widget.tenantId,
+      TenantResolverService.operationalChurchId(
+        seed: widget.tenantId,
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );
 
@@ -349,23 +350,25 @@ class _MembersPageState extends State<MembersPage> {
     return list;
   }
 
-  /// IDs de documento Firestore (`igrejas/{id}`) para um tenant, incluindo alias/slug duplicados.
+  /// IDs Firestore para operações destrutivas — igrejas novas: só doc operacional; BPC: cluster.
   Future<Set<String>> _resolvedFirestoreTenantIds(String tenantKey) async {
     final t = tenantKey.trim();
     if (t.isEmpty) return {};
-    final out = <String>{t};
+    var operational = t;
     try {
-      out.addAll(
-        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(t),
-      );
-    } catch (_) {}
-    out.addAll(TenantResolverService.anchoredClusterIdsFor(t));
-    try {
-      final readId = await TenantResolverService.resolveModuleReadTenantId(
+      operational = await TenantResolverService.resolveOperationalChurchDocId(
         t,
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );
-      if (readId.trim().isNotEmpty) out.add(readId.trim());
+    } catch (_) {}
+    final op = operational.trim().isNotEmpty ? operational.trim() : t;
+    final anchored = TenantResolverService.anchoredClusterIdsFor(op);
+    if (anchored.isEmpty) return {op};
+    final out = <String>{op, ...anchored};
+    try {
+      out.addAll(
+        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(op),
+      );
     } catch (_) {}
     return out.where((e) => e.trim().isNotEmpty).toSet();
   }
@@ -1241,10 +1244,12 @@ class _MembersPageState extends State<MembersPage> {
         !AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
 
     List<String> relatedIgrejaDocIds = [effectiveId];
-    try {
-      relatedIgrejaDocIds =
-          await TenantResolverService.getAllRelatedIgrejaDocIds(effectiveId);
-    } catch (_) {}
+    if (TenantResolverService.anchoredClusterIdsFor(effectiveId).isNotEmpty) {
+      try {
+        relatedIgrejaDocIds =
+            await TenantResolverService.getAllRelatedIgrejaDocIds(effectiveId);
+      } catch (_) {}
+    }
 
     final db = firebaseDefaultFirestore;
 
@@ -4417,21 +4422,11 @@ class _MembersPageState extends State<MembersPage> {
         updates['slug'] = linkage['slug'];
         updates['tenantId'] = targetTenantId;
 
-        final db = firebaseDefaultFirestore;
-        var allIds =
-            await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
-                targetTenantId);
-        if (allIds.isEmpty) allIds = [targetTenantId];
-        await Future.wait(
-          allIds.map((tid) async {
-            try {
-              final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-              await                   ChurchOperationalPaths.churchDoc(op)
-                  .collection('membros')
-                  .doc(member.id)
-                  .set(updates, SetOptions(merge: true));
-            } catch (_) {}
-          }),
+        await MembroStrictUpdateService.updateMember(
+          seedTenantId: targetTenantId,
+          memberDocId: member.id,
+          updates: updates,
+          userUid: FirebaseAuth.instance.currentUser?.uid,
         );
 
         var authUidSelf = member.data['authUid']?.toString().trim();
@@ -4521,7 +4516,10 @@ class _MembersPageState extends State<MembersPage> {
               }
             }
           }
-          _refreshMembers(clearOptimisticMemberOverlayId: member.id);
+          _refreshMembers(
+            forceServer: true,
+            clearOptimisticMemberOverlayId: member.id,
+          );
         }
         return;
       } catch (e) {
@@ -4737,21 +4735,11 @@ class _MembersPageState extends State<MembersPage> {
     }
 
     try {
-      final db = firebaseDefaultFirestore;
-      List<String> allIds =
-          await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
-              targetTenantId);
-      if (allIds.isEmpty) allIds = [targetTenantId];
-      await Future.wait(
-        allIds.map((tid) async {
-          try {
-            final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-            await                 ChurchOperationalPaths.churchDoc(op)
-                .collection('membros')
-                .doc(member.id)
-                .set(updates, SetOptions(merge: true));
-          } catch (_) {}
-        }),
+      await MembroStrictUpdateService.updateMember(
+        seedTenantId: targetTenantId,
+        memberDocId: member.id,
+        updates: updates,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
       );
       var authUid = member.data['authUid']?.toString().trim();
       final newEmGestor = (updates['EMAIL'] ?? '').toString();
@@ -4924,77 +4912,13 @@ class _MembersPageState extends State<MembersPage> {
         }
       }
       if (mounted) {
-        _refreshMembers(clearOptimisticMemberOverlayId: member.id);
+        _refreshMembers(
+          forceServer: true,
+          clearOptimisticMemberOverlayId: member.id,
+        );
       }
     } catch (e) {
-      final msg = e.toString();
-      if (mounted &&
-          (msg.contains('INTERNAL ASSERTION') ||
-              msg.contains('permission-denied'))) {
-        try {
-          final allIdsRetry =
-              await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
-                  targetTenantId);
-          final dbRetry = firebaseDefaultFirestore;
-          await Future.wait(
-            allIdsRetry.map((tid) async {
-              try {
-                final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-                await ChurchOperationalPaths.churchDoc(op)
-                    .collection('membros')
-                    .doc(member.id)
-                    .set(updates, SetOptions(merge: true));
-              } catch (_) {}
-            }),
-          );
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.successSnackBar('Membro atualizado!'));
-            if (pendingProfilePhotoBytesGestor != null) {
-              final bytes = pendingProfilePhotoBytesGestor;
-              final mergedRetry = Map<String, dynamic>.from(member.data)
-                ..addAll(updates);
-              try {
-                await _publishMemberProfilePhotoStrict(
-                  tenantId: targetTenantId,
-                  memberDocId: member.id,
-                  memberData: mergedRetry,
-                  bytes: bytes,
-                );
-              } catch (_) {
-                if (mounted) {
-                  setState(
-                    () => _optimisticProfilePhotoBytes.remove(member.id),
-                  );
-                }
-              }
-            }
-            _refreshMembers(clearOptimisticMemberOverlayId: member.id);
-            final uidRetry = member.data['authUid']?.toString().trim() ?? '';
-            if (uidRetry.isNotEmpty) {
-              try {
-                await FirebaseFunctions.instanceFor(region: 'us-central1')
-                    .httpsCallable('syncMemberRoleClaims')
-                    .call({
-                  'tenantId': targetTenantId,
-                  'memberId': member.id,
-                });
-              } catch (_) {}
-              if (FirebaseAuth.instance.currentUser?.uid == uidRetry) {
-                try {
-                  await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-                } catch (_) {}
-              }
-            }
-          }
-        } catch (e2) {
-          if (mounted) {
-            setState(() => _optimisticMemberOverlays.remove(member.id));
-            ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.feedbackSnackBar('Erro ao salvar: $e2'));
-          }
-        }
-      } else if (mounted) {
+      if (mounted) {
         setState(() => _optimisticMemberOverlays.remove(member.id));
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.feedbackSnackBar('Erro ao salvar: $e'));
@@ -5147,15 +5071,22 @@ class _MembersPageState extends State<MembersPage> {
         data: member.data,
       );
       final db = firebaseDefaultFirestore;
-      final allDocIds = await _resolvedFirestoreTenantIds(_effectiveTenantId);
+      Object? lastDeleteError;
+      try {
+        await MembroStrictUpdateService.deleteMember(
+          seedTenantId: _effectiveTenantId,
+          memberDocId: mid,
+          userUid: FirebaseAuth.instance.currentUser?.uid,
+        );
+      } catch (e) {
+        lastDeleteError = e;
+      }
 
+      final allDocIds = await _resolvedFirestoreTenantIds(_effectiveTenantId);
       final refs = <DocumentReference<Map<String, dynamic>>>[];
       for (final tid in allDocIds) {
         if (tid.isEmpty) continue;
         final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-        refs.add(
-          ChurchOperationalPaths.churchDoc(op).collection('membros').doc(mid),
-        );
         refs.add(
           ChurchOperationalPaths.churchDoc(op).collection('members').doc(mid),
         );
@@ -5167,17 +5098,14 @@ class _MembersPageState extends State<MembersPage> {
         refs.add(db.collection('users').doc(uid));
       }
 
-      var deletedMembroDoc = false;
-      Object? lastDeleteError;
+      var deletedMembroDoc = lastDeleteError == null;
       for (final r in refs) {
         try {
           final exists = (await r.get()).exists;
           if (!exists) continue;
           await FirestoreWebGuard.runWithWebRecovery(() => r.delete());
-          if (r.path.contains('/membros/')) deletedMembroDoc = true;
         } catch (e) {
-          lastDeleteError = e;
-          debugPrint('members_page._deleteMember skip ref=$r: $e');
+          debugPrint('members_page._deleteMember cleanup ref=$r: $e');
         }
       }
 

@@ -7,6 +7,17 @@ import 'package:flutter/foundation.dart'
 /// - Desative com: `--dart-define=GY_MEDIA_TURBO=false`
 /// - Force ativo em debug: `--dart-define=GY_MEDIA_TURBO=true`
 const int kMediaImagePreferredMaxBytes = 1024 * 1024; // 1MB (padrão)
+
+/// Acima deste tamanho: comprimir automaticamente antes do upload (avisos, eventos, chat).
+const int kAutoCompressImageThresholdBytes = 3 * 1024 * 1024;
+
+/// Vídeo bruto acima disto: recomprimir (eventos/chat) antes do upload.
+const int kAutoRecompressVideoThresholdBytes = 50 * 1024 * 1024;
+
+/// Eventos — spec de transcodificação (720p H.264 ~2 Mbps AAC).
+const int kMediaEventVideoTargetHeightPx = 720;
+const int kMediaEventVideoTargetBitrateMbps = 2;
+
 const int kMediaVideoHardMaxBytes = 120 * 1024 * 1024; // 120MB (padrão)
 
 /// Chat Igreja — vídeo até 200 MB (spec WhatsApp-like).

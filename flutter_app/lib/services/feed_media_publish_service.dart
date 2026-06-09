@@ -163,6 +163,8 @@ abstract final class FeedMediaPublishService {
     await docRef.set(
       {
         'publishState': statusFailed,
+        'publicado': false,
+        'status': 'erro',
         'publishError': error.toString(),
         'updatedAt': FieldValue.serverTimestamp(),
       },

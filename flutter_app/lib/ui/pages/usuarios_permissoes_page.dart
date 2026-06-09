@@ -9,11 +9,11 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import '../../services/app_permissions.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
-/// Item exibido na lista: pode vir de tenants/xxx/users (acesso ao painel) ou de members/membros.
+/// Item exibido na lista: `igrejas/{churchId}/users` ou `igrejas/{churchId}/membros`.
 class _UserOrMemberRow {
   final String id;
   final Map<String, dynamic> data;
-  final bool isPanelUser; // true = tem doc em tenants/xxx/users (pode editar roles)
+  final bool isPanelUser; // true = doc em igrejas/{id}/users
   _UserOrMemberRow(this.id, this.data, {this.isPanelUser = false});
 
   String get nome => (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? data['displayName'] ?? 'Usuário').toString().trim();
@@ -65,30 +65,20 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
 
   Future<void> _loadMembersAndMembros() async {
     try {
-      final resolved = await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
-      final tenantId = resolved.isNotEmpty ? resolved : widget.tenantId;
-      final allIds = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(tenantId);
-      final db = FirebaseFirestore.instance;
-      final seen = <String>{};
-      final list = <_UserOrMemberRow>[];
-
-      void add(QueryDocumentSnapshot<Map<String, dynamic>> d) {
-        if (seen.contains(d.id)) return;
-        seen.add(d.id);
-        list.add(_UserOrMemberRow(d.id, d.data(), isPanelUser: false));
+      final churchId = await TenantResolverService.operationalChurchId(
+        seed: widget.tenantId,
+      );
+      if (churchId.isEmpty) {
+        if (mounted) setState(() => _membersFromCollections = []);
+        return;
       }
-
-      for (final tid in allIds) {
-        try {
-          final op = await ChurchOperationalPaths.resolveCached(tid);
-          final snap = await ChurchOperationalPaths.churchDoc(op)
-              .collection('membros')
-              .limit(_membersLoadLimit)
-              .get();
-          for (final d in snap.docs) { add(d); }
-        } catch (_) {}
-      }
-
+      final snap = await ChurchOperationalPaths.churchDoc(churchId)
+          .collection('membros')
+          .limit(_membersLoadLimit)
+          .get();
+      final list = snap.docs
+          .map((d) => _UserOrMemberRow(d.id, d.data(), isPanelUser: false))
+          .toList();
       if (mounted) setState(() => _membersFromCollections = list);
     } catch (_) {
       if (mounted) setState(() => _membersFromCollections = []);
@@ -202,7 +192,7 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
             }
             final userDocs = snap.data?.docs ?? [];
             final userIds = userDocs.map((d) => d.id).toSet();
-            // Usuários com acesso ao painel (tenants/xxx/users)
+            // Usuários com acesso ao painel (igrejas/{churchId}/users)
             final panelUsers = userDocs.map((d) => _UserOrMemberRow(d.id, d.data(), isPanelUser: true)).toList();
             // Membros que NÃO estão em users (evita duplicata)
             final onlyMembers = _membersFromCollections.where((m) => !userIds.contains(m.id)).toList();

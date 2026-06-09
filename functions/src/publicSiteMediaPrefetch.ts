@@ -402,5 +402,7 @@ export const warmPublicSiteFeedCache = functions
     }
     const { refreshPublicFeedCacheForTenant } = await import("./churchPerformancePack");
     await refreshPublicFeedCacheForTenant(tenantId);
+    const { mirrorPublicSitePanelCache } = await import("./panelPublicSiteCache");
+    await mirrorPublicSitePanelCache(tenantId);
     return { ok: true, tenantId, warmed: true };
   });

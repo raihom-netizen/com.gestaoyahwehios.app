@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show BuildContext;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
@@ -39,6 +40,9 @@ class MediaHandlerService {
     int? minWidth,
     int? minHeight,
   }) async {
+    if (!kIsWeb) {
+      BiometricService.markBiometricVerifiedForNextPainelEntry();
+    }
     final XFile? picked = await _picker.pickImage(
       source: source,
       imageQuality: kIsWeb ? (imageQuality ?? quality) : 100,
@@ -64,6 +68,9 @@ class MediaHandlerService {
 
   /// Múltiplas imagens da galeria (ex.: eventos), processadas para Full HD.
   Future<List<XFile>> pickAndProcessMultipleImages() async {
+    if (!kIsWeb) {
+      BiometricService.markBiometricVerifiedForNextPainelEntry();
+    }
     final list = await _picker.pickMultiImage(
       imageQuality: kIsWeb ? quality : 100,
       maxWidth: kIsWeb ? maxWidth.toDouble() : null,
@@ -143,6 +150,9 @@ class MediaHandlerService {
     void Function(XFile encoded, int index, int total)? onEachReady,
     void Function(int index, int total)? onEncodeSkipped,
   }) async {
+    if (!kIsWeb) {
+      BiometricService.markBiometricVerifiedForNextPainelEntry();
+    }
     final edge = kEffectiveFeedEncodeMaxEdgePx.toDouble();
     final list = await _picker.pickMultiImage(
       limit: maxPickCount,

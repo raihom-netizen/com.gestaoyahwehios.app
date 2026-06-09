@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/web_safe_media.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:gestao_yahweh/services/church_storage_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:video_compress/video_compress.dart';
 
@@ -132,4 +133,18 @@ abstract final class StorageService {
   }
 
   static Future<void> warmAuthToken() => FeedPostMediaUpload.warmAuthToken();
+
+  /// Upload canónico — grava só [storagePath] em `igrejas/{churchId}/…`.
+  static Future<String> uploadToChurchPath({
+    required String storagePath,
+    required Uint8List bytes,
+    required String contentType,
+    void Function(double progress)? onProgress,
+  }) =>
+      ChurchStorageService.uploadBytes(
+        storagePath: storagePath,
+        bytes: bytes,
+        contentType: contentType,
+        onProgress: onProgress,
+      );
 }

@@ -226,6 +226,8 @@ abstract final class MuralPublishOutboxService {
         await docRef.set(
           {
             'publishState': MuralFastPublishService.stateFailed,
+            'publicado': false,
+            'status': 'erro',
             'publishError':
                 'Fotos não encontradas no aparelho. Edite o aviso/evento e envie de novo.',
           },

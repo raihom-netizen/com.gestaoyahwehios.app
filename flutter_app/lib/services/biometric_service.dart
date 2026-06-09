@@ -12,8 +12,23 @@ class BiometricService {
   /// Após login na tela de login com biometria do aparelho, evita pedir digital de novo ao abrir o painel.
   static bool _skipNextDashboardBiometricLock = false;
 
+  /// Desbloqueio válido até logout ou fecho do app — evita pedir digital ao voltar do picker/câmera.
+  static bool _sessionBiometricUnlocked = false;
+
   static void markBiometricVerifiedForNextPainelEntry() {
     _skipNextDashboardBiometricLock = true;
+    _sessionBiometricUnlocked = true;
+  }
+
+  static void markSessionBiometricUnlocked() {
+    _sessionBiometricUnlocked = true;
+  }
+
+  static bool get isSessionBiometricUnlocked => _sessionBiometricUnlocked;
+
+  static void clearSessionBiometricUnlock() {
+    _sessionBiometricUnlocked = false;
+    _skipNextDashboardBiometricLock = false;
   }
 
   static bool consumeSkipNextDashboardBiometricLock() {

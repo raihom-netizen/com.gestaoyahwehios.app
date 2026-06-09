@@ -25,6 +25,9 @@ class _BiometricLockPageState extends State<BiometricLockPage> {
     setState(() => _unlocking = true);
     final ok = await BiometricService().authenticate();
     if (!mounted) return;
+    if (ok) {
+      BiometricService.markSessionBiometricUnlocked();
+    }
     setState(() {
       _unlocking = false;
       _unlocked = ok;

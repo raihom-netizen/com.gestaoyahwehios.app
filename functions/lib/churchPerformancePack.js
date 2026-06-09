@@ -400,6 +400,16 @@ async function refreshPublicFeedCacheForTenant(tenantId) {
             e,
         });
     }
+    try {
+        const { mirrorPublicSitePanelCache } = await Promise.resolve().then(() => __importStar(require("./panelPublicSiteCache")));
+        await mirrorPublicSitePanelCache(tenantId);
+    }
+    catch (e) {
+        functions.logger.warn("refreshPublicFeedCache: panel public_site", {
+            tenantId,
+            e,
+        });
+    }
 }
 /**
  * Cache do feed público por igreja (avisos + eventos publicSite) — leitura instantânea no site.

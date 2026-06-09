@@ -56,6 +56,7 @@ import 'package:gestao_yahweh/core/marketing_official_config.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 part 'admin_igrejas_tab.dart';

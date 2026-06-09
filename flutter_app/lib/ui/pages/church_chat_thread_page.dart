@@ -26,6 +26,7 @@ import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_fs.dart'
     show churchChatReadFileBytes;
 import 'package:gestao_yahweh/services/church_chat_pending_media_cache.dart';
+import 'package:gestao_yahweh/services/chat_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
@@ -585,6 +586,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             _scheduleEnsureSenderProfilesForDocs(incoming);
+            _tryRecoverStuckUploadingMessages(incoming);
           }
         });
       }
@@ -596,6 +598,26 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       });
     }
     if (changed) setState(() {});
+  }
+
+  void _tryRecoverStuckUploadingMessages(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    if (uid.isEmpty) return;
+    for (final doc in docs.take(10)) {
+      final m = doc.data();
+      if ((m['senderUid'] ?? '').toString() != uid) continue;
+      if (!ChurchChatMessageFields.isUploadInProgress(m)) continue;
+      unawaited(
+        ChatStrictPublishService.tryFinalizeIfStorageReady(
+          tenantId: _tid,
+          threadId: widget.threadId,
+          messageId: doc.id,
+          data: m,
+        ),
+      );
+    }
   }
 
   void _onThreadStreamEvent(DocumentSnapshot<Map<String, dynamic>> thrSnap) {
@@ -3955,8 +3977,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         Timestamp? ct;
                         if (createdRaw is Timestamp) ct = createdRaw;
                         final ps = _threadPeerSeenAt;
-                        final dsRaw =
-                            (m['deliveryStatus'] ?? '').toString();
+                        final dsRaw = ChurchChatMessageFields.uploadCompleted(m)
+                            ? ChurchChatService.deliverySent
+                            : ChurchChatMessageFields.status(m);
                         final peerRead = dsRaw ==
                                 ChurchChatService.deliveryRead ||
                             (ps != null &&
@@ -4768,6 +4791,10 @@ class _MessageBody extends StatelessWidget {
       );
     }
     if (type == 'image') {
+      final uploadInProgress = ChurchChatMessageFields.isUploadInProgress(data);
+      final uploadProgress = (data['uploadProgress'] is num)
+          ? (data['uploadProgress'] as num).toDouble().clamp(0.0, 1.0)
+          : null;
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
@@ -4819,11 +4846,33 @@ class _MessageBody extends StatelessWidget {
                             },
                           ),
                         ),
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: DecoratedBox(
+                        if (uploadInProgress)
+                          Positioned.fill(
+                            child: ColoredBox(
+                              color: Colors.black.withValues(alpha: 0.35),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 36,
+                                  height: 36,
+                                  child: CircularProgressIndicator(
+                                    value: uploadProgress != null &&
+                                            uploadProgress > 0 &&
+                                            uploadProgress < 1
+                                        ? uploadProgress
+                                        : null,
+                                    strokeWidth: 3,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (!uploadInProgress)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: DecoratedBox(
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 begin: Alignment.topCenter,

@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
@@ -107,6 +106,16 @@ abstract final class PatrimonioStrictPublishService {
     if (allPaths.isNotEmpty) {
       payload['imageStoragePath'] = allPaths.first;
       payload['fotoPath'] = allPaths.first;
+      payload['fotoPrincipalPath'] = allPaths.first;
+      if (thumbPaths.isNotEmpty) {
+        payload['fotoPrincipalThumbPath'] = thumbPaths.first;
+        payload['thumbStoragePath'] = thumbPaths.first;
+      }
+      if (allPaths.length > 1) {
+        payload['gallery'] = allPaths.sublist(1);
+      } else {
+        payload['gallery'] = FieldValue.delete();
+      }
     }
     payload['ativo'] = true;
     payload[photoUploadStateField] = statePublished;
@@ -161,6 +170,16 @@ abstract final class PatrimonioStrictPublishService {
       payload['fotoStoragePaths'] = existingPaths;
       payload['imageStoragePath'] = existingPaths.first;
       payload['fotoPath'] = existingPaths.first;
+      payload['fotoPrincipalPath'] = existingPaths.first;
+      payload['fotoPrincipalThumbPath'] =
+          PatrimonioMediaUpload.thumbPathForSlot(
+        tenantId: igrejaId,
+        itemDocId: itemId,
+        slotIndex: 0,
+      );
+      if (existingPaths.length > 1) {
+        payload['gallery'] = existingPaths.sublist(1);
+      }
     }
     payload['ativo'] = true;
     payload['atualizadoEm'] = FieldValue.serverTimestamp();

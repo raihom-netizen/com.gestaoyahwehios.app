@@ -105,6 +105,11 @@ class MembersLimitService {
     if (tid.isEmpty) return null;
     final op = await ChurchOperationalPaths.resolveCached(tid);
     try {
+      final stats = await ChurchTenantResilientReads.panelStatisticsSummary(op);
+      final n = stats.data()?['membersTotalCount'] ?? stats.data()?['members'];
+      if (n is num && n >= 0) return n.toInt();
+    } catch (_) {}
+    try {
       final snap = await ChurchTenantResilientReads.panelCacheSummary(op);
       final n = snap.data()?['membersTotalCount'];
       if (n is num && n >= 0) return n.toInt();

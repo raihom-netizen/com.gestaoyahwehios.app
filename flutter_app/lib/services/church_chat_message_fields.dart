@@ -50,6 +50,20 @@ abstract final class ChurchChatMessageFields {
     return false;
   }
 
+  static bool uploadCompleted(Map<String, dynamic> data) =>
+      data['uploadCompleted'] == true;
+
+  static bool storageVerified(Map<String, dynamic> data) =>
+      data['storageVerified'] == true;
+
+  /// Verdadeiro enquanto o envio não foi confirmado no Firestore.
+  static bool isUploadInProgress(Map<String, dynamic> data) {
+    if (uploadCompleted(data)) return false;
+    final ds = status(data);
+    if (ds == 'sent' || ds == 'delivered' || ds == 'read') return false;
+    return ds == 'uploading' || ds == 'queued' || ds == 'sending';
+  }
+
   static String status(Map<String, dynamic> data) =>
       (data['status'] ?? data['deliveryStatus'] ?? '').toString().trim();
 

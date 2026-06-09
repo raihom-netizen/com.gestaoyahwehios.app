@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/yahweh_share_service.dart';
+import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 
 /// Botão «Compartilhar» — abre folha nativa (WhatsApp, etc.) via [share_plus].
 class YahwehShareButton extends StatelessWidget {
@@ -31,12 +32,11 @@ class YahwehShareButton extends StatelessWidget {
   }
 }
 
-/// Partilha texto de aviso (WhatsApp / outras apps).
+/// Envia aviso no WhatsApp em 1 toque (sem folha nativa).
 Future<void> shareAvisoWhatsApp({
   required String title,
   required String body,
 }) =>
-    YahwehShareService.shareText(
-      '${title.trim()}\n\n${body.trim()}\n\n${YahwehShareService.whatsAppHint}',
-      subject: title.trim(),
+    YahwehWhatsAppService.openNoticiaBroadcast(
+      '${title.trim()}\n\n${body.trim()}',
     );

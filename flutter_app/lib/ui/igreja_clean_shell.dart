@@ -79,9 +79,11 @@ import 'package:gestao_yahweh/ui/widgets/church_shell_nav_icon.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart';
+import 'package:gestao_yahweh/ui/widgets/church_notification_bell.dart';
 import 'package:gestao_yahweh/ui/widgets/instagram_mural.dart'
     show MuralAvisoEditorPage;
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Breakpoints: >= 900 desktop (sidebar fixa), < 900 mobile (drawer), < 600 phone (layout compacto)
@@ -343,6 +345,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                               return;
                             }
                             _prefetchShellModuleData(idx);
+                            TenantIntelligentPreload.scheduleModuleForShellIndex(
+                              _moduleTenantId,
+                              idx,
+                            );
                             if (_pageCache[idx] == null) {
                               _pageCache[idx] = _buildPageForIndex(idx);
                             }
@@ -445,40 +451,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final raw = widget.tenantId.trim();
     if (raw.isEmpty) return;
     final uid = firebaseDefaultAuth.currentUser?.uid;
-    if (forceRefresh) {
-      ChurchOperationalPaths.invalidateResolved(raw, userUid: uid);
-      TenantResolverService.invalidateOperationalChurchDocCache(
-        seedId: raw,
-        userUid: uid,
-      );
-      TenantResolverService.invalidateRegistrationContextCache(
-        seedId: raw,
-        userUid: uid,
-      );
-    }
     try {
-      var effective = raw;
-      try {
-        final op = await TenantResolverService.resolveOperationalChurchDocId(
-          raw,
-          userUid: uid,
-          forceRefresh: forceRefresh,
-        ).timeout(const Duration(seconds: 12));
-        if (op.trim().isNotEmpty) effective = op.trim();
-      } catch (_) {}
-
-      try {
-        final moduleRead =
-            await TenantResolverService.resolveModuleReadTenantId(
-          effective,
-          userUid: uid,
-        ).timeout(const Duration(seconds: 18));
-        if (moduleRead.trim().isNotEmpty) effective = moduleRead.trim();
-      } catch (_) {}
+      final effective = await ChurchContextService.resolveAndBind(
+        seed: raw,
+        userUid: uid,
+        forceRefresh: forceRefresh,
+      ).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
       final changed = effective != (_operationalTenantId ?? '').trim();
-      ChurchOperationalPaths.rememberResolved(raw, effective, userUid: uid);
       if (changed || _operationalTenantId == null) {
         setState(() {
           _operationalTenantId = effective;
@@ -497,7 +478,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     } catch (_) {
       if (!mounted) return;
       if (_operationalTenantId == null || _operationalTenantId!.trim().isEmpty) {
-        final fallback = TenantResolverService.syncStorageTenantId(raw);
+        final fallback = ChurchContextService.currentChurchId ??
+            TenantResolverService.syncStorageTenantId(raw);
         ChurchOperationalPaths.rememberResolved(raw, fallback, userUid: uid);
         setState(() => _operationalTenantId = fallback);
       }
@@ -787,6 +769,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       return;
     }
     setState(() => _selectedIndex = index);
+    TenantIntelligentPreload.scheduleModuleForShellIndex(
+      _moduleTenantId,
+      index,
+    );
     unawaited(
       AppResumeStateService.saveShellContext(
         tenantId: _moduleTenantId,
@@ -1362,6 +1348,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                       ),
                   ],
                 ),
+              ),
+              ChurchNotificationBell(
+                tenantId: _moduleTenantId,
+                cpf: widget.cpf,
+                role: widget.role,
+                onNavigateToShellModule: _navigateToShellModuleFromDashboard,
               ),
               Flexible(
                 fit: FlexFit.loose,

@@ -252,16 +252,18 @@ class PanelDashboardSnapshotService {
     var best = const PanelDashboardSnapshot();
     var bestScore = -1;
     for (final id in clusterIds) {
-      for (final src in [Source.cache, Source.serverAndCache]) {
-        try {
-          final snap = await cacheRef(id).get(GetOptions(source: src));
-          final parsed = _fromCacheDoc(snap);
-          final sc = _snapshotRichnessScore(parsed);
-          if (sc > bestScore) {
-            bestScore = sc;
-            best = parsed;
-          }
-        } catch (_) {}
+      for (final docRef in [cacheRef(id), cacheRefAlias(id)]) {
+        for (final src in [Source.cache, Source.serverAndCache]) {
+          try {
+            final snap = await docRef.get(GetOptions(source: src));
+            final parsed = _fromCacheDoc(snap);
+            final sc = _snapshotRichnessScore(parsed);
+            if (sc > bestScore) {
+              bestScore = sc;
+              best = parsed;
+            }
+          } catch (_) {}
+        }
       }
     }
     return best;
@@ -286,11 +288,20 @@ class PanelDashboardSnapshotService {
     return seed.trim();
   }
 
-  /// Spec produção: `dashboard_stats` — no projeto canónico = `_panel_cache/dashboard_summary`.
+  /// Cache pré-processado — 1 leitura para todo o Dashboard.
+  /// Canónico CF: `dashboard_summary`; alias spec: `dashboard`.
   static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
-    return         ChurchOperationalPaths.churchDoc(tenantId.trim())
+    return ChurchOperationalPaths.churchDoc(tenantId.trim())
         .collection('_panel_cache')
         .doc('dashboard_summary');
+  }
+
+  static DocumentReference<Map<String, dynamic>> cacheRefAlias(
+    String tenantId,
+  ) {
+    return ChurchOperationalPaths.churchDoc(tenantId.trim())
+        .collection('_panel_cache')
+        .doc('dashboard');
   }
 
   /// Alias opcional se existir no tenant (`igrejas/{id}/dashboard_stats/summary`).

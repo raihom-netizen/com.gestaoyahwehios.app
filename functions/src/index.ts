@@ -7430,6 +7430,7 @@ export const recordDomainDailyHit = functions
 export { shareEvento } from "./shareEvento";
 export { gerarCertificadosEmLote } from "./certificadosLote";
 export { processarCertificadosLote } from "./processarCertificadosLote";
+export { gerarCertificadoPdf, gerarCarteirinhaPdf } from "./churchPdfGeneration";
 export {
   sendSegmentedPush,
   archivePastoralMessage,
@@ -7492,6 +7493,9 @@ export {
 } from "./churchChatDmThreadNormalize";
 
 export { onChurchFinanceWritePanelSummary } from "./panelFinanceSummary";
+export {
+  onChurchContasWriteFinanceAccounts,
+} from "./panelFinanceAccountsCache";
 
 export {
   migrateTenantFirestoreCollections,
@@ -7549,6 +7553,14 @@ export {
 } from "./masterChurchesListCache";
 
 export { getChurchMembersDirectory } from "./membersDirectoryCache";
+
+export {
+  writePanelStatisticsCache,
+} from "./panelStatisticsCache";
+export {
+  mirrorPublicSitePanelCache,
+  recomputePanelPublicSiteCache,
+} from "./panelPublicSiteCache";
 
 export { resolveStorageDisplayUrls } from "./storageDisplayUrls";
 

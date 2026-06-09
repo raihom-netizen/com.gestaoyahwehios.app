@@ -81,6 +81,18 @@ List<String> _fotoUrlsFromData(Map<String, dynamic> m) {
     if (!out.contains(s)) out.add(s);
   }
 
+  // Lista: thumb da foto principal primeiro (full só no detalhe).
+  for (final k in [
+    'fotoPrincipalThumbPath',
+    'foto_principal_thumb_path',
+    'thumbStoragePath',
+  ]) {
+    push(m[k]?.toString() ?? '');
+  }
+  for (final k in ['fotoPrincipalPath', 'foto_principal_path']) {
+    push(m[k]?.toString() ?? '');
+  }
+
   // Mesma prioridade de outros módulos (logo, membros): nenhum campo legado fica de fora.
   final primary = imageUrlFromMap(m);
   if (primary.isNotEmpty) push(primary);

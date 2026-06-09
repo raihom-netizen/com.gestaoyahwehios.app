@@ -6,7 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
+import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -126,10 +127,8 @@ Future<void> noticiaShareNativeRich({
   );
 }
 
-Future<void> noticiaOpenWhatsAppWithText(String message) async {
-  final uri = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(message)}');
-  await launchUrl(uri, mode: LaunchMode.externalApplication);
-}
+Future<bool> noticiaOpenWhatsAppWithText(String message) =>
+    YahwehWhatsAppService.openNoticiaBroadcast(message);
 
 /// Resolve mídia só quando o utilizador escolhe “Compartilhar…” — o sheet abre antes.
 Future<void> _runNativeShareWithOptionalLazyMedia({
@@ -248,6 +247,66 @@ Future<void> showChurchNoticiaShareSheet(
                   ),
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                child: Material(
+                  color: const Color(0xFF16A34A),
+                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      unawaited(
+                        noticiaOpenWhatsAppWithText(shareMessage).then((ok) {
+                          if (!ok && rootContext.mounted) {
+                            YahwehWhatsAppService.showOpenFailedSnack(rootContext);
+                          }
+                        }),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                      child: Row(
+                        children: [
+                          const WhatsappBrandIcon(size: 22, color: Colors.white),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Enviar no WhatsApp',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                Text(
+                                  '1 toque — texto e link do convite',
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            color: Colors.white.withValues(alpha: 0.85),
+                            size: 16,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
               if (galleryUrls.length > 1 && noticiaDataForLazyMedia != null)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
@@ -348,16 +407,6 @@ Future<void> showChurchNoticiaShareSheet(
                     sharePositionOrigin: sharePositionOrigin,
                     noticiaDataForLazyMedia: noticiaDataForLazyMedia,
                   ));
-                },
-              ),
-              _ShareSheetTile(
-                icon: Icons.chat_rounded,
-                label: 'WhatsApp',
-                subtitle: 'Abrir com texto do convite',
-                onTap: () {
-                  Navigator.pop(ctx);
-                  Future<void>.microtask(
-                      () => noticiaOpenWhatsAppWithText(shareMessage));
                 },
               ),
               const SizedBox(height: 8),

@@ -23,8 +23,10 @@ import '../services/auth_service.dart';
 import '../services/biometric_service.dart';
 import '../services/church_funcoes_controle_service.dart';
 import '../services/fcm_service.dart';
+import '../services/internal_notification_inbox_service.dart';
 import '../services/app_permissions.dart';
-import '../services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import '../services/church_binding_repair_coordinator.dart';
 import '../services/church_chat_alert_notification_service.dart';
 import '../services/church_chat_notification_prefs.dart';
@@ -712,8 +714,8 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       if (igrejaId.isEmpty) return null;
 
       try {
-        igrejaId = await TenantResolverService.resolveOperationalChurchDocId(
-          igrejaId,
+        igrejaId = await ChurchContextService.resolveAndBind(
+          seed: igrejaId,
           userUid: user.uid,
         );
       } catch (_) {}
@@ -1082,8 +1084,8 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
 
       final seedIgrejaId = igrejaId;
       try {
-        igrejaId = await TenantResolverService.resolveOperationalChurchDocId(
-          igrejaId,
+        igrejaId = await ChurchContextService.resolveAndBind(
+          seed: igrejaId,
           userUid: user.uid,
         ).timeout(
           const Duration(seconds: 2),
@@ -1716,6 +1718,27 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
             if (!(isChat && showedChatBanner)) {
               showGestaoForegroundNotificationSnackBar(context, msg);
             }
+            final uid = user.uid;
+            if (uid.isNotEmpty) {
+              final title = (msg.notification?.title ?? msg.data['title'] ?? '')
+                  .toString()
+                  .trim();
+              final body = (msg.notification?.body ?? msg.data['body'] ?? '')
+                  .toString()
+                  .trim();
+              final type = (msg.data['type'] ?? msg.data['gy_module'] ?? 'generico')
+                  .toString();
+              if (title.isNotEmpty) {
+                await InternalNotificationInboxService.deliverFromRemoteMessage(
+                  uid: uid,
+                  type: type,
+                  title: title,
+                  body: body.isEmpty ? null : body,
+                  tenantId: msg.data['tenantId']?.toString(),
+                  meta: Map<String, dynamic>.from(msg.data),
+                );
+              }
+            }
           }());
         },
         ),
@@ -1757,6 +1780,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
           if (!kIsWeb) {
             final bioEnabled = done && (snap.data?.$2 == true);
             if (bioEnabled &&
+                !BiometricService.isSessionBiometricUnlocked &&
                 !BiometricService.consumeSkipNextDashboardBiometricLock()) {
               return BiometricLockPage(child: shell);
             }

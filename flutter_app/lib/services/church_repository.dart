@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -152,10 +151,38 @@ abstract final class ChurchRepository {
   }
 
   /// Carrega `igrejas/{churchId}` após resolver tenant operacional.
+  ///
+  /// [directDocOnly]: quando `true`, lê **somente** o doc canónico — sem cluster
+  /// «richest» (evita dados cruzados e loading infinito no Cadastro).
   static Future<ChurchDataLoadResult> loadChurchData({
     required String seedTenantId,
     String? userUid,
     bool forceRefresh = false,
+    bool directDocOnly = false,
+  }) async {
+    const totalTimeout = Duration(seconds: 15);
+
+    return loadChurchDataInner(
+      seedTenantId: seedTenantId,
+      userUid: userUid,
+      forceRefresh: forceRefresh,
+      directDocOnly: directDocOnly,
+    ).timeout(
+      totalTimeout,
+      onTimeout: () {
+        throw ChurchRepositoryException(
+          'Tempo esgotado (${totalTimeout.inSeconds}s) ao carregar igrejas/{churchId}.',
+          seedTenantId: seedTenantId.trim(),
+        );
+      },
+    );
+  }
+
+  static Future<ChurchDataLoadResult> loadChurchDataInner({
+    required String seedTenantId,
+    String? userUid,
+    bool forceRefresh = false,
+    bool directDocOnly = false,
   }) async {
     final seed = seedTenantId.trim();
     if (seed.isEmpty) {
@@ -177,8 +204,8 @@ abstract final class ChurchRepository {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
 
-    final churchId = await TenantResolverService.resolveOperationalChurchDocId(
-      seed,
+    final churchId = await TenantResolverService.operationalChurchId(
+      seed: seed,
       userUid: userUid,
       forceRefresh: forceRefresh,
     );
@@ -207,14 +234,7 @@ abstract final class ChurchRepository {
         .loadIgrejaCadastroDocDirect(resolved, preferServer: false);
     var readSource = 'serverAndCache';
 
-    if (data.isEmpty ||
-        TenantResolverService.churchProfileRichnessScore(data) < 6) {
-      data = await TenantResolverService.richestChurchProfileForCadastro(
-        resolved,
-        preferServer: false,
-      );
-      readSource = 'cluster_richest';
-    }
+    // Operacional: só igrejas/{churchId} — sem merge de cluster/irmãos.
 
     if (data.isEmpty) {
       try {
@@ -244,11 +264,8 @@ abstract final class ChurchRepository {
     }
 
     final logoPath = ChurchStorageLayout.churchIdentityLogoPath(resolved);
-    var logoExists = false;
-    try {
-      await ChurchStorageMetadataVerify.assertExists(logoPath);
-      logoExists = true;
-    } catch (_) {}
+    // Verificação de logo no Storage é feita pelo ChurchBrandService (não bloqueia cadastro).
+    const logoExists = false;
 
     final result = ChurchDataLoadResult(
       seedTenantId: seed,

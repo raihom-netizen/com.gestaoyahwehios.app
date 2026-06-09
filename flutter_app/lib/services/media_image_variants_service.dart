@@ -11,11 +11,12 @@ abstract final class MediaImageVariantsService {
   MediaImageVariantsService._();
 
   static const int webpQuality = YahwehPerformanceV4.webpQuality;
-  static const int thumbEdge = 200;
+  static const int thumbEdge = 300;
   static const int mediumEdge = 800;
   static const int fullEdge = 1920;
 
-  static const String tierThumb = 'thumb_200';
+  static const String tierThumb = 'thumb_300';
+  static const String tierThumbLegacy = 'thumb_200';
   static const String tierMedium = 'medium_800';
   static const String tierFull = 'full_1920';
 

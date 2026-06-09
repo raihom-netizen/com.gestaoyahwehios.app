@@ -37,6 +37,8 @@ exports.onChurchFinanceWritePanelSummary = void 0;
 exports.recomputePanelFinanceSummary = recomputePanelFinanceSummary;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
+const churchRootCountersMirror_1 = require("./churchRootCountersMirror");
+const panelFinanceAccountsCache_1 = require("./panelFinanceAccountsCache");
 /** Alinhado a `ChurchDashboardQueryLimits.financeLedgerSnapshotMax` no Flutter. */
 const FINANCE_LEDGER_CAP = 2500;
 /** Mínimo entre recomputações completas por igreja (evita N×2500 leituras em rajadas). */
@@ -142,14 +144,45 @@ async function recomputePanelFinanceSummary(tenantId) {
     for (const k of monthKeys) {
         monthsTrim[k] = monthTotals[k];
     }
+    const now = new Date();
+    const mesReferencia = monthKeyPtBr(now);
+    const cur = monthTotals[mesReferencia] ?? { entradas: 0, saidas: 0 };
+    let saldoAtual = 0;
+    let saldoAnterior = 0;
+    for (const [mk, bucket] of Object.entries(monthTotals)) {
+        const net = bucket.entradas - bucket.saidas;
+        saldoAtual += net;
+        if (mk < mesReferencia)
+            saldoAnterior += net;
+    }
+    const aggregates = {
+        mesReferencia,
+        receitasMes: cur.entradas,
+        despesasMes: cur.saidas,
+        saldoAtual,
+        saldoAnterior,
+    };
     await summaryRef.set({
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         basisCap: FINANCE_LEDGER_CAP,
         basisDocCount: snap.size,
         months: monthsTrim,
         lastLancamentoCreatedAt: lastCreated ?? null,
-        schemaVersion: 1,
+        schemaVersion: 2,
+        ...aggregates,
     }, { merge: false });
+    try {
+        await (0, churchRootCountersMirror_1.mirrorFinanceAggregatesToRoot)(db.collection("igrejas").doc(tid), aggregates);
+    }
+    catch (e) {
+        functions.logger.warn("panelFinanceSummary: mirror root finance", { tenantId: tid, e });
+    }
+    try {
+        await (0, panelFinanceAccountsCache_1.recomputePanelFinanceAccounts)(tid);
+    }
+    catch (e) {
+        functions.logger.warn("panelFinanceSummary: finance_accounts", { tenantId: tid, e });
+    }
     functions.logger.info("panelFinanceSummary: atualizado", {
         tenantId: tid,
         docs: snap.size,

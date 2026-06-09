@@ -398,6 +398,8 @@ exports.warmPublicSiteFeedCache = functions
     }
     const { refreshPublicFeedCacheForTenant } = await Promise.resolve().then(() => __importStar(require("./churchPerformancePack")));
     await refreshPublicFeedCacheForTenant(tenantId);
+    const { mirrorPublicSitePanelCache } = await Promise.resolve().then(() => __importStar(require("./panelPublicSiteCache")));
+    await mirrorPublicSitePanelCache(tenantId);
     return { ok: true, tenantId, warmed: true };
 });
 //# sourceMappingURL=publicSiteMediaPrefetch.js.map

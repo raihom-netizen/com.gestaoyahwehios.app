@@ -276,7 +276,7 @@ abstract final class ChurchStorageLayout {
     return '$root/${pid}_galeria_$n';
   }
 
-  /// Variante WebP do mural aviso (`thumb_200`, `medium_800`, `full_1920`).
+  /// Variante WebP do mural aviso (`thumb_300`, `medium_800`, `full_1920`).
   static String avisoPostPhotoVariantPath(
     String tenantId,
     String postDocId,

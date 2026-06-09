@@ -9,6 +9,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shimmer/shimmer.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/yahweh_cache_managers.dart';
@@ -838,57 +840,30 @@ String imageUrlFromMap(Map<String, dynamic>? data, {String? baseUrl}) {
   return _pickBestImageUrlCandidate(ordered);
 }
 
-/// Logo do documento [igrejas/{id}]: mesma prioridade do site público — a versão
-/// **processada** no Storage costuma ser a URL estável; depois [imageUrlFromMap]
-/// cobre [logoUrl] e demais campos (evita logo quebrada quando só processada existe).
+/// Logo do documento [igrejas/{id}]: apenas [logoPath] — URL via [ChurchBrandService.getLogoUrl].
 String churchTenantLogoUrl(Map<String, dynamic>? data) {
   if (data == null) return '';
-  // Campos explícitos primeiro (Firestore pode devolver tipos não-String).
-  for (final key in [
-    'logoProcessedUrl',
-    'logoProcessed',
-    'logoUrl',
-    'logo_url',
-    'brandLogoUrl',
-    'churchLogoUrl',
-    'tenantLogoUrl',
-  ]) {
-    final v = data[key];
-    if (v == null) continue;
-    final s = sanitizeImageUrl(v.toString());
-    if (isValidImageUrl(s)) return s;
-    if (s.toLowerCase().startsWith('gs://')) return s;
-    if (firebaseStorageMediaUrlLooksLike(s) &&
-        !s.startsWith('http://') &&
-        !s.startsWith('https://')) {
-      return s;
-    }
-  }
-  return imageUrlFromMap(data);
+  final path = ChurchImageFields.logoStoragePath(data);
+  if (path != null && path.isNotEmpty) return path;
+  return '';
 }
 
-/// Ordem de tentativa para baixar a logo (PDF, retry). Sem duplicatas.
+/// Ordem de tentativa para baixar a logo (PDF, retry) — paths canónicos.
 List<String> churchTenantLogoUrlCandidates(Map<String, dynamic>? data) {
   if (data == null) return [];
   final out = <String>[];
-  void push(String? s) {
-    final u = sanitizeImageUrl(s);
-    if (!isValidImageUrl(u)) return;
-    if (!out.contains(u)) out.add(u);
+  void pushPath(String? raw) {
+    final p = (raw ?? '').trim().replaceAll('\\', '/');
+    if (p.isEmpty || out.contains(p)) return;
+    out.add(p);
   }
 
-  for (final key in [
-    'logoProcessedUrl',
-    'logoProcessed',
-    'logoUrl',
-    'logo_url',
-    'brandLogoUrl',
-    'churchLogoUrl',
-    'tenantLogoUrl',
-  ]) {
-    push(data[key]?.toString());
+  pushPath(ChurchImageFields.logoStoragePath(data));
+  final tid = (data['tenantId'] ?? data['id'] ?? '').toString().trim();
+  if (tid.isNotEmpty) {
+    pushPath(ChurchStorageLayout.churchIdentityLogoPath(tid));
+    pushPath(ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(tid));
   }
-  push(imageUrlFromMap(data));
   return out;
 }
 

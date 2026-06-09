@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
 
 /// Lê caches gerados pelas Cloud Functions (`_performance_cache`).
 ///
@@ -25,6 +26,10 @@ abstract final class ChurchPerformanceCacheService {
     String tenantId,
   ) async {
     try {
+      final panel = await PanelPublicSiteSnapshotService.readOnce(tenantId);
+      if (panel.feedData.isNotEmpty) return panel.feedData;
+    } catch (_) {}
+    try {
       final snap = await _ref(tenantId, 'public_feed').get();
       final data = snap.data()?['data'];
       if (data is! List) return const [];
@@ -41,6 +46,15 @@ abstract final class ChurchPerformanceCacheService {
   static Future<({String? churchLogoUrl, List<String> prefetchUrls})>
       readPublicFeedMediaMeta(String tenantId) async {
     const empty = (churchLogoUrl: null as String?, prefetchUrls: <String>[]);
+    try {
+      final panel = await PanelPublicSiteSnapshotService.readOnce(tenantId);
+      if (panel.hasData) {
+        return (
+          churchLogoUrl: panel.churchLogoUrl,
+          prefetchUrls: List<String>.from(panel.prefetchUrls),
+        );
+      }
+    } catch (_) {}
     try {
       final snap = await _ref(tenantId, 'public_feed').get();
       final raw = snap.data();
@@ -81,13 +95,19 @@ abstract final class ChurchPerformanceCacheService {
   }
 
   static Stream<List<Map<String, dynamic>>> watchPublicFeed(String tenantId) {
-    return _ref(tenantId, 'public_feed').watchSafe().map((snap) {
-      final data = snap.data()?['data'];
-      if (data is! List) return const [];
-      return data
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
+    return PanelPublicSiteSnapshotService.watch(tenantId).asyncMap((panel) async {
+      if (panel.feedData.isNotEmpty) return panel.feedData;
+      try {
+        final snap = await _ref(tenantId, 'public_feed').get();
+        final data = snap.data()?['data'];
+        if (data is List) {
+          return data
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e))
+              .toList();
+        }
+      } catch (_) {}
+      return const <Map<String, dynamic>>[];
     });
   }
 
@@ -121,6 +141,10 @@ abstract final class ChurchPerformanceCacheService {
   ) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
+    try {
+      final panel = await PanelPublicSiteSnapshotService.readOnce(tid);
+      if (panel.updatedAt != null && _isFresh(panel.updatedAt)) return;
+    } catch (_) {}
     try {
       final doc = await _ref(tid, 'public_feed').get();
       final u = doc.data()?['updatedAt'];

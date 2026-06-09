@@ -104,6 +104,7 @@ import 'package:photo_view/photo_view_gallery.dart';
 import 'package:shimmer/shimmer.dart';
 import 'church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
+import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
 import '../theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
@@ -111,6 +112,7 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
+import 'package:gestao_yahweh/services/aviso_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/evento_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 
@@ -744,11 +746,18 @@ class InstagramMuralState extends State<InstagramMural> {
 
   bool _docVisibleInFeed(Map<String, dynamic> data) {
     if (data['ativo'] == false) return false;
-    if (data['publicado'] == false) return false;
     final ps = (data['publishState'] ?? '').toString();
     final uid = _user?.uid ?? '';
     final author = (data['createdByUid'] ?? '').toString();
     final isAuthor = uid.isNotEmpty && author == uid;
+    if (isAuthor &&
+        (ps == EntityPublishStatus.creating ||
+            ps == MuralFastPublishService.stateDraft ||
+            ps == MuralFastPublishService.stateUploading ||
+            ps == MuralFastPublishService.stateFailed)) {
+      return true;
+    }
+    if (data['publicado'] == false) return false;
     if (ps.isEmpty || ps == MuralFastPublishService.statePublished) return true;
     if (ps == EntityPublishStatus.creating ||
         ps == MuralFastPublishService.stateDraft ||
@@ -2642,6 +2651,14 @@ class _PostCardState extends State<_PostCard>
                     color: Colors.grey.shade700, size: 22),
                 style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
               ),
+              YahwehNoticiaWhatsAppOneTapButton(
+                churchName: widget.nomeIgreja,
+                churchSlug: widget.churchSlug,
+                tenantId: widget.tenantId,
+                noticiaId: widget.doc.id,
+                postData: Map<String, dynamic>.from(widget.doc.data()),
+                noticiaKindOverride: 'aviso',
+              ),
               IconButton(
                 tooltip: 'Copiar texto',
                 onPressed: () {
@@ -4384,17 +4401,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       final refDate = _validUntil ?? DateTime.now();
       final expiresAt = refDate.add(const Duration(days: 1));
       payload['avisoExpiresAt'] = Timestamp.fromDate(expiresAt);
-      payload['ativo'] = true;
-      payload['publicado'] = true;
-      payload['status'] = 'publicado';
     }
     if (widget.type == 'evento') {
       final fotoPaths =
           EventosPublishVerificationService.storagePathsFromUrls(allUrls);
       payload['fotos'] = fotoPaths;
-      payload['ativo'] = true;
-      payload['publicado'] = true;
-      payload['status'] = 'publicado';
     }
     payload['publicSite'] = _publicSite;
     if (widget.type == 'evento' && !isNewDoc) {
@@ -4465,25 +4476,52 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       if (n == 0) {
         throw StateError('Não foi possível ler as fotos para enviar.');
       }
-      await FeedMediaPublishService.publish(
-        docRef: docRef,
-        tenantId: publishTenantId,
-        postId: docRef.id,
-        postType: widget.type,
-        corePayload: _buildCorePayload(
-          allUrls: existingUrls,
-          aspectRatio: aspectRatio,
-          isNewDoc: isNewDoc,
-        ),
+      final corePayload = _buildCorePayload(
+        allUrls: existingUrls,
+        aspectRatio: aspectRatio,
         isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: existingUrls.length,
-        hasVideo: widget.type != kChurchPostTypeAviso &&
-            _videoUrl.text.trim().isNotEmpty,
-        newImagesBytes: bytes,
-        newImagePaths: paths,
-        publicSite: _publicSite,
       );
+      if (isAviso) {
+        await AvisoStrictPublishService.publish(
+          docRef: docRef,
+          tenantId: publishTenantId,
+          corePayload: corePayload,
+          isNewDoc: isNewDoc,
+          existingUrls: existingUrls,
+          startSlotIndex: existingUrls.length,
+          newImagesBytes: bytes,
+          newImagePaths: paths,
+          publicSite: _publicSite,
+        );
+      } else if (isEvento) {
+        await EventoStrictPublishService.publish(
+          docRef: docRef,
+          tenantId: publishTenantId,
+          corePayload: corePayload,
+          isNewDoc: isNewDoc,
+          existingUrls: existingUrls,
+          startSlotIndex: existingUrls.length,
+          hasVideo: _videoUrl.text.trim().isNotEmpty,
+          newImagesBytes: bytes,
+          newImagePaths: paths,
+          publicSite: _publicSite,
+        );
+      } else {
+        await FeedMediaPublishService.publish(
+          docRef: docRef,
+          tenantId: publishTenantId,
+          postId: docRef.id,
+          postType: widget.type,
+          corePayload: corePayload,
+          isNewDoc: isNewDoc,
+          existingUrls: existingUrls,
+          startSlotIndex: existingUrls.length,
+          hasVideo: false,
+          newImagesBytes: bytes,
+          newImagePaths: paths,
+          publicSite: _publicSite,
+        );
+      }
       return;
     }
     await FeedMediaPublishService.publishNow(
@@ -4496,6 +4534,32 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       isNewDoc: isNewDoc,
       postType: widget.type,
       publicSite: _publicSite,
+    );
+  }
+
+  DateTime? _eventStartAtForSave() {
+    if (_date == null || _time == null) return null;
+    return DateTime(
+      _date!.year,
+      _date!.month,
+      _date!.day,
+      _time!.hour,
+      _time!.minute,
+    );
+  }
+
+  String? _videoStoragePathForMuralEvento(String igrejaId, String eventoId) {
+    final fromDoc = widget.doc?.data()?['videoPath'];
+    if (fromDoc is String && fromDoc.trim().isNotEmpty) return fromDoc.trim();
+    final url = _videoUrl.text.trim();
+    if (url.isEmpty) return null;
+    final fromUrl = EventosPublishVerificationService.storagePathsFromUrls(
+      [url],
+    );
+    if (fromUrl.isNotEmpty) return fromUrl.first;
+    return EventosPublishVerificationService.hostedVideoStoragePath(
+      igrejaId: igrejaId,
+      eventoId: eventoId,
     );
   }
 
@@ -4573,27 +4637,44 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         }
       }
 
-      if (hasNewImages) {
+      if (isAviso || isEvento) {
         final startSlot = existingUrls.length;
         List<Uint8List>? bytes;
         List<String>? paths;
-        if (kIsWeb) {
-          bytes = await _copyNewImagesForPublish();
-          if (bytes.isEmpty) {
-            throw StateError('Não foi possível ler as fotos para enviar.');
-          }
-        } else {
-          paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
-          if (paths.isEmpty) {
-            throw StateError('Não foi possível ler as fotos para enviar.');
+        if (hasNewImages) {
+          if (kIsWeb) {
+            bytes = await _copyNewImagesForPublish();
+            if (bytes.isEmpty) {
+              throw StateError('Não foi possível ler as fotos para enviar.');
+            }
+          } else {
+            paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
+            if (paths.isEmpty) {
+              throw StateError('Não foi possível ler as fotos para enviar.');
+            }
           }
         }
         final corePayload = _buildCorePayload(
-          allUrls: existingUrls,
+          allUrls: const [],
           aspectRatio: aspectRatio,
           isNewDoc: isNewDoc,
         );
+        corePayload.remove('videoUrl');
+        corePayload['media_info'] = <String, dynamic>{
+          'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
+          'tipo': isEvento &&
+                  (_videoUrl.text.trim().isNotEmpty ||
+                      _videoStoragePathForMuralEvento(
+                            publishTenantId,
+                            docRef.id,
+                          ) !=
+                          null)
+              ? 'video'
+              : 'image',
+        };
         if (isEvento) {
+          final videoPath =
+              _videoStoragePathForMuralEvento(publishTenantId, docRef.id);
           await EventoStrictPublishService.publish(
             docRef: docRef,
             tenantId: publishTenantId,
@@ -4601,10 +4682,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             isNewDoc: isNewDoc,
             existingUrls: existingUrls,
             startSlotIndex: startSlot,
-            hasVideo: _videoUrl.text.trim().isNotEmpty,
+            hasVideo: videoPath != null || _videoUrl.text.trim().isNotEmpty,
             newImagesBytes: bytes,
             newImagePaths: paths,
+            videoStoragePath: videoPath,
             publicSite: _publicSite,
+            eventStartAt: _eventStartAtForSave(),
+            location: _localSalvo(),
+            syncAgenda: _eventStartAtForSave() != null,
           );
           await EventosPublishVerificationService.logPublishPhase(
             phase: 'after',
@@ -4615,32 +4700,27 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           );
           EventosPublishVerificationService.clearLastError();
         } else {
-          await FeedMediaPublishService.publish(
+          await AvisoStrictPublishService.publish(
             docRef: docRef,
             tenantId: publishTenantId,
-            postId: docRef.id,
-            postType: widget.type,
             corePayload: corePayload,
             isNewDoc: isNewDoc,
             existingUrls: existingUrls,
             startSlotIndex: startSlot,
-            hasVideo: widget.type != kChurchPostTypeAviso &&
-                _videoUrl.text.trim().isNotEmpty,
             newImagesBytes: bytes,
             newImagePaths: paths,
             publicSite: _publicSite,
+            calendarDate: _validUntil,
+            syncCalendar: _validUntil != null,
           );
-          if (isAviso) {
-            await AvisosPublishVerificationService.verifyDocumentExists(docRef);
-            await AvisosPublishVerificationService.logPublishPhase(
-              phase: 'after',
-              igrejaId: publishTenantId,
-              uid: uid,
-              titulo: titulo,
-              docId: docRef.id,
-            );
-            AvisosPublishVerificationService.clearLastError();
-          }
+          await AvisosPublishVerificationService.logPublishPhase(
+            phase: 'after',
+            igrejaId: publishTenantId,
+            uid: uid,
+            titulo: titulo,
+            docId: docRef.id,
+          );
+          AvisosPublishVerificationService.clearLastError();
         }
         await _showPublishVerifiedSuccess(isNewDoc: isNewDoc);
         return;
@@ -4657,27 +4737,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         postType: widget.type,
         publicSite: _publicSite,
       );
-      if (isAviso) {
-        await AvisosPublishVerificationService.verifyDocumentExists(docRef);
-        await AvisosPublishVerificationService.logPublishPhase(
-          phase: 'after',
-          igrejaId: publishTenantId,
-          uid: uid,
-          titulo: titulo,
-          docId: docRef.id,
-        );
-        AvisosPublishVerificationService.clearLastError();
-      } else if (isEvento) {
-        await EventosPublishVerificationService.verifyDocumentExists(docRef);
-        await EventosPublishVerificationService.logPublishPhase(
-          phase: 'after',
-          igrejaId: publishTenantId,
-          uid: uid,
-          titulo: titulo,
-          eventoId: docRef.id,
-        );
-        EventosPublishVerificationService.clearLastError();
-      }
       await _showPublishVerifiedSuccess(isNewDoc: isNewDoc);
     } catch (e, st) {
       ChurchPublishFlowLog.logCatch(e, st, label: 'mural_save');
@@ -4731,11 +4790,13 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         }
       }
       try {
-        final failRef = widget.doc?.reference ?? widget.postsCollection.doc();
-        await FeedMediaPublishService.markPublishFailed(
-          docRef: failRef,
-          error: e,
-        );
+        if (widget.type != 'aviso' && widget.type != 'evento') {
+          final failRef = widget.doc?.reference ?? widget.postsCollection.doc();
+          await FeedMediaPublishService.markPublishFailed(
+            docRef: failRef,
+            error: e,
+          );
+        }
       } catch (e2, st2) {
         ChurchPublishFlowLog.logCatch(e2, st2, label: 'markPublishFailed');
       }
@@ -4743,15 +4804,23 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.errorSnackBarWithRetry(
             verifyFailed
-                ? (msg.contains('Storage')
-                    ? EventosPublishVerificationService
-                        .kStorageVerifyFailedMessage
+                ? (msg.contains('Storage') ||
+                        msg.contains('confirmado no Storage')
+                    ? (widget.type == 'evento'
+                        ? EventosPublishVerificationService
+                            .kStorageVerifyFailedMessage
+                        : AvisosPublishVerificationService
+                            .kStorageVerifyFailedMessage)
                     : (widget.type == 'evento'
                         ? EventosPublishVerificationService
                             .kPublishVerifyFailedMessage
                         : AvisosPublishVerificationService
                             .kPublishVerifyFailedMessage))
-                : formatUploadErrorForUser(e),
+                : (msg.contains('core/no-app') ||
+                        msg.contains('Firebase não inicializou') ||
+                        msg.contains('Firebase não disponível')
+                    ? 'Falha ao publicar mídia. Verifique a conexão e tente de novo.'
+                    : formatUploadErrorForUser(e)),
             onRetry: _save,
           ),
         );

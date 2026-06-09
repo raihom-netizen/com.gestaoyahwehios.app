@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/holiday_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_date_range_picker_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
+import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -30,6 +31,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 
 /// Chaves de dia [`yyyy-MM-dd`]: ordem crescente (menor data → maior).
 int _compareAgendaDayKeysAscending(String a, String b) {
@@ -143,26 +145,14 @@ class _CalendarPageState extends State<CalendarPage>
   static const String _customCategoryPrefix = 'ec_';
 
   /// Chaves persistidas no Firestore (`agenda.category`).
-  static const Map<String, String> _categoryLabels = {
-    'culto': 'Cultos',
-    'evento_social': 'Eventos sociais',
-    'lideranca': 'Reuniões de liderança',
-    'ensino_ebd': 'Ensino / EBD',
-  };
+  static Map<String, String> get _categoryLabels =>
+      AgendaVisualPalette.categoryLabels;
 
-  static const Map<String, Color> _categoryColors = {
-    'culto': Color(0xFF2563EB),
-    'evento_social': Color(0xFFE11D48),
-    'lideranca': Color(0xFF7C3AED),
-    'ensino_ebd': Color(0xFF16A34A),
-  };
+  static Map<String, Color> get _categoryColors =>
+      AgendaVisualPalette.categoryColors;
 
-  static const _eventColors = {
-    'Culto': Color(0xFF3B82F6),
-    'Evento': Color(0xFF8B5CF6),
-    'Célula': Color(0xFF16A34A),
-    'Reunião': Color(0xFFF59E0B),
-  };
+  static Map<String, Color> get _eventColors =>
+      AgendaVisualPalette.legacyTypeColors;
 
   /// Mesma família de cores do módulo Escalas — escolha explícita ao criar evento.
   static const List<Color> _agendaPaletteColors = [
@@ -213,17 +203,38 @@ class _CalendarPageState extends State<CalendarPage>
   static List<Color> _markerColorsForEvents(List<_CalendarEvent> events) {
     final out = <Color>[];
     for (final e in events.take(8)) {
-      final c = _hexToColor(e.eventColorHex) ??
-          _categoryColors[e.categoryKey ?? ''] ??
-          _eventColors[e.type];
-      if (c != null && !out.contains(c)) out.add(c);
+      if (e.hasConflict && !out.contains(AgendaVisualPalette.pendencia)) {
+        out.add(AgendaVisualPalette.pendencia);
+      }
+      if (e.generatedFromTemplate &&
+          !out.contains(AgendaVisualPalette.pendencia)) {
+        out.add(AgendaVisualPalette.pendencia);
+      }
+      final c = _eventPaletteColor(e);
+      if (!out.contains(c)) out.add(c);
     }
-    if (out.isEmpty) return [ThemeCleanPremium.primary];
+    if (out.isEmpty) return [AgendaVisualPalette.evento];
     return out;
   }
 
+  static Color _eventPaletteColor(_CalendarEvent e) {
+    return AgendaVisualPalette.colorFor(
+      source: e.source,
+      categoryKey: e.categoryKey,
+      type: e.type,
+      eventColorHex: e.eventColorHex,
+      hasConflict: e.hasConflict,
+      generatedFromTemplate: e.generatedFromTemplate,
+    );
+  }
+
+  bool _dayHasConflict(String dayKey) =>
+      (_eventsByDay[dayKey] ?? const []).any((e) => e.hasConflict);
+
+  bool _dayHasEscala(String dayKey) => _escalaDayKeys.contains(dayKey);
+
   /// 1 evento: célula na cor do evento (ou verde). 2: diagonal (Controle Total). 3+: faixas verticais. 4+: “+N”.
-  static const Color _singleEventCellGreen = Color(0xFF16A34A);
+  static const Color _singleEventCellGreen = AgendaVisualPalette.curso;
   static const Color _singleEventCellText = Colors.white;
 
   /// Acima disto usamos texto escuro no dia; evita “sumir” o número em amarelos/verdes claros.
@@ -231,8 +242,6 @@ class _CalendarPageState extends State<CalendarPage>
 
   bool _sameVisibleMonth(DateTime day, DateTime focusedDay) =>
       day.year == focusedDay.year && day.month == focusedDay.month;
-
-  static const Color _kNationalHolidayDot = Color(0xFFE11D48);
 
   BoxDecoration _plainDayDecoration({
     required bool isToday,
@@ -340,24 +349,48 @@ class _CalendarPageState extends State<CalendarPage>
     final isWeekend =
         day.weekday == DateTime.saturday || day.weekday == DateTime.sunday;
     final isHoliday = HolidayHelper.holidayNameOn(day) != null;
+    final dayKey = _dayKey(day);
+    final hasEscala = _dayHasEscala(dayKey);
     const outerPad = EdgeInsets.all(1.85);
     final radius = ControleTotalCalendarTheme.cellRadius;
+    var decoration = _plainDayDecoration(
+      isToday: isToday,
+      isSelected: isSelected,
+      isOutside: isOutside,
+      isWeekend: isWeekend,
+    );
+    if (hasEscala && !isSelected) {
+      decoration = decoration.copyWith(
+        color: AgendaVisualPalette.escala.withValues(alpha: 0.1),
+        border: Border.all(
+          color: AgendaVisualPalette.escala.withValues(alpha: 0.55),
+          width: isToday ? 2.2 : 1.35,
+        ),
+      );
+    }
 
     return Padding(
       padding: outerPad,
       child: DecoratedBox(
-        decoration: _plainDayDecoration(
-          isToday: isToday,
-          isSelected: isSelected,
-          isOutside: isOutside,
-          isWeekend: isWeekend,
-        ),
+        decoration: decoration,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(radius - 0.5),
           child: Stack(
             fit: StackFit.expand,
             clipBehavior: Clip.hardEdge,
             children: [
+              if (hasEscala)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    height: 3,
+                    color: AgendaVisualPalette.escala.withValues(
+                      alpha: isOutside ? 0.45 : 0.92,
+                    ),
+                  ),
+                ),
               Center(
                 child: Text(
                   day.day.toString(),
@@ -370,9 +403,19 @@ class _CalendarPageState extends State<CalendarPage>
                   ),
                 ),
               ),
+              if (hasEscala)
+                const Positioned(
+                  left: 4,
+                  top: 4,
+                  child: AgendaDayCornerBadge(
+                    color: AgendaVisualPalette.escala,
+                    icon: Icons.groups_rounded,
+                    tooltip: 'Escala de ministério',
+                  ),
+                ),
               if (isHoliday)
                 Positioned(
-                  bottom: 5,
+                  bottom: hasEscala ? 8 : 5,
                   left: 0,
                   right: 0,
                   child: Center(
@@ -380,7 +423,7 @@ class _CalendarPageState extends State<CalendarPage>
                       width: 7,
                       height: 7,
                       decoration: BoxDecoration(
-                        color: _kNationalHolidayDot,
+                        color: AgendaVisualPalette.feriado,
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 1),
                         boxShadow: [
@@ -410,8 +453,11 @@ class _CalendarPageState extends State<CalendarPage>
     required bool isSelected,
     required bool isOutside,
   }) {
-    final events = _eventsByDay[_dayKey(day)] ?? [];
+    final dayKey = _dayKey(day);
+    final events = _eventsByDay[dayKey] ?? [];
     final isNationalHoliday = HolidayHelper.holidayNameOn(day) != null;
+    final hasEscala = _dayHasEscala(dayKey);
+    final hasConflict = _dayHasConflict(dayKey);
     if (events.isEmpty) {
       return _buildPlainDayCell(
         context,
@@ -615,6 +661,26 @@ class _CalendarPageState extends State<CalendarPage>
                           ),
                         ),
                       ),
+                    if (hasConflict)
+                      const Positioned(
+                        left: 4,
+                        top: 4,
+                        child: AgendaDayCornerBadge(
+                          color: AgendaVisualPalette.pendencia,
+                          icon: Icons.warning_amber_rounded,
+                          tooltip: 'Conflito de horário ou local',
+                        ),
+                      )
+                    else if (hasEscala)
+                      const Positioned(
+                        left: 4,
+                        top: 4,
+                        child: AgendaDayCornerBadge(
+                          color: AgendaVisualPalette.escala,
+                          icon: Icons.groups_rounded,
+                          tooltip: 'Escala de ministério',
+                        ),
+                      ),
                     if (isNationalHoliday)
                       Positioned(
                         right: 4,
@@ -623,7 +689,7 @@ class _CalendarPageState extends State<CalendarPage>
                           width: 7,
                           height: 7,
                           decoration: BoxDecoration(
-                            color: _kNationalHolidayDot,
+                            color: AgendaVisualPalette.feriado,
                             shape: BoxShape.circle,
                             border: Border.all(color: Colors.white, width: 1),
                             boxShadow: [
@@ -639,6 +705,13 @@ class _CalendarPageState extends State<CalendarPage>
                   ],
                 ),
               ),
+              if (hasEscala)
+                Container(
+                  height: 3,
+                  color: AgendaVisualPalette.escala.withValues(
+                    alpha: isOutside ? 0.4 : 0.88,
+                  ),
+                ),
               if (markerDots != null)
                 Container(
                   width: double.infinity,
@@ -675,23 +748,9 @@ class _CalendarPageState extends State<CalendarPage>
     return headerH + dowH + rowH * bodyRows + 24;
   }
 
-  static String _colorToHex(Color c) {
-    final r = c.red.toRadixString(16).padLeft(2, '0');
-    final g = c.green.toRadixString(16).padLeft(2, '0');
-    final b = c.blue.toRadixString(16).padLeft(2, '0');
-    return '$r$g$b';
-  }
+  static String _colorToHex(Color c) => AgendaVisualPalette.colorToHex(c);
 
-  static Color? _hexToColor(String? hex) {
-    if (hex == null || hex.isEmpty) return null;
-    final h = hex.replaceFirst('#', '');
-    if (h.length != 6) return null;
-    final r = int.tryParse(h.substring(0, 2), radix: 16);
-    final g = int.tryParse(h.substring(2, 4), radix: 16);
-    final b = int.tryParse(h.substring(4, 6), radix: 16);
-    if (r == null || g == null || b == null) return null;
-    return Color(0xFF000000 | (r << 16) | (g << 8) | b);
-  }
+  static Color? _hexToColor(String? hex) => AgendaVisualPalette.hexToColor(hex);
 
   /// Mesma regra que o formulário de eventos do feed (endereço em uma linha).
   static String _churchAddressLineFromTenant(Map<String, dynamic> data) {
@@ -2268,6 +2327,8 @@ class _CalendarPageState extends State<CalendarPage>
                     ],
                     _buildViewToggleRow(),
                     const SizedBox(height: ThemeCleanPremium.spaceSm),
+                    AgendaColorLegend(compact: isMobile),
+                    const SizedBox(height: ThemeCleanPremium.spaceSm),
                     _buildSourceFilterRow(),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     AnimatedSwitcher(
@@ -2326,6 +2387,11 @@ class _CalendarPageState extends State<CalendarPage>
                 ),
               SliverToBoxAdapter(
                 child: _buildViewToggleRow(),
+              ),
+              const SliverToBoxAdapter(
+                  child: SizedBox(height: ThemeCleanPremium.spaceSm)),
+              SliverToBoxAdapter(
+                child: AgendaColorLegend(compact: isMobile),
               ),
               const SliverToBoxAdapter(
                   child: SizedBox(height: ThemeCleanPremium.spaceSm)),
@@ -3210,7 +3276,7 @@ class _CalendarPageState extends State<CalendarPage>
 
   /// [overlaySheetContext]: ao tocar (detalhes/editar), fecha o sheet/modal do resumo mensal antes da ação.
   Widget _buildEventCard(_CalendarEvent ev, {BuildContext? overlaySheetContext}) {
-    final color = _CalendarPageState._hexToColor(ev.eventColorHex) ?? _eventColors[ev.type] ?? ThemeCleanPremium.primaryLight;
+    final color = _eventPaletteColor(ev);
     final time = DateFormat('HH:mm').format(ev.dateTime);
     final canEditAgenda = _canWrite && ev.source == 'agenda';
     final bulk =
@@ -3235,9 +3301,9 @@ class _CalendarPageState extends State<CalendarPage>
             color: selected
                 ? ThemeCleanPremium.primary
                 : (ev.hasConflict
-                    ? Colors.deepOrange.shade400
+                    ? AgendaVisualPalette.pendencia
                     : (ev.hasScheduleOverlap
-                        ? Colors.blue.shade400
+                        ? AgendaVisualPalette.escala
                         : const Color(0xFFF1F5F9))),
             width: selected
                 ? 2
@@ -3476,29 +3542,28 @@ class _CalendarPageState extends State<CalendarPage>
 
   Widget _originMetaChip(_CalendarEvent ev) {
     String label;
-    Color bg;
-    Color fg;
+    Color accent;
     switch (ev.source) {
       case 'agenda':
         label = 'Agenda interna';
-        bg = const Color(0xFFDBEAFE);
-        fg = const Color(0xFF1D4ED8);
+        accent = AgendaVisualPalette.agendaInterna;
         break;
       case 'noticias':
         label = ev.publicSite ? 'Feed / eventos' : 'Feed (só painel)';
-        bg = ev.publicSite ? const Color(0xFFFCE7F3) : const Color(0xFFF3F4F6);
-        fg = ev.publicSite ? const Color(0xFFBE185D) : const Color(0xFF6B7280);
+        accent = ev.publicSite
+            ? AgendaVisualPalette.feedEvento
+            : const Color(0xFF6B7280);
         break;
       case 'cultos':
         label = 'Cultos';
-        bg = const Color(0xFFDCFCE7);
-        fg = const Color(0xFF166534);
+        accent = AgendaVisualPalette.culto;
         break;
       default:
         label = ev.source;
-        bg = Colors.grey.shade200;
-        fg = Colors.grey.shade800;
+        accent = AgendaVisualPalette.evento;
     }
+    final bg = AgendaVisualPalette.chipBackground(accent);
+    final fg = AgendaVisualPalette.chipForeground(accent);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -4369,14 +4434,7 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   Future<void> _openWhatsAppDigits(String digits) async {
-    var d = digits.replaceAll(RegExp(r'\D'), '');
-    if (d.length < 10) return;
-    if (d.length == 11 && d.startsWith('0')) d = d.substring(1);
-    if (d.length == 10 && !d.startsWith('55')) d = '55$d';
-    final uri = Uri.parse('https://wa.me/$d');
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    await YahwehWhatsAppService.openPhoneDigits(digits);
   }
 
   Future<void> _removeAgendaDocsLinkedToNoticia(String noticiaId) async {
@@ -4462,9 +4520,7 @@ class _CalendarPageState extends State<CalendarPage>
       );
       return;
     }
-    final color = _hexToColor(ev.eventColorHex) ??
-        _eventColors[ev.type] ??
-        ThemeCleanPremium.primaryLight;
+    final color = _eventPaletteColor(ev);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -4499,14 +4555,20 @@ class _CalendarPageState extends State<CalendarPage>
                   padding: const EdgeInsets.all(12),
                   margin: const EdgeInsets.only(bottom: 12),
                   decoration: BoxDecoration(
-                    color: Colors.deepOrange.shade50,
+                    color: AgendaVisualPalette.chipBackground(
+                      AgendaVisualPalette.pendencia,
+                    ),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.deepOrange.shade200),
+                    border: Border.all(
+                      color: AgendaVisualPalette.pendencia.withValues(alpha: 0.35),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.warning_amber_rounded,
-                          color: Colors.deepOrange.shade800),
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        color: AgendaVisualPalette.pendencia,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -4514,7 +4576,9 @@ class _CalendarPageState extends State<CalendarPage>
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: Colors.deepOrange.shade900,
+                            color: AgendaVisualPalette.chipForeground(
+                              AgendaVisualPalette.pendencia,
+                            ),
                           ),
                         ),
                       ),
@@ -4527,13 +4591,20 @@ class _CalendarPageState extends State<CalendarPage>
                   padding: const EdgeInsets.all(12),
                   margin: const EdgeInsets.only(bottom: 12),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
+                    color: AgendaVisualPalette.chipBackground(
+                      AgendaVisualPalette.escala,
+                    ),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue.shade200),
+                    border: Border.all(
+                      color: AgendaVisualPalette.escala.withValues(alpha: 0.35),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.groups_rounded, color: Colors.blue.shade800),
+                      const Icon(
+                        Icons.groups_rounded,
+                        color: AgendaVisualPalette.escala,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -4541,7 +4612,9 @@ class _CalendarPageState extends State<CalendarPage>
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
-                            color: Colors.blue.shade900,
+                            color: AgendaVisualPalette.chipForeground(
+                              AgendaVisualPalette.escala,
+                            ),
                           ),
                         ),
                       ),

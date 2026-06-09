@@ -1560,14 +1560,10 @@ Future<_ChurchPublicTenantResolved?> _resolveChurchPublicTenantBySlug(
           final load = await ChurchRepository.loadChurchData(
             seedTenantId: resolved,
             forceRefresh: kIsWeb && attempt == 0,
+            directDocOnly: true,
           );
           profile = load.data;
-        } catch (_) {
-          profile = await TenantResolverService.richestChurchProfileForCadastro(
-            resolved,
-            preferServer: kIsWeb,
-          );
-        }
+        } catch (_) {}
         AgentDebugLog.log(
           location: 'church_public_page.dart:resolve',
           message: 'public_site_tenant_resolved',
@@ -4702,7 +4698,7 @@ class _InfoCard extends StatelessWidget {
   }
 }
 
-/// Quando igrejas não tem o slug, tenta buscar em tenants e exibe a página completa (eventos, horários, mural).
+/// Quando o slug não resolve directamente, consulta `igrejas` (alias/slug) — nunca `tenants/`.
 class _ChurchTenantFallback extends StatelessWidget {
   final String slugClean;
   final String prettyName;

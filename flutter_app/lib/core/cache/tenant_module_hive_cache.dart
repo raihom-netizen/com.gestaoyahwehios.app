@@ -134,6 +134,19 @@ abstract final class TenantModuleHiveCache {
     return out;
   }
 
+  static Future<void> clearModule(String tenantId, String module) async {
+    if (kIsWeb) return;
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    await init();
+    final box = _box;
+    if (box == null) return;
+    try {
+      await box.delete(_dataKey(tid, module));
+      await box.delete(_tsKey(tid, module));
+    } catch (_) {}
+  }
+
   static Future<DateTime?> latestSyncForTenant(String tenantId) async {
     DateTime? latest;
     for (final mod in TenantModuleKeys.preloadOrder) {

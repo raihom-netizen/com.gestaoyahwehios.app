@@ -985,12 +985,11 @@ class _IgrejasTabState extends State<_IgrejasTab> {
               final billing = BillingLicenseService();
               final healthWithoutLogo = allDocs.where((d) {
                 final ig = d.data;
-                final logo = (ig['logoUrl'] ??
-                        ig['logo_url'] ??
-                        ig['logoProcessedUrl'] ??
-                        '')
-                    .toString()
-                    .trim();
+                final logo = ChurchBrandService.logoPathFromData(
+                      ig,
+                      churchId: d.id,
+                    ) ??
+                    '';
                 return logo.isEmpty;
               }).length;
               final healthWithoutVideo = allDocs.where((d) {
@@ -999,8 +998,11 @@ class _IgrejasTabState extends State<_IgrejasTab> {
               }).length;
               final mediaBroken = allDocs.where((d) {
                 final ig = d.data;
-                final logo =
-                    (ig['logoUrl'] ?? ig['logoProcessedUrl'] ?? '').toString();
+                final logo = ChurchBrandService.logoPathFromData(
+                      ig,
+                      churchId: d.id,
+                    ) ??
+                    '';
                 final video = (ig['institutionalVideoUrl'] ??
                         ig['videoInstitucionalUrl'] ??
                         ig['videoUrl'] ??

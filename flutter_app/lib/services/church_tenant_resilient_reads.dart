@@ -32,11 +32,7 @@ abstract final class ChurchTenantResilientReads {
     final seed = tenantId.trim();
     if (seed.isEmpty) return seed;
     final uid = (userUid ?? FirebaseAuth.instance.currentUser?.uid ?? '').trim();
-    final peek = TenantResolverService.peekModuleReadTenantId(
-      seed,
-      userUid: uid.isEmpty ? null : uid,
-    );
-    if (peek != null && peek.isNotEmpty) return peek;
+    // Leituras resilientes: doc operacional da igreja (sem «richest sibling» em cache).
     try {
       return await operationalTenantId(seed, userUid: uid.isEmpty ? null : uid);
     } catch (_) {
@@ -429,10 +425,12 @@ abstract final class ChurchTenantResilientReads {
     } catch (_) {
       siblings = const [];
     }
+    final siblingSet =
+        siblings.map((s) => s.trim()).where((s) => s.isNotEmpty).toSet();
     final ordered = TenantResolverService.orderedSiblingsForReadFallback(
       primary,
       siblings,
-    );
+    ).where((sid) => siblingSet.contains(sid.trim())).toList();
     for (final sid in ordered) {
       try {
         final alt = await loadFor(sid).timeout(
@@ -752,16 +750,39 @@ abstract final class ChurchTenantResilientReads {
         tenantId: tenantId,
         module: TenantModuleKeys.financeiro,
         firestoreCacheKey: _key(tenantId, 'finance_$limit'),
-        networkFetch: () => _queryWithSiblingFallback(
-          tenantId,
-          (tid) => _orderedQuery(
-            tid,
-            'finance',
-            'createdAt',
-            descending: true,
-            limit: limit,
-            cacheSuffix: 'finance_$limit',
-          ),
+        networkFetch: () => financeRecentNetwork(tenantId, limit: limit),
+      );
+
+  /// Rede direta — após mutação financeira (sem Hive stale).
+  static Future<QuerySnapshot<Map<String, dynamic>>> financeRecentNetwork(
+    String tenantId, {
+    int limit = 250,
+  }) =>
+      _queryWithSiblingFallback(
+        tenantId,
+        (tid) => _orderedQuery(
+          tid,
+          'finance',
+          'createdAt',
+          descending: true,
+          limit: limit,
+          cacheSuffix: 'finance_$limit',
+        ),
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> contasNetwork(
+    String tenantId, {
+    int limit = 80,
+  }) =>
+      _queryWithSiblingFallback(
+        tenantId,
+        (tid) => _orderedQuery(
+          tid,
+          'contas',
+          'nome',
+          descending: false,
+          limit: limit,
+          cacheSuffix: 'contas_$limit',
         ),
       );
 
@@ -1326,6 +1347,22 @@ abstract final class ChurchTenantResilientReads {
       FirestoreReadResilience.getDocument(
         _church(tenantId).collection('_panel_cache').doc('dashboard_summary'),
         cacheKey: _key(tenantId, 'panel_cache_summary'),
+      );
+
+  static Future<DocumentSnapshot<Map<String, dynamic>>> panelStatisticsSummary(
+    String tenantId,
+  ) =>
+      FirestoreReadResilience.getDocument(
+        _church(tenantId).collection('_panel_cache').doc('statistics_summary'),
+        cacheKey: _key(tenantId, 'panel_cache_statistics'),
+      );
+
+  static Future<DocumentSnapshot<Map<String, dynamic>>> panelPublicSiteCache(
+    String tenantId,
+  ) =>
+      FirestoreReadResilience.getDocument(
+        _church(tenantId).collection('_panel_cache').doc('public_site'),
+        cacheKey: _key(tenantId, 'panel_cache_public_site'),
       );
 
   /// Stream do painel / feeds — cache-first + live só fora da web.

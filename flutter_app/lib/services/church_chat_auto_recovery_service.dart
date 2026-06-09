@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
+import 'package:gestao_yahweh/services/chat_strict_publish_service.dart';
+import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -89,11 +91,27 @@ abstract final class ChurchChatAutoRecoveryService {
     for (final doc in stuck) {
       final data = doc.data();
       final created = data['createdAt'];
+      final type = (data['type'] ?? 'text').toString();
+      final mediaUrl = (data['mediaUrl'] ?? data['fileUrl'] ?? '').toString();
+
+      // Storage OK mas Firestore ainda em uploading — finaliza sem esperar cutoff.
+      if (type != 'text' &&
+          ChurchChatMessageFields.isUploadInProgress(data)) {
+        final finalized = await ChatStrictPublishService.tryFinalizeIfStorageReady(
+          tenantId: tenantId,
+          threadId: threadId,
+          messageId: doc.id,
+          data: data,
+        );
+        if (finalized) {
+          fixed++;
+          continue;
+        }
+      }
+
       if (created is Timestamp && created.toDate().isAfter(cutoff)) {
         continue;
       }
-      final type = (data['type'] ?? 'text').toString();
-      final mediaUrl = (data['mediaUrl'] ?? data['fileUrl'] ?? '').toString();
       if (mediaUrl.trim().isNotEmpty) {
         try {
           await FirestoreWebGuard.runWithWebRecovery(() => doc.reference.update({
@@ -174,13 +192,28 @@ abstract final class ChurchChatAutoRecoveryService {
       for (final doc in stuck) {
         final data = doc.data();
         final created = data['createdAt'];
-        if (created is Timestamp) {
-          if (created.toDate().isAfter(cutoff)) continue;
-        }
         final type = (data['type'] ?? 'text').toString();
         final ds = (data['deliveryStatus'] ?? '').toString();
         final text = (data['text'] ?? '').toString();
         final mediaUrl = (data['mediaUrl'] ?? data['fileUrl'] ?? '').toString();
+
+        if (type != 'text' &&
+            ChurchChatMessageFields.isUploadInProgress(data)) {
+          final finalized = await ChatStrictPublishService.tryFinalizeIfStorageReady(
+            tenantId: tenantId,
+            threadId: threadId,
+            messageId: doc.id,
+            data: data,
+          );
+          if (finalized) {
+            fixed++;
+            continue;
+          }
+        }
+
+        if (created is Timestamp) {
+          if (created.toDate().isAfter(cutoff)) continue;
+        }
 
         if (type == 'text' && text.trim().isNotEmpty) {
           try {

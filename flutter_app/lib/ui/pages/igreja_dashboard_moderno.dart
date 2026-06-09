@@ -115,12 +115,15 @@ import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
     show noticiaEventoEspecialCaiuDoFeedParaGaleria;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_inbox_home_card.dart';
+import 'package:gestao_yahweh/ui/widgets/dashboard_intelligent_hero.dart';
 import 'package:gestao_yahweh/services/church_birthday_parabenizar.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
+import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -380,10 +383,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     });
   }
 
-  /// Resolve o ID operacional do tenant (vínculo users + doc com departamentos).
+  /// churchId canónico — `igrejas/{id}` via contexto da sessão.
   Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.resolveModuleReadTenantId(
-        widget.tenantId,
+      TenantResolverService.operationalChurchId(
+        seed: widget.tenantId,
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );
 
@@ -1011,8 +1014,18 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                PanelCacheUpdatedBadge(
-                                  updatedAt: panel.cacheUpdatedAt,
+                                DashboardIntelligentHero(
+                                  tenantId: _effectiveTenantId,
+                                  panel: panel,
+                                  kpis: _dashboardKpis,
+                                  canViewFinance: _dashCanFinance,
+                                  onNavigateToShellModule:
+                                      widget.onNavigateToShellModule,
+                                  onOpenAniversariantes:
+                                      _openAniversariantesAnoPage,
+                                ),
+                                const SizedBox(
+                                  height: ThemeCleanPremium.spaceMd,
                                 ),
                                 PanelQuickShortcuts(
                                   onOpenAniversariantesAno:
@@ -1704,7 +1717,11 @@ void _openAniversarianteDetalheSheetCore(
                   label: 'Parabenizar no WhatsApp',
                   onPressed: () {
                     Navigator.pop(ctx);
-                    _anivOpenParabensWhatsApp(context, primeiro, fone);
+                    YahwehWhatsAppService.openBirthdayWish(
+                      context,
+                      firstName: primeiro,
+                      phoneDigits: fone,
+                    );
                   },
                 ),
                 const SizedBox(height: 10),
@@ -1766,40 +1783,6 @@ class _AnivDetalheLinha extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-Future<void> _anivOpenParabensWhatsApp(
-  BuildContext context,
-  String primeiroNome,
-  String digits,
-) async {
-  final d = digits.trim();
-  if (d.length < 10) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.feedbackSnackBar(
-        'Cadastre o telefone/WhatsApp do membro para parabenizar.',
-      ),
-    );
-    return;
-  }
-  final phone = d.startsWith('55') ? d : '55$d';
-  final nome = primeiroNome.trim();
-  final msg = Uri.encodeComponent(
-    'Feliz aniversário${nome.isNotEmpty ? ', $nome' : ''}! Que Deus te abençoe. 🎂',
-  );
-  final u = Uri.parse('https://wa.me/$phone?text=$msg');
-  try {
-    if (await canLaunchUrl(u)) {
-      await launchUrl(u, mode: LaunchMode.externalApplication);
-    }
-  } catch (_) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar('Não foi possível abrir o WhatsApp.'),
-      );
-    }
   }
 }
 
@@ -2482,10 +2465,10 @@ class _AniversariantesCard extends StatelessWidget {
                           child: YahwehSuperPremiumActionButton.whatsapp(
                             compact: true,
                             label: 'WhatsApp',
-                            onPressed: () => _anivOpenParabensWhatsApp(
+                            onPressed: () => YahwehWhatsAppService.openBirthdayWish(
                               context,
-                              primeiro,
-                              fone,
+                              firstName: primeiro,
+                              phoneDigits: fone,
                             ),
                           ),
                         ),
@@ -2929,10 +2912,10 @@ class _AniversariantesCard extends StatelessWidget {
                         child: YahwehSuperPremiumActionButton.whatsapp(
                           compact: true,
                           label: 'WhatsApp',
-                          onPressed: () => _anivOpenParabensWhatsApp(
+                          onPressed: () => YahwehWhatsAppService.openBirthdayWish(
                             context,
-                            primeiro,
-                            fone,
+                            firstName: primeiro,
+                            phoneDigits: fone,
                           ),
                         ),
                       ),
@@ -3455,7 +3438,7 @@ void _leaderGalleryOpenWhatsApp(
   String? memberDocId,
 }) {
   unawaited(
-    ChurchMemberContactChat.openWhatsAppFaleComigo(
+    YahwehWhatsAppService.openForMember(
       context,
       memberData,
       tenantId: tenantId,
@@ -9668,6 +9651,15 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
                               minimumSize: Size(minTouch, minTouch),
                             ),
                           ),
+                        YahwehNoticiaWhatsAppOneTapButton(
+                          churchName: widget.nomeIgreja,
+                          churchSlug: widget.churchSlug,
+                          tenantId: widget.tenantId,
+                          noticiaId: widget.doc.id,
+                          postData: data,
+                          noticiaKindOverride:
+                              widget.isEvento ? 'evento' : 'aviso',
+                        ),
                       ],
                     ),
                   ),

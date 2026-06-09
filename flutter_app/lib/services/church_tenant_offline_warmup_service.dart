@@ -22,6 +22,12 @@ class ChurchTenantOfflineWarmupService {
   bool _warmupDoneThisSession = false;
   bool _heavyWarmupScheduled = false;
   bool _warmupRunning = false;
+  final StreamController<bool> _warmupCtrl =
+      StreamController<bool>.broadcast();
+
+  bool get isWarmupRunning => _warmupRunning;
+
+  Stream<bool> get warmupRunningStream => _warmupCtrl.stream;
 
   void resetForNewSession() {
     _sessionTenant = null;
@@ -61,9 +67,15 @@ class ChurchTenantOfflineWarmupService {
     }
   }
 
+  void _setWarmupRunning(bool running) {
+    if (_warmupRunning == running) return;
+    _warmupRunning = running;
+    if (!_warmupCtrl.isClosed) _warmupCtrl.add(running);
+  }
+
   Future<void> _runWarmup(String tenantIdRaw, {bool light = false}) async {
     if (_warmupRunning) return;
-    _warmupRunning = true;
+    _setWarmupRunning(true);
     try {
       await FirebaseBootstrap.ensureInitialized();
       FirebaseBootstrapService.refreshCachedApp();
@@ -100,6 +112,14 @@ class ChurchTenantOfflineWarmupService {
       final tasks = <Future<void>>[
         safe('igreja_doc', () => ChurchTenantResilientReads.churchDocument(tenantId)),
         safe('panel_cache', () => ChurchTenantResilientReads.panelCacheSummary(tenantId)),
+        safe(
+          'panel_statistics',
+          () => ChurchTenantResilientReads.panelStatisticsSummary(tenantId),
+        ),
+        safe(
+          'panel_public_site',
+          () => ChurchTenantResilientReads.panelPublicSiteCache(tenantId),
+        ),
         safe(
           'membros',
           () => ChurchTenantResilientReads.membrosRecent(
@@ -163,7 +183,7 @@ class ChurchTenantOfflineWarmupService {
 
       await Future.wait(tasks);
     } finally {
-      _warmupRunning = false;
+      _setWarmupRunning(false);
     }
   }
 }

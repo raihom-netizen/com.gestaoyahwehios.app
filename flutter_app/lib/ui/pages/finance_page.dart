@@ -49,6 +49,9 @@ import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
+import 'package:gestao_yahweh/services/panel_finance_accounts_snapshot_service.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_premium_widgets.dart';
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Categorias padrão (seed quando coleções vazias)
@@ -1059,6 +1062,7 @@ class _FinancePageState extends State<FinancePage>
 
   void _notifyFinanceChanged() {
     if (!mounted) return;
+    unawaited(ChurchFinanceRealtimeService.onFinanceMutation(_tid));
     setState(() => _financeRevision++);
   }
 
@@ -1578,6 +1582,7 @@ class _FinancePageState extends State<FinancePage>
                 financeCol: _financeCol,
                 tenantId: _tid,
                 role: widget.role,
+                financeRevision: _financeRevision,
                 onFinanceChanged: _notifyFinanceChanged,
               ),
               _DespesasFixasTab(
@@ -1755,6 +1760,7 @@ Map<String, _TotaisContaMesResumo> _totaisReceitaDespesaPorContaNoMes(
     final data = d.data();
     final dt = _financeLancamentoInstant(data);
     if (!inMes(dt)) continue;
+    if (!financeLancamentoEfetivadoParaSaldo(data)) continue;
     final tipo = (data['type'] ?? '').toString().toLowerCase();
     final valor = _parseValor(data['amount'] ?? data['valor']);
     if (valor == 0) continue;
@@ -1790,6 +1796,7 @@ class _FinanceContasResumoStrip extends StatelessWidget {
   final VoidCallback onFinanceChanged;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> financeDocs;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> contasDocs;
+  final Map<String, double> saldoAtualPorConta;
 
   const _FinanceContasResumoStrip({
     super.key,
@@ -1799,6 +1806,7 @@ class _FinanceContasResumoStrip extends StatelessWidget {
     required this.onFinanceChanged,
     required this.financeDocs,
     required this.contasDocs,
+    this.saldoAtualPorConta = const {},
   });
 
   @override
@@ -1810,12 +1818,18 @@ class _FinanceContasResumoStrip extends StatelessWidget {
     final contasAtivas =
         contasDocs.where((c) => c.data()['ativo'] != false).toList();
 
-    double gReceitas = 0, gDespesas = 0;
+    double gReceitas = 0, gDespesas = 0, gSaldoBancos = 0;
     for (final t in totais.values) {
       gReceitas += t.receitas;
       gDespesas += t.despesas;
     }
-    final gSaldo = gReceitas - gDespesas;
+    if (saldoAtualPorConta.isNotEmpty) {
+      gSaldoBancos =
+          saldoAtualPorConta.values.fold(0.0, (a, b) => a + b);
+    }
+    final gSaldo = saldoAtualPorConta.isNotEmpty
+        ? gSaldoBancos
+        : gReceitas - gDespesas;
     final nf = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
     Future<void> openExtrato({String? contaId, required String title}) async {
@@ -1964,7 +1978,9 @@ class _FinanceContasResumoStrip extends StatelessWidget {
                                     valueColor: const Color(0xFFFECDD3),
                                   ),
                                   _stripInlineLight(
-                                    'Saldo',
+                                    saldoAtualPorConta.isNotEmpty
+                                        ? 'Saldo bancos'
+                                        : 'Saldo mês',
                                     nf.format(gSaldo),
                                     strong: true,
                                     valueColor: gSaldo >= 0
@@ -2015,150 +2031,26 @@ class _FinanceContasResumoStrip extends StatelessWidget {
                     final contaAccent = _financeContaBancoColor(contaData);
                     final t = totais[id] ??
                         const _TotaisContaMesResumo(receitas: 0, despesas: 0);
-                    final saldoCor = t.saldo >= 0
-                        ? _financeSaldoPositivo
-                        : _financeSaldoNegativo;
+                    final saldoAtual = saldoAtualPorConta[id] ?? t.saldo;
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 10),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(20),
-                          onTap: () => openExtrato(
-                            contaId: id,
-                            title: '$nome · $mesLabel',
-                          ),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: ThemeCleanPremium.primary
-                                    .withValues(alpha: 0.12),
-                              ),
-                              boxShadow: [
-                                ...ThemeCleanPremium.softUiCardShadow,
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.06),
-                                  blurRadius: 18,
-                                  spreadRadius: -4,
-                                  offset: const Offset(0, 6),
-                                ),
-                              ],
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(20),
-                              // [Row] + [CrossAxisAlignment.stretch] dentro de [Column] com altura
-                              // ilimitada (scroll) zera a altura dos cartões — [IntrinsicHeight] fixa.
-                              child: IntrinsicHeight(
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                                  children: [
-                                    Container(
-                                      width: 6,
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                          colors: [
-                                            contaAccent,
-                                            Color.lerp(contaAccent, deep, 0.45)!,
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                            14, 14, 12, 14),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.stretch,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Row(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Padding(
-                                                  padding:
-                                                      const EdgeInsets.only(right: 10),
-                                                  child: _financeBankMiniLogo(
-                                                    bancoCodigo: (contaData['bancoCodigo'] ?? '')
-                                                        .toString(),
-                                                    bancoNome: bancoNome,
-                                                    size: 30,
-                                                    fontSize: 11,
-                                                  ),
-                                                ),
-                                                Expanded(
-                                                  child: Text(
-                                                    nome,
-                                                    maxLines: 2,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: const TextStyle(
-                                                      fontWeight: FontWeight.w900,
-                                                      fontSize: 15,
-                                                      letterSpacing: -0.35,
-                                                      height: 1.15,
-                                                      color: Color(0xFF0F172A),
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 10),
-                                                Flexible(
-                                                  child: Text(
-                                                    nf.format(t.saldo),
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    textAlign: TextAlign.right,
-                                                    style: TextStyle(
-                                                      fontWeight: FontWeight.w900,
-                                                      fontSize: 16,
-                                                      letterSpacing: -0.45,
-                                                      color: saldoCor,
-                                                    ),
-                                                  ),
-                                                ),
-                                                Icon(
-                                                  Icons.chevron_right_rounded,
-                                                  color: Colors.grey.shade400,
-                                                  size: 22,
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              '$bancoNome · $tipoConta',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                                color: Colors.grey.shade600,
-                                                letterSpacing: -0.08,
-                                              ),
-                                            ),
-                                            if (t.receitas > 0 ||
-                                                t.despesas > 0) ...[
-                                              const SizedBox(height: 10),
-                                              _FinanceContasResumoStrip
-                                                  ._fluxoReceitaDespesaMiniBar(
-                                                t.receitas,
-                                                t.despesas,
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
+                      child: FinancePremiumAccountCard(
+                        nome: nome,
+                        saldoAtual: saldoAtual,
+                        receitasMes: t.receitas,
+                        despesasMes: t.despesas,
+                        bancoSubtitle: '$bancoNome · $tipoConta',
+                        accent: contaAccent,
+                        leading: _financeBankMiniLogo(
+                          bancoCodigo:
+                              (contaData['bancoCodigo'] ?? '').toString(),
+                          bancoNome: bancoNome,
+                          size: 30,
+                          fontSize: 11,
+                        ),
+                        onTap: () => openExtrato(
+                          contaId: id,
+                          title: '$nome · $mesLabel',
                         ),
                       ),
                     );
@@ -2336,11 +2228,21 @@ class _ResumoTabState extends State<_ResumoTab> {
     _reloadFutures();
   }
 
-  void _reloadFutures() {
-    _future = ChurchTenantResilientReads.financeRecent(
+  void _reloadFutures({bool forceFresh = false}) {
+    if (forceFresh) {
+      _future = ChurchFinanceRealtimeService.fetchFinanceFresh(
         widget.tenantId,
-        limit: YahwehPerformanceV4.financeChartsSampleLimit);
-    _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
+        limit: YahwehPerformanceV4.financeChartsSampleLimit,
+      );
+      _futureContas =
+          ChurchFinanceRealtimeService.fetchContasFresh(widget.tenantId);
+    } else {
+      _future = ChurchTenantResilientReads.financeRecent(
+        widget.tenantId,
+        limit: YahwehPerformanceV4.financeChartsSampleLimit,
+      );
+      _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
+    }
     _futureSettings = FinanceTenantSettings.load(widget.tenantId);
     _combinedFuture = Future.wait([_future, _futureContas, _futureSettings]);
   }
@@ -2348,14 +2250,17 @@ class _ResumoTabState extends State<_ResumoTab> {
   @override
   void didUpdateWidget(covariant _ResumoTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.tenantId != widget.tenantId ||
-        oldWidget.financeRevision != widget.financeRevision) {
-      setState(_reloadFutures);
+    if (oldWidget.tenantId != widget.tenantId) {
+      setState(() => _reloadFutures());
+      return;
+    }
+    if (oldWidget.financeRevision != widget.financeRevision) {
+      setState(() => _reloadFutures(forceFresh: true));
     }
   }
 
   Future<void> _refresh() async {
-    setState(_reloadFutures);
+    setState(() => _reloadFutures(forceFresh: true));
   }
 
   Widget _buildPieChart(List<MapEntry<String, double>> entries, double total,
@@ -2466,7 +2371,11 @@ class _ResumoTabState extends State<_ResumoTab> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<dynamic>>(
+    return StreamBuilder<PanelFinanceAccountsSnapshot>(
+      stream: ChurchFinanceRealtimeService.watchAccountBalances(widget.tenantId),
+      builder: (context, accountsSnap) {
+        final accountsCache = accountsSnap.data ?? const PanelFinanceAccountsSnapshot();
+        return FutureBuilder<List<dynamic>>(
       future: _combinedFuture,
       builder: (context, snap) {
         if (snap.hasError) {
@@ -2562,9 +2471,12 @@ class _ResumoTabState extends State<_ResumoTab> {
           lancamentos: allDocs.map((d) => d.data()),
           ateInclusive: periodEndSaldo,
         );
+        final saldoAtualPorConta = accountsCache.hasData
+            ? accountsCache.saldoPorConta
+            : saldoPorConta;
 
-        final saldoTotalContas =
-            saldoPorConta.values.fold(0.0, (a, b) => a + b);
+        final saldoTotalContas = saldoAtualPorConta.values
+            .fold(0.0, (a, b) => a + b);
         final cutoff30 = DateTime(now.year, now.month, now.day)
             .subtract(const Duration(days: 30));
         double net30 = 0;
@@ -2623,13 +2535,15 @@ class _ResumoTabState extends State<_ResumoTab> {
             children: [
               _FinanceContasResumoStrip(
                 key: ValueKey(
-                    'fin_strip_${widget.tenantId}_${widget.financeRevision}'),
+                    'fin_strip_${widget.tenantId}_${widget.financeRevision}_'
+                    '${accountsCache.updatedAt?.millisecondsSinceEpoch ?? 0}'),
                 tenantId: widget.tenantId,
                 role: widget.role,
                 financeCol: widget.financeCol,
                 onFinanceChanged: widget.onFinanceChanged,
                 financeDocs: allDocs,
                 contasDocs: contasDocs,
+                saldoAtualPorConta: saldoAtualPorConta,
               ),
               const SizedBox(height: ThemeCleanPremium.spaceLg),
               // Filtros por período
@@ -3205,7 +3119,7 @@ class _ResumoTabState extends State<_ResumoTab> {
                     children: contasAtivas.map((c) {
                       final id = c.id;
                       final nome = _financeContaDisplayName(c.data());
-                      final saldoConta = saldoPorConta[id] ?? 0.0;
+                      final saldoConta = saldoAtualPorConta[id] ?? 0.0;
                       return SizedBox(
                         width: narrow ? double.infinity : 180,
                         child: _ContaSaldoCard(
@@ -3244,6 +3158,8 @@ class _ResumoTabState extends State<_ResumoTab> {
             ],
           ),
         );
+      },
+    );
       },
     );
   }
@@ -4162,6 +4078,7 @@ class _LancamentosTab extends StatefulWidget {
   final CollectionReference<Map<String, dynamic>> financeCol;
   final String tenantId;
   final String role;
+  final int financeRevision;
   final VoidCallback? onFinanceChanged;
 
   const _LancamentosTab({
@@ -4169,6 +4086,7 @@ class _LancamentosTab extends StatefulWidget {
     required this.financeCol,
     required this.tenantId,
     required this.role,
+    this.financeRevision = 0,
     this.onFinanceChanged,
   });
 
@@ -4190,19 +4108,28 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   late Future<List<dynamic>> _combinedFuture;
   int _financeFetchLimit = YahwehPerformanceV4.financeListInitialLimit;
 
-  void _reloadFutures() {
-    _future = ChurchTenantResilientReads.financeRecent(
-      widget.tenantId,
-      limit: _financeFetchLimit,
-    );
-    _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
+  void _reloadFutures({bool forceFresh = false}) {
+    if (forceFresh) {
+      _future = ChurchFinanceRealtimeService.fetchFinanceFresh(
+        widget.tenantId,
+        limit: _financeFetchLimit,
+      );
+      _futureContas =
+          ChurchFinanceRealtimeService.fetchContasFresh(widget.tenantId);
+    } else {
+      _future = ChurchTenantResilientReads.financeRecent(
+        widget.tenantId,
+        limit: _financeFetchLimit,
+      );
+      _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
+    }
     _combinedFuture = Future.wait([_future, _futureContas]);
   }
 
   void _loadMoreFinanceLancamentos() {
     setState(() {
       _financeFetchLimit += YahwehPerformanceV4.financeListPageStep;
-      _reloadFutures();
+      _reloadFutures(forceFresh: true);
     });
   }
 
@@ -4217,12 +4144,16 @@ class _LancamentosTabState extends State<_LancamentosTab> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId ||
         oldWidget.financeCol.path != widget.financeCol.path) {
-      setState(_reloadFutures);
+      setState(() => _reloadFutures());
+      return;
+    }
+    if (oldWidget.financeRevision != widget.financeRevision) {
+      setState(() => _reloadFutures(forceFresh: true));
     }
   }
 
   void _refresh() {
-    setState(_reloadFutures);
+    setState(() => _reloadFutures(forceFresh: true));
   }
 
   @override

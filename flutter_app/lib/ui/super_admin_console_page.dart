@@ -9,7 +9,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// ✅ Painel Master (Super Admin)
-/// - Lista todas as igrejas (collection: tenants)
+/// - Lista todas as igrejas (collection: igrejas)
 /// - Permite marcar plano Free / ativa-desativa licença
 ///
 /// Observação: esse painel não depende de custom claims; ele valida

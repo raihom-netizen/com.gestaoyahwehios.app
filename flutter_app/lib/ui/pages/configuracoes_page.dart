@@ -12,6 +12,8 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/global_tenant_audit_service.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/ui/pages/church_panel_diagnostic_page.dart';
 import 'package:gestao_yahweh/ui/pages/church_sync_test_page.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
@@ -1138,7 +1140,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             if (counts != null) ...[
               const SizedBox(height: 12),
               Text(
-                'Documentos (amostra até 500/coleção)',
+                'Documentos (amostra até ${YahwehPerformanceV4.dashboardStatsSampleLimit}/coleção)',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
@@ -1179,6 +1181,30 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             ],
           ],
           const SizedBox(height: 12),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.speed_rounded, color: ThemeCleanPremium.primary),
+            title: const Text(
+              'Diagnóstico permanente',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            subtitle: const Text(
+              'Firestore, Storage, tempos de Dashboard/Login e contadores',
+              style: TextStyle(fontSize: 12),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChurchPanelDiagnosticPage(
+                    tenantId: _effectiveTenantId,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
           Row(
             children: [
               Expanded(
@@ -1492,8 +1518,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       final resolvedTenantId = await _resolveEffectiveTenantId();
       final op = await ChurchOperationalPaths.resolveCached(resolvedTenantId.trim());
       final ref = ChurchOperationalPaths.churchDoc(op);
-      final membersSnap = await ref.collection('membros').limit(2000).get();
-      final noticiasSnap = await ref.collection('eventos').limit(500).get();
+      final sample = YahwehPerformanceV4.dashboardStatsSampleLimit;
+      final membersSnap = await ref.collection('membros').limit(sample).get();
+      final noticiasSnap = await ref.collection('eventos').limit(sample).get();
       final data = {
         'tenantId': resolvedTenantId,
         'exportedAt': DateTime.now().toIso8601String(),

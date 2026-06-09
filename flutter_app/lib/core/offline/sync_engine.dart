@@ -26,8 +26,14 @@ abstract final class SyncEngine {
   static final Map<String, Future<void> Function()> _moduleFlushers = {};
   static bool _flushBusy = false;
   static const int _maxRetries = 8;
+  static final StreamController<bool> _flushingCtrl =
+      StreamController<bool>.broadcast();
 
   static SyncRepository get repository => _syncRepo;
+
+  static bool get isFlushing => _flushBusy;
+
+  static Stream<bool> get flushingStream => _flushingCtrl.stream;
 
   static void registerModuleFlusher(String module, Future<void> Function() fn) {
     _moduleFlushers[module] = fn;
@@ -45,6 +51,7 @@ abstract final class SyncEngine {
       return;
     }
     _flushBusy = true;
+    if (!_flushingCtrl.isClosed) _flushingCtrl.add(true);
     YahwehFlowLog.sync('SYNC', reason ?? 'flush');
     try {
       await ensureFirebaseCore(requireAuth: false);
@@ -70,6 +77,7 @@ abstract final class SyncEngine {
       if (kDebugMode) debugPrint('SyncEngine.flushAll: $e\n$st');
     } finally {
       _flushBusy = false;
+      if (!_flushingCtrl.isClosed) _flushingCtrl.add(false);
     }
   }
 

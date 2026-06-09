@@ -32,7 +32,8 @@ int _noticiaRefDisplayRank(String s) {
       low.contains('/medium/')) {
     return 2;
   }
-  if (low.contains('thumb_200') ||
+  if (low.contains('thumb_300') ||
+      low.contains('thumb_200') ||
       low.contains('thumb_') ||
       low.contains('_thumb.') ||
       low.contains('/thumbs/') ||
@@ -428,15 +429,26 @@ bool _isUsableFeedCoverRef(String s) {
 
 String eventNoticiaFeedCoverHintUrl(Map<String, dynamic>? p) {
   if (p == null) return '';
+  final thumbPath = eventNoticiaThumbStoragePath(p);
+  if (thumbPath != null && thumbPath.isNotEmpty) return thumbPath;
+  final iv = p['imageVariants'];
+  if (iv is Map) {
+    for (final key in const ['thumb_300', 'thumb_200', 'medium_800', 'medium']) {
+      final e = iv[key];
+      if (e is Map) {
+        final sp = (e['storagePath'] ?? '').toString().trim();
+        if (sp.isNotEmpty) return sp;
+      }
+    }
+  }
   for (final raw in eventNoticiaPhotoUrls(p)) {
     final s = sanitizeImageUrl(raw);
     if (_isUsableFeedCoverRef(s)) return s;
   }
-  final iv = p['imageVariants'];
   if (iv is Map) {
     for (final key in const ['full_1920', 'full', 'medium_800', 'medium']) {
       final e = iv[key];
-      final raw = e is Map ? (e['url'] ?? e['downloadUrl']) : e;
+      final raw = e is Map ? (e['url'] ?? e['downloadUrl'] ?? e['storagePath']) : e;
       final s = sanitizeImageUrl('$raw');
       if (_isUsableFeedCoverRef(s)) return s;
     }

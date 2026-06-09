@@ -437,6 +437,8 @@ abstract final class MuralFastPublishService {
       patch['imageVariants'] = imageVariants;
     }
     patch['publishState'] = statePublished;
+    patch['publicado'] = true;
+    patch['status'] = 'publicado';
     patch['pendingImageCount'] = FieldValue.delete();
     patch['publishError'] = FieldValue.delete();
     patch['updatedAt'] = FieldValue.serverTimestamp();
@@ -541,6 +543,8 @@ abstract final class MuralFastPublishService {
           ref: docRef,
           data: <String, dynamic>{
             'publishState': stateFailed,
+            'publicado': false,
+            'status': 'erro',
             'publishError':
                 userMsg.length > 400 ? userMsg.substring(0, 400) : userMsg,
           },

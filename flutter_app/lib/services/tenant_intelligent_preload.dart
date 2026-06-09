@@ -5,38 +5,62 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
+import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_doc_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
+import 'package:gestao_yahweh/services/panel_statistics_snapshot_service.dart';
+import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 
-/// Pré-carregamento inteligente — após login/dashboard, aquece Hive + Firestore cache.
+/// Pré-carregamento — **lazy**: só Dashboard no login; módulos ao abrir.
 abstract final class TenantIntelligentPreload {
   TenantIntelligentPreload._();
 
   static String? _lastTenant;
-  static bool _running = false;
+  static bool _dashboardRunning = false;
+  static final Set<String> _warmedModules = {};
 
-  /// Chamar após dashboard visível (não bloqueia UI).
+  /// Após Dashboard visível — **1–2 leituras** (`_panel_cache` + contadores).
   static void scheduleAfterDashboard(String tenantIdRaw) {
     final tid = tenantIdRaw.trim();
     if (tid.isEmpty) return;
-    if (_lastTenant == tid && _running) return;
     _lastTenant = tid;
-    unawaited(_run(tid));
-    unawaited(
-      ChurchTenantOfflineWarmupService.instance.scheduleWarmupAfterLogin(tid),
-    );
+    unawaited(_runDashboardOnly(tid));
   }
 
-  static Future<void> _run(String tenantId) async {
-    if (_running) return;
-    _running = true;
+  /// Ao abrir um módulo do menu — aquece só esse módulo (lazy).
+  static void scheduleModuleForShellIndex(String tenantIdRaw, int shellIndex) {
+    final tid = tenantIdRaw.trim();
+    if (tid.isEmpty) return;
+    final key = '$tid#$shellIndex';
+    if (_warmedModules.contains(key)) return;
+    _warmedModules.add(key);
+    unawaited(_warmShellModule(tid, shellIndex));
+  }
+
+  static Future<void> _runDashboardOnly(String tenantId) async {
+    if (_dashboardRunning) return;
+    _dashboardRunning = true;
+    try {
+      await FirebaseBootstrap.ensureInitialized();
+      await PanelDashboardSnapshotService.readOnce(tenantId);
+      await PanelStatisticsSnapshotService.readOnce(tenantId);
+      await ChurchTenantDashboardDocService.readOnce(tenantId);
+    } catch (e, st) {
+      if (kDebugMode) debugPrint('Preload[dashboard] $e\n$st');
+    } finally {
+      _dashboardRunning = false;
+    }
+  }
+
+  static Future<void> _warmShellModule(String tenantId, int shellIndex) async {
     try {
       await FirebaseBootstrap.ensureInitialized();
       final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
-      if (uid.isEmpty) return;
+      final limit = YahwehPerformanceV4.defaultPageSize;
 
       Future<void> safe(String label, Future<void> Function() fn) async {
         try {
@@ -46,87 +70,87 @@ abstract final class TenantIntelligentPreload {
         }
       }
 
-      await safe('dashboard', () async {
-        await ChurchTenantDashboardDocService.readOnce(tenantId);
-      });
-
-      await safe('membros', () async {
-        await TenantStaleWhileRevalidate.warmModule(
-          tenantId: tenantId,
-          module: TenantModuleKeys.membros,
-          networkFetch: () =>
-              ChurchTenantResilientReads.membrosRecent(tenantId, limit: 80),
-        );
-      });
-
-      await safe('avisos', () async {
-        await TenantStaleWhileRevalidate.warmModule(
-          tenantId: tenantId,
-          module: TenantModuleKeys.avisos,
-          networkFetch: () =>
-              ChurchTenantResilientReads.avisosFeed(tenantId, limit: 30),
-        );
-      });
-
-      await safe('eventos', () async {
-        await TenantStaleWhileRevalidate.warmModule(
-          tenantId: tenantId,
-          module: TenantModuleKeys.eventos,
-          networkFetch: () =>
-              ChurchTenantResilientReads.noticiasByStartAt(tenantId, limit: 30),
-        );
-      });
-
-      await safe('agenda', () async {
-        await TenantStaleWhileRevalidate.warmModule(
-          tenantId: tenantId,
-          module: TenantModuleKeys.agenda,
-          networkFetch: () =>
-              ChurchTenantResilientReads.eventTemplates(tenantId),
-        );
-        await TenantStaleWhileRevalidate.warmModule(
-          tenantId: tenantId,
-          module: TenantModuleKeys.agenda,
-          networkFetch: () =>
-              ChurchTenantResilientReads.escalasRecent(tenantId, limit: 40),
-        );
-      });
-
-      await safe('chat', () async {
-        await TenantStaleWhileRevalidate.warmModule(
-          tenantId: tenantId,
-          module: TenantModuleKeys.chat,
-          networkFetch: () async {
-            final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-            return                 ChurchOperationalPaths.churchDoc(op)
-                .collection('chats')
-                .where('participantUids', arrayContains: uid)
-                .orderBy('lastMessageAt', descending: true)
-                .limit(30)
-                .get();
-          },
-        );
-      });
-
-      await safe('patrimonio', () async {
-        await TenantStaleWhileRevalidate.warmModule(
-          tenantId: tenantId,
-          module: TenantModuleKeys.patrimonio,
-          networkFetch: () =>
-              ChurchTenantResilientReads.patrimonio(tenantId, limit: 80),
-        );
-      });
-
-      await safe('financeiro', () async {
-        await TenantStaleWhileRevalidate.warmModule(
-          tenantId: tenantId,
-          module: TenantModuleKeys.financeiro,
-          networkFetch: () =>
-              ChurchTenantResilientReads.financeRecent(tenantId, limit: 80),
-        );
-      });
+      switch (shellIndex) {
+        case ChurchShellIndices.membros:
+          await safe('membros', () async {
+            await TenantStaleWhileRevalidate.warmModule(
+              tenantId: tenantId,
+              module: TenantModuleKeys.membros,
+              networkFetch: () =>
+                  ChurchTenantResilientReads.membrosRecent(tenantId, limit: limit),
+            );
+          });
+          break;
+        case ChurchShellIndices.muralAvisos:
+          await safe('avisos', () async {
+            await TenantStaleWhileRevalidate.warmModule(
+              tenantId: tenantId,
+              module: TenantModuleKeys.avisos,
+              networkFetch: () =>
+                  ChurchTenantResilientReads.avisosFeed(tenantId, limit: limit),
+            );
+          });
+          break;
+        case ChurchShellIndices.muralEventos:
+          await safe('eventos', () async {
+            await TenantStaleWhileRevalidate.warmModule(
+              tenantId: tenantId,
+              module: TenantModuleKeys.eventos,
+              networkFetch: () => ChurchTenantResilientReads.noticiasByStartAt(
+                tenantId,
+                limit: limit,
+              ),
+            );
+          });
+          break;
+        case ChurchShellIndices.chatIgreja:
+          if (uid.isEmpty) break;
+          await safe('chat', () async {
+            await TenantStaleWhileRevalidate.warmModule(
+              tenantId: tenantId,
+              module: TenantModuleKeys.chat,
+              networkFetch: () async {
+                final op =
+                    await ChurchOperationalPaths.resolveCached(tenantId);
+                return ChurchOperationalPaths.churchDoc(op)
+                    .collection('chats')
+                    .where('participantUids', arrayContains: uid)
+                    .orderBy('lastMessageAt', descending: true)
+                    .limit(YahwehPerformanceV4.chatThreadsListLimit)
+                    .get();
+              },
+            );
+          });
+          break;
+        case ChurchShellIndices.financeiro:
+          await safe('financeiro', () async {
+            await TenantStaleWhileRevalidate.warmModule(
+              tenantId: tenantId,
+              module: TenantModuleKeys.financeiro,
+              networkFetch: () =>
+                  ChurchTenantResilientReads.financeRecent(tenantId, limit: limit),
+            );
+          });
+          break;
+        case ChurchShellIndices.patrimonio:
+          await safe('patrimonio', () async {
+            await TenantStaleWhileRevalidate.warmModule(
+              tenantId: tenantId,
+              module: TenantModuleKeys.patrimonio,
+              networkFetch: () =>
+                  ChurchTenantResilientReads.patrimonio(tenantId, limit: limit),
+            );
+          });
+          break;
+        default:
+          break;
+      }
     } finally {
-      _running = false;
+      unawaited(
+        ChurchTenantOfflineWarmupService.instance.scheduleWarmupAfterLogin(
+          tenantId,
+        ),
+      );
     }
   }
 }

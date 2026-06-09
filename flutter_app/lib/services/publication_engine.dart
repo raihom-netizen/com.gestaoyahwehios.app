@@ -19,8 +19,6 @@ import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show kMaxEventFeedPhotosPerPost;
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show dedupeImageRefsByStorageIdentity;
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -184,7 +182,8 @@ abstract final class PublicationEngine {
     final patch = FirestoreWriteGuard.stripHeavyFields(
       Map<String, dynamic>.from(request.payload),
     );
-    patch['publishState'] = request.pendingPhotoCount > 0
+    final hasPendingPhotos = request.pendingPhotoCount > 0;
+    patch['publishState'] = hasPendingPhotos
         ? (request.isNewDoc
             ? EntityPublishStatus.creating
             : statusProcessing)
@@ -195,8 +194,13 @@ abstract final class PublicationEngine {
         request.kind == PublicationKind.evento ||
         request.kind == PublicationKind.noticia) {
       patch['ativo'] = true;
-      patch['publicado'] = true;
-      patch['status'] = 'publicado';
+      if (hasPendingPhotos) {
+        patch['publicado'] = false;
+        patch['status'] = 'processando';
+      } else {
+        patch['publicado'] = true;
+        patch['status'] = 'publicado';
+      }
     }
     FirestoreWriteGuard.applyMuralPublishMetaPatch(
       patch,
@@ -207,6 +211,86 @@ abstract final class PublicationEngine {
     patch['updatedAt'] = FieldValue.serverTimestamp();
     return patch;
   }
+
+  /// Gravação síncrona final — sem fila, pendingImageCount ou publishState.
+  static Future<String> saveStrictPublished({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required String tenantId,
+    required PublicationKind kind,
+    required Map<String, dynamic> payload,
+    required bool isNewDoc,
+  }) async {
+    await ensureFirebaseCore(requireAuth: true);
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+    }
+    final patch = _buildStrictFirestorePatch(payload, isNewDoc: isNewDoc);
+    final request = PublicationSaveRequest(
+      docRef: docRef,
+      tenantId: tenantId,
+      kind: kind,
+      payload: patch,
+      isNewDoc: isNewDoc,
+    );
+    try {
+      await runFirestorePublishWithRecovery(
+        () => ChurchDataService.instance.setTenantDocument(
+          ref: docRef,
+          data: patch,
+          merge: !isNewDoc,
+          module: request.postType,
+        ),
+      );
+    } catch (e, st) {
+      ChurchPublishFlowLog.firestoreError(e, st);
+      rethrow;
+    }
+    FeedPublishPreflight.firestoreSaveOk(isEvento: request.isEvento);
+    ChurchTenantWriteLog.publishStubCommitted(
+      docRef.path,
+      module: request.postType,
+    );
+    return docRef.id;
+  }
+
+  static Map<String, dynamic> _buildStrictFirestorePatch(
+    Map<String, dynamic> payload, {
+    required bool isNewDoc,
+  }) {
+    final patch = FirestoreWriteGuard.stripHeavyFields(
+      Map<String, dynamic>.from(payload),
+    );
+    patch['ativo'] = true;
+    patch['publicado'] = true;
+    patch['status'] = 'publicado';
+    patch['updatedAt'] = FieldValue.serverTimestamp();
+    if (!isNewDoc) {
+      patch['pendingImageCount'] = FieldValue.delete();
+      patch['publishState'] = FieldValue.delete();
+      patch['publishError'] = FieldValue.delete();
+      patch['photoUploadState'] = FieldValue.delete();
+    }
+    return patch;
+  }
+
+  /// Distribuição pós-publicação — aguardada (painel, site, contadores).
+  static Future<void> runDistributionAwait({
+    required String tenantId,
+    required PublicationKind kind,
+    required String postId,
+    required bool isNewDoc,
+    required bool publicSite,
+    PublicationDistributionPhase phase =
+        PublicationDistributionPhase.afterMediaFinalized,
+  }) =>
+      _runDistribution(
+        tenantId: tenantId.trim(),
+        kind: kind,
+        postId: postId,
+        isNewDoc: isNewDoc,
+        publicSite: publicSite,
+        phase: phase,
+      );
 
   /// Grava Firestore e dispara distribuição em background (não bloqueia UI).
   static Future<String> publishFirestoreFirst({

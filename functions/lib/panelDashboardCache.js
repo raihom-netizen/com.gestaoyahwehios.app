@@ -41,6 +41,9 @@ const membersDirectoryCache_1 = require("./membersDirectoryCache");
 const panelMediaPrefetch_1 = require("./panelMediaPrefetch");
 const tenantCallableResolve_1 = require("./tenantCallableResolve");
 const churchClusterAnchors_1 = require("./churchClusterAnchors");
+const churchRootCountersMirror_1 = require("./churchRootCountersMirror");
+const panelStatisticsCache_1 = require("./panelStatisticsCache");
+const panelPublicSiteCache_1 = require("./panelPublicSiteCache");
 const RECOMPUTE_MIN_INTERVAL_MS = 45000;
 const RECENT_AVISOS = 8;
 const RECENT_EVENTOS = 8;
@@ -728,7 +731,7 @@ async function recomputePanelDashboardSummary(tenantId) {
         }
         return true;
     }).slice(0, 12);
-    await summaryRef.set({
+    const summaryPayload = {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         schemaVersion: 2,
         pendingMembersCount: pendingMembers,
@@ -741,7 +744,33 @@ async function recomputePanelDashboardSummary(tenantId) {
         ...birthdayBuckets,
         homeLeaders,
         homeCorpoAdmin,
-    }, { merge: false });
+    };
+    await summaryRef.set(summaryPayload, { merge: false });
+    try {
+        await (0, churchRootCountersMirror_1.mirrorDashboardCacheAlias)(cacheCol, summaryPayload);
+    }
+    catch (e) {
+        functions.logger.warn("panelDashboardCache: alias dashboard", { tenantId: tid, e });
+    }
+    const activeMembersCount = membrosMerged.filter((d) => memberIsActive(d.data())).length;
+    try {
+        await (0, churchRootCountersMirror_1.mirrorChurchCountersToRoot)(churchRef, {
+            membersCount: membersTotal,
+            membersTotalCount: membersTotal,
+            activeMembersCount,
+            eventsCount: eventosDocs.length + upcomingDocs.length,
+            avisosCount: avisosDocs.length,
+            departmentsCount: deptMerged.length,
+            pendingMembersCount: pendingMembers,
+            newVisitorsCount: newVisitors,
+            openPrayerRequestsCount: openPrayers,
+            birthdaysTodayCount: birthdayBuckets.birthdaysToday.length,
+            upcomingEventsCount: upcomingDocs.length,
+        });
+    }
+    catch (e) {
+        functions.logger.warn("panelDashboardCache: mirror root counters", { tenantId: tid, e });
+    }
     await cacheCol.doc("dashboard_current").set({
         totalMembers: membersTotal,
         birthdaysToday: birthdayBuckets.birthdaysToday.length,
@@ -757,6 +786,31 @@ async function recomputePanelDashboardSummary(tenantId) {
     }
     catch (e) {
         functions.logger.warn("panelDashboardCache: media_prefetch", { tenantId: tid, e });
+    }
+    try {
+        await (0, panelStatisticsCache_1.writePanelStatisticsCache)(tid, {
+            membersTotalCount: membersTotal,
+            activeMembersCount,
+            pendingMembersCount: pendingMembers,
+            newVisitorsCount: newVisitors,
+            openPrayerRequestsCount: openPrayers,
+            birthdaysTodayCount: birthdayBuckets.birthdaysToday.length,
+            birthdaysWeekCount: birthdayBuckets.birthdaysWeek.length,
+            birthdaysMonthCount: birthdayBuckets.birthdaysMonth.length,
+            avisosCount: avisosDocs.length,
+            eventsCount: eventosDocs.length,
+            upcomingEventsCount: upcomingDocs.length,
+            departmentsCount: deptMerged.length,
+        });
+    }
+    catch (e) {
+        functions.logger.warn("panelDashboardCache: statistics_summary", { tenantId: tid, e });
+    }
+    try {
+        await (0, panelPublicSiteCache_1.recomputePanelPublicSiteCache)(tid);
+    }
+    catch (e) {
+        functions.logger.warn("panelDashboardCache: public_site", { tenantId: tid, e });
     }
     functions.logger.info("panelDashboardCache: atualizado", {
         tenantId: tid,
@@ -943,10 +997,36 @@ exports.getChurchPanelSnapshot = functions
             functions.logger.warn("getChurchPanelSnapshot: media_prefetch", { tenantId: canonical, e });
         }
     }
+    const statsRef = db
+        .collection("igrejas")
+        .doc(canonical)
+        .collection("_panel_cache")
+        .doc("statistics_summary");
+    const publicSiteRef = db
+        .collection("igrejas")
+        .doc(canonical)
+        .collection("_panel_cache")
+        .doc("public_site");
+    let statistics = (await statsRef.get()).data();
+    let publicSite = (await publicSiteRef.get()).data();
+    const statsUpdated = statistics?.updatedAt;
+    const psUpdated = publicSite?.updatedAt;
+    const statsStale = !statistics ||
+        !statsUpdated ||
+        Date.now() - statsUpdated.toMillis() > staleMs;
+    const psStale = !publicSite || !psUpdated || Date.now() - psUpdated.toMillis() > staleMs;
+    if (statsStale || psStale) {
+        await recomputePanelDashboardSummary(canonical);
+        summary = (await summaryRef.get()).data();
+        statistics = (await statsRef.get()).data();
+        publicSite = (await publicSiteRef.get()).data();
+    }
     return {
         ok: true,
         tenantId: canonical,
         summary: summary ?? {},
+        statistics: statistics ?? {},
+        publicSite: publicSite ?? {},
         mediaPrefetch: mediaPrefetch ?? {},
     };
 });

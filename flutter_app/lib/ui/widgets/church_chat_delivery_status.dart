@@ -31,6 +31,9 @@ class ChurchChatDeliveryStatusIcon extends StatelessWidget {
     if (ds == ChurchChatService.deliveryQueued) {
       return Icon(Icons.cloud_queue_rounded, size: size, color: muted);
     }
+    if (ds == 'failed') {
+      return Icon(Icons.error_outline_rounded, size: size, color: Theme.of(context).colorScheme.error);
+    }
     if (ds == ChurchChatService.deliverySending ||
         ds == ChurchChatService.deliveryUploading) {
       return Icon(Icons.schedule_rounded, size: size, color: muted);

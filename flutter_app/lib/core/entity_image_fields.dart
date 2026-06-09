@@ -87,3 +87,90 @@ abstract final class MemberImageFields {
     return null;
   }
 }
+
+/// Capa / galeria de avisos e eventos — listas usam thumb; full só ao abrir.
+abstract final class FeedImageFields {
+  FeedImageFields._();
+
+  static String? thumbStoragePath(Map<String, dynamic>? m) {
+    if (m == null) return null;
+    for (final k in ['thumbStoragePath', 'thumb_storage_path']) {
+      final v = (m[k] ?? '').toString().trim();
+      if (v.isNotEmpty) {
+        return v.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+      }
+    }
+    final iv = m['imageVariants'];
+    if (iv is Map) {
+      for (final tier in ['thumb_300', 'thumb_200', 'medium_800']) {
+        final e = iv[tier];
+        if (e is Map) {
+          final sp = (e['storagePath'] ?? '').toString().trim();
+          if (sp.isNotEmpty) return sp;
+        }
+      }
+    }
+    return null;
+  }
+
+  static String? imageStoragePath(Map<String, dynamic>? m) {
+    if (m == null) return null;
+    for (final k in [
+      'imageStoragePath',
+      'fotoPath',
+      'image_storage_path',
+    ]) {
+      final v = (m[k] ?? '').toString().trim();
+      if (v.isNotEmpty) {
+        return v.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+      }
+    }
+    return null;
+  }
+}
+
+/// Patrimônio — listagem carrega só foto principal (thumb na lista).
+abstract final class PatrimonioImageFields {
+  PatrimonioImageFields._();
+
+  static String? fotoPrincipalPath(Map<String, dynamic>? m) {
+    if (m == null) return null;
+    for (final k in ['fotoPrincipalPath', 'foto_principal_path']) {
+      final v = (m[k] ?? '').toString().trim();
+      if (v.isNotEmpty) {
+        return v.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+      }
+    }
+    return FeedImageFields.imageStoragePath(m);
+  }
+
+  static String? fotoPrincipalThumbPath(Map<String, dynamic>? m) {
+    if (m == null) return null;
+    for (final k in [
+      'fotoPrincipalThumbPath',
+      'foto_principal_thumb_path',
+      'thumbStoragePath',
+    ]) {
+      final v = (m[k] ?? '').toString().trim();
+      if (v.isNotEmpty) {
+        return v.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+      }
+    }
+    return null;
+  }
+
+  static List<String> galleryPaths(Map<String, dynamic>? m) {
+    if (m == null) return const [];
+    for (final k in ['gallery', 'galeria', 'fotoStoragePaths', 'fotos']) {
+      final raw = m[k];
+      if (raw is List) {
+        return raw
+            .map((e) => e?.toString().trim() ?? '')
+            .where((s) => s.isNotEmpty)
+            .map((s) => s.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), ''))
+            .toList();
+      }
+    }
+    return const [];
+  }
+}

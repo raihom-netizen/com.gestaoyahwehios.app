@@ -112,6 +112,31 @@ abstract final class TenantStaleWhileRevalidate {
     } catch (_) {}
   }
 
+  /// Após lançamento financeiro — força próxima leitura na rede (sem Hive obsoleto).
+  static Future<void> invalidateModule({
+    required String tenantId,
+    required String module,
+  }) async {
+    await TenantModuleHiveCache.clearModule(tenantId, module);
+  }
+
+  /// Leitura direta na rede (sem Hive / memória stale) — uso após gravar lançamento.
+  static Future<QuerySnapshot<Map<String, dynamic>>> loadQueryFresh({
+    required String tenantId,
+    required String module,
+    required Future<QuerySnapshot<Map<String, dynamic>>> Function() networkFetch,
+  }) async {
+    final tid = tenantId.trim();
+    if (tid.isNotEmpty) {
+      await TenantModuleHiveCache.clearModule(tid, module);
+    }
+    final snap = await networkFetch();
+    if (tid.isNotEmpty && snap.docs.isNotEmpty) {
+      await TenantModuleHiveCache.saveFromQuerySnapshot(tid, module, snap);
+    }
+    return snap;
+  }
+
   /// Pré-aquece módulo (login / dashboard) — grava Hive sem bloquear UI.
   static Future<void> warmModule({
     required String tenantId,

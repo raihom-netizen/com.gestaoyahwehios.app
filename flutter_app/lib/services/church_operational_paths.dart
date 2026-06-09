@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -43,6 +44,18 @@ abstract final class ChurchOperationalPaths {
   }) async {
     final s = seed.trim();
     if (s.isEmpty) return s;
+
+    if (!forceRefresh) {
+      final ctx = ChurchContextService.currentChurchId;
+      if (ctx != null && ctx.isNotEmpty) {
+        if (s == ctx ||
+            s == ChurchContextService.seedId ||
+            _resolvedMemory[_cacheKey(s, userUid)] == ctx) {
+          return ctx;
+        }
+      }
+    }
+
     final key = _cacheKey(s, userUid);
     if (forceRefresh) {
       _resolveInflight.remove(key);
@@ -151,6 +164,7 @@ abstract final class ChurchOperationalPaths {
         seedTenantId: seed,
         userUid: userUid,
         forceRefresh: preferServer,
+        directDocOnly: true,
       );
       return result.data;
     } on ChurchRepositoryException {
@@ -162,11 +176,16 @@ abstract final class ChurchOperationalPaths {
   static Future<String> resolveModuleReadTenantId(
     String seed, {
     String? userUid,
-  }) =>
-      TenantResolverService.resolveModuleReadTenantId(
-        seed,
-        userUid: userUid ?? _currentUid,
-      );
+  }) {
+    final ctx = ChurchContextService.currentChurchId;
+    if (ctx != null && ctx.isNotEmpty) {
+      return Future.value(ctx);
+    }
+    return TenantResolverService.resolveModuleReadTenantId(
+      seed,
+      userUid: userUid ?? _currentUid,
+    );
+  }
 
   /// IDs do cluster (canónico + irmãos) para leituras master / migração.
   static Future<List<String>> clusterDocIds(String seed) async {

@@ -439,6 +439,16 @@ export async function refreshPublicFeedCacheForTenant(
       e,
     });
   }
+
+  try {
+    const { mirrorPublicSitePanelCache } = await import("./panelPublicSiteCache");
+    await mirrorPublicSitePanelCache(tenantId);
+  } catch (e) {
+    functions.logger.warn("refreshPublicFeedCache: panel public_site", {
+      tenantId,
+      e,
+    });
+  }
 }
 
 /**

@@ -27,6 +27,7 @@ import 'church_chat_member_prefs.dart';
 import 'church_chat_message_fields.dart';
 import 'church_chat_threads_list_cache.dart';
 import 'chat_publish_verification_service.dart';
+import 'chat_strict_publish_service.dart';
 import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -2330,6 +2331,9 @@ class ChurchChatService {
         'deliveryStatus': deliveryUploading,
         'status': deliveryUploading,
         'uploadProgress': 0,
+        'uploadCompleted': false,
+        'storageVerified': false,
+        'pendingMedia': true,
         'createdAt': FieldValue.serverTimestamp(),
         'expiresAt': expiresAt,
         if (fileName != null && fileName.trim().isNotEmpty)
@@ -2370,8 +2374,14 @@ class ChurchChatService {
       'deliveryStatus': deliverySent,
       'status': deliverySent,
       'uploadProgress': 1,
+      'uploadCompleted': true,
+      'storageVerified': true,
+      'updatedAt': FieldValue.serverTimestamp(),
       'mediaUrl': FieldValue.delete(),
       'fileUrl': FieldValue.delete(),
+      'pendingMedia': FieldValue.delete(),
+      'erro': FieldValue.delete(),
+      'errorMessage': FieldValue.delete(),
     };
     final thumb = (thumbStoragePath ?? '').trim();
     if (thumb.isNotEmpty) {
@@ -2414,11 +2424,36 @@ class ChurchChatService {
       storagePath,
       thumbStoragePath: thumbStoragePath,
     );
+    return completeMediaUploadMessageDirect(
+      resolvedTenant: resolvedTenant,
+      threadId: threadId,
+      messageId: messageId,
+      storagePath: storagePath,
+      fileName: fileName,
+      thumbStoragePath: thumbStoragePath,
+      fileSize: fileSize,
+    );
+  }
+
+  /// Grava `sent` no doc já resolvido (sem re-verificar Storage — caller validou).
+  static Future<bool> completeMediaUploadMessageDirect({
+    required String resolvedTenant,
+    required String threadId,
+    required String messageId,
+    required String storagePath,
+    String? fileName,
+    String? thumbStoragePath,
+    int? fileSize,
+  }) async {
     final patch = mediaUploadFinalizePatch(
       storagePath: storagePath,
       thumbStoragePath: thumbStoragePath,
       fileName: fileName,
     );
+    if (fileSize != null && fileSize > 0) {
+      patch['fileSize'] = fileSize;
+      patch['size'] = fileSize;
+    }
     final ref = ChatPublishVerificationService.messageDocRef(
       igrejaId: resolvedTenant,
       threadId: threadId,
@@ -2434,14 +2469,6 @@ class ChurchChatService {
         rethrow;
       }
     }
-    await ChatPublishVerificationService.verifyDocumentExists(ref);
-    await ChatPublishVerificationService.logPublishPhase(
-      phase: 'after',
-      igrejaId: resolvedTenant,
-      threadId: threadId,
-      messageId: messageId,
-      storagePath: storagePath,
-    );
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isNotEmpty) {
       final kind = (await ref.get()).data()?['type']?.toString() ?? 'image';
@@ -2492,7 +2519,7 @@ class ChurchChatService {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
           await ensureFirebaseReadyForChatSend();
         }
-        return await completeMediaUploadMessage(
+        await ChatStrictPublishService.finalizeMediaMessage(
           tenantId: tenantId,
           threadId: threadId,
           messageId: messageId,
@@ -2501,6 +2528,7 @@ class ChurchChatService {
           thumbStoragePath: thumbStoragePath,
           fileSize: fileSize,
         );
+        return true;
       } catch (e) {
         last = e;
         if (attempt >= maxAttempts) break;
@@ -2509,6 +2537,14 @@ class ChurchChatService {
         );
       }
     }
+    try {
+      await markMediaUploadFailed(
+        tenantId: tenantId,
+        threadId: threadId,
+        messageId: messageId,
+        errorMessage: last?.toString(),
+      );
+    } catch (_) {}
     throw last ?? StateError('Não foi possível concluir o envio no servidor.');
   }
 
@@ -2526,9 +2562,16 @@ class ChurchChatService {
     required String messageId,
   }) async {
     try {
-      await messagesCol(tenantId, threadId).doc(messageId).update({
+      final ref = await _messageDocResolved(
+        tenantId: tenantId,
+        threadId: threadId,
+        messageId: messageId,
+      );
+      await ref.update({
         'deliveryStatus': deliveryQueued,
+        'status': deliveryQueued,
         'uploadProgress': 0,
+        'uploadCompleted': false,
       });
     } catch (_) {}
   }
@@ -2539,9 +2582,16 @@ class ChurchChatService {
     required String messageId,
   }) async {
     try {
-      await messagesCol(tenantId, threadId).doc(messageId).update({
+      final ref = await _messageDocResolved(
+        tenantId: tenantId,
+        threadId: threadId,
+        messageId: messageId,
+      );
+      await ref.update({
         'deliveryStatus': deliveryUploading,
+        'status': deliveryUploading,
         'uploadProgress': 0,
+        'uploadCompleted': false,
       });
     } catch (_) {}
   }
@@ -2570,11 +2620,61 @@ class ChurchChatService {
       _uploadProgressPatchCache.remove(key);
     }
     try {
-      await messagesCol(tenantId, threadId).doc(messageId).update({
+      final ref = await _messageDocResolved(
+        tenantId: tenantId,
+        threadId: threadId,
+        messageId: messageId,
+      );
+      await ref.update({
         'uploadProgress': clamped,
         'deliveryStatus': deliveryUploading,
+        'status': deliveryUploading,
       });
     } catch (_) {}
+  }
+
+  /// Falha definitiva — nunca deixar `uploading` eterno.
+  static Future<void> markMediaUploadFailed({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+    String? errorMessage,
+  }) async {
+    final msg = (errorMessage ?? 'Falha ao enviar mídia.').trim();
+    final short = msg.length > 240 ? msg.substring(0, 240) : msg;
+    try {
+      final ref = await _messageDocResolved(
+        tenantId: tenantId,
+        threadId: threadId,
+        messageId: messageId,
+      );
+      await ref.update({
+        'deliveryStatus': 'failed',
+        'status': 'failed',
+        'uploadProgress': 0,
+        'uploadCompleted': false,
+        'storageVerified': false,
+        'pendingMedia': false,
+        'erro': short,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+  }
+
+  static Future<DocumentReference<Map<String, dynamic>>> _messageDocResolved({
+    required String tenantId,
+    required String threadId,
+    required String messageId,
+  }) async {
+    final resolved =
+        await ChatPublishVerificationService.resolveTenantForPublish(
+      seedTenantId: tenantId,
+    );
+    return ChatPublishVerificationService.messageDocRef(
+      igrejaId: resolved,
+      threadId: threadId,
+      messageId: messageId,
+    );
   }
 
   /// Remove stub se o upload falhar de forma irrecuperável.
@@ -2584,7 +2684,12 @@ class ChurchChatService {
     required String messageId,
   }) async {
     try {
-      await messagesCol(tenantId, threadId).doc(messageId).delete();
+      final ref = await _messageDocResolved(
+        tenantId: tenantId,
+        threadId: threadId,
+        messageId: messageId,
+      );
+      await ref.delete();
     } catch (_) {}
   }
 
@@ -2674,6 +2779,7 @@ class ChurchChatService {
       module: YahwehUploadModule.chat,
       onProgress: onProgress,
     );
+    await assertChatMediaUploaded(path);
     return (url: url, path: path);
   }
 

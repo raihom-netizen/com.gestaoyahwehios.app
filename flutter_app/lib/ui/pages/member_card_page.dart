@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
@@ -4531,10 +4532,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
           await FirebaseAuth.instance.currentUser?.getIdToken();
         } catch (_) {}
       }
-      final logoPath =
-          ChurchStorageLayout.churchIdentityLogoPath(igrejaDocId);
+      final logoPath = ChurchBrandService.logoPathFromData(
+        cardCfg,
+        churchId: igrejaDocId,
+      ) ?? ChurchBrandService.canonicalLogoPath(igrejaDocId);
       cardCfg['logoStoragePath'] = logoPath;
-      final u = await StorageMediaService.downloadUrlFromPathOrUrl(logoPath);
+      final u = await ChurchBrandService.getLogoUrl(
+        churchId: igrejaDocId,
+      );
       if (u != null && u.isNotEmpty) cardCfg['logoUrl'] = u;
     } catch (_) {}
   }

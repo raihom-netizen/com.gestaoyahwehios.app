@@ -1320,9 +1320,24 @@ service cloud.firestore {
           && request.resource.data.storagePath is string
           && request.resource.data.storagePath.size() > 16
           && request.resource.data.storagePath.matches('^igrejas/.+/chat_media/.+')
+          && request.resource.data.uploadCompleted == true
+          && request.resource.data.storageVerified == true
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
             'mediaUrl', 'fileUrl', 'storagePath', 'fileName', 'deliveryStatus', 'status',
-            'uploadProgress', 'thumbUrl', 'thumbnailUrl', 'thumbStoragePath', 'fileSize', 'size'
+            'uploadProgress', 'thumbUrl', 'thumbnailUrl', 'thumbStoragePath', 'fileSize', 'size',
+            'uploadCompleted', 'storageVerified', 'updatedAt', 'pendingMedia', 'erro', 'errorMessage'
+          ]);
+      }
+
+      function chatMessageMediaUploadFailedAllowed(tenantId, threadId) {
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+          && resource.data.senderUid == request.auth.uid
+          && resource.data.deliveryStatus in ['uploading', 'queued']
+          && request.resource.data.deliveryStatus == 'failed'
+          && request.resource.data.uploadCompleted == false
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            'deliveryStatus', 'status', 'uploadProgress', 'uploadCompleted', 'storageVerified',
+            'pendingMedia', 'erro', 'errorMessage', 'updatedAt'
           ]);
       }
 
@@ -1501,6 +1516,7 @@ service cloud.firestore {
               && request.resource.data.replyTo.preview.size() <= 240
             ));
           allow update: if chatMessageMediaDeliveryPatchAllowed(id, threadId)
+            || chatMessageMediaUploadFailedAllowed(id, threadId)
             || chatMessageSendingFinalizeAllowed(id, threadId)
             || chatMessageUploadProgressOnly(id, threadId)
             || chatMessageUploadQueuedOnly(id, threadId)

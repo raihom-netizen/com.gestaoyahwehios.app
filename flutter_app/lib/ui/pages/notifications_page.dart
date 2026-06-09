@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/church_notification_center.dart';
 import 'package:gestao_yahweh/services/internal_notification_inbox_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_foreground_notification_snackbar.dart';
@@ -13,11 +14,13 @@ class NotificationsPage extends StatefulWidget {
   final String tenantId;
   final String cpf;
   final String role;
+  final ValueChanged<int>? onNavigateToShellModule;
   const NotificationsPage({
     super.key,
     required this.tenantId,
     required this.cpf,
     required this.role,
+    this.onNavigateToShellModule,
   });
 
   @override
@@ -111,8 +114,35 @@ class _NotificationsPageState extends State<NotificationsPage> {
     final isMobile = ThemeCleanPremium.isMobile(context);
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FA),
-      appBar: isMobile ? null : AppBar(title: const Text('Notificacoes')),
+      appBar: AppBar(
+        title: const Text('Notificações'),
+        leading: isMobile
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: () => Navigator.of(context).maybePop(),
+              )
+            : null,
+        actions: [
+          TextButton(
+            onPressed: () async {
+              final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+              if (uid.isEmpty) return;
+              await ChurchNotificationCenter.markAllRead(
+                tenantId: widget.tenantId,
+                uid: uid,
+              );
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  ThemeCleanPremium.successSnackBar('Todas marcadas como lidas.'),
+                );
+              }
+            },
+            child: const Text('Marcar lidas'),
+          ),
+        ],
+      ),
       body: SafeArea(
+        top: !isMobile,
         child: _isAdmin ? _buildAdminBody() : _buildMemberBody(),
       ),
     );
@@ -298,6 +328,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
         final dateTxt = dt == null
             ? ''
             : '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+        final item = ChurchNotificationItem(
+          id: docs[i].id,
+          source: docs[i].reference.path.contains('/caixa_entrada/')
+              ? ChurchNotificationSource.inbox
+              : ChurchNotificationSource.tenant,
+          type: type,
+          title: title,
+          body: body,
+          createdAt: dt,
+          isRead: m['read'] == true,
+          inboxRef: docs[i].reference.path.contains('/caixa_entrada/')
+              ? docs[i].reference
+              : null,
+          meta: Map<String, dynamic>.from(m),
+        );
         return Card(
           elevation: 0,
           shape: RoundedRectangleBorder(
@@ -305,6 +350,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             side: BorderSide(color: accent.withValues(alpha: 0.22)),
           ),
           child: ListTile(
+            onTap: () => _onNotificationTap(context, item),
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             leading: Container(
@@ -346,39 +392,22 @@ class _NotificationsPageState extends State<NotificationsPage> {
     );
   }
 
-  String _moduleFromType(String type) {
-    switch (type) {
-      case 'novo_aviso':
-        return 'aviso';
-      case 'novo_evento':
-        return 'evento';
-      case 'nova_escala':
-      case 'escala_publicada':
-        return 'escala';
-      case 'aniversariantes_dia':
-        return 'aniversario';
-      case 'novo_membro':
-        return 'membro';
-      default:
-        return 'generico';
+  Future<void> _onNotificationTap(
+    BuildContext context,
+    ChurchNotificationItem item,
+  ) async {
+    await ChurchNotificationCenter.markItemRead(item);
+    final shell = ChurchNotificationCenter.shellIndexForItem(item);
+    final nav = widget.onNavigateToShellModule;
+    if (shell != null && nav != null && context.mounted) {
+      Navigator.of(context).maybePop();
+      nav(shell);
     }
   }
 
-  IconData _iconForType(String type) {
-    switch (type) {
-      case 'novo_aviso':
-        return Icons.campaign_rounded;
-      case 'novo_evento':
-        return Icons.event_rounded;
-      case 'nova_escala':
-      case 'escala_publicada':
-        return Icons.calendar_month_rounded;
-      case 'aniversariantes_dia':
-        return Icons.cake_rounded;
-      case 'novo_membro':
-        return Icons.person_add_alt_1_rounded;
-      default:
-        return Icons.notifications_active_rounded;
-    }
-  }
+  String _moduleFromType(String type) =>
+      ChurchNotificationCenter.moduleForType(type);
+
+  IconData _iconForType(String type) =>
+      ChurchNotificationCenter.iconForType(type);
 }

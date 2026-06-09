@@ -120,6 +120,7 @@ import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
+import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show buildNoticiaInviteShareMessage;
 import 'package:image/image.dart' as img;
@@ -4922,6 +4923,15 @@ class _EventoPostState extends State<_EventoPost>
                   color: Colors.grey.shade800, size: 24),
               style: IconButton.styleFrom(minimumSize: const Size(44, 44)),
             ),
+            if (!widget.selectionMode)
+              YahwehNoticiaWhatsAppOneTapButton(
+                churchName: widget.nomeIgreja,
+                churchSlug: widget.churchSlug,
+                tenantId: widget.tenantId,
+                noticiaId: widget.doc.id,
+                postData: widget.doc.data(),
+                noticiaKindOverride: 'evento',
+              ),
             const Spacer(),
             if (isFuture)
               Material(
@@ -7601,16 +7611,24 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       final hasVideo =
           _eventVideos.isNotEmpty || _videoUrl.text.trim().isNotEmpty;
+      final (eventStart, _) = _computeStartEndForSave();
       final payload = _buildEventCorePayload(
-        allUrls: existingUrls,
+        allUrls: const [],
         aspectRatio: aspectRatio,
         isNewDoc: isNewDoc,
       );
+      payload.remove('videoUrl');
+      if (aspectRatio != null) {
+        payload['media_info'] = <String, dynamic>{
+          'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
+          'tipo': hasVideo ? 'video' : 'image',
+        };
+      }
 
       List<Uint8List>? bytes;
       List<String>? paths;
+      final startSlot = existingUrls.length;
       if (hasPendingLocal) {
-        final startSlot = existingUrls.length;
         if (kIsWeb) {
           bytes = await _copyNewImagesForPublish();
         } else {
@@ -7620,45 +7638,26 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         if (n == 0) {
           throw StateError('Não foi possível ler as fotos para enviar.');
         }
-        await EventoStrictPublishService.publish(
-          docRef: docRef,
-          tenantId: publishTenantId,
-          corePayload: payload,
-          isNewDoc: isNewDoc,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlot,
-          hasVideo: hasVideo,
-          newImagesBytes: bytes,
-          newImagePaths: paths,
-          videoStoragePath: _videoStoragePathForPublish(publishTenantId),
-          publicSite: _publicSite,
-        );
-      } else {
-        final videoPath = _videoStoragePathForPublish(publishTenantId);
-        final fotoPaths =
-            EventosPublishVerificationService.storagePathsFromUrls(
-          existingUrls,
-        );
-        await EventosPublishVerificationService.verifyStorageMetadata(
-          photoPaths: fotoPaths,
-          videoPath: videoPath,
-        );
-        await FeedMediaPublishService.publishNow(
-          docRef: docRef,
-          payload: payload,
-          isNewDoc: isNewDoc,
-          postType: 'evento',
-          publicSite: _publicSite,
-        );
-        await EventosPublishVerificationService.verifyDocumentExists(docRef);
-        PublicationEngine.scheduleDistribution(
-          tenantId: publishTenantId,
-          kind: PublicationKind.evento,
-          postId: postId,
-          isNewDoc: isNewDoc,
-          publicSite: _publicSite,
-        );
       }
+
+      await EventoStrictPublishService.publish(
+        docRef: docRef,
+        tenantId: publishTenantId,
+        corePayload: payload,
+        isNewDoc: isNewDoc,
+        existingUrls: existingUrls,
+        startSlotIndex: startSlot,
+        hasVideo: hasVideo,
+        newImagesBytes: bytes,
+        newImagePaths: paths,
+        videoStoragePath: _videoStoragePathForPublish(publishTenantId),
+        publicSite: _publicSite,
+        eventStartAt: eventStart,
+        location: _localSalvo(),
+        syncAgenda: _syncAgenda,
+        agendaCategory: _agendaCategoryKeyFromEvent(),
+        agendaColorHex: _agendaColorHexForCategory(),
+      );
 
       await EventosPublishVerificationService.logPublishPhase(
         phase: 'after',
@@ -7669,7 +7668,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       EventosPublishVerificationService.clearLastError();
       await _showEventoPublishVerifiedSuccess(isNewDoc: isNewDoc);
-      unawaited(_applyAgendaSyncAfterSave(postId));
+      if (!_syncAgenda && widget.doc != null) {
+        await _removeAgendaLinkedNoticia(postId);
+      }
     } catch (e, st) {
       ChurchPublishFlowLog.logCatch(e, st, label: 'evento_save');
       EventosPublishVerificationService.rememberLastError(e);
@@ -7684,12 +7685,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         ),
       );
       unawaited(CrashlyticsService.record(e, st, reason: 'eventos_publish'));
-      unawaited(
-        FeedMediaPublishService.markPublishFailed(
-          docRef: _eventDocRef,
-          error: e,
-        ),
-      );
       final msg = e.toString();
       final isAssertionOrPerm = msg.contains('INTERNAL ASSERTION') ||
           msg.contains('permission-denied') ||

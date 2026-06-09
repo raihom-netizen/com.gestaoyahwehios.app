@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
@@ -10,10 +9,9 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:url_launcher/url_launcher.dart';
-
 /// Contato por chat da igreja ou WhatsApp — web, iOS e Android.
 abstract final class ChurchMemberContactChat {
   ChurchMemberContactChat._();
@@ -241,33 +239,11 @@ abstract final class ChurchMemberContactChat {
   static Future<bool> launchWhatsAppDigits(
     String rawDigits, {
     String message = faleComigoDraft,
-  }) async {
-    var digits = rawDigits.replaceAll(RegExp(r'\D'), '');
-    if (digits.length < 10) return false;
-    if (digits.length <= 11 && !digits.startsWith('55')) {
-      digits = '55$digits';
-    }
-    final enc = Uri.encodeComponent(message.trim().isEmpty ? faleComigoDraft : message);
-    final uris = <Uri>[
-      if (!kIsWeb) Uri.parse('whatsapp://send?phone=$digits&text=$enc'),
-      Uri.parse('https://wa.me/$digits?text=$enc'),
-      Uri.parse('https://api.whatsapp.com/send?phone=$digits&text=$enc'),
-    ];
-    for (final uri in uris) {
-      try {
-        final launched = await launchUrl(
-          uri,
-          mode: LaunchMode.externalApplication,
-        );
-        if (launched) return true;
-      } catch (_) {}
-      try {
-        final launched = await launchUrl(uri, mode: LaunchMode.platformDefault);
-        if (launched) return true;
-      } catch (_) {}
-    }
-    return false;
-  }
+  }) =>
+      YahwehWhatsAppService.openWithMessage(
+        message: message,
+        phoneDigits: rawDigits,
+      );
 
   static Future<void> openChatIgreja({
     required BuildContext context,

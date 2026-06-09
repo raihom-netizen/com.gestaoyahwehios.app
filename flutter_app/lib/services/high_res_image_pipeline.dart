@@ -15,6 +15,8 @@ import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/services/biometric_service.dart';
+import 'package:gestao_yahweh/services/biometric_service.dart';
 
 /// Perfil de recorte antes do upload (Yahweh Geral em alta definição).
 enum HighResCropProfile {
@@ -75,6 +77,9 @@ Future<XFile?> pickCropEncodeWebp({
 }) async {
   final picker = ImagePicker();
   final ctx = webCropContext;
+  if (!kIsWeb) {
+    BiometricService.markBiometricVerifiedForNextPainelEntry();
+  }
   final picked = await picker.pickImage(
     source: source,
     imageQuality: kIsWeb ? 100 : kEventoAvisoFeedWebpQuality,

@@ -3,8 +3,11 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show firebaseStorageObjectPathFromHttpUrl;
 
 /// Verificação obrigatória pós-gravação de avisos — evita falso sucesso.
 abstract final class AvisosPublishVerificationService {
@@ -12,6 +15,9 @@ abstract final class AvisosPublishVerificationService {
 
   static const String kPublishVerifyFailedMessage =
       'Falha ao publicar aviso.\nDocumento não localizado no Firestore.';
+
+  static const String kStorageVerifyFailedMessage =
+      'Falha ao publicar mídia do aviso.\nArquivo não confirmado no Storage.';
 
   static String? _lastError;
 
@@ -80,6 +86,34 @@ abstract final class AvisosPublishVerificationService {
 
   static String collectionPathFor(String igrejaId) =>
       'igrejas/${igrejaId.trim()}/${ChurchTenantPostsCollections.avisos}';
+
+  static List<String> storagePathsFromUrls(Iterable<String> urls) {
+    final out = <String>[];
+    for (final u in urls) {
+      final t = u.trim();
+      if (t.contains('igrejas/') &&
+          !t.startsWith('http://') &&
+          !t.startsWith('https://')) {
+        out.add(t);
+        continue;
+      }
+      final p = firebaseStorageObjectPathFromHttpUrl(t);
+      if (p != null && p.isNotEmpty) out.add(p);
+    }
+    return out;
+  }
+
+  /// Confirma fotos no Storage antes de marcar aviso como publicado.
+  static Future<void> verifyStorageMetadata({
+    Iterable<String> photoPaths = const [],
+  }) async {
+    try {
+      await ChurchStorageMetadataVerify.assertAllExist(photoPaths);
+    } catch (e) {
+      rememberLastError(kStorageVerifyFailedMessage);
+      rethrow;
+    }
+  }
 
   /// PASSO 4 — confirma que o Firestore gravou o documento.
   static Future<DocumentSnapshot<Map<String, dynamic>>> verifyDocumentExists(

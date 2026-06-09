@@ -12,10 +12,12 @@ abstract final class YahwehPerformanceV4 {
 
   // ——— WebP (paridade Controle Total) ———
   static const int webpQuality = 80;
-  static const int uploadMaxEdgePx = 1200;
+  /// Fotos gerais — spec escala (1920px / JPEG 80%).
+  static const int uploadMaxEdgePx = 1920;
 
   // ——— Fotos de perfil (membros) ———
-  static const int profileFullEdge = 1024;
+  /// Perfil membro — 512×512.
+  static const int profileFullEdge = 512;
   static const int profileThumbEdge = 200;
   static const int profileFullQuality = 80;
   static const int profileThumbQuality = 70;
@@ -43,7 +45,8 @@ abstract final class YahwehPerformanceV4 {
   static const int financeListInitialLimit = 250;
   static const int financeListPageStep = 100;
   static const int publicFeedPageSize = 20;
-  static const int chatMessagesPageSize = 30;
+  /// Chat — só as 50 mensagens mais recentes (sem histórico inteiro).
+  static const int chatMessagesPageSize = 50;
   static const int chatThreadsListLimit = 50;
   static const int chatThreadsFallbackLimit = 30;
   static const int upcomingEventsLimit = 20;

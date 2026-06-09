@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart' show XFile, ImageSource;
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -26,6 +27,9 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
+import 'package:gestao_yahweh/services/church_brand_service.dart';
+import 'package:gestao_yahweh/services/church_bootstrap_service.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_provisioning_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_consolidation_service.dart';
@@ -317,7 +321,26 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   void _applyChurchDataResult(ChurchDataLoadResult result) {
     final resolved = result.churchId.trim();
-    if (resolved.isEmpty || result.data.isEmpty) return;
+    if (resolved.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _cadastroBootstrapDone = true;
+          _cadastroBootstrapError =
+              'Igreja não identificada após carregar o cadastro.';
+        });
+      }
+      return;
+    }
+    if (result.data.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _cadastroBootstrapDone = true;
+          _cadastroBootstrapError =
+              'Documento igrejas/$resolved existe mas está vazio.';
+        });
+      }
+      return;
+    }
     _operationalTenantId = resolved;
     _hydrateFormFromFirestoreDoc(resolved, result.data);
     _bindIgrejaLiveWatch(resolved);
@@ -327,6 +350,46 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         _cadastroBootstrapError = null;
       });
     }
+  }
+
+  void _applyBootstrapResult(ChurchBootstrapResult result) {
+    if (result.error != null && result.churchData.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _cadastroBootstrapDone = true;
+          _cadastroBootstrapError = result.error;
+        });
+      }
+      return;
+    }
+    if (result.churchId.isEmpty || result.churchData.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _cadastroBootstrapDone = true;
+          _cadastroBootstrapError =
+              result.error ?? 'Não foi possível carregar o cadastro da igreja.';
+        });
+      }
+      return;
+    }
+    ChurchContextService.bindChurchData(
+      churchId: result.churchId,
+      data: result.churchData,
+      bootstrapMs: result.loadDuration.inMilliseconds,
+    );
+    _applyChurchDataResult(
+      ChurchDataLoadResult(
+        seedTenantId: widget.tenantId.trim(),
+        churchId: result.churchId,
+        firestorePath: 'igrejas/${result.churchId}',
+        data: result.churchData,
+        fieldCount: result.churchData.length,
+        loadedAt: DateTime.now(),
+        readSource: result.readSource ?? 'bootstrap',
+        logoStoragePath: result.logoPath ?? '',
+        logoExistsInStorage: result.logoPath != null,
+      ),
+    );
   }
 
   Future<void> _bootstrapCadastro({bool forceRefresh = false}) async {
@@ -351,27 +414,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       _cadastroBootstrapError = null;
     });
 
-    try {
-      final result = await ChurchRepository.loadChurchData(
-        seedTenantId: seed,
-        userUid: uid,
-        forceRefresh: forceRefresh,
-      );
-      if (!mounted) return;
-      _applyChurchDataResult(result);
-    } on ChurchRepositoryException catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _cadastroBootstrapDone = true;
-        _cadastroBootstrapError = e.message;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _cadastroBootstrapDone = true;
-        _cadastroBootstrapError = e.toString();
-      });
-    }
+    final bootstrap = await ChurchBootstrapService.loadCadastroPanel(
+      seedTenantId: seed,
+      userUid: uid,
+      forceRefresh: forceRefresh,
+    );
+    if (!mounted) return;
+    _applyBootstrapResult(bootstrap);
   }
 
   Future<void> _reloadChurchDataInBackground() async {
@@ -379,6 +428,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final result = await ChurchRepository.loadChurchData(
         seedTenantId: widget.tenantId,
         userUid: FirebaseAuth.instance.currentUser?.uid,
+        directDocOnly: true,
       );
       if (!mounted || result.data.isEmpty) return;
       _hydrateFormFromFirestoreDoc(result.churchId, result.data);
@@ -408,6 +458,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final result = await ChurchRepository.loadChurchData(
         seedTenantId: tid,
         userUid: FirebaseAuth.instance.currentUser?.uid,
+        directDocOnly: true,
       );
       if (!mounted) return;
       _hydrateFormFromFirestoreDoc(result.churchId, result.data);
@@ -1580,7 +1631,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
   }
 
-  /// Publica `configuracoes/logo_igreja.png` (sobrescreve sempre) e grava [logo_url] no Firestore.
+  /// Publica `configuracoes/logo_igreja.png` e grava **somente** [logoPath] no Firestore.
   /// Retorna `false` se tentou enviar e falhou (o chamador pode abortar o resto do save).
   Future<bool> _commitLogoUploadFromPending(
       {bool showCommitSuccessSnack = true}) async {
@@ -1591,6 +1642,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       _logoUploadPhase = 'encoding';
     });
     try {
+      await ensureFirebaseReadyForPublishUpload();
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
       final resolvedId = await _resolveTenantIdForSave();
       final png =
@@ -1610,14 +1662,17 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       } catch (_) {}
       final identityPath =
           ChurchStorageLayout.churchIdentityLogoPath(resolvedId);
-      final upload = await MediaUploadService.uploadBytesDetailed(
-        storagePath: identityPath,
-        bytes: png,
-        contentType: 'image/png',
-        onProgress: (p) {
-          if (!mounted) return;
-          setState(() => _logoUploadProgress = p);
-        },
+      final upload = await runFirebaseBackgroundTask(
+        () => MediaUploadService.uploadBytesDetailed(
+          storagePath: identityPath,
+          bytes: png,
+          contentType: 'image/png',
+          onProgress: (p) {
+            if (!mounted) return;
+            setState(() => _logoUploadProgress = p);
+          },
+        ),
+        debugLabel: 'igreja_logo_upload',
       );
       final url = upload.downloadUrl;
       if (!mounted) return true;
@@ -1640,10 +1695,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         storagePath: upload.storagePath,
         imageUrl: url,
       );
-      await _saveLogoUrl(
-        url,
+      await ChurchBrandService.persistLogoPath(
+        churchId: resolvedId,
         storagePath: upload.storagePath,
-        removeLogoVariants: true,
       );
       _logoStagedNotUploaded = false;
       FirebaseStorageCleanupService.scheduleCleanupAfterChurchConfigImageUpload(
@@ -1749,80 +1803,23 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     return lista.join(', ');
   }
 
-  Future<void> _saveLogoUrl(
-    String url, {
-    String? storagePath,
-    bool removeLogoVariants = false,
-  }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            'Faça login para salvar a logo.',
-          ),
-        );
-      }
-      return;
-    }
-    try {
-      await _prepareCadastroFirestoreWrite();
-      await user.getIdToken(false);
-      final resolvedId = await _resolveTenantIdForSave();
-      final data = {
-        'logoUrl': url,
-        'logo_url': url,
-        'logoProcessedUrl': url,
-        'logoProcessed': url,
-        if (storagePath != null && storagePath.isNotEmpty)
-          'logoPath': storagePath,
-        if (removeLogoVariants) 'logoVariants': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-      await FirestoreWebGuard.runWithWebRecovery(
-        () =>             ChurchOperationalPaths.churchDoc(resolvedId)
-            .set(data, SetOptions(merge: true)),
-        maxAttempts: 5,
-      );
-      if (mounted) {
-        setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            'Logo atualizado e disponível.',
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Erro ao salvar logo: $e'),
-        );
-      }
-    }
-  }
-
-  /// Token do Firebase Storage expira: renova URL e grava no Firestore (logo "sempre disponível").
+  /// Renova URL em memória (exibição) — **não** grava URL no Firestore.
   Future<void> _maybeRefreshStorageLogoUrl() async {
-    final u = _logoUrl;
-    if (u == null || u.isEmpty) return;
-    final s = sanitizeImageUrl(u);
-    if (!isFirebaseStorageHttpUrl(s)) return;
-    if (!kIsWeb && firebaseStorageDownloadUrlLooksTokenized(s)) return;
+    final resolvedId = (_operationalTenantId ?? widget.tenantId).trim();
+    if (resolvedId.isEmpty) return;
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken();
-      final ref = FirebaseStorage.instance.refFromURL(s);
-      final fresh = await ref.getDownloadURL();
-      if (!mounted || fresh.isEmpty || fresh == s) return;
+      final fresh = await ChurchBrandService.getLogoUrl(churchId: resolvedId);
+      if (!mounted || fresh == null || fresh.isEmpty) return;
       setState(() {
         _logoUrl = fresh;
         _logoBytes = null;
         _logoStagedNotUploaded = false;
       });
-      await _saveLogoUrl(fresh);
     } catch (_) {}
   }
 
-  /// Quando o Firestore não tem URL https mas a logo existe em Storage (path ou `logo_principal`).
+  /// Quando o Firestore não tem URL https mas a logo existe em Storage ([logoPath]).
   Future<void> _hydrateLogoUrlFromStorageIfNeeded(
     String tenantDocId,
     Map<String, dynamic> data,
@@ -1834,47 +1831,20 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken();
-      for (final path in [
-        ChurchStorageLayout.churchIdentityLogoPath(tenantDocId),
-        ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(tenantDocId),
-      ]) {
-        try {
-          final ref = FirebaseStorage.instance.ref(path);
-          final md = await ref.getMetadata();
-          final sz = md.size ?? 0;
-          if (sz <
-              ChurchStorageLayout.kChurchIdentityLogoMinBytesForFirestoreSync) {
-            continue;
-          }
-          final url = await ref.getDownloadURL();
-          if (!mounted) return;
-          final clean = sanitizeImageUrl(url);
-          if (clean.isEmpty || !isValidImageUrl(clean)) continue;
-          setState(() {
-            _logoUrl = clean;
-            _logoStoragePath = path;
-            _logoBytes = null;
-            _logoStagedNotUploaded = false;
-          });
-          await _saveLogoUrl(clean, storagePath: path);
-          await _maybeRefreshStorageLogoUrl();
-          return;
-        } catch (_) {}
-      }
-
-      final resolved =
-          await AppStorageImageService.instance.resolveChurchTenantLogoUrl(
-        tenantId: tenantDocId,
+      final resolved = await ChurchBrandService.getLogoUrl(
+        churchId: tenantDocId,
         tenantData: data,
-        preferImageUrl: existing.isNotEmpty ? existing : null,
-        preferStoragePath: ChurchImageFields.logoStoragePath(data),
-        preferGsUrl: null,
       );
       if (!mounted) return;
       final clean = sanitizeImageUrl(resolved ?? '');
       if (clean.isEmpty || !isValidImageUrl(clean)) return;
+      final path = ChurchBrandService.logoPathFromData(
+        data,
+        churchId: tenantDocId,
+      );
       setState(() {
         _logoUrl = clean;
+        if (path != null && path.isNotEmpty) _logoStoragePath = path;
         _logoBytes = null;
         _logoStagedNotUploaded = false;
       });
@@ -1996,11 +1966,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         'linkWhatsapp',
       ]);
 
-      if (_logoUrl != null && _logoUrl!.isNotEmpty) {
-        data['logoUrl'] = _logoUrl;
-        data['logo_url'] = _logoUrl;
-        data['logoProcessedUrl'] = _logoUrl;
-        data['logoProcessed'] = _logoUrl;
+      if (_logoStoragePath != null && _logoStoragePath!.trim().isNotEmpty) {
+        data['logoPath'] = _logoStoragePath!.trim();
+      }
+      for (final k in ChurchBrandService.legacyLogoUrlFirestoreKeys) {
+        data[k] = FieldValue.delete();
       }
       final enderecoCompleto = _buildEnderecoCompleto();
       if (enderecoCompleto.isNotEmpty) data['endereco'] = enderecoCompleto;

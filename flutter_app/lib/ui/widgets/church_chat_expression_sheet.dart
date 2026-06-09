@@ -5,6 +5,8 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
+import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_expression_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
@@ -593,8 +595,12 @@ class _StickerLibraryTabState extends State<_StickerLibraryTab> {
           stream:               ChurchOperationalPaths.churchDoc(widget.tenantId)
               .watchSafe(),
           builder: (context, snap) {
-            final logoUrl = churchTenantLogoUrl(snap.data?.data());
-            if (logoUrl.isEmpty) {
+            final data = snap.data?.data();
+            final logoPath = ChurchBrandService.logoPathFromData(
+              data,
+              churchId: widget.tenantId,
+            );
+            if (logoPath == null || logoPath.isEmpty) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 14),
                 child: Container(
@@ -649,8 +655,8 @@ class _StickerLibraryTabState extends State<_StickerLibraryTab> {
                       borderRadius: BorderRadius.circular(18),
                       onTap: () => _emit(
                         ChurchStickerPick(
-                          mediaUrl: logoUrl,
-                          storagePath: null,
+                          mediaUrl: '',
+                          storagePath: logoPath,
                           stickerSource: 'church_logo',
                         ),
                       ),
@@ -691,10 +697,13 @@ class _StickerLibraryTabState extends State<_StickerLibraryTab> {
                                   ],
                                 ),
                                 clipBehavior: Clip.antiAlias,
-                                child: SafeNetworkImage(
-                                  imageUrl: logoUrl,
-                                  fit: BoxFit.cover,
+                                child: StableChurchLogo(
+                                  tenantId: widget.tenantId,
+                                  tenantData: data,
+                                  storagePath: logoPath,
+                                  width: 72,
                                   height: 72,
+                                  fit: BoxFit.cover,
                                 ),
                               ),
                               const SizedBox(width: 14),

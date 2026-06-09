@@ -4,12 +4,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Resolve o ID do tenant ou igreja para carregar membros.
-/// Suporta tenants e igrejas (quando membros estão em igrejas/{id}/membros).
-/// Normalização: "Brasil para Cristo" = "brasilparacristo" = "brasil-para-cristo".
+/// Resolve slug/alias legado → doc canónico `igrejas/{churchId}`.
+/// Coleção `tenants/` **não** é lida pelo app — só `igrejas/{churchId}`.
+/// Após login, preferir [ChurchContextService.currentChurchId].
 class TenantResolverService {
   TenantResolverService._();
 
@@ -121,23 +123,7 @@ class TenantResolverService {
     }
 
     var resolved = op;
-    try {
-      final withDepts = await resolveChurchDocIdPreferringNonEmptyDepartments(op)
-          .timeout(const Duration(seconds: 10));
-      final deptId = withDepts.trim();
-      if (deptId.isNotEmpty) resolved = deptId;
-    } catch (_) {}
-
-    if (resolved == op) {
-      try {
-        final rich = await resolveChurchDocIdPreferringRichestCluster(
-          op,
-          preferId: op,
-        ).timeout(const Duration(seconds: 10));
-        if (rich.trim().isNotEmpty) resolved = rich.trim();
-      } catch (_) {}
-    }
-
+    // Fonte única: igrejas/{operationalId} — sem redirecionar para doc «mais rico» do cluster.
     rememberModuleReadTenantId(seed, resolved, userUid: userUid);
     return resolved;
   }
@@ -161,11 +147,10 @@ class TenantResolverService {
       bucket.add(t);
     }
 
-    for (final entry in _anchoredChurchClusters.entries) {
-      addUnique(priority, entry.key);
-      for (final id in entry.value) {
-        addUnique(priority, id);
-      }
+    // Só inclui cluster ancorado (ex.: BPC) quando o doc principal pertence a ele —
+    // evita que igrejas novas (ex.: Batista Renovada) herdem dados de outra igreja.
+    for (final id in anchoredClusterIdsFor(p)) {
+      addUnique(priority, id);
     }
     for (final s in siblings) {
       addUnique(rest, s);
@@ -385,10 +370,39 @@ class TenantResolverService {
     return s.trim().toLowerCase().replaceAll(RegExp(r'[\s\-_]+'), '');
   }
 
-  /// Resolve o ID efetivo: tenant ou igreja. Se o id for de um doc em igrejas, retorna o próprio id.
+  /// ID operacional da sessão — contexto bound ou resolução única.
+  static Future<String> operationalChurchId({
+    String? seed,
+    String? userUid,
+    bool forceRefresh = false,
+  }) async {
+    final ctx = ChurchContextService.currentChurchId;
+    if (!forceRefresh && ctx != null && ctx.isNotEmpty) {
+      final s = (seed ?? ChurchContextService.seedId ?? ctx).trim();
+      if (s.isEmpty || s == ctx || s == ChurchContextService.seedId) {
+        return ctx;
+      }
+    }
+    final s = (seed ?? ctx ?? '').trim();
+    if (s.isEmpty) return '';
+    return resolveOperationalChurchDocId(
+      s,
+      userUid: userUid,
+      forceRefresh: forceRefresh,
+    );
+  }
+
+  /// Resolve o ID efetivo: slug/alias → doc em `igrejas/{id}`.
   static Future<String> resolveEffectiveTenantId(String id) async {
     final raw = id.trim();
     if (raw.isEmpty) return id;
+
+    final ctx = ChurchContextService.currentChurchId;
+    if (ctx != null &&
+        ctx.isNotEmpty &&
+        (raw == ctx || raw == ChurchContextService.seedId)) {
+      return ctx;
+    }
 
     final fromAlias = await resolveChurchAlias(raw);
     if (fromAlias != null && fromAlias.isNotEmpty) return fromAlias;
@@ -537,6 +551,17 @@ class TenantResolverService {
     final seed = seedId.trim();
     if (seed.isEmpty) return seed;
 
+    if (!forceRefresh) {
+      final ctx = ChurchContextService.currentChurchId;
+      if (ctx != null &&
+          ctx.isNotEmpty &&
+          (seed == ctx ||
+              seed == ChurchContextService.seedId ||
+              ChurchContextService.seedId == seed)) {
+        return ctx;
+      }
+    }
+
     final cacheKey = _operationalCacheKey(seed, userUid);
     if (!forceRefresh) {
       final hit = _operationalByKey[cacheKey];
@@ -546,8 +571,8 @@ class TenantResolverService {
       }
     }
 
+    final sw = Stopwatch()..start();
     String bound = seed;
-    String claimId = '';
     try {
       bound = await resolveEffectiveTenantIdPreferringUserBinding(
         seed,
@@ -555,29 +580,15 @@ class TenantResolverService {
       ).timeout(const Duration(seconds: 12));
     } catch (_) {}
 
-    final uid = (userUid ?? '').trim();
-    if (uid.isNotEmpty) {
-      try {
-        final u = await _firestore.collection('users').doc(uid).get();
-        claimId =
-            (u.data()?['igrejaId'] ?? u.data()?['tenantId'] ?? '').toString().trim();
-      } catch (_) {}
-    }
-
-    List<String> siblings = const [];
-    try {
-      siblings = await getAllRelatedIgrejaDocIds(bound)
-          .timeout(const Duration(seconds: 10));
-    } catch (_) {}
-
-    String operational = bound;
-    try {
-      operational = await _resolveCanonicalOperationalId(
-        bound,
-        claimId,
-        siblings,
-      ).timeout(const Duration(seconds: 14));
-    } catch (_) {}
+    // Fonte única: igrejas/{bound} — sem redirecionar para doc «mais rico» do cluster.
+    final operational = bound.trim().isEmpty ? seed : bound.trim();
+    sw.stop();
+    ChurchOperationalFirestoreTrace.record(
+      origin: 'TenantResolverService.resolveOperationalChurchDocId',
+      firestorePath: 'igrejas/$operational',
+      churchId: operational,
+      durationMs: sw.elapsedMilliseconds,
+    );
 
     _operationalByKey[cacheKey] =
         _OperationalTenantCacheEntry(operational, DateTime.now());
@@ -587,10 +598,7 @@ class TenantResolverService {
       hypothesisId: 'A',
       data: {
         'seed': seed,
-        'bound': bound,
-        'claimId': claimId,
         'operational': operational,
-        'siblingsCount': siblings.length,
         'forceRefresh': forceRefresh,
       },
     );
@@ -684,8 +692,7 @@ class TenantResolverService {
     bump('gestorCpf');
     bump('endereco');
     bump('instagramUrl');
-    bump('logoUrl');
-    bump('logoProcessedUrl');
+    bump('logoPath');
     if (data['registrationComplete'] == true ||
         data['RegistrationComplete'] == true) {
       score += 3;
@@ -982,7 +989,9 @@ class TenantResolverService {
     } catch (_) {
       siblings = const [];
     }
-    final ordered = orderedSiblingsForReadFallback(primary, siblings, maxExtra: 8);
+    final ordered = orderedSiblingsForReadFallback(primary, siblings, maxExtra: 8)
+        .where((sid) => siblings.map((s) => s.trim()).contains(sid.trim()))
+        .toList();
     if (ordered.isNotEmpty) {
       await Future.wait(
         ordered.map(
@@ -1269,11 +1278,13 @@ class TenantResolverService {
     return bestScore > 0 ? bestId : raw;
   }
 
-  /// Retorna todos os IDs (tenants + igrejas) que compartilham slug/alias (consultas indexadas).
+  /// IDs para leitura operacional — com contexto bound, só [currentChurchId].
   static Future<List<String>> getAllTenantIdsWithSameSlugOrAlias(String resolvedId) async {
     final raw = resolvedId.trim();
     if (raw.isEmpty) return [raw];
-    return getAllRelatedIgrejaDocIds(raw);
+    final ctx = ChurchContextService.currentChurchId;
+    if (ctx != null && ctx.isNotEmpty) return [ctx];
+    return [await operationalChurchId(seed: raw)];
   }
 
   /// Retorna IDs em `igrejas` com o mesmo slug/alias + variantes (mesmo conjunto que [getAllTenantIdsWithSameSlugOrAlias]).

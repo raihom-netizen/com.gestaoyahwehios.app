@@ -2,12 +2,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
+import 'package:gestao_yahweh/services/panel_statistics_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
-/// Contadores leves do painel — `dashboard_stats/summary` ou `dashboard/home`.
-///
-/// A Home pode ler **só** estes docs (rápido) e deixar `_panel_cache` para detalhe.
+/// Contadores leves do painel — `_panel_cache/statistics_summary` (preferido),
+/// depois `dashboard_stats/summary` ou `dashboard/home`.
 class ChurchTenantDashboardCounters {
   const ChurchTenantDashboardCounters({
     this.members = 0,
@@ -103,6 +103,19 @@ abstract final class ChurchTenantDashboardDocService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return const ChurchTenantDashboardCounters();
     await ensureFirebaseCore(requireAuth: false);
+
+    try {
+      final panelStats =
+          await PanelStatisticsSnapshotService.readOnce(tid);
+      if (panelStats.hasData) {
+        return ChurchTenantDashboardCounters(
+          members: panelStats.membersTotalCount,
+          avisos: panelStats.avisosCount,
+          eventos: panelStats.eventosTotal,
+          updatedAt: panelStats.updatedAt?.toDate(),
+        );
+      }
+    } catch (_) {}
 
     final stats = await _readCountersDoc(statsRef(tid), '${tid}_dashboard_stats');
     if (stats != null) return stats;

@@ -69,6 +69,7 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart'
     show ChurchImageFields;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 // ─── Templates de Certificados ──────────────────────────────────────────────
@@ -509,13 +510,15 @@ class _CertificadosPageState extends State<CertificadosPage> {
   String get _nomeIgreja =>
       (_tenantData?['name'] ?? _tenantData?['nome'] ?? 'Igreja').toString();
 
-  /// Logo do cadastro da igreja (prioriza `logoProcessedUrl`, igual ao site público).
+  /// Path canónico da logo (`logoPath`) — URL via [ChurchBrandService.getLogoUrl].
   String get _logoUrl {
     final data = _tenantData;
     if (data == null) return '';
-    final url = churchTenantLogoUrl(data).trim();
-    if (!isValidImageUrl(url)) return '';
-    return url;
+    return ChurchBrandService.logoPathFromData(
+          data,
+          churchId: widget.tenantId,
+        ) ??
+        '';
   }
 
   /// URLs para pré-visualização/PDF: logo específica dos certificados (se houver)
