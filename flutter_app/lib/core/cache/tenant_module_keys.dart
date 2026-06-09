@@ -10,6 +10,7 @@ abstract final class TenantModuleKeys {
   static const chat = 'chat';
   static const patrimonio = 'patrimonio';
   static const financeiro = 'financeiro';
+  static const escalas = 'escalas';
   static const agenda = 'agenda';
   static const departamentos = 'departamentos';
   static const visitantes = 'visitantes';
@@ -23,6 +24,7 @@ abstract final class TenantModuleKeys {
     eventos,
     avisos,
     chat,
+    escalas,
     agenda,
     visitantes,
     cargos,

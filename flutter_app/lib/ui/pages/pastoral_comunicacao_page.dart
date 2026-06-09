@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -10,7 +11,7 @@ import 'package:gestao_yahweh/utils/church_department_list.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 InputDecoration _pastoralInputDecoration(
   String label, {
@@ -698,10 +699,8 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
 
   @override
   Widget build(BuildContext context) {
-    final deptsRef =         ChurchOperationalPaths.churchDoc(widget.tenantId)
-        .collection('departamentos');
-    final cargosRef =         ChurchOperationalPaths.churchDoc(widget.tenantId)
-        .collection('cargos');
+    final deptsRef =         ChurchUiCollections.departamentos(widget.tenantId);
+    final cargosRef =         ChurchUiCollections.cargos(widget.tenantId);
 
     return SingleChildScrollView(
       padding: _pastoralFullBleedPadding(context),
@@ -953,8 +952,7 @@ class _PushSegmentadoTabState extends State<_PushSegmentadoTab> {
               if (_segment == 'member') ...[
                 const SizedBox(height: 16),
                 FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-                  future:                       ChurchOperationalPaths.churchDoc(widget.tenantId)
-                      .collection('membros')
+                  future:                       ChurchUiCollections.membros(widget.tenantId)
                       .limit(500)
                       .get()
                       .then((s) {
@@ -1429,8 +1427,7 @@ class _DevocionalTabState extends State<_DevocionalTab> {
   DateTime? _devRangeStart;
   DateTime? _devRangeEnd;
 
-  DocumentReference<Map<String, dynamic>> get _cfgRef =>       ChurchOperationalPaths.churchDoc(widget.tenantId)
-      .collection('config')
+  DocumentReference<Map<String, dynamic>> get _cfgRef =>       ChurchUiCollections.config(widget.tenantId)
       .doc('comunicacao');
 
   @override
@@ -1972,7 +1969,7 @@ class _DevocionalTabState extends State<_DevocionalTab> {
               const SizedBox(height: 14),
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 key: ValueKey<String>('dev_hist_${widget.tenantId}'),
-                stream:                     ChurchOperationalPaths.churchDoc(widget.tenantId)
+                stream:                     ChurchUiCollections.churchDoc(widget.tenantId)
                     .collection('devocional_envios')
                     .limit(200)
                     .watchSafe(),
@@ -2266,12 +2263,11 @@ class _EvasaoTabState extends State<_EvasaoTab> {
   }
 
   Future<List<_EvasaoRow>> _load() async {
-    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-    final membros = await         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros')
+    final op = ChurchRepository.churchId(widget.tenantId.trim());
+    final membros = await         ChurchUiCollections.membros(op)
         .get();
 
-    final cultos = await         ChurchOperationalPaths.churchDoc(op)
+    final cultos = await         ChurchUiCollections.churchDoc(op)
         .collection('cultos')
         .orderBy('data', descending: true)
         .limit(40)

@@ -31,11 +31,11 @@ class _SyncFeedbackListenerState extends State<SyncFeedbackListener> {
       } else if (!_wasOffline && !online) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          _showSnack(
-            'Sem internet — alterações ficam salvas localmente.',
-            duration: const Duration(seconds: 3),
-            background: const Color(0xFFB45309),
-          );
+        _showSnack(
+          '⚠ Sem conexão',
+          duration: const Duration(seconds: 3),
+          background: const Color(0xFFB45309),
+        );
         });
       }
       _wasOffline = !online;
@@ -51,7 +51,7 @@ class _SyncFeedbackListenerState extends State<SyncFeedbackListener> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _showSnack(
-          'Alterações salvas',
+          '✔ Atualizado agora',
           duration: const Duration(seconds: 2),
         );
       });

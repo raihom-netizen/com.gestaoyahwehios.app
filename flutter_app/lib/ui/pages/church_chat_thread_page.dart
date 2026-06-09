@@ -36,7 +36,8 @@ import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/church_chat_local_file_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
@@ -81,6 +82,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/audio_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/core/chat_engine/chat_messaging_engine.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class _ReplyDraft {
@@ -310,8 +312,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         widget.departmentId!.isNotEmpty) {
       _deptSub?.cancel();
       _deptSub = FirestoreStreamUtils.documentWatchBootstrap(
-                    ChurchOperationalPaths.churchDoc(_tid)
-            .collection('departamentos')
+                    ChurchUiCollections.departamentos(_tid)
             .doc(widget.departmentId!),
       ).listen((snap) {
         if (!mounted) return;
@@ -433,9 +434,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       for (var round = 0; round < rounds; round++) {
         try {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: round > 0);
-          final docs = await ChurchChatService.fetchRecentMessagesPage(
-            tenantId: _tid,
-            threadId: widget.threadId,
+          final docs = await ChatMessagingEngine.openConversation(
+            churchId: _tid,
+            chatId: widget.threadId,
           );
           if (!mounted) return;
           if (docs.isEmpty && _latestRecentDocs.isNotEmpty) return;

@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
@@ -25,7 +26,7 @@ import '../../widgets/primary_button.dart';
 import 'package:gestao_yahweh/utils/mp_web_checkout_redirect.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 String _money(double v) =>
     'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
@@ -453,8 +454,8 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     var tenantId = ExpressRenewBootstrap.instance.cachedTenantId;
     tenantId ??= await _resolveTenantIdFromClaims();
     if (tenantId == null || tenantId.isEmpty) return;
-    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-    _churchBillingSub =         ChurchOperationalPaths.churchDoc(op)
+    final op = ChurchRepository.churchId(tenantId.trim());
+    _churchBillingSub =         ChurchUiCollections.churchDoc(op)
         .watchSafe()
         .listen((snap) {
       _applyChurchBillingSnapshot(snap.data());

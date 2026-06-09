@@ -6,6 +6,8 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/chat_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_data_paths.dart';
+import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_media_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
@@ -13,6 +15,7 @@ import 'package:gestao_yahweh/services/extended_publish_verification_services.da
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Contagens por subcoleção em `igrejas/{churchId}/`.
 class ChurchModuleCounts {
@@ -106,16 +109,20 @@ class GlobalTenantAuditReport {
 abstract final class GlobalTenantAuditService {
   GlobalTenantAuditService._();
 
-  static const int _countLimit = 500;
-
   static Future<GlobalTenantAuditReport> run({
     required String seedTenantId,
     String? userUid,
   }) async {
     final seed = seedTenantId.trim();
-    final syncReport = await ChurchTenantMediaService.runFullDiagnostic(
-      seedTenantId: seed,
-      userUid: userUid,
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+    final syncReport = await FirestoreWebGuard.runWithWebRecovery(
+      () => ChurchTenantMediaService.runFullDiagnostic(
+        seedTenantId: seed,
+        userUid: userUid,
+      ),
+      maxAttempts: kIsWeb ? 4 : 1,
     );
 
     final churchId = syncReport.resolvedChurchId.trim();
@@ -150,33 +157,45 @@ abstract final class GlobalTenantAuditService {
     final id = churchId.trim();
     if (id.isEmpty) return const ChurchModuleCounts();
 
-    Future<int> count(String sub) async {
+    Future<int> count(String module, String sub) async {
       try {
-        final snap = await ChurchOperationalPaths.churchDoc(id)
-            .collection(sub)
-            .limit(_countLimit)
-            .get(const GetOptions(source: Source.serverAndCache));
-        return snap.docs.length;
+        return await ChurchFirestoreAccess.countOnce(
+          module: module,
+          churchId: id,
+          subcollectionName: sub,
+        );
       } catch (_) {
         return 0;
       }
     }
 
-    final results = await Future.wait([
-      count('membros'),
-      count(ChurchTenantPostsCollections.eventos),
-      count(ChurchTenantPostsCollections.avisos),
-      count('departamentos'),
-      count('cargos'),
-      count('patrimonio'),
-      count('chats'),
-      count('escalas'),
-      count('finance'),
-      count('fornecedores'),
-      count('pedidosOracao'),
-      count('cartas_historico'),
-      count('certificados_emitidos'),
-    ]);
+    const specs = <(String, String)>[
+      ('MEMBROS', ChurchDataPaths.membros),
+      ('EVENTOS', ChurchDataPaths.eventos),
+      ('AVISOS', ChurchDataPaths.avisos),
+      ('DEPARTAMENTOS', ChurchDataPaths.departamentos),
+      ('CARGOS', ChurchDataPaths.cargos),
+      ('PATRIMÔNIO', ChurchDataPaths.patrimonio),
+      ('CHAT', ChurchDataPaths.chats),
+      ('ESCALAS', ChurchDataPaths.escalas),
+      ('FINANCEIRO', ChurchDataPaths.financeiro),
+      ('FORNECEDORES', ChurchDataPaths.fornecedores),
+      ('PEDIDOS ORAÇÃO', ChurchDataPaths.pedidosOracao),
+      ('TRANSFERÊNCIAS', ChurchDataPaths.transferencias),
+      ('CERTIFICADOS', ChurchDataPaths.certificados),
+    ];
+
+    final results = <int>[];
+    if (kIsWeb) {
+      for (final spec in specs) {
+        results.add(await count(spec.$1, spec.$2));
+        await Future<void>.delayed(const Duration(milliseconds: 70));
+      }
+    } else {
+      results.addAll(
+        await Future.wait(specs.map((s) => count(s.$1, s.$2))),
+      );
+    }
 
     return ChurchModuleCounts(
       membros: results[0],

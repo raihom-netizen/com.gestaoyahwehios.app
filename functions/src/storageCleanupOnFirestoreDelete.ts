@@ -56,9 +56,30 @@ export const onIgrejaChatMessageDeleteCleanupStorage = functions
   .region("us-central1")
   .firestore.document("igrejas/{tenantId}/chats/{threadId}/messages/{msgId}")
   .onDelete(async (snap) => {
-    const d = snap.data() as { storagePath?: string } | undefined;
-    const path = String(d?.storagePath || "").trim();
-    if (path) await deleteIfExists(path);
+    const d = snap.data() as {
+      storagePath?: string;
+      thumbnailStoragePath?: string;
+      thumbPath?: string;
+      thumbStoragePath?: string;
+    } | undefined;
+    const paths = new Set<string>();
+    for (const key of [
+      "storagePath",
+      "thumbnailStoragePath",
+      "thumbPath",
+      "thumbStoragePath",
+    ] as const) {
+      const p = String(d?.[key] || "").trim();
+      if (p) paths.add(p);
+    }
+    const main = String(d?.storagePath || "").trim();
+    if (main) {
+      const guess = main.replace(/\.[^./]+$/, "_thumb.webp");
+      if (guess !== main) paths.add(guess);
+    }
+    for (const path of paths) {
+      await deleteIfExists(path);
+    }
   });
 
 /** Post do mural (evento ou aviso): pastas canónicas + prefixo legado noticias/. */

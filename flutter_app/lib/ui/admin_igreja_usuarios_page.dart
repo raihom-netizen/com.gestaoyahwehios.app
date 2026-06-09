@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_page.dart';
 import 'package:gestao_yahweh/ui/pages/members_page.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Painel Master — Usuários da igreja: lista todos os membros/usuários de um tenant para monitorar ou editar.
 class AdminIgrejaUsuariosPage extends StatefulWidget {
@@ -67,7 +68,7 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
         } catch (_) {}
         // Usuários dentro da igreja: subcoleção igrejas/{id}/users (painel da igreja)
         try {
-          final usersInIgreja = await ChurchOperationalPaths.churchDoc(tid).collection('users').get();
+          final usersInIgreja = await ChurchUiCollections.churchDoc(tid).collection('users').get();
           for (final d in usersInIgreja.docs) addDoc(d);
         } catch (_) {}
         // users (raiz) com tenantId/igrejaId apontando para esta igreja

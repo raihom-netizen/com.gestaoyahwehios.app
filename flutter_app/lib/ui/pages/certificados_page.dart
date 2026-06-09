@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, listEquals;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:flutter/painting.dart' show imageCache;
 import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -70,7 +71,7 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart'
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 // ─── Templates de Certificados ──────────────────────────────────────────────
 class _CertTemplate {
@@ -354,8 +355,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
   bool _membersLoadingMore = false;
 
   DocumentReference<Map<String, dynamic>> get _certConfigDoc =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('config')
+                ChurchUiCollections.config(widget.tenantId)
           .doc('certificados');
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
@@ -498,8 +498,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
 
   Future<void> _loadTenant() async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
+      final op = ChurchRepository.churchId(widget.tenantId.trim());
+      final snap = await           ChurchUiCollections.churchDoc(op)
           .get(const GetOptions(source: Source.serverAndCache));
       if (mounted) {
         setState(() => _tenantData = snap.data());
@@ -3423,9 +3423,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
 
   Future<void> _loadMembersForSignatoryPickers() async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final q = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final op = ChurchRepository.churchId(widget.tenantId.trim());
+      final q = await           ChurchUiCollections.membros(op)
           .limit(YahwehPerformanceV4.defaultPageSize * 5)
           .get();
       if (!mounted) return;
@@ -3526,9 +3525,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
           _logoCtrl.text = primaryHttps;
           _uploadingLogo = false;
         });
-        final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-        await             ChurchOperationalPaths.churchDoc(op)
-            .collection('config')
+        final op = ChurchRepository.churchId(widget.tenantId.trim());
+        await             ChurchUiCollections.config(op)
             .doc('certificados')
             .set({
           'logoUrl': primaryHttps.trim(),
@@ -3633,9 +3631,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
           'textoModelo': texto,
         };
       }
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      await           ChurchOperationalPaths.churchDoc(op)
-          .collection('config')
+      final op = ChurchRepository.churchId(widget.tenantId.trim());
+      await           ChurchUiCollections.config(op)
           .doc('certificados')
           .set({
         'logoUrl': _logoCtrl.text.trim().isEmpty ? null : _logoCtrl.text.trim(),
@@ -5533,9 +5530,8 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       },
     );
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      await           ChurchOperationalPaths.churchDoc(op)
-          .collection('config')
+      final op = ChurchRepository.churchId(widget.tenantId.trim());
+      await           ChurchUiCollections.config(op)
           .doc('certificados')
           .set({
         'defaultSignatoryMemberIds': _selectedSignatoryIds,

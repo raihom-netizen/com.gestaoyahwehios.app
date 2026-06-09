@@ -195,6 +195,62 @@ class _LastRouteObserver extends NavigatorObserver {
 }
 
 /// Protege o painel master: só exibe após login com usuário e senha e se for ADM.
+/// Protege páginas Master avulsas (ex.: `/admin/firebase-saude`).
+class _MasterOnlyChildGuard extends StatefulWidget {
+  const _MasterOnlyChildGuard({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_MasterOnlyChildGuard> createState() => _MasterOnlyChildGuardState();
+}
+
+class _MasterOnlyChildGuardState extends State<_MasterOnlyChildGuard> {
+  int? _accessLevel;
+
+  @override
+  void initState() {
+    super.initState();
+    _accessLevel = AppSessionStability.peekCachedMasterAccessLevel();
+    if (_accessLevel == null) {
+      unawaited(_resolveAccess());
+    }
+  }
+
+  Future<void> _resolveAccess() async {
+    final level = await AppSessionStability.resolveMasterAccessLevel();
+    if (!mounted) return;
+    setState(() => _accessLevel = level);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final level = _accessLevel;
+    if (level == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (level < 2) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              level == 0
+                  ? 'Faça login no Painel Master para continuar.'
+                  : 'Acesso restrito. Apenas administradores Master.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ),
+      );
+    }
+    return widget.child;
+  }
+}
+
 class _MasterPanelGuard extends StatefulWidget {
   const _MasterPanelGuard();
 
@@ -1219,7 +1275,9 @@ class _AppWithThemeState extends State<_AppWithTheme>
                   pagina = const _MasterPanelGuard();
                   break;
                 case '/admin/firebase-saude':
-                  pagina = const SystemFirebaseHealthPage();
+                  pagina = const _MasterOnlyChildGuard(
+                    child: SystemFirebaseHealthPage(),
+                  );
                   break;
                 case '/login_admin':
                   pagina = const LoginPage(

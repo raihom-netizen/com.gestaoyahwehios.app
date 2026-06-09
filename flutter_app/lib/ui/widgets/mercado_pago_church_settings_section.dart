@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Bloco em Configurações: Mercado Pago da igreja + conta tesouraria modelo.
 class MercadoPagoChurchSettingsSection extends StatefulWidget {
@@ -215,7 +216,7 @@ class _MercadoPagoChurchSettingsSectionState
       Map<String, dynamic> churchData = {};
       var slug = _effectiveTenantId;
       try {
-        final snap = await             ChurchOperationalPaths.churchDoc(_effectiveTenantId)
+        final snap = await             ChurchUiCollections.churchDoc(_effectiveTenantId)
             .get(const GetOptions(source: Source.serverAndCache));
         churchData = snap.data() ?? {};
         final fromDoc = (churchData['slug'] ?? churchData['slugId'] ?? '')
@@ -235,7 +236,7 @@ class _MercadoPagoChurchSettingsSectionState
   Future<void> _openChurchSiteInApp() async {
     var slug = _effectiveTenantId;
     try {
-      final snap = await           ChurchOperationalPaths.churchDoc(_effectiveTenantId)
+      final snap = await           ChurchUiCollections.churchDoc(_effectiveTenantId)
           .get(const GetOptions(source: Source.serverAndCache));
       final d = snap.data() ?? {};
       final fromDoc =

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -14,9 +15,9 @@ import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Período do relatório fornecedores/prestadores.
 enum _PeriodoFornecedor { mes, ano, personalizado }
@@ -135,9 +136,8 @@ class _RelatorioGastosFornecedoresPageState
     });
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('finance')
+      final op = ChurchRepository.churchId(widget.tenantId.trim());
+      final snap = await           ChurchUiCollections.financeiro(op)
           .orderBy('createdAt', descending: true)
           .limit(4000)
           .get();
@@ -186,9 +186,8 @@ class _RelatorioGastosFornecedoresPageState
     Uint8List? rightSig,
     bool showDigital
   })?> _pickPdfSigners() async {
-    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-    final snap = await         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros')
+    final op = ChurchRepository.churchId(widget.tenantId.trim());
+    final snap = await         ChurchUiCollections.membros(op)
         .get();
     final opts = snap.docs
         .map((d) {

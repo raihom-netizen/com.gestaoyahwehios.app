@@ -93,9 +93,26 @@ exports.onIgrejaChatMessageDeleteCleanupStorage = functions
     .firestore.document("igrejas/{tenantId}/chats/{threadId}/messages/{msgId}")
     .onDelete(async (snap) => {
     const d = snap.data();
-    const path = String(d?.storagePath || "").trim();
-    if (path)
+    const paths = new Set();
+    for (const key of [
+        "storagePath",
+        "thumbnailStoragePath",
+        "thumbPath",
+        "thumbStoragePath",
+    ]) {
+        const p = String(d?.[key] || "").trim();
+        if (p)
+            paths.add(p);
+    }
+    const main = String(d?.storagePath || "").trim();
+    if (main) {
+        const guess = main.replace(/\.[^./]+$/, "_thumb.webp");
+        if (guess !== main)
+            paths.add(guess);
+    }
+    for (const path of paths) {
         await deleteIfExists(path);
+    }
 });
 /** Post do mural (evento ou aviso): pastas canónicas + prefixo legado noticias/. */
 exports.onIgrejaNoticiaDeleteCleanupStorage = functions

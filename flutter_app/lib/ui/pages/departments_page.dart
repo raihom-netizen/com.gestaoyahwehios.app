@@ -11,10 +11,12 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
+import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show
         churchDepartmentDocHasExplicitNameField,
@@ -137,7 +139,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   String get _tid =>
       _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
 
-  String get _churchId => ChurchRepository.churchId(_tid);
+  String get _churchId => ChurchRepository.resolveChurchId(_tid);
 
   void _bindPanelChurchId() {
     final id = ChurchRepository.churchId(widget.tenantId);
@@ -410,10 +412,37 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         refreshToken: false);
   }
 
-  /// API única — [ChurchRepository.departamentos].
+  /// API única — [ChurchRepository.departamentos] (`.get()` — sem `snapshots()`).
   Future<QuerySnapshot<Map<String, dynamic>>> _loadDepartments(
-      {bool forceServer = false}) async =>
-      ChurchRepository.departamentos(churchIdHint: _churchId, limit: 120);
+      {bool forceServer = false}) async {
+    final churchId = _churchId;
+    final path = 'igrejas/$churchId/departamentos';
+    try {
+      final result = await ChurchRepository.departamentos.list(
+        churchIdHint: churchId,
+        limit: 120,
+      );
+      ChurchModuleQueryProbe.logSuccess(
+        module: 'Departamentos',
+        churchId: churchId,
+        path: path,
+        totalDocs: result.count,
+      );
+      if (result.error != null && result.items.isEmpty) {
+        throw Exception(result.error);
+      }
+      return MergedFirestoreQuerySnapshot(result.items);
+    } catch (e, st) {
+      ChurchModuleQueryProbe.logError(
+        module: 'Departamentos',
+        churchId: churchId,
+        path: path,
+        error: e,
+        stackTrace: st,
+      );
+      rethrow;
+    }
+  }
 
   /// União stream + hidratação: evita lista só com o banner “Hub” quando o cache do stream vem vazio ou parcial.
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergeDeptStreamAndHydrated(
@@ -814,8 +843,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         departmentId: doc.id,
       );
       final batch = FirebaseFirestore.instance.batch();
-      final membersSnap = await _membersCol.get();
-      for (final m in membersSnap.docs) {
+      final membersList =
+          await ChurchRepository.membros.list(churchIdHint: _tid, limit: 500);
+      for (final m in membersList.items) {
         final depts = List<String>.from(
             (m.data()['DEPARTAMENTOS'] as List?)?.map((e) => e.toString()) ??
                 []);
@@ -947,8 +977,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }) async {
     if (!_canWrite) return;
     try {
-      final membersSnap = await _membersCol.get();
-      final members = membersSnap.docs;
+      final membersList =
+          await ChurchRepository.membros.list(churchIdHint: _tid, limit: 500);
+      final members = membersList.items;
       if (members.isEmpty) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2975,6 +3006,223 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     );
   }
 
+  /// Lista de departamentos só via `.get()` em [initState] — **sem** `StreamBuilder`/`snapshots()`.
+  Widget _buildDepartmentsHubFromHydrated({
+    required BuildContext context,
+    required EdgeInsets padding,
+    required double listBottomInset,
+  }) {
+    int welcomeOrder(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+      final m = d.data();
+      if (m['isWelcomeKit'] == true) {
+        final w = m['welcomeKitOrder'];
+        if (w is int) return w;
+        if (w is num) return w.toInt();
+      }
+      return 1000;
+    }
+
+    var docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+      _hydratedDeptDocs ?? const [],
+    )..sort((a, b) {
+        final oa = welcomeOrder(a);
+        final ob = welcomeOrder(b);
+        if (oa != ob) return oa.compareTo(ob);
+        return churchDepartmentNameFromDoc(a)
+            .toLowerCase()
+            .compareTo(churchDepartmentNameFromDoc(b).toLowerCase());
+      });
+
+    final docsRawForDupCheck =
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
+    if (docs.isEmpty && _tid.isNotEmpty && !_emptyServerDeptFetchTried) {
+      _emptyServerDeptFetchTried = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_fetchDepartmentsFromServerOnce());
+      });
+    }
+    docs = dedupeChurchDepartmentDocumentsForHub(docs);
+    final docsVisible = docs;
+    final orphanNamelessCount = docs
+        .where((d) => !churchDepartmentDocHasExplicitNameField(d.data()))
+        .length;
+
+    final listPadOrEmpty = EdgeInsets.fromLTRB(
+      padding.left,
+      padding.top,
+      padding.right,
+      listBottomInset,
+    );
+    final wideOrEmpty = MediaQuery.sizeOf(context).width >= 720;
+
+    if (docs.isEmpty) {
+      final presets = ChurchDepartmentsBootstrap.presetsSorted;
+      if (presets.isEmpty) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: _emptyDepartmentsMessage(),
+          ),
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_deptLoading) const LinearProgressIndicator(minHeight: 2),
+          Expanded(
+            child: _webSafeDeptScroller(
+              onRefresh: () => _startDeptLoad(forceServer: true),
+              slivers: _suggestedPresetsSlivers(
+                padding: padding,
+                listPad: listPadOrEmpty,
+                wide: wideOrEmpty,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final listPad = EdgeInsets.fromLTRB(
+      padding.left,
+      padding.top,
+      padding.right,
+      listBottomInset,
+    );
+    final showDupBanner = _hasDuplicateDepartmentNames(docsRawForDupCheck);
+    final docsForTab = docsVisible.where((d) {
+      final active = churchDepartmentDocIsActive(d.data());
+      return _deptListTab == 0 ? active : !active;
+    }).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_deptLoading) const LinearProgressIndicator(minHeight: 2),
+        Padding(
+          padding: EdgeInsets.fromLTRB(padding.left, 8, padding.right, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _deptSegmentedTabs()),
+              IconButton(
+                tooltip: 'Atualizar lista',
+                onPressed: () => _refreshDepartments(forceServer: true),
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            ],
+          ),
+        ),
+        if (showDupBanner)
+          Padding(
+            padding: EdgeInsets.fromLTRB(padding.left, 0, padding.right, 8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                border: Border.all(color: Colors.amber.shade200),
+                boxShadow: ThemeCleanPremium.softUiCardShadow,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.copy_all_rounded,
+                      color: Colors.amber.shade900, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Há departamentos com o mesmo nome. Exclua ou renomeie os duplicados — assim a Escala deixa de listar a mesma opção várias vezes.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.35,
+                        color: Colors.amber.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        if (orphanNamelessCount > 0)
+          Padding(
+            padding: EdgeInsets.fromLTRB(padding.left, 0, padding.right, 8),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade50,
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                border: Border.all(color: Colors.orange.shade200),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.label_off_rounded,
+                      color: Colors.orange.shade900, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '$orphanNamelessCount departamento(s) sem campo de nome reconhecido — edite e preencha o nome.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.35,
+                        color: Colors.orange.shade900,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              listPad.left,
+              0,
+              listPad.right,
+              listPad.bottom,
+            ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: widget.embeddedInShell ? Colors.transparent : Colors.white,
+                borderRadius:
+                    BorderRadius.circular(widget.embeddedInShell ? 0 : 16),
+                border: Border.all(color: const Color(0xFFE8EEF5)),
+                boxShadow: widget.embeddedInShell
+                    ? null
+                    : ThemeCleanPremium.softUiCardShadow,
+              ),
+              child: ClipRRect(
+                borderRadius:
+                    BorderRadius.circular(widget.embeddedInShell ? 0 : 16),
+                child: docsForTab.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            _deptListTab == 0
+                                ? 'Nenhum departamento ativo nesta aba.'
+                                : 'Nenhum departamento arquivado.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: ThemeCleanPremium.onSurfaceVariant,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      )
+                    : _buildDepartmentsListBody(docsForTab: docsForTab),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
@@ -3056,351 +3304,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                       ),
                     );
                   }
-                  // Só stream de departamentos — hub mais leve (sem escutar `membros`).
-                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    key: ValueKey<String>('dept_stream_$_tid'),
-                    stream: FirestoreStreamUtils.queryWatchBootstrap(
-                      _col.limit(120),
-                    ),
-                    builder: (context, deptSnap) {
-                      final streamFailed = deptSnap.hasError;
-                      final hasHydratedNonEmpty = _hydratedDeptDocs != null &&
-                          _hydratedDeptDocs!.isNotEmpty;
-
-                      if (streamFailed && _hydratedDeptDocs == null) {
-                        if (_streamRecoveryFailed) {
-                          return Padding(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: padding.horizontal,
-                                vertical: ThemeCleanPremium.spaceLg),
-                            child: ChurchPanelErrorBody(
-                              title:
-                                  'Não foi possível carregar os departamentos',
-                              error: deptSnap.error,
-                              onRetry: () {
-                                setState(() => _streamRecoveryFailed = false);
-                                _refreshDepartments(forceServer: true);
-                              },
-                            ),
-                          );
-                        }
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (mounted) {
-                            unawaited(_recoverDeptStreamFailure());
-                          }
-                        });
-                        return const ChurchPanelLoadingBody();
-                      }
-
-                      if (deptSnap.connectionState ==
-                              ConnectionState.waiting &&
-                          !deptSnap.hasData &&
-                          !hasHydratedNonEmpty) {
-                        final loadSettled =
-                            !_deptLoading || _hydratedDeptDocs != null;
-                        if (loadSettled) {
-                          return Center(
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: padding.horizontal,
-                                vertical: ThemeCleanPremium.spaceLg,
-                              ),
-                              child: _emptyDepartmentsMessage(),
-                            ),
-                          );
-                        }
-                        return const ChurchPanelLoadingBody();
-                      }
-                      int welcomeOrder(
-                              QueryDocumentSnapshot<Map<String, dynamic>> d) {
-                            final m = d.data();
-                            if (m['isWelcomeKit'] == true) {
-                              final w = m['welcomeKitOrder'];
-                              // Firestore pode gravar número como double — evita falha no sort/compare.
-                              if (w is int) return w;
-                              if (w is num) return w.toInt();
-                            }
-                            return 1000;
-                          }
-
-                          // NUNCA descartar docs só porque hasError: o último snapshot válido pode
-                          // ainda estar em deptSnap.data (e senão _hydratedDeptDocs cobre no merge).
-                          final streamDocs = deptSnap.hasData
-                              ? (deptSnap.data?.docs ??
-                                  <QueryDocumentSnapshot<
-                                      Map<String, dynamic>>>[])
-                              : <QueryDocumentSnapshot<
-                                  Map<String, dynamic>>>[];
-                          final h = _hydratedDeptDocs;
-                          // União stream + hidratação: o stream pode vir vazio/parcial no cache (web).
-                          var docs = _mergeDeptStreamAndHydrated(
-                            streamDocs,
-                            h,
-                          );
-                          docs = List.from(docs)
-                            ..sort((a, b) {
-                              final oa = welcomeOrder(a);
-                              final ob = welcomeOrder(b);
-                              if (oa != ob) return oa.compareTo(ob);
-                              return churchDepartmentNameFromDoc(a)
-                                  .toLowerCase()
-                                  .compareTo(churchDepartmentNameFromDoc(b)
-                                      .toLowerCase());
-                            });
-                          final docsRawForDupCheck =
-                              List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
-                          if (docs.isEmpty &&
-                              _tid.isNotEmpty &&
-                              !_emptyServerDeptFetchTried) {
-                            _emptyServerDeptFetchTried = true;
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (mounted) _fetchDepartmentsFromServerOnce();
-                            });
-                          }
-                          docs = dedupeChurchDepartmentDocumentsForHub(docs);
-                          final docsVisible = docs;
-                          final orphanNamelessCount = docs
-                              .where((d) =>
-                                  !churchDepartmentDocHasExplicitNameField(
-                                      d.data()))
-                              .length;
-
-                          final listPadOrEmpty = EdgeInsets.fromLTRB(
-                              padding.left,
-                              padding.top,
-                              padding.right,
-                              listBottomInset);
-                          final wideOrEmpty =
-                              MediaQuery.sizeOf(context).width >= 720;
-
-                          if (docs.isEmpty) {
-                            final presets =
-                                ChurchDepartmentsBootstrap.presetsSorted;
-                            if (presets.isEmpty) {
-                              return Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(24),
-                                  child: _emptyDepartmentsMessage(),
-                                ),
-                              );
-                            }
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (_deptLoading)
-                                  const LinearProgressIndicator(minHeight: 2),
-                                Expanded(
-                                  child: _webSafeDeptScroller(
-                                    onRefresh: () =>
-                                        _startDeptLoad(forceServer: true),
-                                    slivers: _suggestedPresetsSlivers(
-                                      padding: padding,
-                                      listPad: listPadOrEmpty,
-                                      wide: wideOrEmpty,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            );
-                          }
-
-                          final listPad = EdgeInsets.fromLTRB(
-                              padding.left,
-                              padding.top,
-                              padding.right,
-                              listBottomInset);
-                          final showDupBanner =
-                              _hasDuplicateDepartmentNames(docsRawForDupCheck);
-                          final docsForTab = docsVisible.where((d) {
-                            final active = churchDepartmentDocIsActive(d.data());
-                            return _deptListTab == 0 ? active : !active;
-                          }).toList();
-
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              if (_deptLoading)
-                                const LinearProgressIndicator(minHeight: 2),
-                              Padding(
-                                padding: EdgeInsets.fromLTRB(
-                                    padding.left, 8, padding.right, 8),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Expanded(child: _deptSegmentedTabs()),
-                                    IconButton(
-                                      tooltip: 'Atualizar lista',
-                                      onPressed: () =>
-                                          _refreshDepartments(forceServer: true),
-                                      icon: Icon(Icons.refresh_rounded,
-                                          color: ThemeCleanPremium.primary),
-                                      style: IconButton.styleFrom(
-                                        minimumSize: const Size(
-                                          ThemeCleanPremium.minTouchTarget,
-                                          ThemeCleanPremium.minTouchTarget,
-                                        ),
-                                      ),
-                                    ),
-                                    if (_canWrite) ...[
-                                      const SizedBox(width: 4),
-                                      FilledButton.icon(
-                                        onPressed: () => _edit(),
-                                        icon: const Icon(Icons.add_rounded,
-                                            size: 20),
-                                        label: const Text('+ Adicionar'),
-                                        style: FilledButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 16,
-                                            vertical: 12,
-                                          ),
-                                          backgroundColor:
-                                              const Color(0xFF0C3B8A),
-                                          foregroundColor: Colors.white,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                              if (showDupBanner)
-                                Padding(
-                                  padding: EdgeInsets.fromLTRB(
-                                      padding.left, 0, padding.right, 8),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 14, vertical: 12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.amber.shade50,
-                                      borderRadius: BorderRadius.circular(
-                                        ThemeCleanPremium.radiusMd,
-                                      ),
-                                      border: Border.all(
-                                        color: Colors.amber.shade200,
-                                      ),
-                                      boxShadow:
-                                          ThemeCleanPremium.softUiCardShadow,
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Icon(Icons.copy_all_rounded,
-                                            color: Colors.amber.shade900,
-                                            size: 22),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Text(
-                                            'Há departamentos com o mesmo nome. Exclua ou renomeie os duplicados — assim a Escala deixa de listar a mesma opção várias vezes.',
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              height: 1.35,
-                                              color: Colors.amber.shade900,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              if (orphanNamelessCount > 0)
-                                Padding(
-                                  padding: EdgeInsets.fromLTRB(
-                                      padding.left, 0, padding.right, 8),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 14, vertical: 12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.orange.shade50,
-                                      borderRadius: BorderRadius.circular(
-                                        ThemeCleanPremium.radiusMd,
-                                      ),
-                                      border: Border.all(
-                                        color: Colors.orange.shade200,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Icon(Icons.label_off_rounded,
-                                            color: Colors.orange.shade900,
-                                            size: 22),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Text(
-                                            '$orphanNamelessCount departamento(s) sem campo de nome reconhecido — edite e preencha o nome.',
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              height: 1.35,
-                                              color: Colors.orange.shade900,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              Expanded(
-                                child: Padding(
-                                  padding: EdgeInsets.fromLTRB(
-                                    listPad.left,
-                                    0,
-                                    listPad.right,
-                                    listPad.bottom,
-                                  ),
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      color: widget.embeddedInShell
-                                          ? Colors.transparent
-                                          : Colors.white,
-                                      borderRadius: BorderRadius.circular(
-                                        widget.embeddedInShell ? 0 : 16,
-                                      ),
-                                      border: Border.all(
-                                        color: const Color(0xFFE8EEF5),
-                                      ),
-                                      boxShadow: widget.embeddedInShell
-                                          ? null
-                                          : ThemeCleanPremium.softUiCardShadow,
-                                    ),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(
-                                        widget.embeddedInShell ? 0 : 16,
-                                      ),
-                                      child: docsForTab.isEmpty
-                                          ? Center(
-                                              child: Padding(
-                                                padding:
-                                                    const EdgeInsets.all(24),
-                                                child: Text(
-                                                  _deptListTab == 0
-                                                      ? 'Nenhum departamento ativo nesta aba.'
-                                                      : 'Nenhum departamento arquivado.',
-                                                  textAlign: TextAlign.center,
-                                                  style: TextStyle(
-                                                    fontSize: 15,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: ThemeCleanPremium
-                                                        .onSurfaceVariant,
-                                                    height: 1.35,
-                                                  ),
-                                                ),
-                                              ),
-                                            )
-                                          : _buildDepartmentsListBody(
-                                              docsForTab: docsForTab,
-                                            ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          );
-                    },
+                  return _buildDepartmentsHubFromHydrated(
+                    context: context,
+                    padding: padding,
+                    listBottomInset: listBottomInset,
                   );
                 },
               ),
@@ -3412,8 +3319,8 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 }
 
-/// Hub do departamento: liderança em destaque, membros em tempo real, WhatsApp.
-class _DepartmentHubSheet extends StatelessWidget {
+/// Hub do departamento — `.get()` único em [initState] (sem `snapshots()` no build).
+class _DepartmentHubSheet extends StatefulWidget {
   final String tenantId;
   final String deptId;
   final String deptName;
@@ -3447,8 +3354,64 @@ class _DepartmentHubSheet extends StatelessWidget {
     required this.onAddLeader,
   });
 
-  Color get _cA => Color(accent1);
-  Color get _cB => Color(accent2);
+  @override
+  State<_DepartmentHubSheet> createState() => _DepartmentHubSheetState();
+}
+
+class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
+  bool _hubLoading = true;
+  Object? _hubError;
+  Map<String, dynamic>? _deptData;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _memberDocs = const [];
+
+  Color get _cA => Color(widget.accent1);
+  Color get _cB => Color(widget.accent2);
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadHubData());
+  }
+
+  Future<void> _loadHubData() async {
+    final churchId = ChurchRepository.churchId(widget.tenantId);
+    final path =
+        'igrejas/$churchId/departamentos/${widget.deptId}/membros_vinculados';
+    try {
+      final deptSnap = await firestoreDocumentGetReliable(widget.deptRef);
+      final memberSnap = await firestoreQueryGetReliable(
+        widget.membersCol
+            .where('DEPARTAMENTOS', arrayContains: widget.deptId)
+            .limit(200),
+      );
+      if (!mounted) return;
+      setState(() {
+        _deptData = deptSnap.data();
+        _memberDocs = memberSnap.docs;
+        _hubLoading = false;
+        _hubError = null;
+      });
+      ChurchModuleQueryProbe.logSuccess(
+        module: 'Departamentos-Hub',
+        churchId: churchId,
+        path: path,
+        totalDocs: memberSnap.docs.length,
+      );
+    } catch (e, st) {
+      ChurchModuleQueryProbe.logError(
+        module: 'Departamentos-Hub',
+        churchId: churchId,
+        path: path,
+        error: e,
+        stackTrace: st,
+      );
+      if (!mounted) return;
+      setState(() {
+        _hubError = e;
+        _hubLoading = false;
+      });
+    }
+  }
 
   static Color _onAccentFg(Color accent) =>
       accent.computeLuminance() > 0.55 ? const Color(0xFF0F172A) : Colors.white;
@@ -3519,11 +3482,11 @@ class _DepartmentHubSheet extends StatelessWidget {
     );
     if (ok != true || !context.mounted) return;
     try {
-      final dSnap = await deptRef.get();
+      final dSnap = await widget.deptRef.get();
       final leaders =
           ChurchDepartmentLeaders.cpfsFromDepartmentData(dSnap.data());
       final next = List<String>.from(leaders)..remove(cpfToRemove);
-      await deptRef.update({
+      await widget.deptRef.update({
         ...ChurchDepartmentLeaders.firestoreFieldsFromCpfs(next),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -3531,6 +3494,7 @@ class _DepartmentHubSheet extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Líder removido.'),
         );
+        unawaited(_loadHubData());
       }
     } catch (e) {
       if (context.mounted) {
@@ -3551,7 +3515,7 @@ class _DepartmentHubSheet extends StatelessWidget {
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
         title: const Text('Remover do departamento'),
-        content: Text('Remover "$nome" de $deptName?'),
+        content: Text('Remover "$nome" de ${widget.deptName}?'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -3568,19 +3532,19 @@ class _DepartmentHubSheet extends StatelessWidget {
     if (confirm != true || !context.mounted) return;
     try {
       await DepartmentMemberIntegrationService.unlinkMember(
-        tenantId: tenantId,
-        departmentId: deptId,
+        tenantId: widget.tenantId,
+        departmentId: widget.deptId,
         memberDocId: doc.id,
         memberData: doc.data(),
       );
       final cpf = _cpfDigits(doc.data());
       if (cpf.length == 11) {
-        final dSnap = await deptRef.get();
+        final dSnap = await widget.deptRef.get();
         final leaders =
             ChurchDepartmentLeaders.cpfsFromDepartmentData(dSnap.data());
         if (leaders.contains(cpf)) {
           final next = List<String>.from(leaders)..remove(cpf);
-          await deptRef.update({
+          await widget.deptRef.update({
             ...ChurchDepartmentLeaders.firestoreFieldsFromCpfs(next),
             'updatedAt': FieldValue.serverTimestamp(),
           });
@@ -3592,6 +3556,7 @@ class _DepartmentHubSheet extends StatelessWidget {
               style: const TextStyle(color: Colors.white)),
           backgroundColor: Colors.green,
         ));
+        unawaited(_loadHubData());
       }
     } catch (e) {
       if (context.mounted) {
@@ -3633,16 +3598,16 @@ class _DepartmentHubSheet extends StatelessWidget {
         onTap: () => openChurchLeaderContactPage(
           context,
           memberData: data,
-          departmentNames: [deptName],
-          tenantId: tenantId,
+          departmentNames: [widget.deptName],
+          tenantId: widget.tenantId,
           memberDocId: doc.id,
-          memberRole: memberRole,
+          memberRole: widget.memberRole,
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         leading: FotoMembroWidget(
           size: 48,
-          tenantId: tenantId,
+          tenantId: widget.tenantId,
           memberId: doc.id,
           imageUrl: imageUrlFromMap(data),
           cpfDigits: cpf,
@@ -3679,8 +3644,8 @@ class _DepartmentHubSheet extends StatelessWidget {
               tooltip: 'Chat Igreja',
               onPressed: () => ChurchMemberContactChat.openChatIgrejaUnawaited(
                 context: context,
-                tenantId: tenantId,
-                memberRole: memberRole,
+                tenantId: widget.tenantId,
+                memberRole: widget.memberRole,
                 viewerCpfDigits: '',
                 memberData: data,
                 displayName: nome,
@@ -3695,13 +3660,13 @@ class _DepartmentHubSheet extends StatelessWidget {
                 ChurchMemberContactChat.openWhatsAppFaleComigo(
                   context,
                   data,
-                  tenantId: tenantId,
+                  tenantId: widget.tenantId,
                   memberDocId: doc.id,
                 ),
               ),
               icon: const WhatsappBrandIcon(size: 22),
             ),
-            if (canWrite && cpf.length == 11)
+            if (widget.canWrite && cpf.length == 11)
               IconButton(
                 tooltip: 'Remover da liderança',
                 onPressed: () => _confirmRemoveLeader(context, cpf),
@@ -3732,7 +3697,7 @@ class _DepartmentHubSheet extends StatelessWidget {
         subtitle: const Text(
           'Líder gravado, mas sem membro vinculado a este departamento.',
         ),
-        trailing: canWrite
+        trailing: widget.canWrite
             ? IconButton(
                 tooltip: 'Remover da liderança',
                 onPressed: () => _confirmRemoveLeader(context, cpf),
@@ -3769,14 +3734,14 @@ class _DepartmentHubSheet extends StatelessWidget {
         onTap: () => openChurchLeaderContactPage(
           context,
           memberData: data,
-          departmentNames: [deptName],
-          tenantId: tenantId,
+          departmentNames: [widget.deptName],
+          tenantId: widget.tenantId,
           memberDocId: doc.id,
-          memberRole: memberRole,
+          memberRole: widget.memberRole,
         ),
         leading: FotoMembroWidget(
           size: 40,
-          tenantId: tenantId,
+          tenantId: widget.tenantId,
           memberId: doc.id,
           imageUrl: imageUrlFromMap(data),
           cpfDigits: _cpfDigits(data),
@@ -3791,8 +3756,8 @@ class _DepartmentHubSheet extends StatelessWidget {
               tooltip: 'Chat Igreja',
               onPressed: () => ChurchMemberContactChat.openChatIgrejaUnawaited(
                 context: context,
-                tenantId: tenantId,
-                memberRole: memberRole,
+                tenantId: widget.tenantId,
+                memberRole: widget.memberRole,
                 viewerCpfDigits: '',
                 memberData: data,
                 displayName: _nomeMembro(doc),
@@ -3807,13 +3772,13 @@ class _DepartmentHubSheet extends StatelessWidget {
                 ChurchMemberContactChat.openWhatsAppFaleComigo(
                   context,
                   data,
-                  tenantId: tenantId,
+                  tenantId: widget.tenantId,
                   memberDocId: doc.id,
                 ),
               ),
               icon: const WhatsappBrandIcon(size: 20),
             ),
-            if (canWrite)
+            if (widget.canWrite)
               IconButton(
                 tooltip: 'Remover do departamento',
                 onPressed: () => _removerMembroHub(context, doc),
@@ -3823,6 +3788,107 @@ class _DepartmentHubSheet extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildHubMembersPane(ScrollController scrollController) {
+    if (_hubLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_hubError != null) {
+      return Center(child: Text('Erro: $_hubError'));
+    }
+    final leaderCpfs =
+        ChurchDepartmentLeaders.cpfsFromDepartmentData(_deptData);
+    final docs = _memberDocs;
+    String cpfOf(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+      return (d.data()['CPF'] ?? d.data()['cpf'] ?? '')
+          .toString()
+          .replaceAll(RegExp(r'\D'), '');
+    }
+
+    final byCpf = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    for (final d in docs) {
+      final c = cpfOf(d);
+      if (c.length == 11) byCpf[c] = d;
+    }
+    final leaderDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final orphanCpfs = <String>[];
+    for (final cpf in leaderCpfs) {
+      final found = byCpf[cpf];
+      if (found != null) {
+        leaderDocs.add(found);
+      } else {
+        orphanCpfs.add(cpf);
+      }
+    }
+    final leaderSet = leaderCpfs.toSet();
+    final otherDocs = docs
+        .where((d) => !leaderSet.contains(cpfOf(d)))
+        .toList();
+    otherDocs.sort((a, b) => _nomeMembro(a)
+        .toLowerCase()
+        .compareTo(_nomeMembro(b).toLowerCase()));
+
+    return ListView(
+      controller: scrollController,
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+      children: [
+        _sectionTitle('Liderança'),
+        const SizedBox(height: 8),
+        if (leaderDocs.isEmpty && orphanCpfs.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              widget.canWrite
+                  ? 'Nenhum líder. Use o botão “Líder” acima.'
+                  : 'Nenhum líder definido neste departamento.',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+        ...leaderDocs.map(
+          (doc) => _leaderCard(context: context, doc: doc),
+        ),
+        ...orphanCpfs.map((cpf) => _orphanLeaderTile(context, cpf)),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(child: _sectionTitle('Membros')),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    _cA.withValues(alpha: 0.2),
+                    _cB.withValues(alpha: 0.14),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: _cA.withValues(alpha: 0.28)),
+              ),
+              child: Text(
+                '${docs.length}',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                  color: Colors.grey.shade900,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (docs.isEmpty)
+          Text(
+            'Nenhum membro vinculado.',
+            style: TextStyle(color: Colors.grey.shade600),
+          ),
+        ...otherDocs.map((doc) => _memberRow(context, doc)),
+      ],
     );
   }
 
@@ -3880,14 +3946,14 @@ class _DepartmentHubSheet extends StatelessWidget {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            deptIcon,
+                            widget.deptIcon,
                             const SizedBox(width: 14),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    deptName,
+                                    widget.deptName,
                                     style: Theme.of(context)
                                         .textTheme
                                         .titleLarge
@@ -3916,7 +3982,7 @@ class _DepartmentHubSheet extends StatelessWidget {
                   ),
                 ),
               ),
-              if (canWrite)
+              if (widget.canWrite)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                   child: Wrap(
@@ -3924,7 +3990,7 @@ class _DepartmentHubSheet extends StatelessWidget {
                     runSpacing: 8,
                     children: [
                       OutlinedButton.icon(
-                        onPressed: onEditDepartamento,
+                        onPressed: widget.onEditDepartamento,
                         icon: Icon(Icons.edit_rounded,
                             size: 18, color: _cA),
                         label: Text('Editar', style: TextStyle(color: _cA)),
@@ -3934,7 +4000,7 @@ class _DepartmentHubSheet extends StatelessWidget {
                         ),
                       ),
                       FilledButton.tonalIcon(
-                        onPressed: onAddMember,
+                        onPressed: widget.onAddMember,
                         icon: Icon(Icons.person_add_rounded,
                             size: 18, color: _cA),
                         label: const Text('Membro'),
@@ -3944,7 +4010,7 @@ class _DepartmentHubSheet extends StatelessWidget {
                         ),
                       ),
                       FilledButton.icon(
-                        onPressed: () => onAddLeader(),
+                        onPressed: () => widget.onAddLeader(),
                         icon: Icon(Icons.star_rounded,
                             size: 18, color: _onAccentFg(_cA)),
                         label: Text('Líder',
@@ -3959,138 +4025,7 @@ class _DepartmentHubSheet extends StatelessWidget {
                 ),
               const SizedBox(height: 4),
               Expanded(
-                child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  stream: deptRef.watchSafe(),
-                  builder: (context, dSnap) {
-                    if (dSnap.hasError) {
-                      return Center(child: Text('Erro: ${dSnap.error}'));
-                    }
-                    final deptData = dSnap.data?.data();
-                    final leaderCpfs = ChurchDepartmentLeaders.cpfsFromDepartmentData(
-                        deptData);
-                    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: membersCol
-                          .where('DEPARTAMENTOS', arrayContains: deptId)
-                          .watchSafe(),
-                      builder: (context, mSnap) {
-                        if (mSnap.hasError) {
-                          return Center(child: Text('Erro: ${mSnap.error}'));
-                        }
-                        final loading = (dSnap.connectionState ==
-                                    ConnectionState.waiting &&
-                                !dSnap.hasData) ||
-                            (mSnap.connectionState ==
-                                    ConnectionState.waiting &&
-                                !mSnap.hasData);
-                        if (loading) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
-                        final docs = mSnap.data?.docs ?? [];
-                        String cpfOf(
-                            QueryDocumentSnapshot<Map<String, dynamic>> d) {
-                          return (d.data()['CPF'] ?? d.data()['cpf'] ?? '')
-                              .toString()
-                              .replaceAll(RegExp(r'\D'), '');
-                        }
-
-                        final byCpf =
-                            <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-                        for (final d in docs) {
-                          final c = cpfOf(d);
-                          if (c.length == 11) byCpf[c] = d;
-                        }
-                        final leaderDocs =
-                            <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-                        final orphanCpfs = <String>[];
-                        for (final cpf in leaderCpfs) {
-                          final found = byCpf[cpf];
-                          if (found != null) {
-                            leaderDocs.add(found);
-                          } else {
-                            orphanCpfs.add(cpf);
-                          }
-                        }
-                        final leaderSet = leaderCpfs.toSet();
-                        final otherDocs = docs
-                            .where((d) => !leaderSet.contains(cpfOf(d)))
-                            .toList();
-                        otherDocs.sort((a, b) => _nomeMembro(a)
-                            .toLowerCase()
-                            .compareTo(_nomeMembro(b).toLowerCase()));
-
-                        return ListView(
-                          controller: scrollController,
-                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
-                          children: [
-                            _sectionTitle('Liderança'),
-                            const SizedBox(height: 8),
-                            if (leaderDocs.isEmpty && orphanCpfs.isEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 12),
-                                child: Text(
-                                  canWrite
-                                      ? 'Nenhum líder. Use o botão “Líder” acima.'
-                                      : 'Nenhum líder definido neste departamento.',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                              ),
-                            ...leaderDocs.map(
-                              (doc) => _leaderCard(
-                                context: context,
-                                doc: doc,
-                              ),
-                            ),
-                            ...orphanCpfs.map(
-                              (cpf) => _orphanLeaderTile(context, cpf),
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(child: _sectionTitle('Membros')),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        _cA.withValues(alpha: 0.2),
-                                        _cB.withValues(alpha: 0.14),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(999),
-                                    border: Border.all(
-                                      color: _cA.withValues(alpha: 0.28),
-                                    ),
-                                  ),
-                                  child: Text(
-                                    '${docs.length}',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 12,
-                                      color: Colors.grey.shade900,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            if (docs.isEmpty)
-                              Text(
-                                'Nenhum membro vinculado.',
-                                style: TextStyle(color: Colors.grey.shade600),
-                              ),
-                            ...otherDocs.map(
-                              (doc) => _memberRow(context, doc),
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                  },
-                ),
+                child: _buildHubMembersPane(scrollController),
               ),
             ],
           ),

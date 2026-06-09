@@ -373,12 +373,27 @@ abstract final class ChurchTenantMediaService {
 
     ChurchTenantContext? ctx;
     try {
-      ctx = await resolveContext(
-        seedTenantId: seedTenantId,
-        userUid: userUid,
-        forceRefresh: true,
-        probeServices: true,
-      );
+      if (kIsWeb) {
+        final resolved = firestoreReport.resolvedChurchId.trim();
+        ctx = ChurchTenantContext(
+          seedTenantId: firestoreReport.seedTenantId,
+          churchId: resolved,
+          firestorePath: firestoreReport.firestorePath,
+          storageRoot: ChurchStorageLayout.churchRoot(resolved),
+          storageBucket: firebaseDefaultStorage.bucket,
+          tenantMismatch: firestoreReport.tenantMismatch,
+          firestoreActive: firestoreReport.lastError == null &&
+              firestoreReport.fieldCount > 0,
+          storageActive: await _probeStorage(resolved),
+        );
+      } else {
+        ctx = await resolveContext(
+          seedTenantId: seedTenantId,
+          userUid: userUid,
+          forceRefresh: true,
+          probeServices: true,
+        );
+      }
     } catch (e) {
       ChurchTenantMediaActivity.recordError(e.toString());
     }

@@ -30,7 +30,7 @@ import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_provisioning_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_consolidation_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';

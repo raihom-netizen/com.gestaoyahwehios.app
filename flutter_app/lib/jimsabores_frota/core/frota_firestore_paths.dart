@@ -1,21 +1,34 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
 /// Caminhos da frota (Jim Sabores) no Firestore — **tudo sob a igreja**.
 ///
-/// Padrão: [defaultTenantId] (Brasil para Cristo Jardim Goiano). Pode mudar via
-/// `--dart-define=FROTA_TENANT_ID=outro_id` em builds dedicados.
+/// `churchId` vem de [ChurchContext.currentChurchId] ou parâmetro explícito.
+/// Build dedicado: `--dart-define=FROTA_TENANT_ID=outro_id`.
 abstract final class FrotaFirestorePaths {
   FrotaFirestorePaths._();
 
-  static const String defaultTenantId = String.fromEnvironment(
+  static const String _envTenantId = String.fromEnvironment(
     'FROTA_TENANT_ID',
-    defaultValue: 'igreja_o_brasil_para_cristo_jardim_goiano',
+    defaultValue: '',
   );
+
+  static String resolveTenantId([String? tenantId]) {
+    final fromCtx = ChurchContext.currentChurchId;
+    if (fromCtx != null && fromCtx.isNotEmpty) return fromCtx;
+    final explicit = (tenantId ?? '').trim();
+    if (explicit.isNotEmpty) return explicit;
+    final env = _envTenantId.trim();
+    if (env.isNotEmpty) return env;
+    throw StateError(
+      'Frota: churchId não definido — abra o painel da igreja ou passe tenantId.',
+    );
+  }
 
   static DocumentReference<Map<String, dynamic>> igrejaDoc([
     String? tenantId,
   ]) {
-    final tid = (tenantId ?? defaultTenantId).trim();
+    final tid = resolveTenantId(tenantId);
     return FirebaseFirestore.instance.collection('igrejas').doc(tid);
   }
 

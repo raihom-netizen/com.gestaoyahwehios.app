@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
     show kFornecedoresModuleIcon;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 String _memberNomeFromData(Map<String, dynamic> m) =>
     (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '').toString().trim();
@@ -255,8 +256,7 @@ Future<(String, String, String?)?> showFinancePremiumMemberPicker(
   required String tenantId,
 }) async {
   final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-  final membros = (await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+  final membros = (await           ChurchUiCollections.membros(op)
           .limit(3000)
           .get())
       .docs;
@@ -447,8 +447,7 @@ Future<(String, String, String?)?> showFinancePremiumMemberPicker(
 Future<List<({String id, String nome})>> _fornecedoresAtivos(String tenantId) async {
   try {
     final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-    final snap = await         ChurchOperationalPaths.churchDoc(op)
-        .collection('fornecedores')
+    final snap = await         ChurchUiCollections.fornecedores(op)
         .orderBy('nome')
         .limit(500)
         .get();

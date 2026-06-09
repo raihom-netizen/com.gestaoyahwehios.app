@@ -8,7 +8,10 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
 import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
 import 'package:gestao_yahweh/services/church_finance_aggregates_service.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/data/modules/church_module_repository_base.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Snapshot de auditoria — mesma consulta em Web / Android / iOS.
 class DebugChurchAuditSnapshot {
@@ -348,6 +351,15 @@ abstract final class DebugChurchAuditService {
     'syncStorageTenantId',
   ];
 
+  static Future<QuerySnapshot<Map<String, dynamic>>> _moduleListSnapshot(
+    ChurchModuleRepositoryBase module, {
+    required String churchIdHint,
+    required int limit,
+  }) async {
+    final r = await module.list(churchIdHint: churchIdHint, limit: limit);
+    return MergedFirestoreQuerySnapshot(r.items);
+  }
+
   static String platformLabel() {
     if (kIsWeb) return 'WEB';
     if (defaultTargetPlatform == TargetPlatform.iOS) return 'IOS';
@@ -367,6 +379,10 @@ abstract final class DebugChurchAuditService {
     final firestorePath = 'igrejas/$churchId';
     final storagePath = ChurchStorageLayout.churchRoot(churchId);
 
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+
     ChurchOperationalFirestoreTrace.clear();
     final probes = <ChurchModuleProbeResult>[];
     final fingerprints = <String, List<String>>{};
@@ -375,6 +391,12 @@ abstract final class DebugChurchAuditService {
     var fieldCount = 0;
     double? financeSaldo;
 
+    Future<void> _webPause() async {
+      if (kIsWeb) {
+        await Future<void>.delayed(const Duration(milliseconds: 70));
+      }
+    }
+
     Future<void> probeDoc(String module) async {
       final sw = Stopwatch()..start();
       try {
@@ -382,9 +404,12 @@ abstract final class DebugChurchAuditService {
           module: module,
           churchId: churchId,
           path: firestorePath,
-          run: () => ChurchRepository.loadByChurchId(
-            churchId,
-            seedTenantId: seed,
+          run: () => FirestoreWebGuard.runWithWebRecovery(
+            () => ChurchRepository.loadByChurchId(
+              churchId,
+              seedTenantId: seed,
+            ),
+            maxAttempts: kIsWeb ? 4 : 1,
           ),
         );
         sw.stop();
@@ -475,59 +500,72 @@ abstract final class DebugChurchAuditService {
     }
 
     await probeDoc('Cadastro Igreja');
+    await _webPause();
 
     await probeQuery(
       'Departamentos',
       'departamentos',
-      () => ChurchRepository.departamentos(churchIdHint: churchId, limit: 200),
+      () => _moduleListSnapshot(
+            ChurchRepository.departamentos,
+            churchIdHint: churchId,
+            limit: 200,
+          ),
       captureNames: true,
     );
+    await _webPause();
     await probeQuery(
       'Cargos',
       'cargos',
-      () => ChurchRepository.cargos(churchIdHint: churchId, limit: 200),
+      () => _moduleListSnapshot(ChurchRepository.cargos, churchIdHint: churchId, limit: 200),
       captureNames: true,
     );
+    await _webPause();
     await probeQuery(
       'Membros',
       'membros',
-      () => ChurchRepository.membros(churchIdHint: churchId, limit: 500),
+      () => _moduleListSnapshot(ChurchRepository.membros, churchIdHint: churchId, limit: 500),
       captureNames: true,
       nameKeys: const ['NOME_COMPLETO'],
     );
+    await _webPause();
     await probeQuery(
       'Fornecedores',
       'fornecedores',
-      () => ChurchRepository.fornecedores(churchIdHint: churchId, limit: 200),
+      () => _moduleListSnapshot(ChurchRepository.fornecedores, churchIdHint: churchId, limit: 200),
     );
+    await _webPause();
     await probeQuery(
       'Financeiro',
       'finance',
-      () => ChurchRepository.financeiro(churchIdHint: churchId, limit: 500),
+      () => _moduleListSnapshot(ChurchRepository.financeiro, churchIdHint: churchId, limit: 500),
     );
     try {
       final agg = await ChurchFinanceAggregatesService.readOnce(churchId);
       financeSaldo = agg.saldoAtual;
     } catch (_) {}
+    await _webPause();
     await probeQuery(
       'Eventos',
       'noticias',
-      () => ChurchRepository.eventos(churchIdHint: churchId, limit: 200),
+      () => _moduleListSnapshot(ChurchRepository.eventos, churchIdHint: churchId, limit: 200),
     );
+    await _webPause();
     await probeQuery(
       'Avisos',
       'avisos',
-      () => ChurchRepository.avisos(churchIdHint: churchId, limit: 200),
+      () => _moduleListSnapshot(ChurchRepository.avisos, churchIdHint: churchId, limit: 200),
     );
+    await _webPause();
     await probeQuery(
       'Chat',
       'chats',
-      () => ChurchRepository.chat(churchIdHint: churchId, limit: 50),
+      () => _moduleListSnapshot(ChurchRepository.chat, churchIdHint: churchId, limit: 50),
     );
+    await _webPause();
     await probeQuery(
       'Patrimônio',
       'patrimonio',
-      () => ChurchRepository.patrimonio(churchIdHint: churchId, limit: 200),
+      () => _moduleListSnapshot(ChurchRepository.patrimonio, churchIdHint: churchId, limit: 200),
     );
 
     final traces = ChurchOperationalFirestoreTrace.recent;

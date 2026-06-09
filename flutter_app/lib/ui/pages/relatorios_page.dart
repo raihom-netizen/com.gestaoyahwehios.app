@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
@@ -30,9 +31,10 @@ import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
-import 'package:gestao_yahweh/ui/pages/relatorio_gastos_fornecedores_page.dart';
+import 'package:gestao_yahweh/ui/pages/relatorio_gastos_fornecedores_page.dart'
+    hide sanitizeImageUrl;
 import '../../services/app_permissions.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Membros para relatórios — cache RAM + `_panel_cache/members_directory` (rápido).
 abstract final class _RelatoriosMembersDataCache {
@@ -567,7 +569,8 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
     super.initState();
     _prewarmRelatoriosData(widget.tenantId);
     unawaited(
-      ChurchOperationalPaths.resolveCached(widget.tenantId).then((op) {
+      Future<void>.microtask(() {
+        final op = ChurchRepository.churchId(widget.tenantId);
         if (!mounted || op.isEmpty) return;
         setState(() => _operationalTenantId = op);
       }),
@@ -667,10 +670,10 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
   bool _deptsLoaded = false;
   bool _pdfLandscape = false;
 
-  CollectionReference<Map<String, dynamic>> get _members => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membros => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membersIgrejas => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membrosIgrejas => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
+  CollectionReference<Map<String, dynamic>> get _members => ChurchUiCollections.membros(_effectiveTenantId);
+  CollectionReference<Map<String, dynamic>> get _membros => ChurchUiCollections.membros(_effectiveTenantId);
+  CollectionReference<Map<String, dynamic>> get _membersIgrejas => ChurchUiCollections.membros(_effectiveTenantId);
+  CollectionReference<Map<String, dynamic>> get _membrosIgrejas => ChurchUiCollections.membros(_effectiveTenantId);
 
   Future<List<Map<String, dynamic>>> _fetchMembers() =>
       _RelatoriosMembersDataCache.fetch(_effectiveTenantId, limit: 800);
@@ -960,17 +963,18 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
   bool _loadingMembros = true;
   String? _erroMembros;
 
-  CollectionReference<Map<String, dynamic>> get _members => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membros => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membersIgrejas => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
-  CollectionReference<Map<String, dynamic>> get _membrosIgrejas => ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('membros');
+  CollectionReference<Map<String, dynamic>> get _members => ChurchUiCollections.membros(_effectiveTenantId);
+  CollectionReference<Map<String, dynamic>> get _membros => ChurchUiCollections.membros(_effectiveTenantId);
+  CollectionReference<Map<String, dynamic>> get _membersIgrejas => ChurchUiCollections.membros(_effectiveTenantId);
+  CollectionReference<Map<String, dynamic>> get _membrosIgrejas => ChurchUiCollections.membros(_effectiveTenantId);
 
   @override
   void initState() {
     super.initState();
     _prewarmRelatoriosData(widget.tenantId);
     unawaited(
-      ChurchOperationalPaths.resolveCached(widget.tenantId).then((op) {
+      Future<void>.microtask(() {
+        final op = ChurchRepository.churchId(widget.tenantId);
         if (!mounted || op.isEmpty) return;
         setState(() => _operationalTenantId = op);
       }),
@@ -1847,7 +1851,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
   String _summaryQueryKey = '';
 
   DocumentReference<Map<String, dynamic>> get _tenantRef =>
-      ChurchOperationalPaths.churchDoc(_effectiveTenantId);
+      ChurchUiCollections.churchDoc(_effectiveTenantId);
 
   bool get _embedded => widget.embeddedInFinanceModule;
 
@@ -1901,7 +1905,8 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
     _ano = now.year;
     _prewarmRelatoriosData(widget.tenantId);
     unawaited(
-      ChurchOperationalPaths.resolveCached(widget.tenantId).then((op) {
+      Future<void>.microtask(() {
+        final op = ChurchRepository.churchId(widget.tenantId);
         if (!mounted || op.isEmpty) return;
         setState(() => _operationalTenantId = op);
       }),
@@ -4120,7 +4125,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
   bool _pdfLandscape = true;
 
   CollectionReference<Map<String, dynamic>> get _col =>
-      ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('patrimonio');
+      ChurchUiCollections.patrimonio(_effectiveTenantId);
 
   static String _statusLabel(String key) {
     final f = _statusOptions.where((e) => e.$1 == key).firstOrNull;
@@ -4164,7 +4169,8 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
     super.initState();
     _prewarmRelatoriosData(widget.tenantId);
     unawaited(
-      ChurchOperationalPaths.resolveCached(widget.tenantId).then((op) {
+      Future<void>.microtask(() {
+        final op = ChurchRepository.churchId(widget.tenantId);
         if (!mounted || op.isEmpty) return;
         setState(() => _operationalTenantId = op);
       }),
@@ -4491,7 +4497,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
   List<Map<String, dynamic>> _eventos = [];
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
-      ChurchOperationalPaths.churchDoc(_effectiveTenantId).collection('eventos');
+      ChurchUiCollections.eventos(_effectiveTenantId);
 
   Future<void> _carregar() async {
     setState(() {
@@ -4557,7 +4563,8 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
     super.initState();
     _prewarmRelatoriosData(widget.tenantId);
     unawaited(
-      ChurchOperationalPaths.resolveCached(widget.tenantId).then((op) {
+      Future<void>.microtask(() {
+        final op = ChurchRepository.churchId(widget.tenantId);
         if (!mounted || op.isEmpty) return;
         setState(() => _operationalTenantId = op);
       }),

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/ui/widgets/pastoral_attention_member_card.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Painel "Saúde ministerial & BI" no dashboard da igreja (pastéis, responsivo).
 class ChurchMinistryHealthPanel extends StatefulWidget {
@@ -1979,8 +1980,7 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
     setState(() => _loading = true);
     try {
       final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('finance')
+      final snap = await           ChurchUiCollections.financeiro(op)
           .orderBy('createdAt', descending: true)
           .limit(1000)
           .get();

@@ -641,6 +641,11 @@ service cloud.firestore {
         allow read: if isMaster() || canAccessTenant(id) || memberLinkedToTenant(id);
         allow write: if false;
       }
+      // Cache agregado do dashboard — escrita só Cloud Functions; 1 leitura na abertura.
+      match /_dashboard_cache/{docId} {
+        allow read: if isMaster() || canAccessTenant(id) || memberLinkedToTenant(id);
+        allow write: if false;
+      }
       // Contadores leves da Home (`members`, `avisos`, `eventos`) â€” leitura rÃ¡pida do painel.
       match /dashboard/{docId} {
         allow read: if isMaster() || canAccessTenant(id) || memberLinkedToTenant(id);

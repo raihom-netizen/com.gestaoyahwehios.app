@@ -99,4 +99,28 @@ class ChurchModuleProbeResult {
       usedLegacyPath: json['usedLegacyPath'] == true,
     );
   }
+
+  ChurchModuleProbeResult copyWith({
+    String? module,
+    String? churchId,
+    String? collectionPath,
+    String? documentPath,
+    bool? ok,
+    int? count,
+    int? durationMs,
+    String? error,
+    bool? usedLegacyPath,
+  }) {
+    return ChurchModuleProbeResult(
+      module: module ?? this.module,
+      churchId: churchId ?? this.churchId,
+      collectionPath: collectionPath ?? this.collectionPath,
+      documentPath: documentPath ?? this.documentPath,
+      ok: ok ?? this.ok,
+      count: count ?? this.count,
+      durationMs: durationMs ?? this.durationMs,
+      error: error ?? this.error,
+      usedLegacyPath: usedLegacyPath ?? this.usedLegacyPath,
+    );
+  }
 }

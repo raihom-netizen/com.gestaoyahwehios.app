@@ -1,11 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Calendário para o membro marcar dias em que não pode servir (viagem, etc.).
 class MemberScheduleAvailabilityPage extends StatefulWidget {
@@ -44,8 +45,7 @@ class _MemberScheduleAvailabilityPageState
   }
 
   Future<DocumentSnapshot<Map<String, dynamic>>> _memberDoc(String tid) {
-    return         ChurchOperationalPaths.churchDoc(tid)
-        .collection('membros')
+    return         ChurchUiCollections.membros(tid)
         .doc(widget.memberDocId)
         .get();
   }
@@ -88,9 +88,8 @@ class _MemberScheduleAvailabilityPageState
       setState(() => _error = 'Faça login para salvar.');
       return;
     }
-    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-    final ref =         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros')
+    final op = ChurchRepository.churchId(tid.trim());
+    final ref =         ChurchUiCollections.membros(op)
         .doc(widget.memberDocId);
     final snap = await ref.get();
     if (!snap.exists) {

@@ -7,6 +7,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -18,7 +19,6 @@ import 'package:gestao_yahweh/services/schedule_intel_validators.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -44,7 +44,7 @@ import 'package:gestao_yahweh/utils/escala_relatorio_premium_pdf.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 Map<String, dynamic> _remapScheduleCpfKeyedMap(
   Map<String, dynamic> old,
@@ -79,9 +79,8 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadScheduleMemberDoc
     if (snap.docs.isNotEmpty) return snap.docs;
   } catch (_) {}
   try {
-    final op = await ChurchOperationalPaths.resolveCached(tid);
-    return (await ChurchOperationalPaths.churchDoc(op)
-            .collection('membros')
+    final op = ChurchRepository.churchId(tid);
+    return (await ChurchUiCollections.membros(op)
             .limit(_kScheduleMembersFetchLimit)
             .get())
         .docs;
@@ -380,7 +379,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedInstances;
   List<_DeptItem>? _seedDepts;
 
-  DocumentReference<Map<String, dynamic>> _churchDoc(String tid) => ChurchOperationalPaths.churchDoc(tid);
+  DocumentReference<Map<String, dynamic>> _churchDoc(String tid) => ChurchUiCollections.churchDoc(tid);
   CollectionReference<Map<String, dynamic>> _templatesCol(String tid) => _churchDoc(tid).collection('escala_templates');
   CollectionReference<Map<String, dynamic>> _instancesCol(String tid) => _churchDoc(tid).collection('escalas');
   CollectionReference<Map<String, dynamic>> _departmentsCol(String tid) => _churchDoc(tid).collection('departamentos');
@@ -396,10 +395,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   Future<String> _resolveTenantAndSeedPresets() async {
     final hint = widget.tenantId.trim();
     try {
-      final tid = await ChurchOperationalPaths.resolveCached(
-        widget.tenantId,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      ).timeout(const Duration(seconds: 8), onTimeout: () => hint);
+      final tid = ChurchRepository.churchId(widget.tenantId).isNotEmpty
+          ? ChurchRepository.churchId(widget.tenantId)
+          : hint;
       if (mounted && tid != _effectiveTenantId) {
         setState(() => _effectiveTenantId = tid);
         _refreshAllData(tid);
@@ -677,8 +675,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         );
       }
       final branding = await loadReportPdfBranding(tid);
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-      final tenantSnap = await ChurchOperationalPaths.churchDoc(op).get();
+      final op = ChurchRepository.churchId(tid.trim());
+      final tenantSnap = await ChurchUiCollections.churchDoc(op).get();
       final t = tenantSnap.data() ?? {};
       final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
       final phone =
@@ -807,8 +805,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         );
       }
       final branding = await loadReportPdfBranding(tid);
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-      final tenantSnap = await ChurchOperationalPaths.churchDoc(op).get();
+      final op = ChurchRepository.churchId(tid.trim());
+      final tenantSnap = await ChurchUiCollections.churchDoc(op).get();
       final t = tenantSnap.data() ?? {};
       final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
       final phone = (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '').toString().trim();
@@ -933,8 +931,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         );
       }
       final branding = await loadReportPdfBranding(tid);
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-      final tenantSnap = await ChurchOperationalPaths.churchDoc(op).get();
+      final op = ChurchRepository.churchId(tid.trim());
+      final tenantSnap = await ChurchUiCollections.churchDoc(op).get();
       final t = tenantSnap.data() ?? {};
       final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
       final phone = (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '').toString().trim();
@@ -1199,9 +1197,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }
 
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final op = ChurchRepository.churchId(tid.trim());
       final escRef =
-          ChurchOperationalPaths.churchDoc(op).collection('escalas').doc(escalaId);
+          ChurchUiCollections.escalas(op).doc(escalaId);
       final escSnap = await escRef.get();
       if (!escSnap.exists) return;
       final ed = escSnap.data() ?? {};
@@ -3335,7 +3333,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         _tenantFuture,
         _deptsFuture,
         _effectiveTidFuture.then(
-          (tid) => ChurchOperationalPaths.churchDoc(tid)
+          (tid) => ChurchUiCollections.churchDoc(tid)
               .collection('escala_trocas')
               .limit(800)
               .get(),
@@ -5003,7 +5001,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       if (tid.isEmpty) {
                         return Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
                       }
-                      return ChurchOperationalPaths.churchDoc(tid)
+                      return ChurchUiCollections.churchDoc(tid)
                           .collection('escala_trocas')
                           .where('escalaId', isEqualTo: doc.id)
                           .watchSafe();

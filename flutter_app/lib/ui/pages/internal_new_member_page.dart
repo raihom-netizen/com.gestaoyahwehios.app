@@ -4,8 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart'
     show FirebaseFunctions, FirebaseFunctionsException;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:flutter/services.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Tela interna do sistema para o gestor/adm cadastrar um novo membro.
 /// Fluxo: cria Firebase Auth (UID) → `membros/{uid}` — CPF só como campo, não como id do documento.
@@ -125,9 +126,9 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       return;
     }
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tid);
+      final op = ChurchRepository.churchId(tid);
       if (mounted) _operationalTenantId = op;
-      final d = await ChurchOperationalPaths.churchDoc(op).get();
+      final d = await ChurchUiCollections.churchDoc(op).get();
       if (d.exists) {
         final data = d.data() ?? {};
         setState(() {
@@ -322,8 +323,8 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
 
     final cpfDigits = _onlyDigits(_cpfCtrl.text);
     final emailNorm = _emailCtrl.text.trim().toLowerCase();
-    final op = await ChurchOperationalPaths.resolveCached(_effectiveTenantId);
-    final col = ChurchOperationalPaths.churchDoc(op).collection('membros');
+    final op = ChurchRepository.churchId(_effectiveTenantId);
+    final col = ChurchUiCollections.membros(op);
 
     // Impedir cadastro duplo: mesmo CPF ou mesmo e-mail na mesma igreja
     if (cpfDigits.length == 11) {

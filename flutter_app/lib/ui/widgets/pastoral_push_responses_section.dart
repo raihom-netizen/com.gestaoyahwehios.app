@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Painel na aba Push: mensagens recentes e subcoleção `leituras` (confirmação + texto de resposta).
 class PastoralPushResponsesSection extends StatefulWidget {
@@ -224,7 +225,7 @@ class _PastoralPushResponsesSectionState
     final tid = widget.tenantId.trim();
     if (tid.isEmpty) return const SizedBox.shrink();
 
-    final ref =         ChurchOperationalPaths.churchDoc(tid)
+    final ref =         ChurchUiCollections.churchDoc(tid)
         .collection('pastoral_mensagens')
         .orderBy('createdAt', descending: true)
         .limit(35);
@@ -622,7 +623,7 @@ class _PastoralLeiturasPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ref =         ChurchOperationalPaths.churchDoc(tenantId)
+    final ref =         ChurchUiCollections.churchDoc(tenantId)
         .collection('pastoral_mensagens')
         .doc(messageId)
         .collection('leituras');
@@ -743,8 +744,7 @@ class _PastoralLeituraRowState extends State<_PastoralLeituraRow> {
     }
     try {
       final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final q = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final q = await           ChurchUiCollections.membros(op)
           .where('authUid', isEqualTo: widget.uid)
           .limit(1)
           .get();

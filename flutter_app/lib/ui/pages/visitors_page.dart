@@ -8,13 +8,13 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Abre WhatsApp (app ou web) com o número informado.
 Future<void> launchWhatsAppContact(
@@ -127,9 +127,8 @@ Future<void> openChurchVisitorFichaFromDashboard(
   required String visitorDocId,
 }) async {
   await FirebaseAuth.instance.currentUser?.getIdToken(true);
-  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-  final snap = await       ChurchOperationalPaths.churchDoc(op)
-      .collection('visitantes')
+  final op = ChurchRepository.churchId(tenantId.trim());
+  final snap = await       ChurchUiCollections.visitantes(op)
       .doc(visitorDocId)
       .get();
   if (!context.mounted) return;
@@ -140,8 +139,7 @@ Future<void> openChurchVisitorFichaFromDashboard(
     return;
   }
   final visitor = _VisitorData(id: snap.id, data: snap.data()!);
-  final membersRef =       ChurchOperationalPaths.churchDoc(op)
-      .collection('membros');
+  final membersRef =       ChurchUiCollections.membros(op);
   final canManage = churchVisitorManagementRole(role);
   final isMobile = ThemeCleanPremium.isMobile(context);
   if (isMobile) {
@@ -257,12 +255,10 @@ class _VisitorsPageState extends State<VisitorsPage> {
       _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
 
   CollectionReference<Map<String, dynamic>> get _visitantesRef =>
-                ChurchOperationalPaths.churchDoc(_tid)
-          .collection('visitantes');
+                ChurchUiCollections.visitantes(_tid);
 
   CollectionReference<Map<String, dynamic>> get _membersRef =>
-                ChurchOperationalPaths.churchDoc(_tid)
-          .collection('membros');
+                ChurchUiCollections.membros(_tid);
 
   static String _visitantesMemKey(String tenantId) =>
       '${tenantId.trim()}_visitantes_400';
@@ -275,10 +271,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
       return _visitantesRef.limit(1).get();
     }
     if (forceServer) {
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final op = ChurchRepository.churchId(tid.trim());
       final snap = await FirestoreReadResilience.getQuery(
-        ChurchOperationalPaths.churchDoc(op)
-            .collection('visitantes')
+        ChurchUiCollections.visitantes(op)
             .limit(400),
         cacheKey: _visitantesMemKey(tid),
       );
@@ -1844,9 +1839,8 @@ class _VisitorFormSheetState extends State<_VisitorFormSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
 
-    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-    final ref =         ChurchOperationalPaths.churchDoc(op)
-        .collection('visitantes');
+    final op = ChurchRepository.churchId(widget.tenantId.trim());
+    final ref =         ChurchUiCollections.visitantes(op);
 
     final payload = <String, dynamic>{
       'nome': _nomeCtrl.text.trim(),
@@ -2042,8 +2036,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
   @override
   void initState() {
     super.initState();
-    _visitorDoc =         ChurchOperationalPaths.churchDoc(widget.tenantId)
-        .collection('visitantes')
+    _visitorDoc =         ChurchUiCollections.visitantes(widget.tenantId)
         .doc(widget.visitor.id);
     _followupsRef = _visitorDoc.collection('followups');
     _followupsFuture = _loadFollowups();

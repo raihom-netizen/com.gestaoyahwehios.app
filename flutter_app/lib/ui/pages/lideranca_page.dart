@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
@@ -11,7 +12,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Organograma ministerial: cargos de liderança (diferente de «líderes de departamento» no painel).
 class LiderancaPage extends StatefulWidget {
@@ -181,9 +182,8 @@ class _LiderancaPageState extends State<LiderancaPage> {
       String tid) async {
     final map = <String, Map<String, dynamic>>{};
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('cargos')
+      final op = ChurchRepository.churchId(tid.trim());
+      final snap = await           ChurchUiCollections.cargos(op)
           .get();
       for (final d in snap.docs) {
         final data = d.data();

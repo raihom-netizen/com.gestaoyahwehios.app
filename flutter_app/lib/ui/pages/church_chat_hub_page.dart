@@ -12,6 +12,8 @@ import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/church_chat_local_conversations.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_threads_list_cache.dart';
@@ -225,7 +227,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       unawaited(_primeDepartmentsFromHive(hint));
       if (uid.isNotEmpty) {
         _chatThreadsStream =
-            ChurchChatService.chatThreadsSnapshotsForUser(hint, uid);
+            ChatHubThreads.watchForUser(churchId: hint, uid: uid);
         unawaited(() async {
           try {
             final cached =
@@ -267,7 +269,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (oldWidget.tenantId != widget.tenantId) {
       _lastGoodChatThreadsSnap = null;
       _chatThreadsStream = null;
-      ChurchChatService.invalidateChatThreadsStreamCache();
+      ChatHubThreads.invalidateStreamCache();
       unawaited(_bootstrap());
     }
   }
@@ -404,7 +406,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       for (final p in peers) {
         if (p != myUid) out.add(p);
       }
-      final legacyPeer = ChurchChatService.otherUidInDmThread(d.id, myUid);
+      final legacyPeer = ChatHubOperations.otherUidInDmThread(d.id, myUid);
       if (legacyPeer != null && legacyPeer.isNotEmpty) out.add(legacyPeer);
     }
     return out;
@@ -522,8 +524,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       return;
     }
     Future<void> poll() async {
-      final online = await ChurchChatService.fetchPresenceOnlineMap(
-        tenantId: tenantId,
+      final online = await ChatMessagingEngine.fetchPresenceOnlineMap(
+        churchId: tenantId,
         authUids: peerUids,
       );
       if (!mounted || _resolvedTenantId != tenantId) return;
@@ -575,7 +577,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final pendingTitle = (peek.displayName ?? '').trim();
 
     if (isDmPending && pendingPeer.isNotEmpty) {
-      await ChurchChatService.ensureDmThreadResilient(
+      await ChatHubOperations.ensureDmThreadResilient(
         tenantId: tid,
         uidA: myUid,
         uidB: pendingPeer,
@@ -586,7 +588,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
     DocumentSnapshot<Map<String, dynamic>>? snap;
     try {
-      snap = await ChurchChatService.threadRef(tid, threadId).get();
+      snap = await ChatHubOperations.threadRef(tid, threadId).get();
     } catch (_) {
       snap = null;
     }
@@ -728,7 +730,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _lastSilentConversasSync = now;
     try {
       await _primeConversasListFromFallback(tenantId);
-      await ChurchChatService.syncDmThreadsIndex(tenantId).timeout(
+      await ChatHubOperations.syncDmThreadsIndex(tenantId).timeout(
         const Duration(seconds: 20),
         onTimeout: () => 0,
       );
@@ -770,7 +772,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
     try {
-      final fallback = await ChurchChatService.loadDmThreadsSnapshotFallback(
+      final fallback = await ChatHubOperations.loadDmThreadsSnapshotFallback(
         tenantId: tenantId,
         uid: uid,
       );
@@ -800,7 +802,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         final doc = docs[i];
         final data = doc.data();
         if (!_chatHubThreadIsUnreadForUser(data, uid)) continue;
-        final n = await ChurchChatService.threadUnreadInboundCount(
+        final n = await ChatHubOperations.threadUnreadInboundCount(
           tenantId: tenantId,
           threadId: doc.id,
           myUid: uid,
@@ -869,7 +871,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       }
       if (hint.isNotEmpty && uid.isNotEmpty) {
         _chatThreadsStream =
-            ChurchChatService.chatThreadsSnapshotsForUser(hint, uid);
+            ChatHubThreads.watchForUser(churchId: hint, uid: uid);
       }
     });
 
@@ -892,7 +894,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         _resolvedTenantId = tid;
         if (uid.isNotEmpty) {
           _chatThreadsStream =
-              ChurchChatService.chatThreadsSnapshotsForUser(tid, uid);
+              ChatHubThreads.watchForUser(churchId: tid, uid: uid);
         }
       });
     }
@@ -1079,7 +1081,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final slice = entries.length > 8 ? entries.take(8).toList() : entries;
     for (final e in slice) {
       try {
-        await ChurchChatService.ensureDepartmentThread(
+        await ChatHubOperations.ensureDepartmentThread(
           tenantId: tid,
           departmentId: e.id,
           departmentName: e.name,
@@ -1110,15 +1112,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   Future<List<_DeptEntry>> _loadDepartmentsFromFirestoreCache(String tid) async {
     try {
       final op = ChurchContextService.panelChurchId(tid);
-      var snap = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('departamentos')
+      var snap = await           ChurchUiCollections.departamentos(op)
           .limit(120)
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 4));
       if (snap.docs.isEmpty) {
         snap = await FirestoreWebGuard.runWithWebRecovery(
-          () =>               ChurchOperationalPaths.churchDoc(op)
-              .collection('departamentos')
+          () =>               ChurchUiCollections.departamentos(op)
               .limit(120)
               .get(const GetOptions(source: Source.server)),
         ).timeout(const Duration(seconds: 14));
@@ -1145,8 +1145,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   ) async {
     if (ids.isEmpty) return [];
     final op = ChurchContextService.panelChurchId(tid);
-    final deptCol =         ChurchOperationalPaths.churchDoc(op)
-        .collection('departamentos');
+    final deptCol =         ChurchUiCollections.departamentos(op);
     final futures = ids.map((id) async {
       try {
         var doc = await deptCol
@@ -1248,7 +1247,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         setState(() => _departments = entries);
       }
       unawaited(
-        ChurchChatService.syncUserChatProfile(
+        ChatHubOperations.syncUserChatProfile(
           tenantId: tid,
           departmentIds: entries.map((e) => e.id).toList(),
         ).timeout(const Duration(seconds: 10)).catchError((_) {}),
@@ -1275,8 +1274,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     try {
       final op = ChurchContextService.panelChurchId(tid);
       final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchOperationalPaths.churchDoc(op)
-            .collection('chats')
+        () => ChurchUiCollections.chats(op)
             .where('type', isEqualTo: 'department')
             .limit(80)
             .get(const GetOptions(source: Source.server)),
@@ -1318,8 +1316,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
     try {
       final op = ChurchContextService.panelChurchId(tid);
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('departamentos')
+      final snap = await           ChurchUiCollections.departamentos(op)
           .limit(120)
           .get(const GetOptions(source: Source.cache))
           .timeout(const Duration(seconds: 3));
@@ -1400,8 +1397,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     try {
       final digits = widget.cpf.replaceAll(RegExp(r'\D'), '');
       final op = ChurchContextService.panelChurchId(tid);
-      final base =           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros');
+      final base =           ChurchUiCollections.membros(op);
 
       DocumentSnapshot<Map<String, dynamic>>? membro;
       try {
@@ -1446,8 +1442,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         }
         final depNames = d['DEPARTAMENTOS'];
         if (depNames is List) {
-          final col =               ChurchOperationalPaths.churchDoc(tid)
-              .collection('departamentos');
+          final col =               ChurchUiCollections.departamentos(tid);
           final nameFutures = depNames.map((name) async {
             try {
               final hit = await col
@@ -1491,7 +1486,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       }
 
       unawaited(
-        ChurchChatService.syncUserChatProfile(
+        ChatHubOperations.syncUserChatProfile(
           tenantId: tid,
           departmentIds: uniqueIds,
           memberDocId: membro?.id,
@@ -1579,7 +1574,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         [];
     var peer = peers.firstWhere((p) => p != myUid, orElse: () => '');
     if (peer.isEmpty) {
-      peer = ChurchChatService.otherUidInDmThread(doc.id, myUid) ?? '';
+      peer = ChatHubOperations.otherUidInDmThread(doc.id, myUid) ?? '';
     }
     final resolved = _resolvePeerDisplayName(peer, threadData: data);
     if (resolved.isNotEmpty) return resolved;
@@ -1780,7 +1775,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       ),
     );
     if (ok != true) return;
-    final deleted = await ChurchChatService.deleteGroupThread(
+    final deleted = await ChatHubOperations.deleteGroupThread(
       tenantId: tenantId,
       threadId: threadId,
     );
@@ -2593,7 +2588,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   final isDept = _docIsDepartmentThread(doc);
                   final data = doc.data();
                   if (!isDept &&
-                      !ChurchChatService.threadHasListableConversation(
+                      !ChatHubOperations.threadHasListableConversation(
                         data,
                         threadId: doc.id,
                       )) {
@@ -2606,7 +2601,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                   } else if (archived) {
                     continue;
                   }
-                  if (!ChurchChatService.userParticipatesInThread(
+                  if (!ChatHubOperations.userParticipatesInThread(
                     threadId: doc.id,
                     data: data,
                     uid: uid,
@@ -2625,7 +2620,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                     preview = (data['lastMessagePreview'] ?? '').toString();
                   } else {
                     var peer = peers.where((p) => p != uid).firstOrNull;
-                    peer ??= ChurchChatService.otherUidInDmThread(doc.id, uid);
+                    peer ??= ChatHubOperations.otherUidInDmThread(doc.id, uid);
                     if (peer == null || peer.isEmpty) continue;
                     if (prefs.isBlockedPeer(peer)) continue;
                     disp = _dmDisplayTitle(doc, uid);
@@ -2701,7 +2696,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 final deptOnlyEntries = <_DeptEntry>[];
                 if (mergeLocalCache) {
                   for (final d in _departments) {
-                    final threadId = ChurchChatService.deptThreadId(d.id);
+                    final threadId = ChatHubOperations.deptThreadId(d.id);
                     if (displayedIds.contains(threadId)) continue;
                     deptOnlyEntries.add(d);
                   }
@@ -2973,7 +2968,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         }
 
         Widget stripTile(_DeptEntry d, {int? reorderIndex}) {
-          final threadId = ChurchChatService.deptThreadId(d.id);
+          final threadId = ChatHubOperations.deptThreadId(d.id);
           return _DeptGroupPremiumStripCard(
             tenantId: tid,
             myUid: uid,
@@ -3146,12 +3141,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     String displayName,
   ) async {
     if (peerUid.trim().isEmpty) return;
-    final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
+    final threadId = ChatHubOperations.dmThreadId(myUid, peerUid);
     var title = displayName.trim();
     if (title.isEmpty) title = 'Membro';
 
     unawaited(
-      ChurchChatService.ensureDmThreadResilient(
+      ChatHubOperations.ensureDmThreadResilient(
         tenantId: tid,
         uidA: myUid,
         uidB: peerUid,
@@ -3384,7 +3379,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             .toList() ??
         [];
     var peer = peers.where((p) => p != uid).firstOrNull;
-    peer ??= ChurchChatService.otherUidInDmThread(doc.id, uid);
+    peer ??= ChatHubOperations.otherUidInDmThread(doc.id, uid);
     if (peer == null || peer.isEmpty) return const SizedBox.shrink();
     final fullTitle = _dmDisplayTitle(doc, uid);
     final rowTitle = _firstNameForChatRow(fullTitle);
@@ -3480,7 +3475,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     _DeptEntry entry,
     ChurchChatMemberPrefsModel prefs,
   ) {
-    final threadId = ChurchChatService.deptThreadId(entry.id);
+    final threadId = ChatHubOperations.deptThreadId(entry.id);
     return _chatTile(
       title: entry.name,
       subtitle: 'Toque para abrir o grupo',
@@ -3826,8 +3821,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     QuerySnapshot<Map<String, dynamic>>? q;
     try {
       final op = ChurchContextService.panelChurchId(tid);
-      q = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      q = await           ChurchUiCollections.membros(op)
           .limit(120)
           .get();
     } catch (_) {
@@ -3880,14 +3874,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       },
     );
     if (picked == null || !context.mounted) return;
-    await ChurchChatService.ensureDmThread(
+    await ChatHubOperations.ensureDmThread(
       tenantId: tid,
       uidA: uid,
       uidB: picked.uid,
       titleA: firebaseDefaultAuth.currentUser?.displayName ?? 'Eu',
       titleB: picked.name,
     );
-    final threadId = ChurchChatService.dmThreadId(uid, picked.uid);
+    final threadId = ChatHubOperations.dmThreadId(uid, picked.uid);
     final nav = Navigator.of(context, rootNavigator: true);
     if (!nav.mounted) return;
     await nav.push(
@@ -4343,8 +4337,8 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       return;
     }
     Future<void> poll() async {
-      final online = await ChurchChatService.fetchPresenceOnlineMap(
-        tenantId: widget.tenantId,
+      final online = await ChatMessagingEngine.fetchPresenceOnlineMap(
+        churchId: widget.tenantId,
         authUids: authUids,
       );
       if (!mounted) return;
@@ -5153,8 +5147,8 @@ class _NovaConversaDiretaSheetState extends State<_NovaConversaDiretaSheet> {
         .where((e) => e.isNotEmpty)
         .toSet();
     if (uids.isEmpty) return;
-    final online = await ChurchChatService.fetchPresenceOnlineMap(
-      tenantId: widget.tid,
+    final online = await ChatMessagingEngine.fetchPresenceOnlineMap(
+      churchId: widget.tid,
       authUids: uids,
     );
     if (!mounted) return;
@@ -5645,7 +5639,7 @@ class _GroupStripUnreadBadgeState extends State<_GroupStripUnreadBadge> {
   Future<void> _load() async {
     final data = widget.threadData;
     if (data == null) return;
-    final n = await ChurchChatService.threadUnreadInboundCount(
+    final n = await ChatHubOperations.threadUnreadInboundCount(
       tenantId: widget.tenantId,
       threadId: widget.threadId,
       myUid: widget.myUid,

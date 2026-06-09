@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -16,7 +17,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 class AprovarMembrosPendentesPage extends StatefulWidget {
   final String tenantId;
@@ -89,8 +90,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       '${tenantId.trim()}_membros_pendente_warm';
 
   CollectionReference<Map<String, dynamic>> get _membersCol =>
-                ChurchOperationalPaths.churchDoc(_tid)
-          .collection('membros');
+                ChurchUiCollections.membros(_tid);
 
   void _hydratePendentesFromRam() {
     final ram = _PendentesRamCache.peek(_tid);
@@ -109,9 +109,8 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     if (seed.isEmpty) return;
 
     try {
-      final op = await ChurchOperationalPaths.resolveCached(seed.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final op = ChurchRepository.churchId(seed.trim());
+      final snap = await           ChurchUiCollections.membros(op)
           .where('status', isEqualTo: 'pendente')
           .limit(120)
           .get(const GetOptions(source: Source.serverAndCache))

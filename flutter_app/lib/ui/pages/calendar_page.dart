@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart';
@@ -30,8 +31,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Chaves de dia [`yyyy-MM-dd`]: ordem crescente (menor data → maior).
 int _compareAgendaDayKeysAscending(String a, String b) {
@@ -866,28 +867,25 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   CollectionReference<Map<String, dynamic>> get _agenda =>
-                ChurchOperationalPaths.churchDoc(_tid)
-          .collection('agenda');
+                ChurchUiCollections.agenda(_tid);
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
-                ChurchOperationalPaths.churchDoc(_tid)
-          .collection('eventos');
+                ChurchUiCollections.eventos(_tid);
 
   CollectionReference<Map<String, dynamic>> get _cultos =>
-                ChurchOperationalPaths.churchDoc(_tid)
+                ChurchUiCollections.churchDoc(_tid)
           .collection('cultos');
 
   /// Fallback para igrejas que usam collection igrejas (ex.: O Brasil para Cristo)
   CollectionReference<Map<String, dynamic>> get _noticiasIgrejas =>
-                ChurchOperationalPaths.churchDoc(_tid)
-          .collection('eventos');
+                ChurchUiCollections.eventos(_tid);
   CollectionReference<Map<String, dynamic>> get _cultosIgrejas =>
-                ChurchOperationalPaths.churchDoc(_tid)
+                ChurchUiCollections.churchDoc(_tid)
           .collection('cultos');
 
   /// Modelos de evento fixo (pré-cadastro ao escolher o dia).
   CollectionReference<Map<String, dynamic>> get _eventTemplates =>
-                ChurchOperationalPaths.churchDoc(_tid)
+                ChurchUiCollections.churchDoc(_tid)
           .collection('event_templates');
 
   static const _keyCustomTipos = 'agenda_tipos_custom';
@@ -5639,9 +5637,8 @@ class _CalendarPageState extends State<CalendarPage>
     TextEditingController respCtrl,
     TextEditingController whatsappCtrl,
   ) async {
-    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-    final all = await         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros')
+    final op = ChurchRepository.churchId(widget.tenantId.trim());
+    final all = await         ChurchUiCollections.membros(op)
         .limit(500)
         .get();
     if (!ctx.mounted) return;
@@ -6182,8 +6179,8 @@ class _CalendarPageState extends State<CalendarPage>
                           try {
                             await FirebaseAuth.instance.currentUser
                                 ?.getIdToken(true);
-                            final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-                            final ref = await                                 ChurchOperationalPaths.churchDoc(op)
+                            final op = ChurchRepository.churchId(widget.tenantId.trim());
+                            final ref = await                                 ChurchUiCollections.churchDoc(op)
                                 .collection('event_categories')
                                 .add({
                               'nome': nome.text.trim(),
@@ -6516,8 +6513,8 @@ class _CalendarPageState extends State<CalendarPage>
                           OutlinedButton.icon(
                             onPressed: () async {
                               try {
-                                final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-                                final snap = await                                     ChurchOperationalPaths.churchDoc(op)
+                                final op = ChurchRepository.churchId(widget.tenantId.trim());
+                                final snap = await                                     ChurchUiCollections.churchDoc(op)
                                     .get();
                                 final line = _churchAddressLineFromTenant(
                                     snap.data() ?? {});

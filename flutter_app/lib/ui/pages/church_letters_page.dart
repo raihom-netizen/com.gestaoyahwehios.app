@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/pdf/church_transfer_letter_pdf.dart';
@@ -23,7 +24,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 enum _CartaKind {
   apresentacao,
@@ -103,13 +104,11 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   DateTimeRange? _histCustomRange;
 
   DocumentReference<Map<String, dynamic>> get _configRef =>
-                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-          .collection('config')
+                ChurchUiCollections.config(_effectiveTenantId)
           .doc('cartas');
 
   CollectionReference<Map<String, dynamic>> get _historicoCol =>
-                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-          .collection('cartas_historico');
+                ChurchUiCollections.transferencias(_effectiveTenantId);
 
   String _effectiveTenantId = '';
 
@@ -202,7 +201,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     if (hint.isNotEmpty) _effectiveTenantId = hint;
 
     try {
-      final ch = await           ChurchOperationalPaths.churchDoc(_effectiveTenantId)
+      final ch = await           ChurchUiCollections.churchDoc(_effectiveTenantId)
           .get(const GetOptions(source: Source.serverAndCache));
       final d = ch.data() ?? {};
       if (mounted) {
@@ -256,8 +255,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           });
           await _openChurchLettersFast();
           try {
-            final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-            final ch = await                 ChurchOperationalPaths.churchDoc(op)
+            final op = ChurchRepository.churchId(tid.trim());
+            final ch = await                 ChurchUiCollections.churchDoc(op)
                 .get(const GetOptions(source: Source.serverAndCache));
             if (mounted) {
               setState(() {
@@ -329,9 +328,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     final tid = _effectiveTenantId.trim();
     if (tid.isEmpty) return;
 
-    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-    final col =         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros');
+    final op = ChurchRepository.churchId(tid.trim());
+    final col =         ChurchUiCollections.membros(op);
 
     DocumentSnapshot<Map<String, dynamic>>? memDoc;
     final user = FirebaseAuth.instance.currentUser;

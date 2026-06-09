@@ -34,6 +34,7 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -63,6 +64,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:photo_view/photo_view_gallery.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Extrai URLs de fotos do patrimônio — lista + campos simples + strings dinâmicas do Firestore.
 /// Unifica duplicatas e normaliza URLs do Storage (incl. host *.firebasestorage.app).
@@ -337,8 +339,7 @@ Future<({
   required String tenantId,
 }) async {
   final op = ChurchContextService.panelChurchId(tenantId);
-  final snap = await ChurchOperationalPaths.churchDoc(op)
-      .collection('membros')
+  final snap = await ChurchUiCollections.membros(op)
       .get();
   final options = snap.docs
       .map((d) {
@@ -696,10 +697,13 @@ abstract final class _PatrimonioRamCache {
 void _prewarmPatrimonioModule(String tenantId) {
   final tid = tenantId.trim();
   if (tid.isEmpty) return;
-  unawaited(ChurchTenantResilientReads.patrimonio(
-    tid,
-    limit: YahwehPerformanceV4.patrimonioListPageSize,
-  ));
+  unawaited(
+    ChurchRepository.listCacheFirst(
+      module: ChurchRepository.patrimonio,
+      churchIdHint: tid,
+      limit: YahwehPerformanceV4.patrimonioListPageSize,
+    ),
+  );
   unawaited(ChurchTenantResilientReads.contas(tid));
 }
 
@@ -793,8 +797,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   bool get _canWrite => ChurchRolePermissions.isFinanceCoreTeam(widget.role);
 
   CollectionReference<Map<String, dynamic>> get _col =>
-                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-          .collection('patrimonio');
+                ChurchUiCollections.patrimonio(_effectiveTenantId);
 
   /// Categorias principais do inventário (ERP) + legado para dados antigos.
   /// Extras por igreja: `igrejas/{id}/config/patrimonio` → `categoriasExtras`.
@@ -878,8 +881,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     final db = firebaseDefaultFirestore;
     _patrimonioRealtimeSubs.addAll([
       _col.limit(1).watchSafe().listen((_) => _schedulePatrimonioRealtimeRefresh()),
-                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-          .collection('config')
+                ChurchUiCollections.config(_effectiveTenantId)
           .doc('patrimonio')
           .watchSafe()
           .listen((_) => _schedulePatrimonioRealtimeRefresh()),
@@ -1360,7 +1362,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                 'localizacao': novoLocal,
                 'atualizadoEm': FieldValue.serverTimestamp(),
               });
-              await _col.doc(doc.id).collection('transferencias').add({
+              await ChurchUiCollections.subOf(_col.doc(doc.id), 'transferencias').add({
                 'de': antigoResp,
                 'para': novoResp,
                 'localizacao': novoLocal,
@@ -1529,7 +1531,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                     final userName =
                         firebaseDefaultAuth.currentUser?.displayName ??
                             'Usuário';
-                    await doc.reference.collection('manutencoes').add({
+                    await ChurchUiCollections.subOf(doc.reference, 'manutencoes').add({
                       'descricao': descCtrl.text.trim(),
                       'custo': parseBrCurrencyInput(custoCtrl.text),
                       'prestador': prestCtrl.text.trim(),
@@ -1777,8 +1779,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                       ),
                   ]),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: doc.reference
-                        .collection('manutencoes')
+                    stream: ChurchUiCollections.subOf(doc.reference, 'manutencoes')
                         .orderBy('data', descending: true)
                         .limit(12)
                         .watchSafe(),
@@ -1863,8 +1864,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                             color: Color(0xFF7C3AED))),
                   ]),
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: doc.reference
-                        .collection('transferencias')
+                    stream: ChurchUiCollections.subOf(doc.reference, 'transferencias')
                         .orderBy('data', descending: true)
                         .limit(5)
                         .watchSafe(),
@@ -5208,8 +5208,7 @@ class _DashboardTabState extends State<_DashboardTab> {
 
               // ── Linha: inventários finalizados por mês (últimos 6 meses) ──
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                stream:                     ChurchOperationalPaths.churchDoc(widget.tenantId)
-                    .collection('patrimonio_inventario_historico')
+                stream: ChurchUiCollections.patrimonioInventarioHistorico(widget.tenantId)
                     .orderBy('finalizadoEm', descending: true)
                     .limit(48)
                     .watchSafe(),
@@ -5661,8 +5660,7 @@ class _InventarioTabState extends State<_InventarioTab> {
                   });
                 }
                 final op = ChurchContextService.panelChurchId(widget.tenantId);
-                await ChurchOperationalPaths.churchDoc(op)
-                    .collection('patrimonio_inventario_historico')
+                await ChurchUiCollections.patrimonioInventarioHistorico(op)
                     .add({
                   'finalizadoEm': FieldValue.serverTimestamp(),
                   'totalBens': total,
@@ -5922,8 +5920,7 @@ class _InventarioHistoricoSectionState extends State<_InventarioHistoricoSection
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream:           ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('patrimonio_inventario_historico')
+      stream: ChurchUiCollections.patrimonioInventarioHistorico(widget.tenantId)
           .orderBy('finalizadoEm', descending: true)
           .limit(200)
           .watchSafe(),
@@ -7450,8 +7447,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       }
       final tenantId = widget.col.parent!.id;
       final op = ChurchContextService.panelChurchId(tenantId);
-      await ChurchOperationalPaths.churchDoc(op)
-          .collection('config')
+      await ChurchUiCollections.config(op)
           .doc('patrimonio')
           .set(
         {

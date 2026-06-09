@@ -11,10 +11,13 @@ import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/global_tenant_audit_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/tenant/diagnostic_access_policy.dart';
 import 'package:gestao_yahweh/ui/pages/church_panel_diagnostic_page.dart';
+import 'package:gestao_yahweh/ui/pages/church_system_health_page.dart';
 import 'package:gestao_yahweh/ui/pages/debug_church_page.dart';
 import 'package:gestao_yahweh/ui/pages/church_sync_test_page.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -86,15 +89,16 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   String _accountEmailDisplay = '';
   String? _operationalTenantId;
   GlobalTenantAuditReport? _globalAudit;
+  ChurchDataAuditReport? _dataLayerAudit;
   bool _churchSyncDiagnosticLoading = false;
+  bool _dataLayerAuditLoading = false;
 
   String get _effectiveTenantId =>
       (_operationalTenantId ?? widget.tenantId).trim();
 
-  bool get _canManageDiagnostic {
-    final r = widget.role.toLowerCase();
-    return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
-  }
+  /// Diagnóstico técnico (DEBUG CHURCH, paths Firestore) — somente Master.
+  bool get _isMasterDiagnosticRole =>
+      DiagnosticAccessPolicy.isMasterDiagnosticRole(widget.role);
 
   Future<void> _runChurchSyncDiagnostic() async {
     if (_churchSyncDiagnosticLoading) return;
@@ -118,6 +122,24 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     }
   }
 
+  Future<void> _runDataLayerAudit() async {
+    if (_dataLayerAuditLoading) return;
+    setState(() => _dataLayerAuditLoading = true);
+    try {
+      final report = await ChurchRepository.runFullAudit(
+        churchIdHint: _effectiveTenantId,
+      );
+      if (!mounted) return;
+      setState(() {
+        _dataLayerAudit = report;
+        _dataLayerAuditLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _dataLayerAuditLoading = false);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -127,6 +149,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     if (seed.isNotEmpty) {
       final op = ChurchContextService.panelChurchId(seed);
       if (op.isNotEmpty) _operationalTenantId = op;
+    }
+    if (_isMasterDiagnosticRole && _effectiveTenantId.isNotEmpty) {
+      unawaited(_runChurchSyncDiagnostic());
+      unawaited(_runDataLayerAudit());
     }
   }
 
@@ -254,8 +280,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     try {
       final tid = _effectiveTenantId;
       if (tid.isNotEmpty) {
-        final op = await ChurchOperationalPaths.resolveCached(tid);
-        final chSnap = await ChurchOperationalPaths.churchDoc(op)
+        final op = ChurchRepository.churchId(tid);
+        final chSnap = await ChurchUiCollections.churchDoc(op)
             .get(const GetOptions(source: Source.serverAndCache))
             .timeout(const Duration(seconds: 8));
         guard = SubscriptionGuard.evaluate(
@@ -796,12 +822,14 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                   const SizedBox(height: 24),
                   _SectionTitle(icon: Icons.notifications_active_rounded, title: 'Notificações e acesso'),
                   _buildNotificacoesCard(),
-                  if (_canManageDiagnostic) ...[
+                  if (_isMasterDiagnosticRole) ...[
                     const SizedBox(height: 24),
                     _SectionTitle(
-                      icon: Icons.sync_problem_rounded,
-                      title: 'Diagnóstico Firestore + Storage',
+                      icon: Icons.health_and_safety_rounded,
+                      title: 'Diagnóstico e saúde',
                     ),
+                    _buildSystemHealthEntry(context),
+                    const SizedBox(height: 12),
                     _buildChurchSyncDiagnosticCard(context),
                   ],
                   const SizedBox(height: 24),
@@ -1066,10 +1094,47 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     );
   }
 
+  Widget _buildSystemHealthEntry(BuildContext context) {
+    return _Card(
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(Icons.monitor_heart_rounded, color: ThemeCleanPremium.primary),
+        title: const Text(
+          'Saúde do Sistema',
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: const Text(
+          'Firestore, Storage, Auth, Mercado Pago, módulos e auditoria completa',
+          style: TextStyle(fontSize: 12),
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChurchSystemHealthPage(
+                tenantId: _effectiveTenantId,
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  int? _auditCount(ChurchDataAuditReport? report, String module) {
+    if (report == null) return null;
+    for (final r in report.rows) {
+      if (r.module == module) return r.count;
+    }
+    return null;
+  }
+
   Widget _buildChurchSyncDiagnosticCard(BuildContext context) {
     final audit = _globalAudit;
     final d = audit?.syncReport;
     final counts = audit?.moduleCounts;
+    final layer = _dataLayerAudit;
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1080,9 +1145,41 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
           ),
           const SizedBox(height: 12),
-          if (_churchSyncDiagnosticLoading)
+          if (_churchSyncDiagnosticLoading || _dataLayerAuditLoading)
             const Center(child: CircularProgressIndicator(strokeWidth: 2))
-          else if (d != null) ...[
+          else if (layer != null) ...[
+            Text(
+              'Auditoria automática — ${layer.platform}',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey.shade700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _diagLine('Membros', '${_auditCount(layer, 'MEMBROS') ?? 0}'),
+            _diagLine('Departamentos', '${_auditCount(layer, 'DEPARTAMENTOS') ?? 0}'),
+            _diagLine('Cargos', '${_auditCount(layer, 'CARGOS') ?? 0}'),
+            _diagLine('Eventos', '${_auditCount(layer, 'EVENTOS') ?? 0}'),
+            _diagLine('Avisos', '${_auditCount(layer, 'AVISOS') ?? 0}'),
+            _diagLine('Patrimônio', '${_auditCount(layer, 'PATRIMÔNIO') ?? 0}'),
+            _diagLine('Chat', '${_auditCount(layer, 'CHAT') ?? 0}'),
+            _diagLine('Financeiro', '${_auditCount(layer, 'FINANCEIRO') ?? 0}'),
+            if (!layer.allOk)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Contagem 0 ou FALHA — abra Saúde do Sistema para detalhes.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: ThemeCleanPremium.error,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            const SizedBox(height: 12),
+          ],
+          if (!_churchSyncDiagnosticLoading && !_dataLayerAuditLoading && d != null) ...[
             _diagLine('Church ID', d.resolvedChurchId),
             _diagLine('Seed (entrada)', d.seedTenantId),
             _diagLine('Firestore Path', d.firestorePath),
@@ -1231,11 +1328,14 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _churchSyncDiagnosticLoading
+                  onPressed: (_churchSyncDiagnosticLoading || _dataLayerAuditLoading)
                       ? null
-                      : () => unawaited(_runChurchSyncDiagnostic()),
+                      : () {
+                          unawaited(_runChurchSyncDiagnostic());
+                          unawaited(_runDataLayerAudit());
+                        },
                   icon: const Icon(Icons.medical_information_outlined, size: 18),
-                  label: const Text('Executar diagnóstico'),
+                  label: const Text('Executar auditoria'),
                 ),
               ),
               const SizedBox(width: 8),
@@ -1538,8 +1638,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   Future<void> _exportarBackup(BuildContext context) async {
     try {
       final resolvedTenantId = await _resolveEffectiveTenantId();
-      final op = await ChurchOperationalPaths.resolveCached(resolvedTenantId.trim());
-      final ref = ChurchOperationalPaths.churchDoc(op);
+      final op = ChurchRepository.churchId(resolvedTenantId.trim());
+      final ref = ChurchUiCollections.churchDoc(op);
       final sample = YahwehPerformanceV4.dashboardStatsSampleLimit;
       final membersSnap = await ref.collection('membros').limit(sample).get();
       final noticiasSnap = await ref.collection('eventos').limit(sample).get();
@@ -1567,10 +1667,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
 
   /// Usa o serviço centralizado para garantir mesmo path que AuthGate, dashboard e MembersPage (import/export no mesmo tenant).
   Future<String> _resolveEffectiveTenantId() async {
-    final op = await ChurchOperationalPaths.resolveCached(
-      widget.tenantId,
-      userUid: FirebaseAuth.instance.currentUser?.uid,
-    );
+    final op = ChurchRepository.churchId(widget.tenantId);
     if (mounted && op.isNotEmpty) {
       setState(() => _operationalTenantId = op);
     }
@@ -1612,8 +1709,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       final data = jsonDecode(ctrl.text.trim()) as Map<String, dynamic>;
       final members = (data['members'] as List?) ?? [];
       final batch = FirebaseFirestore.instance.batch();
-      final op = await ChurchOperationalPaths.resolveCached(resolvedTenantId.trim());
-      final col = ChurchOperationalPaths.churchDoc(op).collection('membros');
+      final op = ChurchRepository.churchId(resolvedTenantId.trim());
+      final col = ChurchUiCollections.membros(op);
       for (final m in members) {
         final map = m as Map<String, dynamic>;
         final id = (map['id'] ?? '').toString();

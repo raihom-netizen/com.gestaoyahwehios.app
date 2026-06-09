@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Dízimos, ofertas e contribuições via PIX ou cartão (Checkout Pro Mercado Pago da igreja).
 /// Só contas tesouraria **Mercado Pago** (323) entram na conciliação desta tela.
@@ -1316,7 +1317,7 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
   @override
   Widget build(BuildContext context) {
     final primary = ThemeCleanPremium.primary;
-    final q =         ChurchOperationalPaths.churchDoc(widget.tenantId)
+    final q =         ChurchUiCollections.churchDoc(widget.tenantId)
         .collection('contribuicoes_dizimo_historico')
         .orderBy('approvedAt', descending: true)
         .limit(400);

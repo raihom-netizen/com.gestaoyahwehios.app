@@ -1,13 +1,14 @@
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import '../../services/app_permissions.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Item exibido na lista: `igrejas/{churchId}/users` ou `igrejas/{churchId}/membros`.
 class _UserOrMemberRow {
@@ -54,11 +55,11 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
   Future<void> _bootstrapOperationalTenant() async {
     final seed = widget.tenantId.trim();
     if (seed.isEmpty) return;
-    final op = await ChurchOperationalPaths.resolveCached(seed);
+    final op = ChurchRepository.churchId(seed);
     if (!mounted) return;
     setState(() {
       _operationalTenantId = op;
-      _usersCol = ChurchOperationalPaths.churchDoc(op).collection('users');
+      _usersCol = ChurchUiCollections.churchDoc(op).collection('users');
     });
     await _loadMembersAndMembros();
   }
@@ -72,8 +73,7 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
         if (mounted) setState(() => _membersFromCollections = []);
         return;
       }
-      final snap = await ChurchOperationalPaths.churchDoc(churchId)
-          .collection('membros')
+      final snap = await ChurchUiCollections.membros(churchId)
           .limit(_membersLoadLimit)
           .get();
       final list = snap.docs

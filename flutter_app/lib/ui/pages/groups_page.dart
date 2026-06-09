@@ -3,10 +3,11 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 class GroupsPage extends StatefulWidget {
   final String tenantId;
@@ -34,7 +35,7 @@ class _GroupsPageState extends State<GroupsPage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _gruposCol =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId)
+                ChurchUiCollections.churchDoc(widget.tenantId)
           .collection('grupos');
 
   static const _diasSemana = [
@@ -829,8 +830,8 @@ class _GroupFormPageState extends State<_GroupFormPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final col =           ChurchOperationalPaths.churchDoc(op)
+      final op = ChurchRepository.churchId(widget.tenantId.trim());
+      final col =           ChurchUiCollections.churchDoc(op)
           .collection('grupos');
 
       final payload = <String, dynamic>{
@@ -1051,7 +1052,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
   late final TabController _tabCtrl;
 
   DocumentReference<Map<String, dynamic>> get _groupRef =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId)
+                ChurchUiCollections.churchDoc(widget.tenantId)
           .collection('grupos')
           .doc(widget.groupDoc.id);
 
@@ -1261,9 +1262,8 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
   }
 
   Future<void> _addMembro() async {
-    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-    final membersCol =         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros');
+    final op = ChurchRepository.churchId(widget.tenantId.trim());
+    final membersCol =         ChurchUiCollections.membros(op);
 
     final searchCtrl = TextEditingController();
     String q = '';

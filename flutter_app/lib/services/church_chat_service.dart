@@ -9,6 +9,9 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 
+import 'package:gestao_yahweh/core/chat_engine/chat_messaging_engine.dart';
+import 'package:gestao_yahweh/core/chat_engine/chat_presence_engine.dart';
+import 'package:gestao_yahweh/core/chat_engine/chat_thread_repository.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -150,15 +153,11 @@ class ChurchChatService {
     int pageSize = defaultMessagePageSize,
   }) async {
     final op = await ChurchOperationalPaths.resolve(tenantId);
-    final snap = await FirestoreReadResilience.getQuery(
-      recentMessagesQuery(
-        tenantId: op,
-        threadId: threadId,
-        pageSize: pageSize,
-      ),
-      cacheKey: recentMessagesCacheKey(op, threadId),
+    return ChatMessagingEngine.fetchRecentMessagesPage(
+      churchId: op,
+      chatId: threadId,
+      pageSize: pageSize,
     );
-    return snap.docs;
   }
 
   /// Stream da cauda recente — resiliente a rede/`INTERNAL ASSERTION` (web).
@@ -167,12 +166,11 @@ class ChurchChatService {
     required String threadId,
     int pageSize = defaultMessagePageSize,
   }) {
-    final q = recentMessagesQuery(
-      tenantId: tenantId,
-      threadId: threadId,
+    return ChatMessagingEngine.watchRecentMessages(
+      churchId: tenantId,
+      chatId: threadId,
       pageSize: pageSize,
     );
-    return FirestoreStreamUtils.queryWatchBootstrap(q);
   }
 
   static Stream<DocumentSnapshot<Map<String, dynamic>>> threadSnapshots(
@@ -192,12 +190,12 @@ class ChurchChatService {
     required DocumentSnapshot<Map<String, dynamic>> startAfterDoc,
     int pageSize = defaultMessagePageSize,
   }) async {
-    final snap = await messagesCol(tenantId, threadId)
-        .orderBy(messageTimestampField, descending: true)
-        .startAfterDocument(startAfterDoc)
-        .limit(pageSize)
-        .get();
-    return snap.docs;
+    return ChatMessagingEngine.loadOlderMessagesPage(
+      churchId: tenantId,
+      chatId: threadId,
+      startAfterDoc: startAfterDoc,
+      pageSize: pageSize,
+    );
   }
 
   static CollectionReference<Map<String, dynamic>> typingCol(
@@ -211,11 +209,11 @@ class ChurchChatService {
     String tenantId,
     String uid,
   ) {
-    return         ChurchOperationalPaths.churchDoc(tenantId)
-        .collection('chats')
-        .where('participantUids', arrayContains: uid)
-        .orderBy('lastMessageAt', descending: true)
-        .limit(YahwehPerformanceV4.chatThreadsListLimit);
+    return ChatThreadRepository.threadsForUser(
+      churchId: tenantId,
+      uid: uid,
+      limit: YahwehPerformanceV4.chatThreadsListLimit,
+    );
   }
 
   /// Threads com `participantUids` mas sem `lastMessageAt` (não entram na query ordenada).
@@ -1413,36 +1411,11 @@ class ChurchChatService {
   static Future<Map<String, bool>> fetchPresenceOnlineMap({
     required String tenantId,
     required Iterable<String> authUids,
-  }) async {
-    final tid = tenantId.trim();
-    final ids = authUids
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toSet()
-        .toList();
-    if (tid.isEmpty || ids.isEmpty) return {};
-    final out = <String, bool>{};
-    const chunk = 12;
-    for (var i = 0; i < ids.length; i += chunk) {
-      final part = ids.sublist(
-        i,
-        i + chunk > ids.length ? ids.length : i + chunk,
+  }) =>
+      ChatPresenceEngine.fetchOnlineMap(
+        churchId: tenantId,
+        authUids: authUids,
       );
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-      final snaps = await Future.wait(
-        part.map(
-          (uid) => ChurchOperationalPaths.churchDoc(op)
-              .collection('chat_presence')
-              .doc(uid)
-              .get(),
-        ),
-      );
-      for (var j = 0; j < part.length; j++) {
-        out[part[j]] = isOnlineFromSnapshot(snaps[j]);
-      }
-    }
-    return out;
-  }
 
   /// Atualiza `lastSeenAtByUid.{uid}` no thread (DM ou grupo) para recibos de leitura na DM.
   static Future<bool> deleteMessage({

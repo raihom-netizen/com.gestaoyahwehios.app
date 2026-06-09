@@ -18,9 +18,7 @@ class AdminMultiTenantDiagnosticPage extends StatefulWidget {
 
 class _AdminMultiTenantDiagnosticPageState
     extends State<AdminMultiTenantDiagnosticPage> {
-  final _churchCtrl = TextEditingController(
-    text: 'igreja_o_brasil_para_cristo_jardim_goiano',
-  );
+  final _churchCtrl = TextEditingController();
   List<MultiTenantCheckResult> _checks = [];
   bool _loading = false;
 

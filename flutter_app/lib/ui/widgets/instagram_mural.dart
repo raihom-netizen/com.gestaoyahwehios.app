@@ -115,6 +115,7 @@ import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart'
 import 'package:gestao_yahweh/services/aviso_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/evento_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Diagnóstico no Console (F12): prefixo pedido para filtrar falhas de Storage/CORS/decode.
 /// Leitura rápida: [SafeNetworkImage] / [StableStorageImage] = cache disco+RAM (CDN Storage).
@@ -299,11 +300,11 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
-                ChurchOperationalPaths.churchDoc(_tid)
+                ChurchUiCollections.churchDoc(_tid)
           .collection(ChurchTenantPostsCollections.eventos);
 
   CollectionReference<Map<String, dynamic>> get _avisos =>
-                ChurchOperationalPaths.churchDoc(_tid)
+                ChurchUiCollections.churchDoc(_tid)
           .collection(ChurchTenantPostsCollections.avisos);
 
   String get _nomeIgreja =>
@@ -534,9 +535,9 @@ class InstagramMuralState extends State<InstagramMural> {
       userUid: uid,
     );
     final postsCollection = type == 'evento'
-        ? ChurchOperationalPaths.churchDoc(igrejaId)
+        ? ChurchUiCollections.churchDoc(igrejaId)
             .collection(ChurchTenantPostsCollections.eventos)
-        : ChurchOperationalPaths.churchDoc(igrejaId)
+        : ChurchUiCollections.churchDoc(igrejaId)
             .collection(ChurchTenantPostsCollections.avisos);
     if (!mounted) return;
     final result = await Navigator.push<bool>(
@@ -1322,7 +1323,7 @@ class _MuralPostLinksRow extends StatelessWidget {
 
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future:
-          ChurchOperationalPaths.churchDoc(tenantId).get(),
+          ChurchUiCollections.churchDoc(tenantId).get(),
       builder: (context, snap) {
         double? lat = eventLat;
         double? lng = eventLng;

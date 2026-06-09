@@ -9,6 +9,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Boas-vindas únicas no painel da igreja (gestor) — após OK grava em `igrejas/{tenantId}`.
 
@@ -63,7 +64,7 @@ class GestorWelcomeDialog {
 
     try {
       final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-      final igrejaSnap = await           ChurchOperationalPaths.churchDoc(op)
+      final igrejaSnap = await           ChurchUiCollections.churchDoc(op)
           .get(const GetOptions(source: Source.server));
 
       final ig = igrejaSnap.data();
@@ -115,7 +116,7 @@ class GestorWelcomeDialog {
           if (!ctx.mounted) return;
           Navigator.of(ctx, rootNavigator: true).pop();
           unawaited(
-                            ChurchOperationalPaths.churchDoc(tenantId)
+                            ChurchUiCollections.churchDoc(tenantId)
                 .set(
                   {
                     'gestorBoasVindasModalOkAt': FieldValue.serverTimestamp(),

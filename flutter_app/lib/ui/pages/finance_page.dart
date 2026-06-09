@@ -18,13 +18,15 @@ import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
@@ -50,7 +52,6 @@ import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/panel_finance_accounts_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_premium_widgets.dart';
@@ -219,7 +220,7 @@ Widget _financeBankMiniLogo({
 
 Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
   final op = ChurchRepository.churchId(tenantId);
-  final col = ChurchOperationalPaths.churchDoc(op)
+  final col = ChurchUiCollections.churchDoc(op)
       .collection('categorias_receitas');
   var snap = await col.orderBy('nome').get();
   if (snap.docs.isEmpty) {
@@ -239,7 +240,7 @@ Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
 Future<List<({String id, String nome})>> _financeContasAtivasTenant(
     String tenantId) async {
   final op = ChurchRepository.churchId(tenantId);
-  final snap = await ChurchOperationalPaths.churchDoc(op)
+  final snap = await ChurchUiCollections.churchDoc(op)
       .collection('contas')
       .orderBy('nome')
       .get();
@@ -296,8 +297,7 @@ Future<_FinancePdfSignerSelection?> _pickFinancePdfSigners(
   required String tenantId,
 }) async {
   final op = ChurchRepository.churchId(tenantId);
-  final snap = await ChurchOperationalPaths.churchDoc(op)
-      .collection('membros')
+  final snap = await ChurchUiCollections.membros(op)
       .get();
 
   final opts = snap.docs.map((d) {
@@ -1035,10 +1035,10 @@ class _FinancePageState extends State<FinancePage>
   String get _tid => (_firestoreTenantId ?? widget.tenantId).trim();
 
   DocumentReference<Map<String, dynamic>> get _tenantRef =>
-      ChurchOperationalPaths.churchDoc(_tid);
+      ChurchUiCollections.churchDoc(_tid);
 
   CollectionReference<Map<String, dynamic>> get _financeCol =>
-      _tenantRef.collection('finance');
+      ChurchUiCollections.financeiro(_tid);
 
   /// Incrementado após salvar/excluir lançamento — atualiza Resumo + Lançamentos.
   int _financeRevision = 0;
@@ -1071,10 +1071,13 @@ class _FinancePageState extends State<FinancePage>
   void _prewarmFinanceCaches(String tenantId) {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
-    unawaited(ChurchTenantResilientReads.financeRecent(
-      tid,
-      limit: YahwehPerformanceV4.financeChartsSampleLimit,
-    ));
+    unawaited(
+      ChurchRepository.listCacheFirst(
+        module: ChurchRepository.financeiro,
+        churchIdHint: tid,
+        limit: YahwehPerformanceV4.financeChartsSampleLimit,
+      ),
+    );
     unawaited(ChurchTenantResilientReads.contas(tid));
   }
 
@@ -1091,19 +1094,21 @@ class _FinancePageState extends State<FinancePage>
       unawaited(s.cancel());
     }
     _financeRealtimeSubs.clear();
+    // Web: listeners paralelos + painel activo → INTERNAL ASSERTION (Firestore 11.x).
+    if (kIsWeb) return;
     _financeRealtimeSubs.addAll([
       _financeCol.limit(1).watchSafe().listen((_) => _scheduleFinanceRealtimeRefresh()),
-      ChurchOperationalPaths.churchDoc(_tid)
+      ChurchUiCollections.churchDoc(_tid)
           .collection('contas')
           .limit(1)
           .watchSafe()
           .listen((_) => _scheduleFinanceRealtimeRefresh()),
-      ChurchOperationalPaths.churchDoc(_tid)
+      ChurchUiCollections.churchDoc(_tid)
           .collection('despesas_fixas')
           .limit(1)
           .watchSafe()
           .listen((_) => _scheduleFinanceRealtimeRefresh()),
-      ChurchOperationalPaths.churchDoc(_tid)
+      ChurchUiCollections.churchDoc(_tid)
           .collection('receitas_recorrentes')
           .limit(1)
           .watchSafe()
@@ -1120,7 +1125,32 @@ class _FinancePageState extends State<FinancePage>
       _financeBootstrapDone = true;
     });
     _startFinanceRealtimeSync();
+    unawaited(_probeFinanceCollection());
     unawaited(_resolveOperationalTenantInBackground());
+  }
+
+  Future<void> _probeFinanceCollection() async {
+    final churchId = ChurchRepository.resolveChurchId(_tid);
+    if (churchId.isEmpty) return;
+    final result = await ChurchRepository.listCacheFirst(
+      module: ChurchRepository.financeiro,
+      churchIdHint: churchId,
+      limit: 50,
+    );
+    ChurchModuleQueryProbe.logSuccess(
+      module: 'Financeiro',
+      churchId: churchId,
+      path: result.collectionPath,
+      totalDocs: result.count,
+    );
+    if (result.error != null) {
+      ChurchModuleQueryProbe.logError(
+        module: 'Financeiro',
+        churchId: churchId,
+        path: result.collectionPath,
+        error: result.error!,
+      );
+    }
   }
 
   Future<void> _resolveOperationalTenantInBackground() async {
@@ -3618,7 +3648,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          future:                               ChurchOperationalPaths.churchDoc(widget.tenantId)
+                          future:                               ChurchUiCollections.churchDoc(widget.tenantId)
                               .collection('contas')
                               .orderBy('nome')
                               .get(),
@@ -3659,7 +3689,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                     if (ctaId != null && ctaId.isNotEmpty && saldoIni != null) ...[
                       const SizedBox(height: 6),
                       FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        future:                             ChurchOperationalPaths.churchDoc(widget.tenantId)
+                        future:                             ChurchUiCollections.churchDoc(widget.tenantId)
                             .collection('contas')
                             .doc(ctaId)
                             .get(),
@@ -5289,7 +5319,7 @@ class _DespesasFixasTab extends StatefulWidget {
 
 class _DespesasFixasTabState extends State<_DespesasFixasTab> {
   CollectionReference<Map<String, dynamic>> get _col =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId)
+                ChurchUiCollections.churchDoc(widget.tenantId)
           .collection('despesas_fixas');
 
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
@@ -6184,8 +6214,7 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
       }
     }
     final op = ChurchRepository.churchId(widget.tenantId.trim());
-    await         ChurchOperationalPaths.churchDoc(op)
-        .collection('finance')
+    await         ChurchUiCollections.financeiro(op)
         .add(lanc);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -6207,7 +6236,7 @@ class _FinanceCategoriasTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ref = ChurchOperationalPaths.churchDoc(tenantId);
+    final ref = ChurchUiCollections.churchDoc(tenantId);
     final colDespesas = ref.collection('categorias_despesas');
     final colReceitas = ref.collection('categorias_receitas');
     return SingleChildScrollView(
@@ -6517,12 +6546,10 @@ class _FinanceContasTab extends StatefulWidget {
 
 class _FinanceContasTabState extends State<_FinanceContasTab> {
   CollectionReference<Map<String, dynamic>> get _col =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('contas');
+      ChurchUiCollections.contas(widget.tenantId);
 
   CollectionReference<Map<String, dynamic>> get _financeCol =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('finance');
+                ChurchUiCollections.financeiro(widget.tenantId);
 
   static String _contaSubtitle(Map<String, dynamic> d) {
     final tipo = _financeTipoContaLabel(d['tipoConta']?.toString());
@@ -7425,8 +7452,7 @@ Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
     String tenantId) async {
   try {
     final op = ChurchRepository.churchId(tenantId);
-    final snap = await ChurchOperationalPaths.churchDoc(op)
-        .collection('fornecedores')
+    final snap = await ChurchUiCollections.fornecedores(op)
         .orderBy('nome')
         .limit(YahwehPerformanceV4.defaultPageSize)
         .get();
@@ -7448,8 +7474,7 @@ Future<List<({String id, String nome})>> _membrosParaFinanceDropdown(
     String tenantId) async {
   try {
     final op = ChurchRepository.churchId(tenantId);
-    final snap = await ChurchOperationalPaths.churchDoc(op)
-        .collection('membros')
+    final snap = await ChurchUiCollections.membros(op)
         .limit(YahwehPerformanceV4.defaultPageSize)
         .get();
     final out = <({String id, String nome})>[];
@@ -7521,8 +7546,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
 }) async {
   await _ensureFinanceWriteReady();
   final op = ChurchRepository.churchId(tenantId);
-  final financeCol = ChurchOperationalPaths.churchDoc(op)
-      .collection('finance');
+  final financeCol = ChurchUiCollections.financeiro(op);
 
   final isEdit = existingDoc != null;
   final data = existingDoc?.data();

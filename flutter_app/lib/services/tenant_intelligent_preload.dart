@@ -29,6 +29,36 @@ abstract final class TenantIntelligentPreload {
     if (tid.isEmpty) return;
     _lastTenant = tid;
     unawaited(_runDashboardOnly(tid));
+    unawaited(_warmCoreModulesSilently(tid));
+  }
+
+  /// Membros, Eventos e Avisos — cache Hive em background (usuário não percebe).
+  static Future<void> _warmCoreModulesSilently(String tenantId) async {
+    final limit = YahwehPerformanceV4.defaultPageSize;
+    final specs = <(String, Future<QuerySnapshot<Map<String, dynamic>>> Function())>[
+      (
+        TenantModuleKeys.membros,
+        () => ChurchTenantResilientReads.membrosRecent(tenantId, limit: limit),
+      ),
+      (
+        TenantModuleKeys.eventos,
+        () => ChurchTenantResilientReads.noticiasByStartAt(tenantId, limit: limit),
+      ),
+      (
+        TenantModuleKeys.avisos,
+        () => ChurchTenantResilientReads.avisosFeed(tenantId, limit: limit),
+      ),
+    ];
+    for (final spec in specs) {
+      try {
+        await TenantStaleWhileRevalidate.warmModule(
+          tenantId: tenantId,
+          module: spec.$1,
+          networkFetch: spec.$2,
+        );
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+    }
   }
 
   /// Ao abrir um módulo do menu — aquece só esse módulo (lazy).
@@ -139,6 +169,17 @@ abstract final class TenantIntelligentPreload {
               module: TenantModuleKeys.patrimonio,
               networkFetch: () =>
                   ChurchTenantResilientReads.patrimonio(tenantId, limit: limit),
+            );
+          });
+          break;
+        case ChurchShellIndices.escalaGeral:
+        case ChurchShellIndices.minhaEscala:
+          await safe('escalas', () async {
+            await TenantStaleWhileRevalidate.warmModule(
+              tenantId: tenantId,
+              module: TenantModuleKeys.escalas,
+              networkFetch: () =>
+                  ChurchTenantResilientReads.escalasRecent(tenantId, limit: limit),
             );
           });
           break;

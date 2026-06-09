@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/plan_price_service.dart';
 
@@ -103,7 +103,7 @@ class MembersLimitService {
   Future<int?> _cachedMembersTotalCount(String tenantId) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) return null;
-    final op = await ChurchOperationalPaths.resolveCached(tid);
+    final op = ChurchRepository.churchId(tid);
     try {
       final stats = await ChurchTenantResilientReads.panelStatisticsSummary(op);
       final n = stats.data()?['membersTotalCount'] ?? stats.data()?['members'];
@@ -115,7 +115,7 @@ class MembersLimitService {
       if (n is num && n >= 0) return n.toInt();
     } catch (_) {}
     try {
-      final snap = await ChurchOperationalPaths.churchDoc(op)
+      final snap = await ChurchRepository.churchDoc(op)
           .collection('_panel_cache')
           .doc('members_directory')
           .get();
@@ -125,20 +125,18 @@ class MembersLimitService {
     return null;
   }
 
-  /// Conta membros do tenant: igrejas/tenantId/membros + igrejas/tenantId/members (legado, até migração) + users.
+  /// Conta membros do tenant: `igrejas/{id}/membros` + índice `users`.
   /// [maxPerSource] limita a leitura por coleção para não carregar milhares de docs (ex.: planLimit + 200).
   Future<int> countMembers(String tenantId, {int? maxPerSource}) async {
     final limit = maxPerSource ?? 2500;
-    final op = await ChurchOperationalPaths.resolveCached(tenantId);
-    final churchRef = ChurchOperationalPaths.churchDoc(op);
+    final op = ChurchRepository.churchId(tenantId);
     final ids = <String>{};
     try {
-      final membrosSnap = await churchRef.collection('membros').limit(limit).get();
-      for (final d in membrosSnap.docs) ids.add(d.id);
-    } catch (_) {}
-    try {
-      final membersSnap = await churchRef.collection('members').limit(limit).get();
-      for (final d in membersSnap.docs) ids.add(d.id);
+      final membrosSnap = await ChurchRepository.membros.list(
+        churchIdHint: op,
+        limit: limit,
+      );
+      for (final d in membrosSnap.items) ids.add(d.id);
     } catch (_) {}
     try {
       final usersByTenant = await _db
@@ -159,7 +157,7 @@ class MembersLimitService {
 
   /// Obtém planId do tenant (tenant doc ou subscription).
   Future<String> getPlanIdForTenant(String tenantId) async {
-    final op = await ChurchOperationalPaths.resolveCached(tenantId);
+    final op = ChurchRepository.churchId(tenantId);
     final tenantSnap = await ChurchTenantResilientReads.churchDocument(op);
     final tenantData = tenantSnap.data();
     String planId = (tenantData?['planId'] ?? tenantData?['plan'] ?? '').toString().trim();

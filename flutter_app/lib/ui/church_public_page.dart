@@ -95,6 +95,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Capa para site público — mesma lógica centralizada em [eventNoticiaFeedCoverHintUrl].
 String _churchPublicNoticiaCoverUrl(Map<String, dynamic> p) =>
@@ -210,7 +211,7 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
     // Só documentos com publicSite == true: o Firestore exige que a query não possa
     // devolver posts privados (publicSite == false); senão visitante sem login leva
     // permission-denied em listas sem filtro — mesmo que o app filtre depois no cliente.
-    final base = ChurchOperationalPaths.churchDoc(igrejaId);
+    final base = ChurchUiCollections.churchDoc(igrejaId);
     final sub1 = base
         .collection(ChurchTenantPostsCollections.eventos)
         .where('publicSite', isEqualTo: true)
@@ -1433,20 +1434,19 @@ Future<_PublicSocialProofStats> _loadPublicSocialProofStats(
     String igrejaId) async {
   try {
     final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
-    final membersAgg = await         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros')
+    final membersAgg = await         ChurchUiCollections.membros(op)
         .where('status', isEqualTo: 'ativo')
         .count()
         .get();
     final from =
         Timestamp.fromDate(DateTime.now().subtract(const Duration(days: 30)));
-    final postsNoticias = await         ChurchOperationalPaths.churchDoc(op)
+    final postsNoticias = await         ChurchUiCollections.churchDoc(op)
         .collection(ChurchTenantPostsCollections.eventos)
         .where('publicSite', isEqualTo: true)
         .where('createdAt', isGreaterThanOrEqualTo: from)
         .count()
         .get();
-    final postsAvisos = await         ChurchOperationalPaths.churchDoc(op)
+    final postsAvisos = await         ChurchUiCollections.churchDoc(op)
         .collection(ChurchTenantPostsCollections.avisos)
         .where('publicSite', isEqualTo: true)
         .where('createdAt', isGreaterThanOrEqualTo: from)
@@ -2756,12 +2756,12 @@ class _PublicNoticiaDeepLinkOpenerState
   Future<void> _open(String key) async {
     try {
       if (!mounted) return;
-      var snap = await           ChurchOperationalPaths.churchDoc(widget.igrejaId)
+      var snap = await           ChurchUiCollections.churchDoc(widget.igrejaId)
           .collection(ChurchTenantPostsCollections.avisos)
           .doc(widget.openNoticiaId)
           .get();
       if (!snap.exists) {
-        snap = await             ChurchOperationalPaths.churchDoc(widget.igrejaId)
+        snap = await             ChurchUiCollections.churchDoc(widget.igrejaId)
             .collection(ChurchTenantPostsCollections.eventos)
             .doc(widget.openNoticiaId)
             .get();
@@ -3224,7 +3224,7 @@ class _HorariosCultoSection extends StatelessWidget {
       icon: Icons.schedule_rounded,
       accentColor: const Color(0xFF059669),
       child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        future:             ChurchOperationalPaths.churchDoc(igrejaId)
+        future:             ChurchUiCollections.churchDoc(igrejaId)
             .get(),
         builder: (context, tenantSnap) {
           final tenantHorarios = (tenantSnap.data?.data()?['horariosCulto'] ??
@@ -3238,7 +3238,7 @@ class _HorariosCultoSection extends StatelessWidget {
                     fontSize: 15, height: 1.6, color: Colors.grey.shade800));
           }
           return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            future:                 ChurchOperationalPaths.churchDoc(igrejaId)
+            future:                 ChurchUiCollections.churchDoc(igrejaId)
                 .collection('event_templates')
                 .where('active', isEqualTo: true)
                 .get(),
@@ -3562,8 +3562,7 @@ Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
     final now = DateTime.now();
     final end = now.add(Duration(days: days));
     final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
-    final noticiasRef =         ChurchOperationalPaths.churchDoc(op)
-        .collection('eventos');
+    final noticiasRef =         ChurchUiCollections.eventos(op);
     final eventosSnap = await noticiasRef
         .where('type', isEqualTo: 'evento')
         .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(now))
@@ -3599,7 +3598,7 @@ Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
         'photoStoragePath': path0 != null && path0.isNotEmpty ? path0 : '',
       });
     }
-    final tplSnap = await         ChurchOperationalPaths.churchDoc(igrejaId)
+    final tplSnap = await         ChurchUiCollections.churchDoc(igrejaId)
         .collection('event_templates')
         .where('active', isEqualTo: true)
         .get();
@@ -4713,7 +4712,7 @@ class _ChurchTenantFallback extends StatelessWidget {
         slugClean,
       ).timeout(const Duration(seconds: 14));
       if (resolved != null && resolved.isNotEmpty) {
-        final doc = await ChurchOperationalPaths.churchDoc(resolved).get();
+        final doc = await ChurchUiCollections.churchDoc(resolved).get();
         if (doc.exists) return doc;
       }
     } catch (_) {}

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_cnh_nav.dart';
 import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -8,7 +9,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show SafeMemberProfilePhoto, memberPhotoDisplayCacheRevision;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:gestao_yahweh/utils/church_department_list.dart' show churchDepartmentNameFromData;
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 class PerfilMembroPage extends StatefulWidget {
   final String tenantId;
@@ -58,15 +59,13 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
   }
 
   Future<_ProfileLoad?> _loadProfile() async {
-    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-    final docRef =         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros')
+    final op = ChurchRepository.churchId(widget.tenantId.trim());
+    final docRef =         ChurchUiCollections.membros(op)
         .doc(widget.memberId);
     final snap = await docRef.get();
     if (!snap.exists || snap.data() == null) return null;
     final data = snap.data()!;
-    final deptCol =         ChurchOperationalPaths.churchDoc(op)
-        .collection('departamentos');
+    final deptCol =         ChurchUiCollections.departamentos(op);
 
     final ids = ((data['departamentosIds'] as List?) ?? [])
         .map((e) => e.toString().trim())
@@ -79,8 +78,7 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
     final cpf = _cpfDigits(data, widget.memberId);
     var schedules = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     if (cpf.length == 11) {
-      final escCol =           ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('escalas');
+      final escCol =           ChurchUiCollections.escalas(widget.tenantId);
       final now = DateTime.now();
       final start = DateTime(now.year, now.month, now.day);
       try {
@@ -126,9 +124,8 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
   }
 
   Future<void> _confirmPresence(String scheduleDocId, String cpfDigits) async {
-    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-    final ref =         ChurchOperationalPaths.churchDoc(op)
-        .collection('escalas')
+    final op = ChurchRepository.churchId(widget.tenantId.trim());
+    final ref =         ChurchUiCollections.escalas(op)
         .doc(scheduleDocId);
     await ref.update({
       'confirmations.$cpfDigits': 'confirmado',
@@ -141,9 +138,8 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
     String cpfDigits,
     String reason,
   ) async {
-    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-    final ref =         ChurchOperationalPaths.churchDoc(op)
-        .collection('escalas')
+    final op = ChurchRepository.churchId(widget.tenantId.trim());
+    final ref =         ChurchUiCollections.escalas(op)
         .doc(scheduleDocId);
     final payload = <String, dynamic>{
       'confirmations.$cpfDigits': 'indisponivel',

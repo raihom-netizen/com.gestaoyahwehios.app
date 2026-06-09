@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/schedule_swap_service.dart';
@@ -12,7 +13,7 @@ import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Agrupa documentos de escala por dia civil (ordenados por horário dentro do dia).
 Map<DateTime, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupSchedulesByDay(
@@ -803,10 +804,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     if (_effectiveTenantId.isNotEmpty) return _effectiveTenantId;
     final hint = widget.tenantId.trim();
     try {
-      final tid = await ChurchOperationalPaths.resolveCached(
-        widget.tenantId,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      ).timeout(const Duration(seconds: 8), onTimeout: () => hint);
+      final tid = ChurchRepository.churchId(widget.tenantId).isNotEmpty
+          ? ChurchRepository.churchId(widget.tenantId)
+          : hint;
       if (mounted) setState(() => _effectiveTenantId = tid);
       return tid;
     } catch (_) {
@@ -837,8 +837,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         ? _effectiveTenantId
         : widget.tenantId.trim();
     if (tid.isEmpty) return;
-    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-    final col = ChurchOperationalPaths.churchDoc(op).collection('membros');
+    final op = ChurchRepository.churchId(tid.trim());
+    final col = ChurchUiCollections.membros(op);
 
     Future<bool> applyFirst(QuerySnapshot<Map<String, dynamic>> snap) async {
       if (snap.docs.isEmpty) return false;
@@ -908,8 +908,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       return docs;
     }
 
-    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-    final members = ChurchOperationalPaths.churchDoc(op).collection('membros');
+    final op = ChurchRepository.churchId(tid.trim());
+    final members = ChurchUiCollections.membros(op);
     final deptIds = await _loadMemberDepartments(members);
     final map = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
     if (_cpfDigits.isNotEmpty) {
@@ -1104,7 +1104,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     String solicitanteNome = '';
     try {
       final col =
-          ChurchOperationalPaths.churchDoc(tid).collection('membros');
+          ChurchUiCollections.membros(tid);
       final byId = await col.doc(_cpfDigits).get();
       if (byId.exists) {
         final d = byId.data()!;
@@ -1197,7 +1197,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     );
     if (chosen == null || !context.mounted) return;
     try {
-      await           ChurchOperationalPaths.churchDoc(tid)
+      await           ChurchUiCollections.churchDoc(tid)
           .collection('escala_trocas')
           .add({
         'escalaId': escalaDoc.id,
@@ -1272,7 +1272,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         : widget.tenantId.trim();
     if (tid.isEmpty) return const SizedBox.shrink();
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream:               ChurchOperationalPaths.churchDoc(tid)
+          stream:               ChurchUiCollections.churchDoc(tid)
               .collection('escala_trocas')
               .where('alvoCpf', isEqualTo: _cpfDigits)
               .watchSafe(),
@@ -1383,8 +1383,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   Future<String?> _resolveMemberDocId(String tid) async {
     if (_cpfDigits.length != 11) return null;
-    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-    final col = ChurchOperationalPaths.churchDoc(op).collection('membros');
+    final op = ChurchRepository.churchId(tid.trim());
+    final col = ChurchUiCollections.membros(op);
     final byId = await col.doc(_cpfDigits).get();
     if (byId.exists) return _cpfDigits;
     for (final field in ['CPF', 'cpf']) {

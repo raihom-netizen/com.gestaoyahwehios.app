@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
@@ -31,7 +32,7 @@ import '../widgets/install_pwa_button.dart';
 import '../widgets/yahweh_premium_feed_widgets.dart'
     show YahwehPremiumFeedShimmer;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 class DashboardPage extends StatefulWidget {
   final String tenantId; // igrejaId
@@ -65,7 +66,8 @@ class _DashboardPageState extends State<DashboardPage> {
     final seed = widget.tenantId.trim();
     if (seed.isNotEmpty) {
       unawaited(
-        ChurchOperationalPaths.resolveCached(seed).then((op) {
+        Future<void>.microtask(() {
+          final op = ChurchRepository.churchId(seed);
           if (!mounted || op.isEmpty) return;
           setState(() => _operationalTenantId = op);
         }),
@@ -133,19 +135,16 @@ class _DashboardPageState extends State<DashboardPage> {
     final isLeader = roleKey == 'lider';
     final isUser = !isAdmin && !isLeader;
 
-    final membersCol = ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-        .collection('membros');
+    final membersCol = ChurchUiCollections.membros(_effectiveTenantId);
 
-    final visitantesMesQuery = ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-        .collection('visitantes')
+    final visitantesMesQuery = ChurchUiCollections.visitantes(_effectiveTenantId)
         .where(
           'createdAt',
           isGreaterThanOrEqualTo: Timestamp.fromDate(
             DateTime(nowBuild.year, nowBuild.month, 1),
           ),
         );
-    final proximoEventoQuery = ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-        .collection('eventos')
+    final proximoEventoQuery = ChurchUiCollections.eventos(_effectiveTenantId)
         .where('type', isEqualTo: 'evento')
         .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(nowBuild))
         .orderBy('startAt')
@@ -1155,7 +1154,7 @@ class _LicenseActiveBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: ChurchOperationalPaths.churchDoc(tenantId).watchSafe(),
+      stream: ChurchUiCollections.churchDoc(tenantId).watchSafe(),
       builder: (context, tenantSnap) {
         DateTime? vencimento;
         if (tenantSnap.hasData) {
@@ -1515,8 +1514,7 @@ class _MuralPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final col =         ChurchOperationalPaths.churchDoc(tenantId)
-        .collection('eventos')
+    final col =         ChurchUiCollections.eventos(tenantId)
         .orderBy('createdAt', descending: true)
         .limit(2);
 

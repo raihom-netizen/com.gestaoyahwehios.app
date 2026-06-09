@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -45,8 +46,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:image_picker/image_picker.dart';
 import 'package:lottie/lottie.dart';
 import 'package:skeletonizer/skeletonizer.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 class PublicMemberSignupPage extends StatefulWidget {
   /// Slug da igreja (para link público). Se null, use [tenantId].
@@ -1082,9 +1083,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     }
     final cpfDigits = _onlyDigits(_cpfCtrl.text);
     final emailNorm = _emailCtrl.text.trim().toLowerCase();
-    final op = await ChurchOperationalPaths.resolveCached(_tenantId!);
-    final col =         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros');
+    final op = ChurchRepository.churchId(_tenantId!);
+    final col =         ChurchUiCollections.membros(op);
     final editingDocId = _editModeAfterSubmit ? _lastSubmittedDocId : null;
 
     // Duplicado: precisa de leitura em `membros` (regras só para tenant). Visitantes não têm — evitar permission-denied.
@@ -1992,8 +1992,7 @@ class PublicSignupStatusPage extends StatelessWidget {
         (churchDoc.data()['name'] ?? churchDoc.data()['nome'] ?? 'Igreja')
             .toString();
 
-    final membrosCol =         ChurchOperationalPaths.churchDoc(churchDoc.id)
-        .collection('membros');
+    final membrosCol =         ChurchUiCollections.membros(churchDoc.id);
     var memberDoc = await membrosCol.doc(protocolo.trim()).get();
     if (!memberDoc.exists) {
       final byLegacy = await membrosCol

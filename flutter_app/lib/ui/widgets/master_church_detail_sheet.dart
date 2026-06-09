@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Ficha Super Premium da igreja (ações, saúde, timeline, notas internas).
 class MasterChurchDetailSheet extends StatefulWidget {
@@ -110,7 +111,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
   Future<void> _loadTechnicalHealth() async {
     try {
       final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
+      final snap = await           ChurchUiCollections.churchDoc(op)
           .get();
       final data = snap.data() ?? widget.churchData;
       final total = data['membersTotalCount'] ?? data['totalMembros'];
@@ -230,7 +231,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
         await BillingLicenseService().setTenantFreeMaster(widget.tenantId);
       } else {
         final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-        await             ChurchOperationalPaths.churchDoc(op)
+        await             ChurchUiCollections.churchDoc(op)
             .set({
           'license': {'isFree': false, 'updatedAt': FieldValue.serverTimestamp()},
         }, SetOptions(merge: true));
@@ -259,7 +260,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
     setState(() => _busy = true);
     try {
       final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      await           ChurchOperationalPaths.churchDoc(op)
+      await           ChurchUiCollections.churchDoc(op)
           .set({
         'masterNotes': _notesCtrl.text.trim(),
         'updatedAt': FieldValue.serverTimestamp(),

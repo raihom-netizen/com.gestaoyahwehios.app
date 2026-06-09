@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 /// Índices do menu em [IgrejaCleanShell] para navegação a partir da busca.
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Resultado da busca global — [avisoDocForDirectEdit] abre o formulário sem passar pelo menu.
 class ChurchGlobalSearchSelection {
@@ -181,7 +182,7 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
     } catch (_) {}
 
     final db = FirebaseFirestore.instance;
-    final base = ChurchOperationalPaths.churchDoc(tid);
+    final base = ChurchUiCollections.churchDoc(tid);
 
     try {
       final futures = <Future<QuerySnapshot<Map<String, dynamic>>>>[];

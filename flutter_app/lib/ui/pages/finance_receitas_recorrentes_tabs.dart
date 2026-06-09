@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -19,7 +20,7 @@ import 'package:gestao_yahweh/ui/pages/finance_page.dart'
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_fixo_premium_dialogs.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 const _categoriasReceitaPadrao = [
   'Dízimos',
@@ -44,8 +45,8 @@ double _parseValor(dynamic raw) {
 }
 
 Future<List<String>> _categoriasReceitaTenant(String tenantId) async {
-  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-  final col =       ChurchOperationalPaths.churchDoc(op)
+  final op = ChurchRepository.churchId(tenantId.trim());
+  final col =       ChurchUiCollections.churchDoc(op)
       .collection('categorias_receitas');
   var snap = await col.orderBy('nome').get();
   if (snap.docs.isEmpty) {
@@ -65,8 +66,8 @@ Future<List<String>> _categoriasReceitaTenant(String tenantId) async {
 }
 
 Future<List<({String id, String nome})>> _contasAtivas(String tenantId) async {
-  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-  final snap = await       ChurchOperationalPaths.churchDoc(op)
+  final op = ChurchRepository.churchId(tenantId.trim());
+  final snap = await       ChurchUiCollections.churchDoc(op)
       .collection('contas')
       .orderBy('nome')
       .get();
@@ -78,8 +79,8 @@ Future<List<({String id, String nome})>> _contasAtivas(String tenantId) async {
 }
 
 Future<String> _nomeIgreja(String tenantId) async {
-  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-  final d = await ChurchOperationalPaths.churchDoc(op).get();
+  final op = ChurchRepository.churchId(tenantId.trim());
+  final d = await ChurchUiCollections.churchDoc(op).get();
   return (d.data()?['nome'] ?? d.data()?['name'] ?? 'Igreja').toString().trim();
 }
 
@@ -118,7 +119,7 @@ class FinanceReceitasFixasTab extends StatefulWidget {
 }
 
 class _FinanceReceitasFixasTabState extends State<FinanceReceitasFixasTab> {
-  CollectionReference<Map<String, dynamic>> get _col =>       ChurchOperationalPaths.churchDoc(widget.tenantId)
+  CollectionReference<Map<String, dynamic>> get _col =>       ChurchUiCollections.churchDoc(widget.tenantId)
       .collection('receitas_recorrentes');
 
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
@@ -948,8 +949,7 @@ class FinanceConciliacaoReceitasTab extends StatefulWidget {
 class _FinanceConciliacaoReceitasTabState
     extends State<FinanceConciliacaoReceitasTab> {
   CollectionReference<Map<String, dynamic>> get _fin =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('finance');
+                ChurchUiCollections.financeiro(widget.tenantId);
 
   late String _competencia;
   final Set<String> _selected = {};
@@ -1049,9 +1049,8 @@ class _FinanceConciliacaoReceitasTabState
           final valor = _parseValor(m['amount'] ?? m['valor']);
           var phone = (m['memberTelefone'] ?? '').toString().trim();
           if (phone.isEmpty) {
-            final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-            final ms = await                 ChurchOperationalPaths.churchDoc(op)
-                .collection('membros')
+            final op = ChurchRepository.churchId(widget.tenantId.trim());
+            final ms = await                 ChurchUiCollections.membros(op)
                 .doc(mid)
                 .get();
             final p = _memberTelefoneRaw(ms.data() ?? {});

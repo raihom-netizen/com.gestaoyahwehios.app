@@ -58,6 +58,7 @@ import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 part 'admin_igrejas_tab.dart';
 
@@ -1659,7 +1660,7 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
     setState(() => _saving = true);
     try {
       final op = await ChurchOperationalPaths.resolveCached(slug.trim());
-      final ref = ChurchOperationalPaths.churchDoc(op);
+      final ref = ChurchUiCollections.churchDoc(op);
       final exists = (await ref.get()).exists;
       if (exists) {
         if (!mounted) return;

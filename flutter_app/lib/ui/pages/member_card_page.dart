@@ -24,7 +24,8 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
@@ -92,7 +93,6 @@ import 'package:gestao_yahweh/ui/widgets/member_digital_wallet_card.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:intl/intl.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Alinhado a [members_page] / [_memberAuthUidFromData]: foto no Storage pode estar em `membros/{authUid}/`.
 String? _memberAuthUidForCarteiraFoto(Map<String, dynamic> d) {
@@ -435,11 +435,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   Future<void> _resolveOperationalTenantOnce() async {
     final hint = widget.tenantId.trim();
-    final resolved = (await ChurchOperationalPaths.resolveCached(
-      widget.tenantId,
-      userUid: FirebaseAuth.instance.currentUser?.uid,
-    ))
-        .trim();
+    final resolved = ChurchRepository.churchId(widget.tenantId).trim();
     _cachedIgrejaDocId = resolved.isNotEmpty ? resolved : hint;
   }
 
@@ -796,9 +792,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final tid = (igrejaDocId ?? widget.tenantId).trim();
     if (tid.isEmpty) return out;
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final op = ChurchRepository.churchId(tid.trim());
+      final snap = await           ChurchUiCollections.membros(op)
           .doc(porId)
           .get();
       if (snap.exists) {
@@ -807,8 +802,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
         if (u.isNotEmpty) out['carteirinhaAssinaturaUrl'] = u;
         return out;
       }
-      final mq = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final mq = await           ChurchUiCollections.membros(op)
           .where('authUid', isEqualTo: porId)
           .limit(1)
           .get();
@@ -1397,7 +1391,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final tenant = tpl.tenant;
     final cardCfg = Map<String, dynamic>.from(tpl.cardCfg);
     final membersCol =
-        ChurchOperationalPaths.churchDoc(tpl.igrejaDocId).collection('membros');
+        ChurchUiCollections.membros(tpl.igrejaDocId);
 
     final emitMembers = await _loadMemberItemsForPicker(
       limit: _membersListLimit,
@@ -2232,9 +2226,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
   ) async {
     if (ids.isEmpty) return (ok: 0, fail: 0, lastErr: null);
     final db = firebaseDefaultFirestore;
-    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    final op = ChurchRepository.churchId(widget.tenantId.trim());
     final membersCol =
-        ChurchOperationalPaths.churchDoc(op).collection('membros');
+        ChurchUiCollections.membros(op);
     final payload = <String, dynamic>{
       'carteirinhaAssinadaEm': FieldValue.serverTimestamp(),
       'carteirinhaAssinadaPor': signat.memberId,
@@ -2293,8 +2287,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<void> _abrirAssinarEmLote(BuildContext context) async {
     String? defaultSigId;
     try {
-      final snap = await           ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('config')
+      final snap = await           ChurchUiCollections.config(widget.tenantId)
           .doc('carteira')
           .get();
       if (snap.exists && snap.data() != null) {
@@ -2648,8 +2641,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
     String? defaultSigId;
     try {
-      final snap = await           ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('config')
+      final snap = await           ChurchUiCollections.config(widget.tenantId)
           .doc('carteira')
           .get();
       defaultSigId =
@@ -3700,8 +3692,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
     String? defaultSigId;
     try {
-      final snap = await           ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('config')
+      final snap = await           ChurchUiCollections.config(widget.tenantId)
           .doc('carteira')
           .get();
       defaultSigId =
@@ -4031,8 +4022,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
     String? defaultSigId;
     try {
-      final snap = await           ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('config')
+      final snap = await           ChurchUiCollections.config(widget.tenantId)
           .doc('carteira')
           .get();
       defaultSigId =
@@ -4920,9 +4910,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       return;
     }
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final col =           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros');
+      final op = ChurchRepository.churchId(widget.tenantId.trim());
+      final col =           ChurchUiCollections.membros(op);
       final doc =
           await MemberDocumentResolve.findByHint(col, v.memberId.trim());
       Map<String, dynamic> d = doc?.data() ?? {};
@@ -5105,9 +5094,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }) s,
   ) async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final col =           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros');
+      final op = ChurchRepository.churchId(widget.tenantId.trim());
+      final col =           ChurchUiCollections.membros(op);
       final doc = await MemberDocumentResolve.findByHint(col, s.memberId.trim());
       if (doc == null || !doc.exists) return s;
       final d = doc.data() ?? {};
@@ -5157,9 +5145,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
       final id = rawId.trim();
       if (id.isEmpty) return;
       try {
-        final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-        final doc = await             ChurchOperationalPaths.churchDoc(op)
-            .collection('membros')
+        final op = ChurchRepository.churchId(tid.trim());
+        final doc = await             ChurchUiCollections.membros(op)
             .doc(id)
             .get();
         if (!doc.exists) return;
@@ -6352,9 +6339,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                               if (gravarAssinatura &&
                                   selected != null &&
                                   context.mounted) {
-                                final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-                                final ref =                                     ChurchOperationalPaths.churchDoc(op)
-                                    .collection('membros')
+                                final op = ChurchRepository.churchId(widget.tenantId.trim());
+                                final ref =                                     ChurchUiCollections.membros(op)
                                     .doc(data.memberId);
                                 await ref.set({
                                   'carteirinhaAssinadaEm':
@@ -7173,8 +7159,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final brl = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
     final tid = data.igrejaDocId;
     final mid = data.memberId;
-    final stream =         ChurchOperationalPaths.churchDoc(tid)
-        .collection('finance')
+    final stream =         ChurchUiCollections.financeiro(tid)
         .where('memberDocId', isEqualTo: mid)
         .orderBy('createdAt', descending: true)
         .limit(40)
@@ -8273,9 +8258,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                 FilledButton.tonalIcon(
                                   onPressed: () async {
                                     try {
-                                      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-                                      final ref =                                           ChurchOperationalPaths.churchDoc(op)
-                                          .collection('membros')
+                                      final op = ChurchRepository.churchId(widget.tenantId.trim());
+                                      final ref =                                           ChurchUiCollections.membros(op)
                                           .doc(data.memberId);
                                       await ref.set({
                                         'solicitouAssinaturaCarteirinhaEm':

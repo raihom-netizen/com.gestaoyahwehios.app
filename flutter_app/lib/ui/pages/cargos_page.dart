@@ -9,12 +9,14 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_funcoes_controle_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/ui/pages/lideranca_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/pages/members_page.dart' show MembersPage;
+import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -636,7 +638,7 @@ class _CargosPageState extends State<CargosPage> {
   ];
 
   CollectionReference<Map<String, dynamic>> get _col =>
-      ChurchOperationalPaths.churchDoc(_tid).collection('cargos');
+      ChurchUiCollections.cargos(_tid);
 
   String get _tid {
     final r = (_resolvedTenantId ?? widget.tenantId).trim();
@@ -657,23 +659,37 @@ class _CargosPageState extends State<CargosPage> {
     if (tid.isEmpty) {
       return _col.limit(1).get();
     }
-    if (forceServer) {
-      final op = ChurchRepository.churchId(tid.trim());
-      final snap = await FirestoreReadResilience.getQuery(
-        ChurchOperationalPaths.churchDoc(op)
-            .collection('cargos')
-            .limit(120),
-        cacheKey: _cargosMemKey(tid),
+    final churchId = ChurchRepository.churchId(tid);
+    final path = 'igrejas/${churchId.isNotEmpty ? churchId : tid}/cargos';
+    try {
+      final result = await ChurchRepository.cargos.list(
+        churchIdHint: churchId.isNotEmpty ? churchId : tid,
+        limit: 120,
       );
+      ChurchModuleQueryProbe.logSuccess(
+        module: 'Cargos',
+        churchId: churchId.isNotEmpty ? churchId : tid,
+        path: path,
+        totalDocs: result.count,
+      );
+      if (result.error != null && result.items.isEmpty) {
+        throw Exception(result.error);
+      }
+      final snap = MergedFirestoreQuerySnapshot(result.items);
       if (snap.docs.isNotEmpty) {
         _CargosRamCache.put(tid, snap.docs);
       }
       return snap;
+    } catch (e, st) {
+      ChurchModuleQueryProbe.logError(
+        module: 'Cargos',
+        churchId: churchId.isNotEmpty ? churchId : tid,
+        path: path,
+        error: e,
+        stackTrace: st,
+      );
+      rethrow;
     }
-    return ChurchTenantResilientReads.cargos(tid).timeout(
-      const Duration(seconds: 14),
-      onTimeout: () => const MergedFirestoreQuerySnapshot([]),
-    );
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadCargos() {
@@ -2098,8 +2114,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     try {
       final snaps = await Future.wait(
         allIds.map(
-          (clusterTid) => ChurchOperationalPaths.churchDoc(clusterTid)
-              .collection('membros')
+          (clusterTid) => ChurchUiCollections.membros(clusterTid)
               .limit(500)
               .get(const GetOptions(source: Source.serverAndCache)),
         ),
@@ -2151,8 +2166,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     try {
       final snaps = await Future.wait(
         allIds.map(
-          (clusterTid) => ChurchOperationalPaths.churchDoc(clusterTid)
-              .collection('membros')
+          (clusterTid) => ChurchUiCollections.membros(clusterTid)
               .limit(500)
               .get(const GetOptions(source: Source.serverAndCache)),
         ),
@@ -2218,7 +2232,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     for (final tid in allIds) {
       try {
         final op = ChurchRepository.churchId(tid.trim());
-        await ChurchOperationalPaths.churchDoc(op).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
+        await ChurchUiCollections.membros(op).doc(m.id).set(updates, SetOptions(merge: true));
       } catch (_) {}
     }
 
@@ -2347,7 +2361,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       for (final tid in allIds) {
         try {
           final op = ChurchRepository.churchId(tid.trim());
-          await ChurchOperationalPaths.churchDoc(op).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
+          await ChurchUiCollections.membros(op).doc(m.id).set(updates, SetOptions(merge: true));
         } catch (_) {}
       }
       final authUid = (m.data['authUid'] ?? '').toString().trim();
@@ -2447,7 +2461,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       final db = firebaseDefaultFirestore;
       for (final tid in allIds) {
         try {
-          await ChurchOperationalPaths.churchDoc(tid).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
+          await ChurchUiCollections.membros(tid).doc(m.id).set(updates, SetOptions(merge: true));
         } catch (_) {}
       }
       final authUid = (m.data['authUid'] ?? '').toString().trim();

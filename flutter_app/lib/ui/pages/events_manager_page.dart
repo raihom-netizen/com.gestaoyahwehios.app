@@ -37,6 +37,8 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -132,7 +134,7 @@ import 'package:gestao_yahweh/utils/br_input_formatters.dart'
 import 'package:gestao_yahweh/core/event_gallery_archive.dart';
 import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
     show noticiaEventoEspecialCaiuDoFeedParaGaleria;
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 
 class EventsManagerPage extends StatefulWidget {
   final String tenantId;
@@ -372,11 +374,9 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
-                ChurchOperationalPaths.churchDoc(_tid)
-          .collection('eventos');
+                ChurchUiCollections.eventos(_tid);
   CollectionReference<Map<String, dynamic>> get _templates =>
-                ChurchOperationalPaths.churchDoc(_tid)
-          .collection('event_templates');
+      ChurchUiCollections.eventTemplates(_tid);
 
   void _onMainTabChanged() {
     if (!mounted) return;
@@ -437,31 +437,41 @@ class _EventsManagerPageState extends State<EventsManagerPage>
 
   Future<void> _bootstrapFirestoreTenant() async {
     unawaited(ensureFirebaseReadyForPanelRead().catchError((_) {}));
-    final uid = firebaseDefaultAuth.currentUser?.uid;
+    final initial = ChurchContextService.panelChurchId(widget.tenantId.trim());
+    if (!mounted) return;
+    if (initial.isNotEmpty) {
+      setState(() => _firestoreTenantId = initial);
+    }
+    _warmEventosCacheFirst(_tid);
+    unawaited(_loadTenantDoc());
     try {
-      final tid = await ChurchOperationalPaths.resolveCached(
-        widget.tenantId,
-        userUid: uid,
-      ).timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => _firestoreTenantId ?? widget.tenantId,
-      );
+      final tid = ChurchRepository.churchId(widget.tenantId);
       if (!mounted) return;
-      if (tid.isNotEmpty && tid != _tid) {
+      if (tid.isNotEmpty && tid != _firestoreTenantId) {
         setState(() => _firestoreTenantId = tid);
         _fixosTabKey.currentState?._refresh();
         _feedTabKey.currentState?._refresh();
+        _warmEventosCacheFirst(tid);
       }
-      unawaited(_loadTenantDoc());
-    } catch (_) {
-      unawaited(_loadTenantDoc());
-    }
+    } catch (_) {}
+  }
+
+  void _warmEventosCacheFirst(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    unawaited(
+      ChurchRepository.listCacheFirst(
+        module: ChurchRepository.eventos,
+        churchIdHint: tid,
+        limit: YahwehPerformanceV4.adminExportBatchLimit,
+      ),
+    );
   }
 
   Future<void> _loadTenantDoc() async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(_tid.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
+      final op = ChurchRepository.churchId(_tid.trim());
+      final snap = await ChurchUiCollections.churchDoc(op)
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 8));
       if (mounted) setState(() => _tenantData = snap.data());
@@ -483,12 +493,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       );
     }
     await ensureFirebaseReadyForPublishUpload().catchError((_) {});
-    final igrejaId = await ChurchOperationalPaths.resolveCached(
-      _tid,
-      userUid: firebaseDefaultAuth.currentUser?.uid,
-    );
-    final noticias = ChurchOperationalPaths.churchDoc(igrejaId)
-        .collection(ChurchTenantPostsCollections.eventos);
+    final igrejaId = ChurchRepository.churchId(_tid);
+    final noticias = ChurchUiCollections.eventos(igrejaId);
     if (!mounted) return;
     final result = await Navigator.push<bool>(
         context,
@@ -591,8 +597,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     Future<void> fillLocationFromCadastro() async {
       try {
         await ensureFirebaseReadyForPublishUpload();
-        final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-        final snap = await             ChurchOperationalPaths.churchDoc(op)
+        final op = ChurchRepository.churchId(tenantId.trim());
+        final snap = await             ChurchUiCollections.churchDoc(op)
             .get();
         final d = snap.data() ?? {};
         final endereco = (d['endereco'] ?? '').toString().trim();
@@ -1193,14 +1199,13 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       else
         cursor = cursor.add(const Duration(days: 7));
     }
-    final batch = firebaseDefaultFirestore.batch();
+    final batch = ChurchRepository.batch();
     final tsNow = Timestamp.now();
     final imageUrls =
         defaultImageUrl.isNotEmpty ? <String>[defaultImageUrl] : <String>[];
     await ensureFirebaseReadyForPublishUpload();
-    final op = await ChurchOperationalPaths.resolveCached(_tid.trim());
-    final agendaCol =         ChurchOperationalPaths.churchDoc(op)
-        .collection('agenda');
+    final op = ChurchRepository.churchId(_tid.trim());
+    final agendaCol =         ChurchUiCollections.agenda(op);
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     for (final dt in dates) {
       final notRef = _noticias.doc();
@@ -2464,15 +2469,11 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
   bool _loadingList = true;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = [];
 
-  Future<String> _operationalTenantId() =>
-      ChurchOperationalPaths.resolveCached(
-        widget.tenantId,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
-      );
+  Future<String> _operationalTenantId() async =>
+      ChurchRepository.churchId(widget.tenantId);
 
   CollectionReference<Map<String, dynamic>> _colFor(String tid) =>
-                ChurchOperationalPaths.churchDoc(tid)
-          .collection('event_categories');
+      ChurchUiCollections.eventCategories(tid);
 
   @override
   void initState() {
@@ -2755,8 +2756,7 @@ class _FeedTabState extends State<_FeedTab> {
   final Set<String> _selectedEventIds = <String>{};
 
   Query<Map<String, dynamic>> _eventsBaseQuery({bool filtered = true}) {
-    final col = ChurchOperationalPaths.churchDoc(widget.tenantId.trim())
-        .collection(ChurchTenantPostsCollections.eventos);
+    final col = ChurchUiCollections.eventos(widget.tenantId.trim());
     if (!filtered) {
       return col.orderBy('startAt', descending: true);
     }
@@ -3007,7 +3007,7 @@ class _FeedTabState extends State<_FeedTab> {
     await ensureFirebaseReadyForPublishUpload();
     const int chunkSize = 400; // limite seguro de batch
     for (var i = 0; i < refs.length; i += chunkSize) {
-      final batch = firebaseDefaultFirestore.batch();
+      final batch = ChurchRepository.batch();
       final chunk = refs.sublist(
           i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
       for (final r in chunk) {
@@ -5739,7 +5739,7 @@ class _EventPostLinksRow extends StatelessWidget {
     }
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future:
-          ChurchOperationalPaths.churchDoc(tenantId).get(),
+          ChurchUiCollections.churchDoc(tenantId).get(),
       builder: (context, snap) {
         return _buildLinks(context, snap.data?.data());
       },
@@ -6584,10 +6584,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _bootstrapEventForm() async {
     try {
-      final tid = await ChurchOperationalPaths.resolveCached(
-        widget.tenantId,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
-      );
+      final tid = ChurchRepository.churchId(widget.tenantId);
       if (mounted && tid.trim().isNotEmpty) {
         setState(() => _operationalTenantId = tid.trim());
       }
@@ -6598,8 +6595,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _refreshAgendaLinkFromFirestore() async {
     try {
       await ensureFirebaseReadyForPublishUpload();
-      final q = await ChurchOperationalPaths.churchDoc(_editorTenantId)
-          .collection('agenda')
+      final q = await ChurchUiCollections.agenda(_editorTenantId)
           .where('noticiaId', isEqualTo: widget.doc!.id)
           .limit(1)
           .get();
@@ -6645,8 +6641,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final (start, end) = _computeStartEndForSave();
     final cat = _agendaCategoryKeyFromEvent();
     final colorHex = _agendaColorHexForCategory();
-    final agendaCol = ChurchOperationalPaths.churchDoc(_editorTenantId)
-        .collection('agenda');
+    final agendaCol = ChurchUiCollections.agenda(_editorTenantId);
     final existing =
         await agendaCol.where('noticiaId', isEqualTo: noticiaId).limit(10).get();
     final payload = <String, dynamic>{
@@ -6660,7 +6655,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'location': _localSalvo(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
-    final batch = firebaseDefaultFirestore.batch();
+    final batch = ChurchRepository.batch();
     if (existing.docs.isEmpty) {
       payload['createdAt'] = FieldValue.serverTimestamp();
       payload['createdByUid'] = firebaseDefaultAuth.currentUser?.uid ?? '';
@@ -6674,11 +6669,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Future<void> _removeAgendaLinkedNoticia(String noticiaId) async {
-    final q = await ChurchOperationalPaths.churchDoc(_editorTenantId)
-        .collection('agenda')
+    final q = await ChurchUiCollections.agenda(_editorTenantId)
         .where('noticiaId', isEqualTo: noticiaId)
         .get();
-    final batch = firebaseDefaultFirestore.batch();
+    final batch = ChurchRepository.batch();
     for (final d in q.docs) {
       batch.delete(d.reference);
     }
@@ -9501,7 +9495,7 @@ class _FixosTabState extends State<_FixosTab> {
 
     const int chunkSize = 400;
     for (var i = 0; i < refs.length; i += chunkSize) {
-      final batch = firebaseDefaultFirestore.batch();
+      final batch = ChurchRepository.batch();
       final chunk = refs.sublist(
           i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
       for (final r in chunk) {
@@ -9739,7 +9733,7 @@ class _FixosTabState extends State<_FixosTab> {
 
     const int chunkSize = 400;
     for (var i = 0; i < refs.length; i += chunkSize) {
-      final batch = firebaseDefaultFirestore.batch();
+      final batch = ChurchRepository.batch();
       final chunk = refs.sublist(
           i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
       for (final r in chunk) {

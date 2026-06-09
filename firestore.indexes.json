@@ -1,4 +1,4 @@
-{
+﻿{
   "indexes": [
     {
       "collectionGroup": "escalas",
@@ -554,6 +554,59 @@
         { "fieldPath": "deliveryStatus", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "eventos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "startAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "avisos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "agenda",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "startTime", "order": "ASCENDING" },
+        { "fieldPath": "data", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "escalas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "membros",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "departamentoId", "order": "ASCENDING" },
+        { "fieldPath": "NOME_COMPLETO", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "membros",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cargoId", "order": "ASCENDING" },
+        { "fieldPath": "NOME_COMPLETO", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "finance",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "data", "order": "DESCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -601,310 +654,45 @@
     },
     {
       "collectionGroup": "membros",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "FUNCOES", "arrayConfig": "CONTAINS" }
+      "fieldPath": "FUNCOES",
+      "indexes": [
+        { "queryScope": "COLLECTION", "arrayConfig": "CONTAINS" }
       ]
     },
     {
       "collectionGroup": "membros",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "certificadoSignatario", "order": "ASCENDING" }
+      "fieldPath": "nome",
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "ASCENDING" }
       ]
     },
     {
-      "collectionGroup": "pending_uploads",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ownerUid", "order": "ASCENDING" }
+      "collectionGroup": "chats",
+      "fieldPath": "lastMessageAt",
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "pending_uploads",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ownerUid", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+      "collectionGroup": "eventos",
+      "fieldPath": "startAt",
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "messages",
+      "collectionGroup": "avisos",
       "fieldPath": "createdAt",
       "indexes": [
         { "queryScope": "COLLECTION", "order": "DESCENDING" }
       ]
     },
     {
-      "collectionGroup": "membros",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "membros",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "updatedAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "membros",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "memberId", "order": "ASCENDING" },
-        { "fieldPath": "ativo", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "departamentos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "departamentos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "updatedAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "cargos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "cargos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "updatedAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "eventos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "dataEvento", "order": "ASCENDING" },
-        { "fieldPath": "ativo", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "eventos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "dataEvento", "order": "DESCENDING" },
-        { "fieldPath": "ativo", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "avisos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "avisos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "updatedAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "avisos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "tipo", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "eventos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "tipo", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "finance",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "patrimonio",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "certificados",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "agenda",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "notificacoes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "igrejas",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "churchId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "membros",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "NOME_COMPLETO", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "membros",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "nome", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "eventos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "ativo", "order": "ASCENDING" },
-        { "fieldPath": "dataEvento", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "messages",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "threadId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "finance",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "vencimento", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "finance",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "contaOrigemId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "finance",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "contaDestinoId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "finance",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "type", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "finance",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "tipo", "order": "ASCENDING" },
-        { "fieldPath": "data", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "membros",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "nome", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "avisos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "publicado", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "eventos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "dataEvento", "order": "DESCENDING" },
-        { "fieldPath": "active", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "noticias",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "dataEvento", "order": "DESCENDING" },
-        { "fieldPath": "active", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "patrimonio",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "categoria", "order": "ASCENDING" },
-        { "fieldPath": "status", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "messages",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "threadId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      "fieldPath": "data",
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "ASCENDING" },
+        { "queryScope": "COLLECTION", "order": "DESCENDING" }
       ]
     }
   ]

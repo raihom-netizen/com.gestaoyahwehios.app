@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Painel premium de métricas do mural de **avisos** (curtidas e comentários).
 class ChurchAvisosInsightsDashboard extends StatefulWidget {
@@ -51,7 +52,7 @@ class _ChurchAvisosInsightsDashboardState
   String? _error;
 
   CollectionReference<Map<String, dynamic>> get _avisos =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId.trim())
+                ChurchUiCollections.churchDoc(widget.tenantId.trim())
           .collection(ChurchTenantPostsCollections.avisos);
 
   Future<void> _load() async {

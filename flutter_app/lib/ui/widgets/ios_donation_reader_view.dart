@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/app_shell.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// iOS — Guideline 3.2.2(iv): checkout PIX/cartão no site; navegação **in-app** instantânea.
 ///
@@ -53,12 +54,12 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
   Future<void> _loadChurchMeta() async {
     try {
       final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
+      final snap = await           ChurchUiCollections.churchDoc(op)
           .get(const GetOptions(source: Source.cache));
       var d = snap.data() ?? {};
       var slug = (d['slug'] ?? d['slugId'] ?? '').toString().trim();
       if (slug.isEmpty) {
-        final server = await             ChurchOperationalPaths.churchDoc(op)
+        final server = await             ChurchUiCollections.churchDoc(op)
             .get();
         d = server.data() ?? {};
         slug = (d['slug'] ?? d['slugId'] ?? '').toString().trim();

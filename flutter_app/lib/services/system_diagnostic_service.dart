@@ -1,7 +1,9 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
 import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Diagnóstico de sessão — churchId, paths, tempos e último erro.
 class SystemDiagnosticSnapshot {
@@ -85,12 +87,25 @@ abstract final class SystemDiagnosticService {
       }
 
       if (churchId.isNotEmpty) {
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        }
         final fsSw = Stopwatch()..start();
-        final result = await ChurchRepository.loadChurchData(
-          seedTenantId: churchId,
-          userUid: uid,
-          directDocOnly: true,
-        ).timeout(kProbeTimeout);
+        final result = await FirestoreWebGuard.runWithWebRecovery(
+          () => (kIsWeb
+                  ? ChurchRepository.loadByChurchId(
+                      churchId,
+                      seedTenantId: churchId,
+                      userUid: uid,
+                    )
+                  : ChurchRepository.loadChurchData(
+                      seedTenantId: churchId,
+                      userUid: uid,
+                      directDocOnly: true,
+                    ))
+              .timeout(kProbeTimeout),
+          maxAttempts: kIsWeb ? 4 : 1,
+        );
         fsSw.stop();
         firestoreMs = fsSw.elapsedMilliseconds;
         fieldCount = result.fieldCount;

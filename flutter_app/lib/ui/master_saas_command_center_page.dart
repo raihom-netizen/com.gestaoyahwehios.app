@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 import 'package:percent_indicator/linear_percent_indicator.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Torre de comando SaaS — clientes (igrejas), licenças, white-label e visão de negócio.
 class MasterSaasCommandCenterPage extends StatefulWidget {
@@ -182,8 +183,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
     }
     try {
       final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-      final agg = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final agg = await           ChurchUiCollections.membros(op)
           .count()
           .get();
       final n = agg.count ?? 0;
@@ -266,7 +266,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
           .where((s) => s.isNotEmpty)
           .toList();
       final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-      await ChurchOperationalPaths.churchDoc(op).set({
+      await ChurchUiCollections.churchDoc(op).set({
         'saas': {
           'authorizedDomains': list,
           'integrationNotes': notesCtrl.text.trim(),
@@ -288,7 +288,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
 
   Future<void> _setSaasTier(String tenantId, String tier) async {
     final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-    await ChurchOperationalPaths.churchDoc(op).set({
+    await ChurchUiCollections.churchDoc(op).set({
       'saasTier': tier,
       'saas': {'tier': tier, 'updatedAt': FieldValue.serverTimestamp()},
     }, SetOptions(merge: true));
@@ -881,7 +881,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
       totalChurches = churches.docs.length;
       for (final d in churches.docs.take(60)) {
         try {
-          final c = await ChurchOperationalPaths.churchDoc(d.id).collection('membros').count().get();
+          final c = await ChurchUiCollections.membros(d.id).count().get();
           membersSum += c.count ?? 0;
         } catch (_) {}
       }

@@ -4,10 +4,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Exibida quando o membro entra no app com mustCompleteRegistration = true.
 /// Permite completar/alterar dados do cadastro e opcionalmente trocar a senha provisória.
@@ -70,7 +71,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
   Future<void> _bootstrapOperationalTenant() async {
     final seed = widget.tenantId.trim();
     if (seed.isNotEmpty) {
-      final op = await ChurchOperationalPaths.resolveCached(seed);
+      final op = ChurchRepository.churchId(seed);
       if (mounted) setState(() => _operationalTenantId = op);
     }
     await _loadMember();
@@ -98,9 +99,8 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
 
   Future<void> _loadMember() async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(_effectiveTenantId);
-      final doc = await ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final op = ChurchRepository.churchId(_effectiveTenantId);
+      final doc = await ChurchUiCollections.membros(op)
           .doc(widget.cpf)
           .get();
       if (!mounted) return;
@@ -207,9 +207,8 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
       final age = _calcAge(_birthDate);
       final ageRange = _ageRange(age);
 
-      final op = await ChurchOperationalPaths.resolveCached(_effectiveTenantId);
-      final memberRef = ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final op = ChurchRepository.churchId(_effectiveTenantId);
+      final memberRef = ChurchUiCollections.membros(op)
           .doc(widget.cpf);
       final isNewMember = !(await memberRef.get()).exists;
       if (isNewMember) {
@@ -247,7 +246,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
           return;
         }
       }
-      final tenantSnap = await ChurchOperationalPaths.churchDoc(op).get();
+      final tenantSnap = await ChurchUiCollections.churchDoc(op).get();
       final tenantData = tenantSnap.data();
       final tid = tenantSnap.id;
       final alias = (tenantData?['alias'] ?? tenantData?['slug'] ?? tid).toString().trim();
@@ -341,7 +340,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
           'email': _emailCtrl.text.trim(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
-        await ChurchOperationalPaths.churchDoc(op)
+        await ChurchUiCollections.churchDoc(op)
             .collection('usersIndex')
             .doc(widget.cpf)
             .update({

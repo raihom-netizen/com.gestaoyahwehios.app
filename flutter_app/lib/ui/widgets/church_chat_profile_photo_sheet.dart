@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlF
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Folha para trocar foto de um membro (próprio ou equipe no módulo Membros).
 Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
@@ -32,8 +33,7 @@ Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
   Map<String, dynamic> data = Map<String, dynamic>.from(initialData ?? {});
   if (data.isEmpty) {
     final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-    final snap = await         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros')
+    final snap = await         ChurchUiCollections.membros(op)
         .doc(memberDocId)
         .get();
     if (!context.mounted) return null;
@@ -128,13 +128,11 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
     setState(() => _uploading = true);
     try {
       final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final snap = await           ChurchUiCollections.membros(op)
           .doc(widget.memberId)
           .get();
       final data = snap.data() ?? widget.initialData;
-      await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      await           ChurchUiCollections.membros(op)
           .doc(widget.memberId)
           .set(
         MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
@@ -212,8 +210,7 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
     setState(() => _uploading = true);
     try {
       final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final snap = await           ChurchUiCollections.membros(op)
           .doc(widget.memberId)
           .get();
       final data = snap.data() ?? widget.initialData;
@@ -259,8 +256,7 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
             boxShadow: ThemeCleanPremium.softUiCardShadow,
           ),
           child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream:                 ChurchOperationalPaths.churchDoc(widget.tenantId)
-                .collection('membros')
+            stream:                 ChurchUiCollections.membros(widget.tenantId)
                 .doc(widget.memberId)
                 .watchSafe(),
             builder: (context, snap) {

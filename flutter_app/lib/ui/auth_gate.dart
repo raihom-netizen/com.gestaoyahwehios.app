@@ -40,6 +40,7 @@ import '../core/roles_permissions.dart';
 import '../core/app_constants.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Gestor/liderança: acesso ao painel mesmo se `users.ativo` estiver ausente ou membro desalinhado.
 bool authGateResolvePanelActive({
@@ -747,9 +748,9 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       Future<DocumentSnapshot<Map<String, dynamic>>> fetchChurch() async {
         final op = ChurchContextService.panelChurchId(igrejaId);
         try {
-          return await ChurchOperationalPaths.churchDoc(op).get().timeout(loadTimeout);
+          return await ChurchUiCollections.churchDoc(op).get().timeout(loadTimeout);
         } catch (_) {
-          return ChurchOperationalPaths.churchDoc(op).get(
+          return ChurchUiCollections.churchDoc(op).get(
                 const GetOptions(source: Source.cache),
               );
         }
@@ -806,7 +807,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       Map<String, dynamic>? memberData;
       if (igrejaId.isNotEmpty) {
         try {
-          final membersCol = ChurchOperationalPaths.churchDoc(igrejaId).collection('membros');
+          final membersCol = ChurchUiCollections.membros(igrejaId);
           final byDocId = await membersCol.doc(user.uid).get();
           if (byDocId.exists) {
             memberData = byDocId.data() ?? {};
@@ -1106,7 +1107,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         churchData = Map<String, dynamic>.from(cached['church'] as Map);
       } else {
         try {
-          final ch = await ChurchOperationalPaths.churchDoc(igrejaId)
+          final ch = await ChurchUiCollections.churchDoc(igrejaId)
               .get(const GetOptions(source: Source.cache))
               .timeout(const Duration(seconds: 2));
           churchData = ch.exists
@@ -1181,7 +1182,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       } else {
         try {
           final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
-          final ch = await               ChurchOperationalPaths.churchDoc(op)
+          final ch = await               ChurchUiCollections.churchDoc(op)
               .get(const GetOptions(source: Source.cache));
           if (ch.exists) churchData = ch.data();
         } catch (_) {}
@@ -1478,7 +1479,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
       if (igrejaId.isEmpty || !mounted) return;
       Map<String, dynamic> churchData = <String, dynamic>{'id': igrejaId};
       try {
-        final ch = await ChurchOperationalPaths.churchDoc(igrejaId.trim())
+        final ch = await ChurchUiCollections.churchDoc(igrejaId.trim())
             .get(const GetOptions(source: Source.cache));
         final chData = ch.data();
         if (ch.exists && chData != null) {

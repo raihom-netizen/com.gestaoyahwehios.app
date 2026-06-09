@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Escolha enviada ao chat (logo institucional ou figurinha da biblioteca).
 class ChurchStickerPick {
@@ -592,7 +593,7 @@ class _StickerLibraryTabState extends State<_StickerLibraryTab> {
           },
         ),
         StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream:               ChurchOperationalPaths.churchDoc(widget.tenantId)
+          stream:               ChurchUiCollections.churchDoc(widget.tenantId)
               .watchSafe(),
           builder: (context, snap) {
             final data = snap.data?.data();

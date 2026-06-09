@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 class AttendancePage extends StatefulWidget {
   final String tenantId;
@@ -58,12 +59,11 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _cultos =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId)
+                ChurchUiCollections.churchDoc(widget.tenantId)
           .collection('cultos');
 
   CollectionReference<Map<String, dynamic>> get _members =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('membros');
+                ChurchUiCollections.membros(widget.tenantId);
 
   // ─── Build ──────────────────────────────────────────────────────────────────
   @override
@@ -1001,14 +1001,13 @@ class _PresencaSheetState extends State<_PresencaSheet> {
   int _totalMembers = 0;
 
   CollectionReference<Map<String, dynamic>> get _presencasRef =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId)
+                ChurchUiCollections.churchDoc(widget.tenantId)
           .collection('cultos')
           .doc(widget.cultoId)
           .collection('presencas');
 
   CollectionReference<Map<String, dynamic>> get _members =>
-                ChurchOperationalPaths.churchDoc(widget.tenantId)
-          .collection('membros');
+                ChurchUiCollections.membros(widget.tenantId);
 
   @override
   void initState() {

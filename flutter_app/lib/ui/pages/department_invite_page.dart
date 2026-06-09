@@ -3,12 +3,13 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/login_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Link público: `/convite-departamento?tid=&did=` — após login, vincula o membro ao departamento.
 class DepartmentInvitePage extends StatefulWidget {
@@ -34,9 +35,8 @@ class _DepartmentInvitePageState extends State<DepartmentInvitePage> {
 
   Future<String?> _findMemberDocId(String tenantId, String cpfDigits) async {
     if (cpfDigits.length != 11) return null;
-    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-    final col =         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros');
+    final op = ChurchRepository.churchId(tenantId.trim());
+    final col =         ChurchUiCollections.membros(op);
     final byId = await col.doc(cpfDigits).get();
     if (byId.exists) return byId.id;
     Future<String?> tryQuery(String field) async {
@@ -112,8 +112,7 @@ class _DepartmentInvitePageState extends State<DepartmentInvitePage> {
         return;
       }
 
-      final deptSnap = await           ChurchOperationalPaths.churchDoc(effectiveTid)
-          .collection('departamentos')
+      final deptSnap = await           ChurchUiCollections.departamentos(effectiveTid)
           .doc(did)
           .get();
       if (!deptSnap.exists) {
@@ -124,8 +123,7 @@ class _DepartmentInvitePageState extends State<DepartmentInvitePage> {
         return;
       }
 
-      final memSnap = await           ChurchOperationalPaths.churchDoc(effectiveTid)
-          .collection('membros')
+      final memSnap = await           ChurchUiCollections.membros(effectiveTid)
           .doc(memberId)
           .get();
       await DepartmentMemberIntegrationService.linkMember(

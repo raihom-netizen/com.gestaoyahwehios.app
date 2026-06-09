@@ -48,6 +48,7 @@ import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/panel_finance_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_panel_cache_warmup.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
+import 'package:gestao_yahweh/core/utils/independent_futures.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaPhotoUrls,
@@ -90,7 +91,8 @@ import 'package:gestao_yahweh/core/church_corpo_admin_roles.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
 import 'package:gestao_yahweh/services/church_birthday_query_service.dart';
 import 'package:gestao_yahweh/ui/widgets/panel_dashboard_home_extras.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_engagement_controller.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
 import 'dart:ui' show ImageFilter;
@@ -126,7 +128,6 @@ import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Painel: prioriza `_panel_cache` (scan servidor até ~800 membros) sobre stream local limitado.
 bool dashboardPreferPanelCacheMembers(
@@ -561,25 +562,26 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
           _scheduleHeavyDashboardStreams([tid], force: true);
         }
       }
-      final quick = await Future.wait([
+      final quick = await IndependentFutures.pair(
         PanelDashboardSnapshotService.readOnce(tid),
         ChurchDashboardCurrentService.readOnceFromLocalCache(tid),
-      ]);
+      );
       if (!mounted) return;
-      final quickPanel = quick[0] as PanelDashboardSnapshot;
+      final quickPanel = quick.$1;
       _attachPanelFeedStreams(tid);
       _bindMembersDirectoryWatch(tid);
       setState(() {
         _effectiveTenantId = tid;
-        _panelCache = quickPanel;
-        _dashboardKpis = quick[1] as ChurchDashboardCurrent;
+        if (quickPanel != null) _panelCache = quickPanel;
+        if (quick.$2 != null) _dashboardKpis = quick.$2!;
         if (mainCache != null && mainCache.hasData) {
           _dashboardMainCache = mainCache;
         }
       });
-      if (quickPanel.hasHomeLeaders ||
-          quickPanel.homeCorpoAdmin.isNotEmpty ||
-          quickPanel.birthdaysToday.isNotEmpty) {
+      if (quickPanel != null &&
+          (quickPanel.hasHomeLeaders ||
+              quickPanel.homeCorpoAdmin.isNotEmpty ||
+              quickPanel.birthdaysToday.isNotEmpty)) {
         unawaited(
           ChurchGalleryPhotoWarmup.warmBytesForPanel(
             tenantId: tid,
@@ -588,8 +590,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         );
       }
       unawaited(_hydrateMembersDirectory(tid));
-      if (quickPanel.isFreshForInstantPanel ||
-          quickPanel.membersTotalCount > 0) {
+      if (quickPanel != null &&
+          (quickPanel.isFreshForInstantPanel ||
+              quickPanel.membersTotalCount > 0)) {
         _scheduleHeavyDashboardStreams([tid], force: true);
       }
     } catch (_) {}
@@ -616,22 +619,23 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     );
     if (!mounted) return;
     if (resolved.isNotEmpty && !_panelCanPaintWithoutSkeleton) {
-      final quick = await Future.wait([
+      final quick = await IndependentFutures.pair(
         PanelDashboardSnapshotService.readOnce(resolved),
         ChurchDashboardCurrentService.readOnce(resolved),
-      ]);
+      );
       if (mounted) {
-        final quickPanel = quick[0] as PanelDashboardSnapshot;
+        final quickPanel = quick.$1;
         _attachPanelFeedStreams(resolved);
         _bindMembersDirectoryWatch(resolved);
         setState(() {
           _effectiveTenantId = resolved;
-          _panelCache = quickPanel;
-          _dashboardKpis = quick[1] as ChurchDashboardCurrent;
+          if (quickPanel != null) _panelCache = quickPanel;
+          if (quick.$2 != null) _dashboardKpis = quick.$2!;
         });
-        if (quickPanel.hasHomeLeaders ||
-            quickPanel.homeCorpoAdmin.isNotEmpty ||
-            quickPanel.birthdaysToday.isNotEmpty) {
+        if (quickPanel != null &&
+            (quickPanel.hasHomeLeaders ||
+                quickPanel.homeCorpoAdmin.isNotEmpty ||
+                quickPanel.birthdaysToday.isNotEmpty)) {
           unawaited(
             ChurchGalleryPhotoWarmup.warmBytesForPanel(
               tenantId: resolved,
@@ -689,31 +693,40 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     }
     if (!mounted) return;
     unawaited(_attachPanelFeedStreams(resolved));
-    final results = await Future.wait([
+    final results = await IndependentFutures.pair(
       PanelDashboardSnapshotService.readOnce(resolved),
       ChurchDashboardCurrentService.readOnce(resolved),
-    ]);
+    );
     if (!mounted) return;
     unawaited(
       PanelPreheatCoordinator.preheatOnce(tenantIdHint: resolved),
     );
     final igSnapData = igSnap?.data();
     YahwehPerformanceMonitor.markScreenReady('igreja_dashboard');
+    final skipHeavyMemberStream = _dashboardMainCache?.hasData == true;
     setState(() {
       _effectiveTenantId = resolved;
       _churchSlug = churchSlug;
       _churchNome = churchNome;
-      _panelCache = results[0] as PanelDashboardSnapshot;
-      _dashboardKpis = results[1] as ChurchDashboardCurrent;
-      _attachHeavyDashboardStreamsInline(allIds);
+      if (results.$1 != null) _panelCache = results.$1!;
+      if (results.$2 != null) _dashboardKpis = results.$2!;
+      if (skipHeavyMemberStream) {
+        _heavyDashboardStreamsScheduled = true;
+        _membersStream = null;
+        _deptStream = _createDepartmentsOneShotStream(allIds);
+      } else {
+        _attachHeavyDashboardStreamsInline(allIds);
+      }
     });
-    final panelSnap = results[0] as PanelDashboardSnapshot;
-    unawaited(
-      ChurchGalleryPhotoWarmup.warmBytesForPanel(
-        tenantId: resolved,
-        panel: panelSnap,
-      ),
-    );
+    final panelSnap = results.$1;
+    if (panelSnap != null) {
+      unawaited(
+        ChurchGalleryPhotoWarmup.warmBytesForPanel(
+          tenantId: resolved,
+          panel: panelSnap,
+        ),
+      );
+    }
     unawaited(() async {
       final prefetchRaw = await PanelMediaPrefetchService.readOnce(resolved);
       if (!mounted) return;
@@ -729,7 +742,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         );
       }
     }());
-    if (panelSnap.membersTotalCount == 0 &&
+    if (panelSnap != null &&
+        panelSnap.membersTotalCount == 0 &&
         panelSnap.pendingMembersCount == 0) {
       unawaited(() async {
         final warmed =
@@ -822,8 +836,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     String tenantId,
     int lim,
   ) {
-    return         ChurchOperationalPaths.churchDoc(tenantId)
-        .collection('membros')
+    return         ChurchUiCollections.membros(tenantId)
         .limit(lim)
         .watchSafe();
   }
@@ -864,8 +877,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       );
     }
     if (allIds.length == 1) {
-      return           ChurchOperationalPaths.churchDoc(allIds.first)
-          .collection('departamentos')
+      return           ChurchUiCollections.departamentos(allIds.first)
           .limit(_dashboardDepartmentsLimit)
           .watchSafe();
     }
@@ -886,8 +898,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
       for (final id in allIds) {
         subs.add(
-                        ChurchOperationalPaths.churchDoc(id)
-              .collection('departamentos')
+                        ChurchUiCollections.departamentos(id)
               .limit(_dashboardDepartmentsLimit)
               .watchSafe()
               .listen(
@@ -2988,7 +2999,7 @@ class _DashboardInstitutionalVideoStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: ChurchOperationalPaths.churchDoc(tenantId).watchSafe(),
+      stream: ChurchUiCollections.churchDoc(tenantId).watchSafe(),
       builder: (context, snap) {
         final data = snap.data?.data();
         if (data == null || !mapHasInstitutionalVideo(data)) {
@@ -4607,13 +4618,13 @@ class _GraficosMembrosPizza extends StatelessWidget {
         jovSoc = 0,
         homensAdulto = 0,
         mulheresAdulto = 0,
-        demoOutros = 0;
+        semDadosOutros = 0;
     for (final d in docs) {
       final data = d.data();
       final idadeSoc = ageFromMemberData(data);
       final gSoc = genderCategoryFromMemberData(data);
       if (idadeSoc == null) {
-        demoOutros++;
+        semDadosOutros++;
         continue;
       }
       if (idadeSoc < 13) {
@@ -4626,24 +4637,25 @@ class _GraficosMembrosPizza extends StatelessWidget {
         } else if (gSoc == 'F') {
           mulheresAdulto++;
         } else {
-          demoOutros++;
+          semDadosOutros++;
         }
       }
     }
-    final demoTotal = criSoc + jovSoc + homensAdulto + mulheresAdulto + demoOutros;
-    final demoEntries = <MapEntry<String, int>>[
+    final demografiaTotal =
+        criSoc + jovSoc + homensAdulto + mulheresAdulto + semDadosOutros;
+    final demografiaEntries = <MapEntry<String, int>>[
       if (criSoc > 0) MapEntry('Crianças', criSoc),
       if (jovSoc > 0) MapEntry('Jovens', jovSoc),
       if (homensAdulto > 0) MapEntry('Homens (18+)', homensAdulto),
       if (mulheresAdulto > 0) MapEntry('Mulheres (18+)', mulheresAdulto),
-      if (demoOutros > 0) MapEntry('Outros / sem dados', demoOutros),
+      if (semDadosOutros > 0) MapEntry('Outros / sem dados', semDadosOutros),
     ];
-    final pieDemografia = demoTotal > 0 && demoEntries.isNotEmpty
+    final pieDemografia = demografiaTotal > 0 && demografiaEntries.isNotEmpty
         ? _PieMembros(
             title: 'Demografia (visão social)',
             icon: Icons.donut_large_rounded,
-            entries: demoEntries,
-            total: demoTotal,
+            entries: demografiaEntries,
+            total: demografiaTotal,
             cores: const [
               Color(0xFFF59E0B),
               Color(0xFF14B8A6),
@@ -5660,7 +5672,7 @@ class _GraficoFinanceiro extends StatelessWidget {
               height: 180,
               child: Center(
                 child: Text(
-                  'Erro ao carregar dados.',
+                  'Financeiro indisponível.',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                 ),
               ),
@@ -5932,8 +5944,7 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
       _recentDespesasFuture = null;
       return;
     }
-    _recentDespesasFuture =         ChurchOperationalPaths.churchDoc(tid)
-        .collection('finance')
+    _recentDespesasFuture =         ChurchUiCollections.financeiro(tid)
         .orderBy('createdAt', descending: true)
         .limit(180)
         .get();
@@ -6184,8 +6195,7 @@ class _TarefasPendentes extends StatelessWidget {
                   color: const Color(0xFFE11D48),
                   label: 'Membros pendentes de aprovação',
                   count: cacheReady ? summary.pendingMembersCount : null,
-                  fallbackStream:                       ChurchOperationalPaths.churchDoc(tenantId)
-                      .collection('membros')
+                  fallbackStream:                       ChurchUiCollections.membros(tenantId)
                       .where('status', isEqualTo: 'pendente')
                       .limit(40)
                       .watchSafe(),
@@ -6203,8 +6213,7 @@ class _TarefasPendentes extends StatelessWidget {
                 color: const Color(0xFF0891B2),
                 label: 'Visitantes aguardando follow-up',
                 count: cacheReady ? summary.newVisitorsCount : null,
-                fallbackStream:                     ChurchOperationalPaths.churchDoc(tenantId)
-                    .collection('visitantes')
+                fallbackStream:                     ChurchUiCollections.visitantes(tenantId)
                     .where('status', isEqualTo: 'Novo')
                     .limit(40)
                     .watchSafe(),
@@ -6219,8 +6228,7 @@ class _TarefasPendentes extends StatelessWidget {
                 color: const Color(0xFF7C3AED),
                 label: 'Pedidos de oração ativos',
                 count: cacheReady ? summary.openPrayerRequestsCount : null,
-                fallbackStream:                     ChurchOperationalPaths.churchDoc(tenantId)
-                    .collection('pedidosOracao')
+                fallbackStream:                     ChurchUiCollections.pedidosOracao(tenantId)
                     .where('respondida', isEqualTo: false)
                     .limit(40)
                     .watchSafe(),
@@ -6856,7 +6864,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   if (tid.isEmpty) tid = tenantId.trim();
   if (tid.isEmpty) return const [];
 
-  final churchRef = ChurchOperationalPaths.churchDoc(tid);
+  final churchRef = ChurchUiCollections.churchDoc(tid);
   final noticiasRef = churchRef.collection('eventos');
   final templatesRef = churchRef.collection('event_templates');
 
@@ -7701,7 +7709,7 @@ class _DashboardVoluntariadoAtalhoCard extends StatelessWidget {
     Widget incomingBadge = const SizedBox.shrink();
     if (_cpfDigits.length == 11) {
       incomingBadge = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream:             ChurchOperationalPaths.churchDoc(tid)
+        stream:             ChurchUiCollections.churchDoc(tid)
             .collection('escala_trocas')
             .where('alvoCpf', isEqualTo: _cpfDigits)
             .watchSafe(),

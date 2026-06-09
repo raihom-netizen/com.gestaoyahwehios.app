@@ -171,13 +171,6 @@ class ChurchTenantOfflineWarmupService {
                 .limit(200)
                 .get();
           }),
-          safe('members_legacy', () async {
-            final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-            await                 ChurchOperationalPaths.churchDoc(op)
-                .collection('members')
-                .limit(120)
-                .get();
-          }),
         ]);
       }
 

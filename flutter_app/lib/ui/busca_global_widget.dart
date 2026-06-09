@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Busca global no painel — só em `igrejas/{tenantId}/…` (nunca coleções na raiz).
 class BuscaGlobalWidget extends StatefulWidget {
@@ -49,7 +50,7 @@ class _BuscaGlobalWidgetState extends State<BuscaGlobalWidget> {
 
   CollectionReference<Map<String, dynamic>> _churchCol(String segment) {
     final tid = (_resolvedTenantId ?? widget.tenantId).trim();
-    return         ChurchOperationalPaths.churchDoc(tid)
+    return         ChurchUiCollections.churchDoc(tid)
         .collection(segment);
   }
 
@@ -81,8 +82,7 @@ class _BuscaGlobalWidgetState extends State<BuscaGlobalWidget> {
       }
       final end = '$t\uf8ff';
       final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-      final membros = await ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final membros = await ChurchUiCollections.membros(op)
           .where('nome', isGreaterThanOrEqualTo: t)
           .where('nome', isLessThanOrEqualTo: end)
           .limit(20)

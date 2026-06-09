@@ -90,7 +90,8 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/app_permissions.dart';
 import '../../services/church_funcoes_controle_service.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'igreja_cadastro_page.dart';
 import 'member_card_page.dart';
@@ -106,7 +107,6 @@ import 'aprovar_membros_pendentes_page.dart';
 import 'funcoes_permissoes_page.dart';
 import 'relatorios_page.dart' show openRelatorioMembrosAvancado;
 import 'package:gestao_yahweh/services/church_context_service.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class MembersPage extends StatefulWidget {
   final String tenantId;
@@ -295,7 +295,7 @@ class _MembersPageState extends State<MembersPage> {
   /// Retorna alias e slug da igreja para amarrar o membro ao tenant (segurança entre igrejas).
   Future<Map<String, String>> _getTenantLinkage() async {
     if (_tenantLinkageCache != null) return _tenantLinkageCache!;
-    final snap = await         ChurchOperationalPaths.churchDoc(_effectiveTenantId)
+    final snap = await         ChurchUiCollections.churchDoc(_effectiveTenantId)
         .get();
     final d = snap.data();
     final id = snap.id;
@@ -311,8 +311,8 @@ class _MembersPageState extends State<MembersPage> {
   /// Retorna alias e slug de um tenant qualquer (ex.: ao mover membro para outra igreja).
   static Future<Map<String, String>> _getLinkageForTenant(
       String tenantId) async {
-    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-    final snap = await         ChurchOperationalPaths.churchDoc(op)
+    final op = ChurchRepository.churchId(tenantId.trim());
+    final snap = await         ChurchUiCollections.churchDoc(op)
         .get();
     final d = snap.data();
     final id = snap.id;
@@ -338,7 +338,10 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Carrega lista de igrejas (tenants) para o painel master (mudar igreja do membro).
   static Future<List<MapEntry<String, String>>> _loadTenantsForMove() async {
-    final snap = await firebaseDefaultFirestore.collection('igrejas').get();
+    final snap = await firebaseDefaultFirestore
+        .collection('igrejas')
+        .limit(500)
+        .get();
     final list = snap.docs.map((d) {
       final data = d.data();
       final name = (data['name'] ?? data['nome'] ?? d.id).toString();
@@ -620,6 +623,7 @@ class _MembersPageState extends State<MembersPage> {
               ? null
               : (widget.subscription?['planId'] ?? '').toString().trim(),
     );
+    _warmMembrosCacheFirst(widget.tenantId);
     _membersDataFuture = _loadMembersData();
     _deptsFuture = _loadDeptsForFilter();
     unawaited(_hydrateMembersDirectoryCache());
@@ -816,8 +820,7 @@ class _MembersPageState extends State<MembersPage> {
     _membrosRealtimeSkipInitial = true;
     final db = firebaseDefaultFirestore;
     _membersRealtimeSubs.add(
-                ChurchOperationalPaths.churchDoc(tenantId)
-          .collection('membros')
+                ChurchUiCollections.membros(tenantId)
           .orderBy('updatedAt', descending: true)
           .limit(_membersLoadLimit)
           .watchSafe()
@@ -959,9 +962,8 @@ class _MembersPageState extends State<MembersPage> {
       return _aplicarFiltros(_memberDocsFromDirectoryCache());
     }
 
-    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-    final snap = await         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros')
+    final op = ChurchRepository.churchId(tid.trim());
+    final snap = await         ChurchUiCollections.membros(op)
         .limit(YahwehPerformanceV4.adminExportBatchLimit)
         .get();
     final docs = snap.docs.map(_MemberDoc.fromQueryDoc).toList();
@@ -1132,46 +1134,51 @@ class _MembersPageState extends State<MembersPage> {
     String effectiveId,
     GetOptions getOpts,
   ) async {
-    Future<QuerySnapshot<Map<String, dynamic>>> membrosOrdered() =>         ChurchOperationalPaths.churchDoc(effectiveId)
-        .collection('membros')
-        .orderBy('updatedAt', descending: true)
-        .limit(_membersLoadLimit)
-        .get(getOpts);
-    Future<QuerySnapshot<Map<String, dynamic>>> membrosPlain() =>         ChurchOperationalPaths.churchDoc(effectiveId)
-        .collection('membros')
-        .limit(_membersLoadLimit)
-        .get(getOpts);
-    Future<QuerySnapshot<Map<String, dynamic>>> membersLegacy() =>         ChurchOperationalPaths.churchDoc(effectiveId)
-        .collection('members')
-        .limit(_membersLoadLimit)
-        .get(getOpts);
-    Future<QuerySnapshot<Map<String, dynamic>>> pendente() =>         ChurchOperationalPaths.churchDoc(effectiveId)
-        .collection('membros')
-        .where('status', isEqualTo: 'pendente')
-        .limit(YahwehPerformanceV4.adminExportBatchLimit)
-        .get(getOpts);
+    Future<QuerySnapshot<Map<String, dynamic>>> membrosOrdered() =>
+        ChurchUiCollections.membros(effectiveId)
+            .orderBy('updatedAt', descending: true)
+            .limit(_membersLoadLimit)
+            .get(getOpts);
+    Future<QuerySnapshot<Map<String, dynamic>>> membrosPlain() =>
+        ChurchUiCollections.membros(effectiveId)
+            .limit(_membersLoadLimit)
+            .get(getOpts);
+    Future<QuerySnapshot<Map<String, dynamic>>> pendente() =>
+        ChurchUiCollections.membros(effectiveId)
+            .where('status', isEqualTo: 'pendente')
+            .limit(YahwehPerformanceV4.adminExportBatchLimit)
+            .get(getOpts);
 
     try {
       return await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
         membrosPlain(),
-        membersLegacy(),
         pendente(),
       ]).timeout(_membersCoreLoadTimeout);
     } catch (_) {
       try {
         return await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
           membrosOrdered(),
-          membersLegacy(),
           pendente(),
         ]).timeout(_membersCoreLoadTimeout);
       } catch (_) {
         return Future.wait<QuerySnapshot<Map<String, dynamic>>>([
           membrosPlain(),
-          membersLegacy(),
           pendente(),
         ]).timeout(_membersCoreLoadTimeout);
       }
     }
+  }
+
+  void _warmMembrosCacheFirst(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    unawaited(
+      ChurchRepository.listCacheFirst(
+        module: ChurchRepository.membros,
+        churchIdHint: tid,
+        limit: _membersLoadLimit,
+      ),
+    );
   }
 
   Widget _buildMembersOfflineBanner({VoidCallback? onRetry}) {
@@ -1251,11 +1258,9 @@ class _MembersPageState extends State<MembersPage> {
     }
 
     final membrosSnap = initialCore[0];
-    final legacySnap = initialCore[1];
-    final pendenteSnap = initialCore[2];
+    final pendenteSnap = initialCore[1];
 
-    final needsUsers =
-        membrosSnap.docs.isEmpty && legacySnap.docs.isEmpty;
+    final needsUsers = membrosSnap.docs.isEmpty;
     late final QuerySnapshot<Map<String, dynamic>> usersTSnap;
     late final QuerySnapshot<Map<String, dynamic>> usersISnap;
     if (needsUsers) {
@@ -1292,16 +1297,6 @@ class _MembersPageState extends State<MembersPage> {
     ];
     final seenMemberIds = <String>{...membrosSnap.docs.map((d) => d.id)};
     final seenIgrejasIds = <String>{...membrosSnap.docs.map((d) => d.id)};
-    for (final d in legacySnap.docs) {
-      if (seenMemberIds.add(d.id)) {
-        mergedMembers.add(d);
-        mergedMembros.add(d);
-      }
-      if (seenIgrejasIds.add(d.id)) {
-        mergedIgrejasMembers.add(d);
-        mergedIgrejasMembros.add(d);
-      }
-    }
 
     final allIdsToQuery = <String>{...relatedIgrejaDocIds};
     if (originalId.isNotEmpty) allIdsToQuery.add(originalId);
@@ -1311,38 +1306,18 @@ class _MembersPageState extends State<MembersPage> {
         .take(_maxRelatedTenantMemberQueries)
         .toList();
     if (otherIds.isNotEmpty) {
-      final extraPairs = await Future.wait(otherIds.map((id) async {
+      final extraSnaps = await Future.wait(otherIds.map((id) async {
         try {
-          final pair = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-                            ChurchOperationalPaths.churchDoc(id)
-                .collection('membros')
-                .limit(_membersLoadLimit)
-                .get(getOpts),
-                            ChurchOperationalPaths.churchDoc(id)
-                .collection('members')
-                .limit(_membersLoadLimit)
-                .get(getOpts),
-          ]);
-          return (pair[0], pair[1]);
+          return await ChurchUiCollections.membros(id)
+              .limit(_membersLoadLimit)
+              .get(getOpts);
         } catch (_) {
           return null;
         }
       }));
-      for (final p in extraPairs) {
-        if (p == null) continue;
-        final snap = p.$1;
-        final legacy = p.$2;
+      for (final snap in extraSnaps) {
+        if (snap == null) continue;
         for (final d in snap.docs) {
-          if (seenMemberIds.add(d.id)) {
-            mergedMembers.add(d);
-            mergedMembros.add(d);
-          }
-          if (seenIgrejasIds.add(d.id)) {
-            mergedIgrejasMembers.add(d);
-            mergedIgrejasMembros.add(d);
-          }
-        }
-        for (final d in legacy.docs) {
           if (seenMemberIds.add(d.id)) {
             mergedMembers.add(d);
             mergedMembros.add(d);
@@ -2024,9 +1999,8 @@ class _MembersPageState extends State<MembersPage> {
     if (ids.isEmpty || !mounted) return;
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     final linkage = await _getTenantLinkage();
-    final col =         ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-        .collection('membros');
-    final batch = firebaseDefaultFirestore.batch();
+    final col =         ChurchUiCollections.membros(_effectiveTenantId);
+    final batch = ChurchRepository.batch();
     for (final id in ids) {
       batch.update(col.doc(id), {
         'alias': linkage['alias'],
@@ -2082,29 +2056,23 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _members =>
-                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-          .collection('membros');
+                ChurchUiCollections.membros(_effectiveTenantId);
 
   CollectionReference<Map<String, dynamic>> get _cargosCol =>
-                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-          .collection('cargos');
+                ChurchUiCollections.cargos(_effectiveTenantId);
 
   CollectionReference<Map<String, dynamic>> get _membros =>
-                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-          .collection('membros');
+                ChurchUiCollections.membros(_effectiveTenantId);
 
   /// Igrejas: mesma estrutura para igrejas que usam collection igrejas (ex.: Brasil para Cristo)
   CollectionReference<Map<String, dynamic>> get _membersIgrejas =>
-                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-          .collection('membros');
+                ChurchUiCollections.membros(_effectiveTenantId);
 
   CollectionReference<Map<String, dynamic>> get _membrosIgrejas =>
-                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-          .collection('membros');
+                ChurchUiCollections.membros(_effectiveTenantId);
 
   CollectionReference<Map<String, dynamic>> get _departments =>
-                ChurchOperationalPaths.churchDoc(_effectiveTenantId)
-          .collection('departamentos');
+                ChurchUiCollections.departamentos(_effectiveTenantId);
 
   // Usados apenas via _loadMembersData() (leitura pontual).
 
@@ -4444,8 +4412,7 @@ class _MembersPageState extends State<MembersPage> {
               .replaceAll(RegExp(r'\D'), '');
           if (cpfKey.length == 11) {
             try {
-              await                   ChurchOperationalPaths.churchDoc(targetTenantId)
-                  .collection('usersIndex')
+              await ChurchUiCollections.usersIndex(targetTenantId)
                   .doc(cpfKey)
                   .set({
                 'name': updates['NOME_COMPLETO'],
@@ -4643,7 +4610,7 @@ class _MembersPageState extends State<MembersPage> {
         if (oldAss.isNotEmpty) {
           await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(oldAss);
         }
-        final op = await ChurchOperationalPaths.resolveCached(targetTenantId);
+        final op = ChurchRepository.churchId(targetTenantId);
         final assinaturaPath =
             '${ChurchStorageLayout.churchRoot(op)}/membros/${member.id}_assinatura.png';
         await StorageService.uploadBytes(
@@ -4761,8 +4728,7 @@ class _MembersPageState extends State<MembersPage> {
           }, SetOptions(merge: true));
         } catch (_) {}
         try {
-          final tenantUsersCol =               ChurchOperationalPaths.churchDoc(targetTenantId)
-              .collection('users');
+          final tenantUsersCol = ChurchUiCollections.tenantUsers(targetTenantId);
           await tenantUsersCol.doc(authUid).set({
             'role': permBaseFinal,
             'roles': rolesList,
@@ -4800,15 +4766,13 @@ class _MembersPageState extends State<MembersPage> {
             {...oldFromMember, ...oldFromPanel}.difference(newResolved);
         for (final tid in idsToRemove) {
           try {
-            await                 ChurchOperationalPaths.churchDoc(tid)
-                .collection('membros')
+            await                 ChurchUiCollections.membros(tid)
                 .doc(member.id)
                 .delete();
           } catch (_) {}
           if (authUid != null && authUid.isNotEmpty) {
             try {
-              await                   ChurchOperationalPaths.churchDoc(tid)
-                  .collection('users')
+              await ChurchUiCollections.tenantUsers(tid)
                   .doc(authUid)
                   .delete();
             } catch (_) {}
@@ -5064,9 +5028,9 @@ class _MembersPageState extends State<MembersPage> {
       final refs = <DocumentReference<Map<String, dynamic>>>[];
       for (final tid in allDocIds) {
         if (tid.isEmpty) continue;
-        final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+        final op = ChurchRepository.churchId(tid.trim());
         refs.add(
-          ChurchOperationalPaths.churchDoc(op).collection('members').doc(mid),
+          ChurchUiCollections.membros(op).doc(mid),
         );
       }
       final userDocIds = <String>{};
@@ -6147,7 +6111,7 @@ class _MembersPageState extends State<MembersPage> {
 
   Future<String?> _loadTenantSlug() async {
     try {
-      final snap = await           ChurchOperationalPaths.churchDoc(_effectiveTenantId)
+      final snap = await           ChurchUiCollections.churchDoc(_effectiveTenantId)
           .get();
       return (snap.data()?['slug'] ?? snap.data()?['slugId'] ?? '')
           .toString()
@@ -9239,8 +9203,8 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
 
   Future<String?> _loadSlug() async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
+      final op = ChurchRepository.churchId(tenantId.trim());
+      final snap = await           ChurchUiCollections.churchDoc(op)
           .get();
       return (snap.data()?['slug'] ?? snap.data()?['slugId'] ?? '')
           .toString()

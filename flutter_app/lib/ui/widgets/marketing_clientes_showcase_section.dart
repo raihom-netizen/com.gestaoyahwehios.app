@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Markdown mínimo (sem dependência): `**negrito**`, `*itálico*` ou `_itálico_`.
 List<InlineSpan> lightMarkdownInlineSpans(String input, TextStyle base) {
@@ -737,7 +738,7 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
       if (tid.isEmpty) return null;
       try {
         final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-        final doc = await             ChurchOperationalPaths.churchDoc(op)
+        final doc = await             ChurchUiCollections.churchDoc(op)
             .get()
             .timeout(
               const Duration(seconds: 10),

@@ -3,13 +3,14 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// E-mail na ficha do membro (várias chaves usadas no app).
 String _emailFromMemberData(Map<String, dynamic> data) {
@@ -145,8 +146,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     }
     final filter = _respondidaFilterFromStatus();
     if (forceServer) {
-      final op = await ChurchOperationalPaths.resolveCached(tid);
-      final col = ChurchOperationalPaths.churchDoc(op).collection('pedidosOracao');
+      final op = ChurchRepository.churchId(tid);
+      final col = ChurchUiCollections.pedidosOracao(op);
       final snap = await FirestoreReadResilience.getQuery(
         col.limit(300),
         cacheKey: _pedidosMemKey(tid, _filtroCacheSuffix()),
@@ -200,16 +201,9 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     } catch (_) {}
 
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      final op = await ChurchOperationalPaths.resolveCached(
-        seed,
-        userUid: uid,
-      ).timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => _effectiveTenantId.isNotEmpty
-            ? _effectiveTenantId
-            : seed,
-      );
+      final op = ChurchRepository.churchId(seed).isNotEmpty
+          ? ChurchRepository.churchId(seed)
+          : (_effectiveTenantId.isNotEmpty ? _effectiveTenantId : seed);
       if (!mounted) return;
       if (op.isNotEmpty && op != _tid) {
         setState(() => _effectiveTenantId = op);
@@ -289,7 +283,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   };
 
   CollectionReference<Map<String, dynamic>> get _col =>
-      ChurchOperationalPaths.churchDoc(_tid).collection('pedidosOracao');
+      ChurchUiCollections.pedidosOracao(_tid);
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
 
@@ -1257,8 +1251,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     final id = effective.trim().isNotEmpty ? effective : tenantId.trim();
     if (id.isEmpty) return [];
 
-    final op = await ChurchOperationalPaths.resolveCached(id);
-    final churchRef = ChurchOperationalPaths.churchDoc(op);
+    final op = ChurchRepository.churchId(id);
+    final churchRef = ChurchUiCollections.churchDoc(op);
 
     final membrosDocs = await _paginateSubcollection(churchRef, 'membros');
     final legacyDocs = await _paginateSubcollection(churchRef, 'members');

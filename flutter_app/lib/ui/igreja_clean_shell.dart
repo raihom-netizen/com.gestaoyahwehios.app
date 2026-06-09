@@ -27,7 +27,9 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_cluster_sync_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_consolidation_service.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/tenant_migration_service.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
@@ -476,6 +478,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         force: forceRefresh,
         source: 'shell_resolve_tenant',
       );
+      unawaited(
+        TenantMigrationService.runAfterBind(
+          churchIdHint: effective,
+          seedHint: raw,
+        ),
+      );
     } catch (_) {
       if (!mounted) return;
       if (_operationalTenantId == null || _operationalTenantId!.trim().isEmpty) {
@@ -616,13 +624,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final tid = widget.tenantId.trim();
     if (tid.isEmpty || !mounted) return;
     final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-    final church = await ChurchOperationalPaths.churchDoc(op).get();
+    final church = await ChurchUiCollections.churchDoc(op).get();
     if (!mounted) return;
     final d = church.data() ?? {};
     var slug = (d['slug'] ?? '').toString().trim();
     if (slug.isEmpty) slug = tid;
-    final avisos =         ChurchOperationalPaths.churchDoc(op)
-        .collection('avisos');
+    final avisos =         ChurchUiCollections.avisos(op);
     await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => MuralAvisoEditorPage(
@@ -797,7 +804,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             runFirebaseBackgroundTask<void>(
               () async {
                 final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-                final base =                     ChurchOperationalPaths.churchDoc(op);
+                final base =                     ChurchUiCollections.churchDoc(op);
                 await base
                     .collection('membros')
                     .orderBy('updatedAt', descending: true)
@@ -812,7 +819,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                final base =                     ChurchOperationalPaths.churchDoc(tid);
+                final base =                     ChurchUiCollections.churchDoc(tid);
                 await base
                     .collection('avisos')
                     .orderBy('createdAt', descending: true)
@@ -827,7 +834,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                final base =                     ChurchOperationalPaths.churchDoc(tid);
+                final base =                     ChurchUiCollections.churchDoc(tid);
                 await base
                     .collection('eventos')
                     .orderBy('startAt', descending: true)
@@ -842,8 +849,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                await                     ChurchOperationalPaths.churchDoc(tid)
-                    .collection('finance')
+                await                     ChurchUiCollections.financeiro(tid)
                     .limit(24)
                     .get();
               },
@@ -855,8 +861,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                await                     ChurchOperationalPaths.churchDoc(tid)
-                    .collection('patrimonio')
+                await                     ChurchUiCollections.patrimonio(tid)
                     .limit(24)
                     .get();
               },
@@ -868,8 +873,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                await                     ChurchOperationalPaths.churchDoc(tid)
-                    .collection('fornecedores')
+                await                     ChurchUiCollections.fornecedores(tid)
                     .limit(24)
                     .get();
               },
@@ -881,8 +885,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                await                     ChurchOperationalPaths.churchDoc(tid)
-                    .collection('chats')
+                await                     ChurchUiCollections.chats(tid)
                     .orderBy('lastMessageAt', descending: true)
                     .limit(16)
                     .get();
@@ -1555,7 +1558,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     _lastSubscriptionSyncMs = nowMs;
     try {
       final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      await           ChurchOperationalPaths.churchDoc(op)
+      await           ChurchUiCollections.churchDoc(op)
           .set(SubscriptionGuard.normalizedChurchFields(guard),
               SetOptions(merge: true));
     } catch (_) {
@@ -2451,7 +2454,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       },
       child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         key: ValueKey('tenant_stream_$_tenantStreamRetry'),
-        stream:               ChurchOperationalPaths.churchDoc(widget.tenantId)
+        stream:               ChurchUiCollections.churchDoc(widget.tenantId)
               .watchSafe(),
         builder: (context, tenantSnap) {
           if (tenantSnap.hasData && tenantSnap.data != null) {
@@ -2681,7 +2684,7 @@ class _HeaderLocalizacao extends StatelessWidget {
   Widget build(BuildContext context) {
     if (tenantId.isEmpty) return const SizedBox.shrink();
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream:             ChurchOperationalPaths.churchDoc(tenantId)
+      stream:             ChurchUiCollections.churchDoc(tenantId)
             .watchSafe(),
       builder: (context, snap) {
         final line = _lineFromChurch(snap.data?.data());
@@ -2727,7 +2730,7 @@ class _HeaderVencimento extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream:             ChurchOperationalPaths.churchDoc(tenantId)
+      stream:             ChurchUiCollections.churchDoc(tenantId)
             .watchSafe(),
       builder: (context, snap) {
         final textColor = light ? Colors.white70 : const Color(0xFF64748B);

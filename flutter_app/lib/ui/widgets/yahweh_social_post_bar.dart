@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Barra estilo Instagram: curtir, comentar, confirmar presença (evento).
 /// Contadores em tempo real via stream do documento da notícia.
@@ -40,7 +41,7 @@ class _YahwehSocialPostBarState extends State<YahwehSocialPostBar> {
   bool? _optLiked;
   bool? _optRsvp;
 
-  DocumentReference<Map<String, dynamic>> get _postRef =>       ChurchOperationalPaths.churchDoc(widget.tenantId)
+  DocumentReference<Map<String, dynamic>> get _postRef =>       ChurchUiCollections.churchDoc(widget.tenantId)
       .collection(widget.postsParentCollection)
       .doc(widget.postId);
 

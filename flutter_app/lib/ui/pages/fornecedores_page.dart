@@ -35,6 +35,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Cache RAM — cadastro de fornecedores (reabrir módulo sem skeleton longo).
 abstract final class _FornecedoresRamCache {
@@ -77,7 +78,7 @@ Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
   final tid = tenantId.trim();
   if (tid.isEmpty) return const MergedFirestoreQuerySnapshot([]);
   final op = ChurchContextService.panelChurchId(tid);
-  final col = ChurchOperationalPaths.churchDoc(op)
+  final col = ChurchUiCollections.churchDoc(op)
       .collection('fornecedor_compromissos');
   final f = (fornecedorIdFilter ?? '').trim();
   final Query<Map<String, dynamic>> q = f.isNotEmpty
@@ -1111,8 +1112,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
         permissions: widget.permissions,
       );
 
-  CollectionReference<Map<String, dynamic>> get _col =>       ChurchOperationalPaths.churchDoc(widget.tenantId)
-      .collection('fornecedores');
+  CollectionReference<Map<String, dynamic>> get _col =>       ChurchUiCollections.fornecedores(widget.tenantId);
 
   void _openHub(String id) {
     Navigator.of(context).push(
@@ -1667,7 +1667,7 @@ class _FornecedoresCompromissosListaTabState
 
   String get _tenantId => widget.colFornecedores.parent?.id ?? '';
 
-  CollectionReference<Map<String, dynamic>> get _compCol =>       ChurchOperationalPaths.churchDoc(_tenantId)
+  CollectionReference<Map<String, dynamic>> get _compCol =>       ChurchUiCollections.churchDoc(_tenantId)
       .collection('fornecedor_compromissos');
 
   @override
@@ -2055,7 +2055,7 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
       ? widget.tenantId.trim()
       : (widget.colFornecedores.parent?.id ?? '');
 
-  CollectionReference<Map<String, dynamic>> get _compCol =>       ChurchOperationalPaths.churchDoc(_tenantId)
+  CollectionReference<Map<String, dynamic>> get _compCol =>       ChurchUiCollections.churchDoc(_tenantId)
       .collection('fornecedor_compromissos');
 
   @override
@@ -3399,14 +3399,12 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
     super.dispose();
   }
 
-  DocumentReference<Map<String, dynamic>> get _fornecedorRef =>       ChurchOperationalPaths.churchDoc(widget.tenantId)
-      .collection('fornecedores')
+  DocumentReference<Map<String, dynamic>> get _fornecedorRef =>       ChurchUiCollections.fornecedores(widget.tenantId)
       .doc(widget.fornecedorId);
 
-  CollectionReference<Map<String, dynamic>> get _financeCol =>       ChurchOperationalPaths.churchDoc(widget.tenantId)
-      .collection('finance');
+  CollectionReference<Map<String, dynamic>> get _financeCol =>       ChurchUiCollections.financeiro(widget.tenantId);
 
-  CollectionReference<Map<String, dynamic>> get _compCol =>       ChurchOperationalPaths.churchDoc(widget.tenantId)
+  CollectionReference<Map<String, dynamic>> get _compCol =>       ChurchUiCollections.churchDoc(widget.tenantId)
       .collection('fornecedor_compromissos');
 
   Future<void> _novaComTipo(String presetTipo) async {
@@ -3740,8 +3738,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
               ),
               _FornecedoresCompromissosListaTab(
                 tenantId: widget.tenantId,
-                colFornecedores:                     ChurchOperationalPaths.churchDoc(widget.tenantId)
-                    .collection('fornecedores'),
+                colFornecedores:                     ChurchUiCollections.fornecedores(widget.tenantId),
                 onOpenFornecedor: null,
                 fornecedorIdFilter: widget.fornecedorId,
                 showFornecedorLine: false,
@@ -4455,8 +4452,7 @@ class _AgendaTabState extends State<_AgendaTab> {
 
   @override
   Widget build(BuildContext context) {
-    final fornecedorRef =         ChurchOperationalPaths.churchDoc(widget.tenantId)
-        .collection('fornecedores')
+    final fornecedorRef =         ChurchUiCollections.fornecedores(widget.tenantId)
         .doc(widget.fornecedorId);
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(

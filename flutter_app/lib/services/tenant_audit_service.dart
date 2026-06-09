@@ -15,6 +15,8 @@ abstract final class TenantAuditService {
     OfflineModules.patrimonio,
     OfflineModules.membros,
     OfflineModules.escalas,
+    OfflineModules.eventos,
+    OfflineModules.avisos,
   };
 
   static String deviceLabel() {
