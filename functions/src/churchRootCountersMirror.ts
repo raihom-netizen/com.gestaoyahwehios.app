@@ -66,6 +66,41 @@ export async function mirrorDashboardCacheAlias(
   await cacheCol.doc("dashboard").set(summaryData, { merge: false });
 }
 
+/** Cache instantâneo do painel — `igrejas/{churchId}/_dashboard_cache/main`. */
+export async function writeDashboardCacheMain(
+  churchRef: admin.firestore.DocumentReference,
+  payload: {
+    totalMembros: number;
+    ativos: number;
+    visitantes: number;
+    saldo: number;
+    homens?: number;
+    mulheres?: number;
+    criancas?: number;
+    eventos?: number;
+    avisos?: number;
+  },
+): Promise<void> {
+  await churchRef.collection("_dashboard_cache").doc("main").set(
+    {
+      totalMembros: payload.totalMembros,
+      membros: payload.totalMembros,
+      ativos: payload.ativos,
+      visitantes: payload.visitantes,
+      saldo: payload.saldo,
+      saldoAtual: payload.saldo,
+      homens: payload.homens ?? 0,
+      mulheres: payload.mulheres ?? 0,
+      criancas: payload.criancas ?? 0,
+      eventos: payload.eventos ?? 0,
+      avisos: payload.avisos ?? 0,
+      schemaVersion: 2,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
 /** Financeiro pré-calculado no doc raiz (complementa `financeAggregates` da CF finance). */
 export async function mirrorFinanceAggregatesToRoot(
   churchRef: admin.firestore.DocumentReference,

@@ -1,7 +1,7 @@
 // ignore_for_file: unused_element
 // (Funções legadas do bloco gestor/meta mantidas até remoção total.)
 
-import 'dart:async' show StreamSubscription, unawaited;
+import 'dart:async' show StreamSubscription, TimeoutException, unawaited;
 import 'dart:convert';
 import 'dart:math' show min;
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -39,7 +39,7 @@ import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart'
-    show openHttpsUrlInBrowser;
+    show ChurchPanelErrorBody, openHttpsUrlInBrowser;
 import 'package:gestao_yahweh/ui/widgets/church_image_crop_dialog.dart';
 import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
 import 'package:gestao_yahweh/utils/image_bytes_to_jpeg.dart';
@@ -393,8 +393,55 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   }
 
   Future<void> _bootstrapCadastro({bool forceRefresh = false}) async {
+    if (mounted) {
+      setState(() {
+        _cadastroBootstrapDone = false;
+        _cadastroBootstrapError = null;
+      });
+    }
+    try {
+      await _bootstrapCadastroInner(forceRefresh: forceRefresh).timeout(
+        ChurchRepository.panelQueryTimeout,
+      );
+    } on TimeoutException {
+      if (!mounted) return;
+      setState(() {
+        _cadastroBootstrapDone = true;
+        _cadastroBootstrapError =
+            'Tempo esgotado (${ChurchRepository.panelQueryTimeout.inSeconds}s) ao carregar o cadastro.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _cadastroBootstrapDone = true;
+        _cadastroBootstrapError = e.toString();
+      });
+    }
+  }
+
+  Future<void> _bootstrapCadastroInner({bool forceRefresh = false}) async {
     final seed = widget.tenantId.trim();
     final uid = FirebaseAuth.instance.currentUser?.uid;
+    final churchId = ChurchRepository.churchId(seed);
+
+    if (!forceRefresh && churchId.isNotEmpty) {
+      try {
+        final direct = await ChurchRepository.loadByChurchId(
+          churchId,
+          seedTenantId: seed,
+          userUid: uid,
+        );
+        if (direct.data.isNotEmpty) {
+          _applyChurchDataResult(direct);
+          unawaited(_reloadChurchDataInBackground());
+          return;
+        }
+      } on ChurchRepositoryException catch (e) {
+        if (mounted) {
+          setState(() => _cadastroBootstrapError = e.message);
+        }
+      } catch (_) {}
+    }
 
     if (!forceRefresh) {
       final cached = ChurchRepository.peekCached(
@@ -409,10 +456,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
 
     if (!mounted) return;
-    setState(() {
-      _cadastroBootstrapDone = false;
-      _cadastroBootstrapError = null;
-    });
 
     final bootstrap = await ChurchBootstrapService.loadCadastroPanel(
       seedTenantId: seed,
@@ -425,10 +468,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   Future<void> _reloadChurchDataInBackground() async {
     try {
-      final result = await ChurchRepository.loadChurchData(
+      final churchId = ChurchRepository.churchId(widget.tenantId);
+      if (churchId.isEmpty) return;
+      final result = await ChurchRepository.loadByChurchId(
+        churchId,
         seedTenantId: widget.tenantId,
         userUid: FirebaseAuth.instance.currentUser?.uid,
-        directDocOnly: true,
       );
       if (!mounted || result.data.isEmpty) return;
       _hydrateFormFromFirestoreDoc(result.churchId, result.data);
@@ -444,7 +489,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       return;
     }
     final ref =
-        ChurchOperationalPaths.churchDoc(resolvedId);
+        ChurchRepository.churchDoc(resolvedId);
     _igrejaLiveSub = FirestoreStreamUtils.documentWatchBootstrap(ref).listen(
       (doc) => _onIgrejaDocSnapshot(resolvedId, doc),
       onError: (_) {},
@@ -929,7 +974,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<String> _resolveGestorMembroDocumentId(
       String resolvedId, String cpfDigits) async {
     if (cpfDigits.length != 11) return cpfDigits;
-    final col =         ChurchOperationalPaths.churchDoc(resolvedId)
+    final col =         ChurchRepository.churchDoc(resolvedId)
         .collection('membros');
 
     final hinted = (_gestorMemberDocId ?? '').trim();
@@ -1017,7 +1062,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (!force && _lastHydratedCpf == cpf) return;
     final seqAtStart = _gestorHydrateSeq;
     try {
-      final col =           ChurchOperationalPaths.churchDoc(resolvedId)
+      final col =           ChurchRepository.churchDoc(resolvedId)
           .collection('membros');
       DocumentSnapshot<Map<String, dynamic>>? memDoc;
 
@@ -1250,7 +1295,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final alias = al.isEmpty ? resolvedId : al;
     final slug = sl.isEmpty ? resolvedId : sl;
 
-    final col =         ChurchOperationalPaths.churchDoc(resolvedId)
+    final col =         ChurchRepository.churchDoc(resolvedId)
         .collection('membros');
     final roleLower = widget.role.toLowerCase();
     final editorIsChurchStaff =
@@ -1430,7 +1475,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       );
       parallel.add(
         FirestoreWebGuard.runWithWebRecovery(
-          () =>               ChurchOperationalPaths.churchDoc(resolvedId)
+          () =>               ChurchRepository.churchDoc(resolvedId)
               .collection('users')
               .doc(userWriteId)
               .set({
@@ -1453,7 +1498,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (cpfDigits.length == 11) {
       parallel.add(
         FirestoreWebGuard.runWithWebRecovery(
-          () =>               ChurchOperationalPaths.churchDoc(resolvedId)
+          () =>               ChurchRepository.churchDoc(resolvedId)
               .collection('usersIndex')
               .doc(cpfDigits)
               .set({
@@ -1478,7 +1523,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         authUidForPayload != cpfDigits) {
       parallel.add(
         FirestoreWebGuard.runWithWebRecovery(
-          () =>               ChurchOperationalPaths.churchDoc(resolvedId)
+          () =>               ChurchRepository.churchDoc(resolvedId)
               .collection('usersIndex')
               .doc(authUidForPayload)
               .set({
@@ -1855,10 +1900,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<String> _resolveTenantIdForSave() async {
     final cached = (_operationalTenantId ?? '').trim();
     if (cached.isNotEmpty) return cached;
-    return ChurchOperationalPaths.resolveCached(
-      widget.tenantId,
-      userUid: FirebaseAuth.instance.currentUser?.uid,
-    );
+    return ChurchRepository.churchId(widget.tenantId);
   }
 
   Future<void> _save() async {
@@ -2043,7 +2085,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       data['sitePrimaryHex'] = FieldValue.delete();
 
       await FirestoreWebGuard.runWithWebRecovery(
-        () =>             ChurchOperationalPaths.churchDoc(resolvedId)
+        () =>             ChurchRepository.churchDoc(resolvedId)
             .set(data, SetOptions(merge: true)),
         maxAttempts: 5,
       );
@@ -2673,29 +2715,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       return Scaffold(
         backgroundColor: ThemeCleanPremium.surface,
         appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Não foi possível carregar o cadastro da igreja.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.grey.shade800,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: _retryResolveTenant,
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: const Text('Tentar novamente'),
-                ),
-              ],
-            ),
-          ),
+        body: ChurchPanelErrorBody(
+          title: 'Não foi possível carregar o cadastro da igreja.',
+          error: _cadastroBootstrapError,
+          onRetry: _retryResolveTenant,
         ),
       );
     }

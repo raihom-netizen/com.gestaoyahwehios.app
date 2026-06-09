@@ -70,6 +70,14 @@ abstract final class SessionPerformanceMetrics {
         .toList();
   }
 
+  /// Média das últimas medições registradas na sessão (ms).
+  static int? get averageLastMs {
+    final entries = snapshot().where((e) => e.lastMs >= 0).toList();
+    if (entries.isEmpty) return null;
+    final sum = entries.fold<int>(0, (a, e) => a + e.lastMs);
+    return (sum / entries.length).round();
+  }
+
   static List<SessionMetricEntry> snapshotWithPlaceholders() {
     return _labels.keys.map((k) {
       return _entries[k] ??

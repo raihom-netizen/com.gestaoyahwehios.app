@@ -10,10 +10,12 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/global_tenant_audit_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/pages/church_panel_diagnostic_page.dart';
+import 'package:gestao_yahweh/ui/pages/debug_church_page.dart';
 import 'package:gestao_yahweh/ui/pages/church_sync_test_page.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
@@ -123,12 +125,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     _loadPrefs();
     final seed = widget.tenantId.trim();
     if (seed.isNotEmpty) {
-      unawaited(
-        ChurchOperationalPaths.resolveCached(seed).then((op) {
-          if (!mounted || op.isEmpty) return;
-          setState(() => _operationalTenantId = op);
-        }),
-      );
+      final op = ChurchContextService.panelChurchId(seed);
+      if (op.isNotEmpty) _operationalTenantId = op;
     }
   }
 
@@ -1181,6 +1179,30 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             ],
           ],
           const SizedBox(height: 12),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.bug_report_rounded, color: ThemeCleanPremium.primary),
+            title: const Text(
+              'DEBUG CHURCH (auditoria com provas)',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+            subtitle: const Text(
+              'churchId, paths Firestore/Storage, contagens — print Web/Android/iOS',
+              style: TextStyle(fontSize: 12),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => DebugChurchPage(
+                    tenantId: _effectiveTenantId,
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 8),
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: Icon(Icons.speed_rounded, color: ThemeCleanPremium.primary),

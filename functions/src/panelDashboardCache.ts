@@ -3,13 +3,11 @@ import * as admin from "firebase-admin";
 import { recomputeMembersDirectoryFromDocs } from "./membersDirectoryCache";
 import { recomputePanelMediaPrefetch } from "./panelMediaPrefetch";
 import { resolveTenantIdForCallable } from "./tenantCallableResolve";
-import {
-  addAnchoredCluster,
-  resolveAnchoredCanonicalTenantId,
-} from "./churchClusterAnchors";
+import { resolveAnchoredCanonicalTenantId } from "./churchClusterAnchors";
 import {
   mirrorChurchCountersToRoot,
   mirrorDashboardCacheAlias,
+  writeDashboardCacheMain,
 } from "./churchRootCountersMirror";
 import { writePanelStatisticsCache } from "./panelStatisticsCache";
 import { recomputePanelPublicSiteCache } from "./panelPublicSiteCache";
@@ -20,13 +18,70 @@ const RECENT_EVENTOS = 8;
 const MEMBERS_SCAN_LIMIT = 800;
 const DEPT_SCAN_LIMIT = 120;
 
+/** Painel: um único `igrejas/{churchId}` — sem cluster/alias. */
 function clusterDocIdsForPanel(seed: string): string[] {
-  const out = new Set<string>();
   const t = String(seed || "").trim();
-  if (!t) return [];
-  out.add(t);
-  addAnchoredCluster(t, out);
-  return Array.from(out).filter(Boolean);
+  return t ? [t] : [];
+}
+
+function memberGenderCategory(d: Record<string, unknown>): "M" | "F" | "" {
+  const raw = pickString(d, ["SEXO", "sexo", "genero", "gender"]);
+  const s = String(raw || "").toLowerCase().trim();
+  if (!s) return "";
+  if (s === "f" || s === "2" || s === "female") return "F";
+  if (s.startsWith("mulh") || s.includes("femin") || s === "femea" || s === "fêmea") return "F";
+  if (s === "m" || s === "1" || s === "male" || s === "h") return "M";
+  if (s.startsWith("masc") || s.startsWith("hom")) return "M";
+  if (s === "masculino") return "M";
+  if (s === "feminino") return "F";
+  return "";
+}
+
+function memberAgeYears(d: Record<string, unknown>): number | null {
+  const keys = [
+    "DATA_NASCIMENTO",
+    "dataNascimento",
+    "birthDate",
+    "nascimento",
+    "data_nascimento",
+  ];
+  for (const k of keys) {
+    const raw = d[k];
+    if (raw instanceof admin.firestore.Timestamp) {
+      const birth = raw.toDate();
+      const now = new Date();
+      let age = now.getFullYear() - birth.getFullYear();
+      const m = now.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+      return age;
+    }
+  }
+  for (const k of ["IDADE", "idade", "age"]) {
+    const v = d[k];
+    if (typeof v === "number" && v >= 0 && v < 130) return v;
+  }
+  return null;
+}
+
+function computeMemberDemographics(
+  memberDocs: admin.firestore.QueryDocumentSnapshot[],
+): { homens: number; mulheres: number; criancas: number } {
+  let homens = 0;
+  let mulheres = 0;
+  let criancas = 0;
+  for (const doc of memberDocs) {
+    const d = doc.data() as Record<string, unknown>;
+    if (!memberIsActive(d)) continue;
+    const age = memberAgeYears(d);
+    if (age != null && age < 13) {
+      criancas++;
+      continue;
+    }
+    const g = memberGenderCategory(d);
+    if (g === "M") homens++;
+    else if (g === "F") mulheres++;
+  }
+  return { homens, mulheres, criancas };
 }
 
 function memberDedupeKey(
@@ -797,6 +852,30 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
   const activeMembersCount = membrosMerged.filter((d) =>
     memberIsActive(d.data() as Record<string, unknown>),
   ).length;
+
+  let saldoAtual = 0;
+  try {
+    const finSnap = await cacheCol.doc("finance_summary").get();
+    const fin = finSnap.data();
+    saldoAtual = Number(fin?.saldoAtual ?? fin?.saldo_atual ?? 0);
+  } catch (_) {}
+
+  const demographics = computeMemberDemographics(membrosMerged);
+  try {
+    await writeDashboardCacheMain(churchRef, {
+      totalMembros: membersTotal,
+      ativos: activeMembersCount,
+      visitantes: newVisitors,
+      saldo: saldoAtual,
+      homens: demographics.homens,
+      mulheres: demographics.mulheres,
+      criancas: demographics.criancas,
+      eventos: eventosDocs.length + upcomingDocs.length,
+      avisos: avisosDocs.length,
+    });
+  } catch (e) {
+    functions.logger.warn("panelDashboardCache: _dashboard_cache", { tenantId: tid, e });
+  }
 
   try {
     await mirrorChurchCountersToRoot(churchRef, {

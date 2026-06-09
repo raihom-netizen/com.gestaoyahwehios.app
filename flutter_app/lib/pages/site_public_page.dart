@@ -225,105 +225,66 @@ class _SitePublicPageState extends State<SitePublicPage>
         ),
       ];
     }
-    Widget navChip({
+    Widget barBtn({
       required String label,
       required IconData icon,
       required VoidCallback onTap,
-      bool emphasize = false,
+      MarketingButtonStyle style = MarketingButtonStyle.outline,
+      List<Color>? storeGradient,
+      String? subtitle,
     }) {
       return Padding(
         padding: const EdgeInsets.only(left: 6),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(999),
-            child: Ink(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: emphasize
-                      ? [
-                          Colors.white.withValues(alpha: 0.3),
-                          Colors.white.withValues(alpha: 0.12),
-                        ]
-                      : [
-                          Colors.white.withValues(alpha: 0.2),
-                          Colors.white.withValues(alpha: 0.08),
-                        ],
-                ),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: emphasize ? 0.48 : 0.36),
-                  width: 1.05,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: emphasize ? 0.16 : 0.1),
-                    blurRadius: emphasize ? 16 : 12,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
-              ),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 16, color: Colors.white),
-                    const SizedBox(width: 7),
-                    Text(
-                      label,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 11.5,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+        child: MarketingNavButton(
+          label: label,
+          subtitle: subtitle,
+          icon: icon,
+          style: style,
+          storeGradient: storeGradient,
+          compact: true,
+          onDarkSurface: true,
+          onTap: onTap,
         ),
       );
     }
 
     return [
-      navChip(
+      barBtn(
         label: 'Google Play',
+        subtitle: 'Android',
         icon: Icons.android_rounded,
+        style: MarketingButtonStyle.store,
+        storeGradient: const [Color(0xFF01875F), Color(0xFF00A86B)],
         onTap: () {
-          unawaited(PublicSiteAnalytics.logMarketingAction(
-              'marketing_bar_play'));
+          unawaited(PublicSiteAnalytics.logMarketingAction('marketing_bar_play'));
           unawaited(
               sitePublicLaunchStoreUrl(AppConstants.gestaoYahwehPlayStoreUrl));
         },
       ),
-      navChip(
+      barBtn(
         label: 'TestFlight',
+        subtitle: 'iPhone',
         icon: Icons.apple_rounded,
+        style: MarketingButtonStyle.store,
+        storeGradient: const [Color(0xFF1C1C1E), Color(0xFF3A3A3C)],
         onTap: () {
-          unawaited(PublicSiteAnalytics.logMarketingAction(
-              'marketing_bar_testflight'));
+          unawaited(
+              PublicSiteAnalytics.logMarketingAction('marketing_bar_testflight'));
           unawaited(sitePublicLaunchStoreUrl(
               AppConstants.gestaoYahwehTestFlightUrl));
         },
       ),
-      navChip(
+      barBtn(
         label: 'VER PLANOS',
-        icon: Icons.auto_awesome_rounded,
-        emphasize: true,
+        icon: Icons.workspace_premium_rounded,
+        style: MarketingButtonStyle.primary,
         onTap: () {
           unawaited(
               PublicSiteAnalytics.logMarketingAction('marketing_bar_planos'));
           Navigator.pushNamed(context, '/planos');
         },
       ),
-      navChip(
+      barBtn(
         label: 'LOGIN',
         icon: Icons.login_rounded,
         onTap: () {
@@ -334,8 +295,8 @@ class _SitePublicPageState extends State<SitePublicPage>
       ),
       Padding(
         padding: const EdgeInsets.only(right: 6, left: 2),
-        child: navChip(
-          label: 'ACESSO PAINEL MASTER',
+        child: barBtn(
+          label: 'PAINEL MASTER',
           icon: Icons.shield_rounded,
           onTap: () {
             unawaited(PublicSiteAnalytics.logMarketingAction(
@@ -876,68 +837,62 @@ class _LeftHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 700;
-    Widget heroBtn({
-      required String label,
-      required IconData icon,
-      required VoidCallback onPressed,
-      required bool filled,
-    }) {
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(14),
-          child: Ink(
-            decoration: BoxDecoration(
-              gradient: filled
-                  ? LinearGradient(
-                      colors: [
-                        ThemeCleanPremium.primary,
-                        ThemeCleanPremium.primaryLight,
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    )
-                  : null,
-              color: filled ? null : Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: filled
-                    ? Colors.transparent
-                    : ThemeCleanPremium.primary.withValues(alpha: 0.35),
-                width: 1.5,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: ThemeCleanPremium.primary.withValues(alpha: filled ? 0.35 : 0.12),
-                  blurRadius: filled ? 20 : 10,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, size: 17, color: filled ? Colors.white : ThemeCleanPremium.primary),
-                  const SizedBox(width: 8),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 11.5,
-                      letterSpacing: 0.25,
-                      color: filled ? Colors.white : ThemeCleanPremium.primary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
+    final heroButtons = <Widget>[
+      MarketingNavButton(
+        label: 'Google Play',
+        subtitle: 'Android',
+        icon: Icons.android_rounded,
+        style: MarketingButtonStyle.store,
+        storeGradient: const [Color(0xFF01875F), Color(0xFF00A86B)],
+        onTap: () {
+          unawaited(
+              PublicSiteAnalytics.logMarketingAction('marketing_hero_play'));
+          unawaited(sitePublicLaunchStoreUrl(
+              AppConstants.gestaoYahwehPlayStoreUrl));
+        },
+      ),
+      MarketingNavButton(
+        label: 'TestFlight',
+        subtitle: 'iPhone / iPad',
+        icon: Icons.apple_rounded,
+        style: MarketingButtonStyle.store,
+        storeGradient: const [Color(0xFF1C1C1E), Color(0xFF3A3A3C)],
+        onTap: () {
+          unawaited(PublicSiteAnalytics.logMarketingAction(
+              'marketing_hero_testflight'));
+          unawaited(sitePublicLaunchStoreUrl(
+              AppConstants.gestaoYahwehTestFlightUrl));
+        },
+      ),
+      MarketingNavButton(
+        label: 'VER PLANOS',
+        icon: Icons.workspace_premium_rounded,
+        style: MarketingButtonStyle.primary,
+        onTap: () {
+          unawaited(
+              PublicSiteAnalytics.logMarketingAction('marketing_hero_planos'));
+          Navigator.pushNamed(context, '/planos');
+        },
+      ),
+      MarketingNavButton(
+        label: 'LOGIN',
+        icon: Icons.login_rounded,
+        onTap: () {
+          unawaited(
+              PublicSiteAnalytics.logMarketingAction('marketing_hero_login'));
+          Navigator.pushNamed(context, '/igreja/login');
+        },
+      ),
+      MarketingNavButton(
+        label: 'PAINEL MASTER',
+        icon: Icons.shield_rounded,
+        onTap: () {
+          unawaited(
+              PublicSiteAnalytics.logMarketingAction('marketing_hero_master'));
+          onGoAdmin();
+        },
+      ),
+    ];
 
     return Container(
       decoration: ThemeCleanPremium.premiumSurfaceCard,
@@ -991,72 +946,27 @@ class _LeftHero extends StatelessWidget {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
-            Wrap(
-              alignment: WrapAlignment.center,
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                ModernStoreDownloadButton(
-                  label: 'Google Play',
-                  subtitle: 'Android',
-                  icon: Icons.android_rounded,
-                  gradient: const [
-                    Color(0xFF01875F),
-                    Color(0xFF00A86B),
-                  ],
-                  onTap: () {
-                    unawaited(PublicSiteAnalytics.logMarketingAction(
-                        'marketing_hero_play'));
-                    unawaited(sitePublicLaunchStoreUrl(
-                        AppConstants.gestaoYahwehPlayStoreUrl));
-                  },
-                ),
-                ModernStoreDownloadButton(
-                  label: 'TestFlight',
-                  subtitle: 'iPhone / iPad',
-                  icon: Icons.apple_rounded,
-                  gradient: const [
-                    Color(0xFF1C1C1E),
-                    Color(0xFF3A3A3C),
-                  ],
-                  onTap: () {
-                    unawaited(PublicSiteAnalytics.logMarketingAction(
-                        'marketing_hero_testflight'));
-                    unawaited(sitePublicLaunchStoreUrl(
-                        AppConstants.gestaoYahwehTestFlightUrl));
-                  },
-                ),
-                heroBtn(
-                  filled: true,
-                  label: 'VER PLANOS',
-                  icon: Icons.workspace_premium_rounded,
-                  onPressed: () {
-                    unawaited(PublicSiteAnalytics.logMarketingAction(
-                        'marketing_hero_planos'));
-                    Navigator.pushNamed(context, '/planos');
-                  },
-                ),
-                heroBtn(
-                  filled: false,
-                  label: 'LOGIN',
-                  icon: Icons.login_rounded,
-                  onPressed: () {
-                    unawaited(PublicSiteAnalytics.logMarketingAction(
-                        'marketing_hero_login'));
-                    Navigator.pushNamed(context, '/igreja/login');
-                  },
-                ),
-                heroBtn(
-                  filled: false,
-                  label: 'ACESSO PAINEL MASTER',
-                  icon: Icons.shield_rounded,
-                  onPressed: () {
-                    unawaited(PublicSiteAnalytics.logMarketingAction(
-                        'marketing_hero_master'));
-                    onGoAdmin();
-                  },
-                ),
-              ],
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final wide = constraints.maxWidth >= 920;
+                if (wide) {
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (var i = 0; i < heroButtons.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 10),
+                        heroButtons[i],
+                      ],
+                    ],
+                  );
+                }
+                return Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: heroButtons,
+                );
+              },
             ),
           ],
         ),

@@ -205,7 +205,7 @@ class AdminMenuLateral extends StatelessWidget {
             'Acessos domínio', isCollapsed),
       if (itemVisible?.call(AdminMenuItem.sistemaFirebaseSaude) ?? true)
         _tile(AdminMenuItem.sistemaFirebaseSaude, Icons.cloud_done_rounded,
-            'Saúde do Sistema', isCollapsed),
+            'Diagnóstico do Sistema', isCollapsed),
       if (itemVisible?.call(AdminMenuItem.sistemaMultiTenantDiag) ?? true)
         _tile(AdminMenuItem.sistemaMultiTenantDiag, Icons.account_tree_rounded,
             'Diagnóstico Multi-Tenant', isCollapsed),

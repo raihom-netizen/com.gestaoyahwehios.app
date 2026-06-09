@@ -1,15 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart'
+    show TenantResolverService;
 
-/// Caminhos Firestore `igrejas/{id}/…` com ID **operacional** (cluster canónico).
+/// Caminhos Firestore `igrejas/{churchId}/…` — **só** [ChurchRepository.churchId].
 ///
-/// Usar em **todos** os módulos (painel igreja, master, web/Android/iOS) antes de
-/// `.get()`, `.watchSafe()` ou writes que dependem do doc com dados reais.
+/// Painel igreja: sem tenant/alias/slug resolver. Legado isolado em
+/// [TenantResolverService] (site público / ADM / migração).
 abstract final class ChurchOperationalPaths {
   ChurchOperationalPaths._();
 
@@ -82,24 +82,15 @@ abstract final class ChurchOperationalPaths {
     String seed, {
     String? userUid,
   }) async {
-    try {
-      return await TenantResolverService.resolveOperationalChurchDocId(
-        seed,
-        userUid: userUid ?? _currentUid,
-      );
-    } catch (_) {
-      return TenantResolverService.syncStorageTenantId(seed);
-    }
+    final id = ChurchRepository.churchId(seed);
+    if (id.isNotEmpty) return id;
+    return seed.trim();
   }
 
   static void invalidateResolved(String seed, {String? userUid}) {
     final key = _cacheKey(seed.trim(), userUid);
     _resolveInflight.remove(key);
     _resolvedMemory.remove(key);
-    TenantResolverService.invalidateOperationalChurchDocCache(
-      seedId: seed.trim(),
-      userUid: userUid ?? _currentUid,
-    );
   }
 
   static void clearSessionCache() {
@@ -120,16 +111,20 @@ abstract final class ChurchOperationalPaths {
     if (op != s) {
       _resolvedMemory[_cacheKey(op, userUid)] = op;
     }
-    TenantResolverService.rememberModuleReadTenantId(
-      s,
-      op,
-      userUid: userUid,
-    );
   }
 
-  /// Referência com ID **já resolvido** (preferir após [resolveCached]).
+  /// ID operacional em memória/contexto — mesmo critério Membros/Android.
+  static String syncEffectiveChurchId(String seedOrOperational) {
+    final panel = ChurchContextService.panelChurchId(seedOrOperational);
+    if (panel.isNotEmpty) return panel;
+    final mem = _resolvedMemory[_cacheKey(seedOrOperational.trim(), _currentUid)];
+    if (mem != null && mem.isNotEmpty) return mem;
+    return seedOrOperational.trim();
+  }
+
+  /// Referência `igrejas/{churchId}` — delega a [ChurchRepository] (API única).
   static DocumentReference<Map<String, dynamic>> churchDoc(String operationalId) =>
-      firebaseDefaultFirestore.collection('igrejas').doc(operationalId.trim());
+      ChurchRepository.churchDoc(operationalId);
 
   static Future<DocumentReference<Map<String, dynamic>>> churchDocResolved(
     String seed, {
@@ -181,10 +176,8 @@ abstract final class ChurchOperationalPaths {
     if (ctx != null && ctx.isNotEmpty) {
       return Future.value(ctx);
     }
-    return TenantResolverService.resolveModuleReadTenantId(
-      seed,
-      userUid: userUid ?? _currentUid,
-    );
+    final id = ChurchRepository.churchId(seed);
+    return Future.value(id.isNotEmpty ? id : seed.trim());
   }
 
   /// IDs do cluster (canónico + irmãos) para leituras master / migração.

@@ -160,7 +160,12 @@ class VideoHandlerService implements IVideoHandlerService {
         }
       }
 
-      return VideoUploadResult(videoUrl: videoUrl, thumbUrl: thumbUrl);
+      return VideoUploadResult(
+        videoUrl: videoUrl,
+        thumbUrl: thumbUrl,
+        videoStoragePath: videoPath,
+        thumbStoragePath: thumbPath,
+      );
     } finally {
       await VideoCompress.deleteAllCache();
     }

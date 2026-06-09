@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_aggregated_counters_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
+import 'package:gestao_yahweh/services/church_module_path_audit_service.dart';
 import 'package:gestao_yahweh/services/church_operational_firestore_trace.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/system_diagnostic_service.dart';
@@ -29,6 +31,7 @@ class _ChurchPanelDiagnosticPageState extends State<ChurchPanelDiagnosticPage> {
   ChurchAggregatedCounters? _counters;
   int? _dashboardMs;
   String? _error;
+  List<ChurchModuleProbeResult> _moduleAudit = const [];
 
   @override
   void initState() {
@@ -49,6 +52,7 @@ class _ChurchPanelDiagnosticPageState extends State<ChurchPanelDiagnosticPage> {
       );
       ChurchAggregatedCounters? counters;
       int? dashMs;
+      List<ChurchModuleProbeResult> moduleAudit = const [];
       try {
         final dsw = Stopwatch()..start();
         await PanelDashboardSnapshotService.readOnce(
@@ -60,11 +64,17 @@ class _ChurchPanelDiagnosticPageState extends State<ChurchPanelDiagnosticPage> {
           ChurchContextService.currentChurchId ?? widget.tenantId,
         );
       } catch (_) {}
+      try {
+        moduleAudit = await ChurchModulePathAuditService.probeAllModules(
+          widget.tenantId,
+        );
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _probe = probe;
         _counters = counters;
         _dashboardMs = dashMs;
+        _moduleAudit = moduleAudit;
         _loading = false;
       });
     } catch (e) {
@@ -209,6 +219,23 @@ class _ChurchPanelDiagnosticPageState extends State<ChurchPanelDiagnosticPage> {
                         'Último erro',
                         [_row('Erro', _probe!.lastError!)],
                       ),
+                    if (_moduleAudit.isNotEmpty)
+                      _card(
+                        'Auditoria módulos (igrejas/{churchId})',
+                        _moduleAudit
+                            .map(
+                              (m) => _row(
+                                m.module,
+                                m.ok
+                                    ? '${m.collectionPath} · ${m.count ?? 0} docs · ${m.durationMs ?? '?'}ms'
+                                    : '${m.collectionPath} · ERRO: ${m.error ?? '?'} · ${m.durationMs ?? '?'}ms',
+                                valueColor: m.ok
+                                    ? Colors.green.shade700
+                                    : Colors.red.shade700,
+                              ),
+                            )
+                            .toList(),
+                      ),
                     if (ChurchOperationalFirestoreTrace.recent.isNotEmpty)
                       _card(
                         'Consultas recentes',
@@ -217,7 +244,7 @@ class _ChurchPanelDiagnosticPageState extends State<ChurchPanelDiagnosticPage> {
                             .map(
                               (t) => _row(
                                 t.origin.split('.').last,
-                                '${t.firestorePath} (${t.durationMs ?? '?'}ms)',
+                                '${t.firestorePath} (${t.durationMs ?? '?'}ms)${t.error != null ? ' · ${t.error}' : ''}',
                               ),
                             )
                             .toList(),

@@ -4,7 +4,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 
 /// Verificação obrigatória pós-gravação do chat — evita falso sucesso.
 abstract final class ChatPublishVerificationService {
@@ -30,28 +30,9 @@ abstract final class ChatPublishVerificationService {
     required String seedTenantId,
     String? userUid,
   }) async {
-    final igrejaId = await TenantResolverService.resolveOperationalChurchDocId(
-      seedTenantId.trim(),
-      userUid: userUid,
-    );
-    final resolved = igrejaId.trim();
-    if (resolved.isEmpty) {
-      throw StateError('Tenant não resolvido para envio no chat.');
-    }
-    _assertOperationalWriteTenant(resolved);
-    debugPrint('TENANT RESOLVIDO (chat):');
-    debugPrint(resolved);
+    final resolved = ChurchPublishContext.churchIdForPublish(seedTenantId);
+    debugPrint('CHURCH_ID (chat): $resolved');
     return resolved;
-  }
-
-  static void _assertOperationalWriteTenant(String igrejaId) {
-    final t = igrejaId.trim();
-    if (TenantResolverService.kBpcLegacyTenantIds.contains(t)) {
-      throw StateError(
-        'Tenant legado proibido para gravação: $t. '
-        'Use o doc canónico ${TenantResolverService.kBpcCanonicalIgrejaDocId}.',
-      );
-    }
   }
 
   static void assertMessagePath(DocumentReference<Map<String, dynamic>> ref) {
@@ -65,7 +46,9 @@ abstract final class ChatPublishVerificationService {
         'Esperado: igrejas/{igrejaId}/chats/{threadId}/messages/{id}',
       );
     }
-    _assertOperationalWriteTenant(parts[1]);
+    if (parts[1].trim().isEmpty) {
+      throw StateError('churchId inválido: ${ref.path}');
+    }
   }
 
   static DocumentReference<Map<String, dynamic>> messageDocRef({

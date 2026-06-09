@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/offline/sync_task.dart';
 import 'package:gestao_yahweh/core/offline/sync_priority.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/services/sync_service.dart';
 
 /// Fila local + retry + flush ao voltar online.
 abstract final class SyncEngine {
@@ -50,8 +51,13 @@ abstract final class SyncEngine {
       YahwehFlowLog.offline('SYNC');
       return;
     }
+    var pendingBefore = 0;
+    try {
+      pendingBefore = (await _local.listTasks()).length;
+    } catch (_) {}
     _flushBusy = true;
     if (!_flushingCtrl.isClosed) _flushingCtrl.add(true);
+    SyncService.beginSync();
     YahwehFlowLog.sync('SYNC', reason ?? 'flush');
     try {
       await ensureFirebaseCore(requireAuth: false);
@@ -72,8 +78,16 @@ abstract final class SyncEngine {
         }
       }
       YahwehFlowLog.success('SYNC');
+      var pendingAfter = pendingBefore;
+      try {
+        pendingAfter = (await _local.listTasks()).length;
+      } catch (_) {}
+      SyncService.endSyncSuccess(
+        showFeedback: pendingBefore > 0 && pendingAfter < pendingBefore,
+      );
     } catch (e, st) {
       YahwehFlowLog.error('SYNC', e, st);
+      SyncService.endSyncError();
       if (kDebugMode) debugPrint('SyncEngine.flushAll: $e\n$st');
     } finally {
       _flushBusy = false;

@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/offline/offline_write_operations.dart';
 import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/core/offline/sync_task.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/services/sync_service.dart';
 import 'package:gestao_yahweh/services/smart_trash_service.dart';
 import 'package:gestao_yahweh/services/tenant_audit_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
@@ -101,6 +102,7 @@ abstract final class TenantOfflineWrite {
         },
       );
       await _mirrorToFirestoreCache(ref: ref, data: payload, merge: merge);
+      SyncService.notifyUserActionSaved();
       unawaited(
         TenantAuditService.logCreate(
           tenantId: tid,
@@ -119,6 +121,7 @@ abstract final class TenantOfflineWrite {
         await ref.set(payload);
       }
     });
+    SyncService.notifyUserActionSaved();
     unawaited(
       TenantAuditService.logCreate(
         tenantId: tid,
@@ -161,6 +164,7 @@ abstract final class TenantOfflineWrite {
         data: payload,
         isUpdate: true,
       );
+      SyncService.notifyUserActionSaved();
       unawaited(
         TenantAuditService.logUpdate(
           tenantId: tid,
@@ -173,6 +177,7 @@ abstract final class TenantOfflineWrite {
     }
 
     await runFirestorePublishWithRecovery<void>(() => ref.update(payload));
+    SyncService.notifyUserActionSaved();
     unawaited(
       TenantAuditService.logUpdate(
         tenantId: tid,

@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_cluster_sync_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_consolidation_service.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
@@ -479,7 +480,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       if (!mounted) return;
       if (_operationalTenantId == null || _operationalTenantId!.trim().isEmpty) {
         final fallback = ChurchContextService.currentChurchId ??
-            TenantResolverService.syncStorageTenantId(raw);
+            ChurchRepository.churchId(raw);
         ChurchOperationalPaths.rememberResolved(raw, fallback, userUid: uid);
         setState(() => _operationalTenantId = fallback);
       }
@@ -540,13 +541,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final raw = _moduleTenantId.trim();
     if (raw.isEmpty) return;
     try {
-      final tid =
-          await TenantResolverService.resolveOperationalChurchDocId(
-        raw,
-        userUid: u.uid,
-      );
+      final tid = ChurchRepository.churchId(raw);
       if (!mounted) return;
-      ChurchChatService.startAppWidePresenceHeartbeat(tid);
+      ChurchChatService.startAppWidePresenceHeartbeat(
+        tid.isNotEmpty ? tid : raw,
+      );
     } catch (_) {
       if (!mounted) return;
       ChurchChatService.startAppWidePresenceHeartbeat(raw);

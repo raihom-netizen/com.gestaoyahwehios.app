@@ -82,7 +82,12 @@ class VideoHandlerService implements IVideoHandlerService {
       } catch (_) {}
     }
 
-    return VideoUploadResult(videoUrl: videoUrl, thumbUrl: thumbUrl);
+    return VideoUploadResult(
+      videoUrl: videoUrl,
+      thumbUrl: thumbUrl,
+      videoStoragePath: videoPath,
+      thumbStoragePath: thumbPath,
+    );
   }
 
   @override

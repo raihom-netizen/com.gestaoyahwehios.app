@@ -2,7 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:gestao_yahweh/core/certificate_protocol_id.dart';
+import 'package:gestao_yahweh/services/church_document_version_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 
 /// Certificados emitidos: **dados completos** em `igrejas/{tenantId}/certificados_emitidos/{id}`.
 ///
@@ -36,7 +38,7 @@ class CertificateEmitidoService {
     if (tid.isEmpty) {
       throw ArgumentError('tenantId vazio');
     }
-    final op = await ChurchOperationalPaths.resolveCached(tid);
+    final op = ChurchRepository.churchId(tid);
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) {
       throw StateError('Utilizador não autenticado');
@@ -46,6 +48,16 @@ class CertificateEmitidoService {
         id.isNotEmpty ? id : generateCertificateProtocolId();
     final email = FirebaseAuth.instance.currentUser?.email ?? '';
 
+    final fp = ChurchDocumentVersionService.fingerprintFromMap(snapshot);
+    final existing = snapshot[ChurchDocumentVersionService.pdfPathField];
+    final pdfPath = (existing ?? '').toString().trim();
+    final version = pdfPath.isNotEmpty
+        ? ChurchDocumentVersionService.nextVersion(
+            snapshot,
+            ChurchDocumentVersionService.pdfVersionField,
+          )
+        : 1;
+
     final payload = <String, dynamic>{
       ...snapshot,
       'certificadoId': certificadoIdResolved,
@@ -53,6 +65,13 @@ class CertificateEmitidoService {
       'emitidoPorUid': uid,
       'emitidoPorEmail': email,
       'dataEmissao': FieldValue.serverTimestamp(),
+      if (pdfPath.isNotEmpty) ...ChurchDocumentVersionService.afterGenerate(
+            version: version,
+            storagePath: pdfPath,
+            fingerprint: fp,
+            versionField: ChurchDocumentVersionService.pdfVersionField,
+            pathField: ChurchDocumentVersionService.pdfPathField,
+          ),
     };
 
     final batch = _fs.batch();

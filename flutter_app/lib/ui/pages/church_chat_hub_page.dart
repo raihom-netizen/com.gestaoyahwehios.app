@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/church_firestore_collection_migration_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
@@ -549,13 +550,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   ) async {
     final p = peekTenantRaw.trim();
     if (p.isEmpty || p == resolvedTid) return true;
-    try {
-      final op = await TenantResolverService.resolveOperationalChurchDocId(p)
-          .timeout(const Duration(seconds: 4));
-      return op == resolvedTid;
-    } catch (_) {
-      return false;
-    }
+    return ChurchContextService.panelChurchId(p) == resolvedTid;
   }
 
   Future<void> _tryConsumePendingChatThread() async {
@@ -878,15 +873,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       }
     });
 
-    String tid = hint;
-    try {
-      tid = await TenantResolverService.resolveOperationalChurchDocId(
-        widget.tenantId,
-        userUid: uid.isEmpty ? null : uid,
-      ).timeout(const Duration(seconds: 12));
-    } catch (_) {
-      tid = hint;
-    }
+    final tid = ChurchContextService.panelChurchId(hint).isNotEmpty
+        ? ChurchContextService.panelChurchId(hint)
+        : hint;
     if (!mounted) return;
     if (tid != _resolvedTenantId) {
       QuerySnapshot<Map<String, dynamic>>? tidCache;
@@ -1120,7 +1109,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
   Future<List<_DeptEntry>> _loadDepartmentsFromFirestoreCache(String tid) async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final op = ChurchContextService.panelChurchId(tid);
       var snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('departamentos')
           .limit(120)
@@ -1155,7 +1144,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     List<String> ids,
   ) async {
     if (ids.isEmpty) return [];
-    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final op = ChurchContextService.panelChurchId(tid);
     final deptCol =         ChurchOperationalPaths.churchDoc(op)
         .collection('departamentos');
     final futures = ids.map((id) async {
@@ -1284,7 +1273,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     String tid,
   ) async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final op = ChurchContextService.panelChurchId(tid);
       final snap = await FirestoreWebGuard.runWithWebRecovery(
         () => ChurchOperationalPaths.churchDoc(op)
             .collection('chats')
@@ -1328,7 +1317,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       return;
     }
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final op = ChurchContextService.panelChurchId(tid);
       final snap = await           ChurchOperationalPaths.churchDoc(op)
           .collection('departamentos')
           .limit(120)
@@ -1410,7 +1399,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   ) async {
     try {
       final digits = widget.cpf.replaceAll(RegExp(r'\D'), '');
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final op = ChurchContextService.panelChurchId(tid);
       final base =           ChurchOperationalPaths.churchDoc(op)
           .collection('membros');
 
@@ -3836,7 +3825,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final prefs = await ChurchChatMemberPrefs.load(tid);
     QuerySnapshot<Map<String, dynamic>>? q;
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final op = ChurchContextService.panelChurchId(tid);
       q = await           ChurchOperationalPaths.churchDoc(op)
           .collection('membros')
           .limit(120)

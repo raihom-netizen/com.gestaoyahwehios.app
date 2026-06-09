@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
@@ -48,6 +49,7 @@ import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
 import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/panel_finance_accounts_snapshot_service.dart';
@@ -216,7 +218,7 @@ Widget _financeBankMiniLogo({
 }
 
 Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
-  final op = await ChurchOperationalPaths.resolveCached(tenantId);
+  final op = ChurchRepository.churchId(tenantId);
   final col = ChurchOperationalPaths.churchDoc(op)
       .collection('categorias_receitas');
   var snap = await col.orderBy('nome').get();
@@ -236,7 +238,7 @@ Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
 
 Future<List<({String id, String nome})>> _financeContasAtivasTenant(
     String tenantId) async {
-  final op = await ChurchOperationalPaths.resolveCached(tenantId);
+  final op = ChurchRepository.churchId(tenantId);
   final snap = await ChurchOperationalPaths.churchDoc(op)
       .collection('contas')
       .orderBy('nome')
@@ -293,7 +295,7 @@ Future<_FinancePdfSignerSelection?> _pickFinancePdfSigners(
   BuildContext context, {
   required String tenantId,
 }) async {
-  final op = await ChurchOperationalPaths.resolveCached(tenantId);
+  final op = ChurchRepository.churchId(tenantId);
   final snap = await ChurchOperationalPaths.churchDoc(op)
       .collection('membros')
       .get();
@@ -1112,8 +1114,9 @@ class _FinancePageState extends State<FinancePage>
   Future<void> _bootstrapFirestoreTenant() async {
     if (!mounted) return;
     final hint = widget.tenantId.trim();
+    final initial = ChurchContextService.panelChurchId(hint);
     setState(() {
-      _firestoreTenantId = hint.isEmpty ? null : hint;
+      _firestoreTenantId = initial.isEmpty ? null : initial;
       _financeBootstrapDone = true;
     });
     _startFinanceRealtimeSync();
@@ -1122,11 +1125,7 @@ class _FinancePageState extends State<FinancePage>
 
   Future<void> _resolveOperationalTenantInBackground() async {
     try {
-      final uid = firebaseDefaultAuth.currentUser?.uid;
-      final tid = await ChurchOperationalPaths.resolveCached(
-        widget.tenantId,
-        userUid: uid,
-      ).timeout(const Duration(seconds: 10));
+      final tid = ChurchRepository.churchId(widget.tenantId);
       if (!mounted) return;
       if (tid.trim().isNotEmpty && tid != _firestoreTenantId) {
         setState(() => _firestoreTenantId = tid);
@@ -1638,7 +1637,10 @@ class _FinancePageState extends State<FinancePage>
 
   // ─── Exportar CSV ────────────────────────────────────────────────────────────
   Future<void> _exportarCSV(BuildContext context) async {
-    final snap = await _financeCol.orderBy('createdAt', descending: true).get();
+    final snap = await ChurchTenantResilientReads.financeRecentNetwork(
+      _tid,
+      limit: 2000,
+    );
     if (!mounted) return;
     if (snap.docs.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1688,10 +1690,10 @@ class _FinancePageState extends State<FinancePage>
     final signers =
         await _pickFinancePdfSigners(context, tenantId: _tid);
     if (!mounted || signers == null) return;
-    final snap = await _financeCol
-        .orderBy('createdAt', descending: true)
-        .limit(500)
-        .get();
+    final snap = await ChurchTenantResilientReads.financeRecentNetwork(
+      _tid,
+      limit: 500,
+    );
     if (!mounted) return;
     await exportFinanceiroRelatorioPdf(
       context: context,
@@ -3875,16 +3877,21 @@ class _ListaLancamentosPorTipoPageState
     extends State<_ListaLancamentosPorTipoPage> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
 
+  void _reloadFuture() {
+    _future = ChurchTenantResilientReads.financeRecentNetwork(
+      widget.tenantId,
+      limit: 500,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
-    _future = widget.financeCol.orderBy('createdAt', descending: true).get();
+    _reloadFuture();
   }
 
   void _refresh() {
-    setState(() {
-      _future = widget.financeCol.orderBy('createdAt', descending: true).get();
-    });
+    setState(_reloadFuture);
   }
 
   @override
@@ -6176,7 +6183,7 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
         lanc['fornecedorNome'] = (despesa['fornecedorNome'] ?? '').toString();
       }
     }
-    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    final op = ChurchRepository.churchId(widget.tenantId.trim());
     await         ChurchOperationalPaths.churchDoc(op)
         .collection('finance')
         .add(lanc);
@@ -7417,7 +7424,7 @@ class _MiniButton extends StatelessWidget {
 Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
     String tenantId) async {
   try {
-    final op = await ChurchOperationalPaths.resolveCached(tenantId);
+    final op = ChurchRepository.churchId(tenantId);
     final snap = await ChurchOperationalPaths.churchDoc(op)
         .collection('fornecedores')
         .orderBy('nome')
@@ -7440,7 +7447,7 @@ Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
 Future<List<({String id, String nome})>> _membrosParaFinanceDropdown(
     String tenantId) async {
   try {
-    final op = await ChurchOperationalPaths.resolveCached(tenantId);
+    final op = ChurchRepository.churchId(tenantId);
     final snap = await ChurchOperationalPaths.churchDoc(op)
         .collection('membros')
         .limit(YahwehPerformanceV4.defaultPageSize)
@@ -7513,7 +7520,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   String? presetNovoTipo,
 }) async {
   await _ensureFinanceWriteReady();
-  final op = await ChurchOperationalPaths.resolveCached(tenantId);
+  final op = ChurchRepository.churchId(tenantId);
   final financeCol = ChurchOperationalPaths.churchDoc(op)
       .collection('finance');
 
@@ -8530,8 +8537,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   }
 
   try {
-    await _ensureFinanceWriteReady();
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
+    unawaited(_ensureFinanceWriteReady());
     Uint8List? pendingComprovanteBytes;
     if (isEdit) {
       final novoComp = comprovanteFile;
@@ -8583,7 +8589,13 @@ Future<bool> showFinanceLancamentoEditorForTenant(
           patch['membroNome'] = FieldValue.delete();
         }
       }
-      await existingDoc.reference.update(patch);
+      await FinanceComprovantePublishService.saveLancamentoFirst(
+        financeCol: financeCol,
+        payload: patch,
+        isEdit: true,
+        existingRef: existingDoc.reference,
+        hasNewComprovante: pendingComprovanteBytes != null,
+      );
       if (pendingComprovanteBytes != null) {
         FinanceComprovantePublishService.scheduleComprovanteUpload(
           tenantId: tenantId,

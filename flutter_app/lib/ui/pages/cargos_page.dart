@@ -9,7 +9,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_funcoes_controle_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/ui/pages/lideranca_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -39,8 +39,8 @@ Future<List<String>> _cargoMemberMergeTenantIds(String seed) async {
   if (cached != null && now.difference(cached.at) < _kCargoMergeIdsTtl) {
     return cached.ids;
   }
-  var ids = await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(seed);
-  if (ids.isEmpty) ids = [seed];
+  final id = ChurchRepository.churchId(seed);
+  final ids = id.isNotEmpty ? [id] : [seed];
   _cargoMergeTenantIdsCache[seed] = (at: now, ids: List<String>.from(ids));
   return ids;
 }
@@ -658,7 +658,7 @@ class _CargosPageState extends State<CargosPage> {
       return _col.limit(1).get();
     }
     if (forceServer) {
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+      final op = ChurchRepository.churchId(tid.trim());
       final snap = await FirestoreReadResilience.getQuery(
         ChurchOperationalPaths.churchDoc(op)
             .collection('cargos')
@@ -711,13 +711,8 @@ class _CargosPageState extends State<CargosPage> {
     } catch (_) {}
 
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      final op = await ChurchOperationalPaths.resolveCached(
-        seed,
-        userUid: uid,
-      ).timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => _resolvedTenantId ?? seed,
+      final op = ChurchRepository.churchId(
+        _resolvedTenantId?.isNotEmpty == true ? _resolvedTenantId! : seed,
       );
       if (!mounted) return;
       if (op.isNotEmpty && op != (_resolvedTenantId ?? seed)) {
@@ -2222,7 +2217,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     final db = firebaseDefaultFirestore;
     for (final tid in allIds) {
       try {
-        final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+        final op = ChurchRepository.churchId(tid.trim());
         await ChurchOperationalPaths.churchDoc(op).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
       } catch (_) {}
     }
@@ -2351,7 +2346,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       final db = firebaseDefaultFirestore;
       for (final tid in allIds) {
         try {
-          final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+          final op = ChurchRepository.churchId(tid.trim());
           await ChurchOperationalPaths.churchDoc(op).collection('membros').doc(m.id).set(updates, SetOptions(merge: true));
         } catch (_) {}
       }

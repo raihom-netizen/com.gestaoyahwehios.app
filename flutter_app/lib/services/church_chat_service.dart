@@ -87,6 +87,7 @@ class ChurchChatService {
   static const String deliverySent = 'sent';
   static const String deliveryDelivered = 'delivered';
   static const String deliveryRead = 'read';
+  static const String deliveryFailed = 'failed';
 
   static String formatInstantSendError(Object e) => formatUploadErrorForUser(e);
 
@@ -2359,6 +2360,113 @@ class ChurchChatService {
     );
     ChurchPublishFlowLog.chatMessageCreated();
     return (messageId: msgRef.id, storagePath: storagePath);
+  }
+
+  /// Mídia: **upload Storage concluído** → uma gravação Firestore (`status: sent`).
+  /// Sem stub `uploading`, sem `pendingMedia`, sem `downloadURL`.
+  static Future<({String messageId, bool allowed})> writeMediaMessageFirestoreOnce({
+    required String tenantId,
+    required String threadId,
+    required String kind,
+    required String storagePath,
+    String? thumbStoragePath,
+    String? fileName,
+    int? fileSize,
+    Map<String, dynamic>? replyTo,
+    Map<String, dynamic>? forwardedFrom,
+    String? senderDisplayName,
+    String? albumGroupId,
+    int albumIndex = 0,
+    int albumCount = 1,
+  }) async {
+    ChurchPublishFlowLog.chatStart();
+    await ensureFirebaseReadyForChatSend();
+    final resolvedTenant =
+        await ChatPublishVerificationService.resolveTenantForPublish(
+      seedTenantId: tenantId,
+    );
+    if (!await ChurchChatMemberPrefs.canSendToDmThread(
+      tenantId: resolvedTenant,
+      threadId: threadId,
+    )) {
+      return (messageId: '', allowed: false);
+    }
+    await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
+      tenantId: resolvedTenant,
+      threadId: threadId,
+    );
+    await assertChatMediaUploaded(
+      storagePath,
+      thumbStoragePath: thumbStoragePath,
+    );
+    final uid = firebaseDefaultAuth.currentUser!.uid;
+    final expiresAt =
+        Timestamp.fromDate(DateTime.now().add(mediaRetention));
+    final msgRef = messagesCol(resolvedTenant, threadId).doc();
+    final gid = (albumGroupId ?? '').trim();
+    final aCount = albumCount < 1 ? 1 : albumCount;
+    var preview = gid.isNotEmpty && aCount > 1
+        ? ChurchChatAlbumUtils.threadPreviewForAlbum(
+            aCount,
+            hasVideo: kind == 'video',
+          )
+        : ChurchChatAttachmentUtils.previewForThreadLastMessage(
+            kind: kind,
+            fileName: fileName,
+          );
+    final nr = normalizeReplyTo(replyTo);
+    final nf = normalizeForwardedFrom(forwardedFrom);
+    if (nf != null) {
+      preview = '↪ ${nf['preview']}';
+    }
+    final label = (senderDisplayName ?? '').trim();
+    final sp = storagePath.trim();
+    final data = <String, dynamic>{
+      'senderUid': uid,
+      'senderId': uid,
+      'type': kind,
+      'deliveryStatus': deliverySent,
+      'status': deliverySent,
+      'uploadCompleted': true,
+      'storageVerified': true,
+      'storagePath': sp,
+      'createdAt': FieldValue.serverTimestamp(),
+      'expiresAt': expiresAt,
+      if (fileName != null && fileName.trim().isNotEmpty)
+        'fileName': fileName.trim(),
+      if (fileSize != null && fileSize > 0) 'fileSize': fileSize,
+      if (nr != null) 'replyTo': nr,
+      if (nf != null) 'forwardedFrom': nf,
+      if (gid.isNotEmpty) ...{
+        'albumGroupId': gid,
+        'albumIndex': albumIndex,
+        'albumCount': aCount,
+      },
+      if (label.isNotEmpty) ...{
+        'senderDisplayName':
+            label.length > 100 ? label.substring(0, 100) : label,
+        'senderName':
+            label.length > 100 ? label.substring(0, 100) : label,
+      },
+    };
+    final thumb = (thumbStoragePath ?? '').trim();
+    if (thumb.isNotEmpty) {
+      data['thumbStoragePath'] = thumb;
+    }
+    await _ensureDmThreadDocBeforeSend(resolvedTenant, threadId);
+    await _commitMessageAndThreadIndex(
+      tenantId: resolvedTenant,
+      threadId: threadId,
+      msgRef: msgRef,
+      messageData: ChurchChatMessageFields.withCanonicalAliases(data),
+      preview: preview,
+      senderUid: uid,
+      messageType: kind,
+    );
+    ChurchPublishFlowLog.chatMessageCreated();
+    ChurchPublishFlowLog.chatFileUploaded();
+    ChurchPublishFlowLog.chatFinalOk();
+    return (messageId: msgRef.id, allowed: true);
   }
 
   /// Patch permitido pelas regras Firestore (`chatMessageMediaDeliveryPatchAllowed`).

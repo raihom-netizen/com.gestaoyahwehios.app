@@ -8,7 +8,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
@@ -327,15 +327,8 @@ class _VisitorsPageState extends State<VisitorsPage> {
     } catch (_) {}
 
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      final op = await TenantResolverService.resolveOperationalChurchDocId(
-        seed,
-        userUid: uid,
-      ).timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => _effectiveTenantId.isNotEmpty
-            ? _effectiveTenantId
-            : seed,
+      final op = ChurchRepository.churchId(
+        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : seed,
       );
       if (!mounted) return;
       if (op.isNotEmpty && op != _effectiveTenantId) {

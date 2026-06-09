@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.mirrorChurchCountersToRoot = mirrorChurchCountersToRoot;
 exports.mirrorDashboardCacheAlias = mirrorDashboardCacheAlias;
+exports.writeDashboardCacheMain = writeDashboardCacheMain;
 exports.mirrorFinanceAggregatesToRoot = mirrorFinanceAggregatesToRoot;
 const admin = __importStar(require("firebase-admin"));
 /**
@@ -75,6 +76,24 @@ async function mirrorChurchCountersToRoot(churchRef, counters, extra) {
 /** Alias spec: `_panel_cache/dashboard` (mesmo payload que `dashboard_summary`). */
 async function mirrorDashboardCacheAlias(cacheCol, summaryData) {
     await cacheCol.doc("dashboard").set(summaryData, { merge: false });
+}
+/** Cache instantâneo do painel — `igrejas/{churchId}/_dashboard_cache/main`. */
+async function writeDashboardCacheMain(churchRef, payload) {
+    await churchRef.collection("_dashboard_cache").doc("main").set({
+        totalMembros: payload.totalMembros,
+        membros: payload.totalMembros,
+        ativos: payload.ativos,
+        visitantes: payload.visitantes,
+        saldo: payload.saldo,
+        saldoAtual: payload.saldo,
+        homens: payload.homens ?? 0,
+        mulheres: payload.mulheres ?? 0,
+        criancas: payload.criancas ?? 0,
+        eventos: payload.eventos ?? 0,
+        avisos: payload.avisos ?? 0,
+        schemaVersion: 2,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
 }
 /** Financeiro pré-calculado no doc raiz (complementa `financeAggregates` da CF finance). */
 async function mirrorFinanceAggregatesToRoot(churchRef, aggregates) {

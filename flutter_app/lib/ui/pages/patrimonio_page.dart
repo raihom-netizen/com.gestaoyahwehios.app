@@ -34,6 +34,7 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -335,8 +336,8 @@ Future<({
   BuildContext context, {
   required String tenantId,
 }) async {
-  final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-  final snap = await       ChurchOperationalPaths.churchDoc(op)
+  final op = ChurchContextService.panelChurchId(tenantId);
+  final snap = await ChurchOperationalPaths.churchDoc(op)
       .collection('membros')
       .get();
   final options = snap.docs
@@ -914,12 +915,10 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   Future<void> _resolveOperationalTenant() async {
     final seed = widget.tenantId.trim();
     if (seed.isEmpty) return;
+    final tid = ChurchContextService.panelChurchId(seed);
+    if (tid.isEmpty) return;
     try {
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(
-        seed,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      ).timeout(const Duration(seconds: 10));
-      if (!mounted || tid.isEmpty || tid == _operationalTenantId) return;
+      if (!mounted || tid == _operationalTenantId) return;
       setState(() => _operationalTenantId = tid);
       _startPatrimonioRealtimeSync();
       _refreshPatrimonioTabs();
@@ -5661,8 +5660,8 @@ class _InventarioTabState extends State<_InventarioTab> {
                     'conferidoNestaSessao': _conferidos.contains(d.id),
                   });
                 }
-                final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-                await                     ChurchOperationalPaths.churchDoc(op)
+                final op = ChurchContextService.panelChurchId(widget.tenantId);
+                await ChurchOperationalPaths.churchDoc(op)
                     .collection('patrimonio_inventario_historico')
                     .add({
                   'finalizadoEm': FieldValue.serverTimestamp(),
@@ -7450,8 +7449,8 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         }
       }
       final tenantId = widget.col.parent!.id;
-      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-      await           ChurchOperationalPaths.churchDoc(op)
+      final op = ChurchContextService.panelChurchId(tenantId);
+      await ChurchOperationalPaths.churchDoc(op)
           .collection('config')
           .doc('patrimonio')
           .set(

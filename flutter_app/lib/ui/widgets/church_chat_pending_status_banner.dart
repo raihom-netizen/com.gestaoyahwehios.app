@@ -231,6 +231,9 @@ class _ChurchChatPendingStatusBannerState
 
   @override
   Widget build(BuildContext context) {
+    // Reenvio em background — sem faixa fixa; admin usa alwaysOfferClear.
+    if (!widget.alwaysOfferClear) return const SizedBox.shrink();
+
     final useFirestoreStream =
         FirebaseUploadPolicy.firestorePendingQueueEnabled;
 

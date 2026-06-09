@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart'
@@ -75,8 +76,8 @@ Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
 }) async {
   final tid = tenantId.trim();
   if (tid.isEmpty) return const MergedFirestoreQuerySnapshot([]);
-  final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-  final col =       ChurchOperationalPaths.churchDoc(op)
+  final op = ChurchContextService.panelChurchId(tid);
+  final col = ChurchOperationalPaths.churchDoc(op)
       .collection('fornecedor_compromissos');
   final f = (fornecedorIdFilter ?? '').trim();
   final Query<Map<String, dynamic>> q = f.isNotEmpty

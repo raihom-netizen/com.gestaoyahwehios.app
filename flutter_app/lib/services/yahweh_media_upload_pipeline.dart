@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
+import 'package:gestao_yahweh/services/upload_queue_service.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart'
     hide formatUploadErrorForUser;
@@ -33,7 +34,7 @@ abstract final class YahwehMediaUploadPipeline {
 
   static void bindOnAppStart() {
     if (FirebaseUploadPolicy.memoryQueueOnNetworkError) {
-      StorageUploadQueueService.instance.start();
+      UploadQueueService.instance.start();
     }
     unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
   }

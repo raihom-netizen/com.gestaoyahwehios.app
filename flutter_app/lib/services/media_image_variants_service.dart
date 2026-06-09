@@ -11,10 +11,12 @@ abstract final class MediaImageVariantsService {
   MediaImageVariantsService._();
 
   static const int webpQuality = YahwehPerformanceV4.webpQuality;
+  static const int thumbSmallEdge = 100;
   static const int thumbEdge = 300;
   static const int mediumEdge = 800;
   static const int fullEdge = 1920;
 
+  static const String tierThumbSmall = 'thumb_100';
   static const String tierThumb = 'thumb_300';
   static const String tierThumbLegacy = 'thumb_200';
   static const String tierMedium = 'medium_800';
@@ -93,6 +95,38 @@ abstract final class MediaImageVariantsService {
       _encodeWebp(source, minSide: fullEdge),
     ]);
     return (thumb: results[0], medium: results[1], full: results[2]);
+  }
+
+  /// Perfil membro: thumb_100 (listas), thumb_300 (cards), full_1920 (detalhe).
+  static Future<
+      ({Uint8List thumbSmall, Uint8List thumb, Uint8List full})>
+      encodeProfileWebpTiers({
+    Uint8List? bytes,
+    String? localPath,
+  }) async {
+    Uint8List source;
+    if (bytes != null && bytes.isNotEmpty) {
+      source = bytes;
+    } else if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
+      final results = await Future.wait([
+        _encodeWebpFile(localPath, minSide: thumbSmallEdge),
+        _encodeWebpFile(localPath, minSide: thumbEdge),
+        _encodeWebpFile(localPath, minSide: fullEdge),
+      ]);
+      return (
+        thumbSmall: results[0],
+        thumb: results[1],
+        full: results[2],
+      );
+    } else {
+      throw StateError('Sem dados de imagem para comprimir.');
+    }
+    final results = await Future.wait([
+      _encodeWebp(source, minSide: thumbSmallEdge),
+      _encodeWebp(source, minSide: thumbEdge),
+      _encodeWebp(source, minSide: fullEdge),
+    ]);
+    return (thumbSmall: results[0], thumb: results[1], full: results[2]);
   }
 
   /// Chat: só thumb leve + full (menos uploads que o feed).

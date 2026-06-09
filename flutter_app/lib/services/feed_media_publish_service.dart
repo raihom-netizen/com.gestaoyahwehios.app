@@ -81,6 +81,12 @@ abstract final class FeedMediaPublishService {
     String postType = 'aviso',
     bool publicSite = true,
   }) async {
+    if (postType == 'aviso' || postType == 'evento') {
+      throw StateError(
+        'publishNow legado desativado para $postType. '
+        'Use pipeline linear (upload → Storage → Firestore).',
+      );
+    }
     await FeedPublishPreflight.prepareForFirestoreSave();
     return PublicationEngine.publishNow(
       docRef: docRef,
@@ -131,6 +137,12 @@ abstract final class FeedMediaPublishService {
     Future<void> Function()? onPublished,
     bool publicSite = true,
   }) {
+    if (postType == 'aviso' || postType == 'evento') {
+      throw StateError(
+        'Publicação legada desativada para $postType. '
+        'Use AvisoStrictPublishService ou EventoStrictPublishService.',
+      );
+    }
     final pending =
         (newImagesBytes?.length ?? newImagePaths?.length ?? 0).clamp(0, 99);
     return FeedMediaPublishFast.publishWithPhotosInBackground(

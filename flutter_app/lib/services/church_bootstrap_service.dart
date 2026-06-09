@@ -149,11 +149,10 @@ abstract final class ChurchBootstrapService {
       }
 
       final firestoreSw = Stopwatch()..start();
-      final churchFuture = ChurchRepository.loadChurchData(
-        seedTenantId: churchId,
+      final churchFuture = ChurchRepository.loadByChurchId(
+        churchId,
+        seedTenantId: seedTenantId,
         userUid: userUid,
-        forceRefresh: forceRefresh,
-        directDocOnly: true,
       ).timeout(kPanelTimeout);
 
       final logoFuture = ChurchBrandService.getLogoPath(

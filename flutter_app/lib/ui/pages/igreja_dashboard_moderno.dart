@@ -37,6 +37,7 @@ import 'package:gestao_yahweh/core/event_template_schedule.dart'
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/panel_programacao_loader.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/church_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/church_dashboard_current_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
@@ -89,7 +90,7 @@ import 'package:gestao_yahweh/core/church_corpo_admin_roles.dart';
 import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
 import 'package:gestao_yahweh/services/church_birthday_query_service.dart';
 import 'package:gestao_yahweh/ui/widgets/panel_dashboard_home_extras.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_engagement_controller.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
 import 'dart:ui' show ImageFilter;
@@ -115,7 +116,6 @@ import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
     show noticiaEventoEspecialCaiuDoFeedParaGaleria;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_inbox_home_card.dart';
-import 'package:gestao_yahweh/ui/widgets/dashboard_intelligent_hero.dart';
 import 'package:gestao_yahweh/services/church_birthday_parabenizar.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
@@ -204,6 +204,11 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   /// KPIs pré-processados (`_performance_cache/dashboard_current`).
   ChurchDashboardCurrent _dashboardKpis = const ChurchDashboardCurrent();
+
+  /// 1 leitura — `igrejas/{churchId}/_dashboard_cache/main` (servidor pré-calcula).
+  ChurchDashboardCacheSnapshot? _dashboardMainCache;
+
+  StreamSubscription<ChurchDashboardCacheSnapshot?>? _dashboardMainSub;
 
   /// Cache `_panel_cache/members_directory` — fallback quando stream `membros` falha na web.
   MembersDirectorySnapshot _membersDirectory = const MembersDirectorySnapshot();
@@ -325,9 +330,22 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     });
   }
 
+  void _bindDashboardMainCacheWatch(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    _dashboardMainSub?.cancel();
+    _dashboardMainSub = ChurchDashboardCacheService.watch(churchIdHint: tid).listen(
+      (snap) {
+        if (!mounted || snap == null || !snap.hasData) return;
+        setState(() => _dashboardMainCache = snap);
+      },
+    );
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _dashboardMainSub?.cancel();
     _membersDirectorySub?.cancel();
     _engagementCtrl.dispose();
     _panelScroll.dispose();
@@ -383,12 +401,11 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     });
   }
 
-  /// churchId canónico — `igrejas/{id}` via contexto da sessão.
-  Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.operationalChurchId(
-        seed: widget.tenantId,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      );
+  /// churchId canónico — mesma API Membros/Android/iOS/Web.
+  Future<String> _resolveEffectiveTenantId() async {
+    final id = ChurchRepository.churchId(widget.tenantId);
+    return id.isNotEmpty ? id : widget.tenantId.trim();
+  }
 
   Future<List<String>> _clusterDocIdsForPanel(String resolved) async =>
       PanelDashboardSnapshotService.clusterDocIdsForPanel(resolved);
@@ -406,11 +423,14 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   bool get _panelCanPaintWithoutSkeleton =>
       _effectiveTenantId.trim().isNotEmpty &&
-      (_panelCache != null ||
+      (_dashboardMainCache?.hasData == true ||
+          _panelCache.isFreshForInstantPanel ||
           _membersDirectory.hasEntries ||
           (_avisosStream != null && _noticiasPainelStream != null));
 
   int? _effectiveCachedMemberTotal() {
+    final main = _dashboardMainCache?.totalMembros ?? 0;
+    if (main > 0) return main;
     final k = _dashboardKpis.totalMembers;
     if (k > 0) return k;
     final p = _panelCache.membersTotalCount;
@@ -504,13 +524,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   }
 
   Future<void> _attachPanelFeedStreams(String resolved) async {
-    final readId = await TenantResolverService.resolveModuleReadTenantId(
-      resolved,
-      userUid: FirebaseAuth.instance.currentUser?.uid,
-    );
-    final op = readId.trim().isNotEmpty ? readId.trim() : resolved.trim();
+    final op = ChurchRepository.churchId(resolved);
     if (op.isEmpty) return;
-    final tenantRef = ChurchOperationalPaths.churchDoc(op);
+    final tenantRef = ChurchRepository.churchDoc(op);
     final avisosQ = tenantRef
         .collection(ChurchTenantPostsCollections.avisos)
         .orderBy('createdAt', descending: true)
@@ -531,6 +547,20 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     final tid = resolved.trim();
     if (tid.isEmpty) return;
     try {
+      _bindDashboardMainCacheWatch(tid);
+      final mainCache = await ChurchDashboardCacheService.load(churchIdHint: tid);
+      if (!mounted) return;
+      if (mainCache != null && mainCache.hasData) {
+        _attachPanelFeedStreams(tid);
+        _bindMembersDirectoryWatch(tid);
+        setState(() {
+          _effectiveTenantId = tid;
+          _dashboardMainCache = mainCache;
+        });
+        if (mainCache.totalMembros > 0) {
+          _scheduleHeavyDashboardStreams([tid], force: true);
+        }
+      }
       final quick = await Future.wait([
         PanelDashboardSnapshotService.readOnce(tid),
         ChurchDashboardCurrentService.readOnceFromLocalCache(tid),
@@ -543,6 +573,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         _effectiveTenantId = tid;
         _panelCache = quickPanel;
         _dashboardKpis = quick[1] as ChurchDashboardCurrent;
+        if (mainCache != null && mainCache.hasData) {
+          _dashboardMainCache = mainCache;
+        }
       });
       if (quickPanel.hasHomeLeaders ||
           quickPanel.homeCorpoAdmin.isNotEmpty ||
@@ -618,68 +651,41 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     if (forceToken) _initialAuthTokenForced = true;
     unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: forceToken));
     if (!mounted) return;
-    final tenantRef = ChurchOperationalPaths.churchDoc(resolved);
+    final churchId = ChurchRepository.churchId(resolved);
+    final tenantRef = ChurchRepository.churchDoc(churchId.isNotEmpty ? churchId : resolved);
     var churchSlug = '';
     var churchNome = '';
     late List<String> allIds;
     DocumentSnapshot<Map<String, dynamic>>? igSnap;
     try {
-      // Paralelo: metadados da igreja + IDs irmãos (mesmo slug) — menos latência na 1.ª pintura.
-      final parallel = await Future.wait([
-        tenantRef.get(),
-        TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(resolved),
-      ]);
-      igSnap = parallel[0] as DocumentSnapshot<Map<String, dynamic>>;
-      allIds = List<String>.from(parallel[1] as Iterable<dynamic>);
-      allIds.addAll(await _clusterDocIdsForPanel(resolved));
-      allIds = allIds.toSet().toList();
-      var id = igSnap.data() ?? {};
+      igSnap = await tenantRef.get();
+      allIds = [churchId.isNotEmpty ? churchId : resolved];
+      final id = igSnap.data() ?? {};
       churchSlug = _slugFromTenantData(id);
       churchNome = (id['name'] ?? id['nome'] ?? '').toString();
-      if (churchSlug.isEmpty || churchNome.trim().isEmpty) {
+      if (churchNome.trim().isEmpty || churchSlug.isEmpty) {
         try {
-          final rich = await TenantResolverService.richestChurchProfileForCadastro(
-            resolved,
-            preferServer: kIsWeb,
+          final loaded = await ChurchRepository.loadByChurchId(
+            churchId.isNotEmpty ? churchId : resolved,
+            seedTenantId: resolved,
           );
-          if (rich.isNotEmpty) {
+          if (loaded.data.isNotEmpty) {
             if (churchSlug.isEmpty) {
-              churchSlug = _slugFromTenantData(rich);
+              churchSlug = _slugFromTenantData(loaded.data);
             }
             if (churchNome.trim().isEmpty) {
-              churchNome = (rich['name'] ?? rich['nome'] ?? '').toString();
+              churchNome =
+                  (loaded.data['name'] ?? loaded.data['nome'] ?? '').toString();
             }
-            id = rich;
           }
-        } catch (_) {}
-      }
-      if (churchSlug.isEmpty) {
-        try {
-          churchSlug = await TenantResolverService.resolveChurchPublicSlug(
-            resolved,
-          );
         } catch (_) {}
       }
       _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
     } catch (_) {
-      try {
-        igSnap = await tenantRef.get();
-        final id = igSnap.data() ?? {};
-        churchSlug = _slugFromTenantData(id);
-        if (churchSlug.isEmpty) {
-          try {
-            churchSlug = await TenantResolverService.resolveChurchPublicSlug(
-              resolved,
-            );
-          } catch (_) {}
-        }
-        churchNome = (id['name'] ?? id['nome'] ?? '').toString();
-        _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
-        allIds = await _clusterDocIdsForPanel(resolved);
-      } catch (_) {
-        allIds = await _clusterDocIdsForPanel(resolved);
-        if (allIds.isEmpty) allIds = [resolved];
-      }
+      allIds = [ChurchRepository.churchId(resolved).isNotEmpty
+          ? ChurchRepository.churchId(resolved)
+          : resolved];
+      if (allIds.isEmpty) allIds = [resolved];
     }
     if (!mounted) return;
     unawaited(_attachPanelFeedStreams(resolved));
@@ -1014,19 +1020,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                DashboardIntelligentHero(
-                                  tenantId: _effectiveTenantId,
-                                  panel: panel,
-                                  kpis: _dashboardKpis,
-                                  canViewFinance: _dashCanFinance,
-                                  onNavigateToShellModule:
-                                      widget.onNavigateToShellModule,
-                                  onOpenAniversariantes:
-                                      _openAniversariantesAnoPage,
-                                ),
-                                const SizedBox(
-                                  height: ThemeCleanPremium.spaceMd,
-                                ),
                                 PanelQuickShortcuts(
                                   onOpenAniversariantesAno:
                                       _openAniversariantesAnoPage,
@@ -3068,30 +3061,20 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
   Future<void> _loadSlug() async {
     try {
       await ChurchTenantResilientReads.preparePanelRead(refreshToken: kIsWeb);
-      final operational =
-          await TenantResolverService.resolveOperationalChurchDocId(
-        widget.tenantId,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      ).timeout(const Duration(seconds: 10));
-      final readId = await TenantResolverService.resolveModuleReadTenantId(
-        operational,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => operational,
-      );
-      var slug = await TenantResolverService.resolveChurchPublicSlug(readId)
-          .timeout(const Duration(seconds: 8));
-      if (slug.isEmpty) {
-        final rich = await TenantResolverService.richestChurchProfileForCadastro(
-          readId,
-          preferServer: kIsWeb,
-        );
-        slug = _slugFromData(rich);
+      final readId = ChurchRepository.churchId(widget.tenantId);
+      var slug = '';
+      if (readId.isNotEmpty) {
+        try {
+          final loaded = await ChurchRepository.loadByChurchId(
+            readId,
+            seedTenantId: widget.tenantId,
+          );
+          slug = _slugFromData(loaded.data);
+        } catch (_) {}
       }
       if (slug.isEmpty) {
         final snap = await FirestoreWebGuard.runWithWebRecovery(() {
-          return               ChurchOperationalPaths.churchDoc(operational)
+          return ChurchRepository.churchDoc(readId.isNotEmpty ? readId : widget.tenantId)
               .get(const GetOptions(source: Source.cache))
               .timeout(const Duration(seconds: 4));
         });
@@ -3099,9 +3082,9 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
       }
       if (slug.isEmpty) {
         final server = await FirestoreWebGuard.runWithWebRecovery(() {
-          return               ChurchOperationalPaths.churchDoc(operational)
-              .get()
-              .timeout(const Duration(seconds: 8));
+          return ChurchRepository.churchDoc(
+            readId.isNotEmpty ? readId : widget.tenantId,
+          ).get().timeout(const Duration(seconds: 8));
         });
         slug = _slugFromData(server.data());
       }
@@ -6869,13 +6852,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
   DateTime rangeEnd, {
   bool apenasRotinaGerada = false,
 }) async {
-  var tid = tenantId.trim();
-  try {
-    tid = await TenantResolverService.resolveOperationalChurchDocId(
-      tenantId,
-      userUid: FirebaseAuth.instance.currentUser?.uid,
-    );
-  } catch (_) {}
+  var tid = ChurchRepository.churchId(tenantId);
   if (tid.isEmpty) tid = tenantId.trim();
   if (tid.isEmpty) return const [];
 

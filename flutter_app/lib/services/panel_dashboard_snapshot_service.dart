@@ -8,7 +8,7 @@ import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 
 import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 
 /// Membro leve no cache do painel (`_panel_cache/dashboard_summary`).
 class PanelHomeMemberLite {
@@ -216,26 +216,11 @@ class PanelDashboardSnapshotService {
   static final _functions =
       FirebaseFunctions.instanceFor(region: 'us-central1');
 
-  /// Docs `igrejas/{id}` do cluster (BPC legado + canónico) — painel/líderes/corpo.
+  /// Um único `igrejas/{churchId}` — Web = Android = iOS (sem cluster slug/alias).
   static Future<List<String>> clusterDocIdsForPanel(String seed) async {
-    final s = seed.trim();
-    if (s.isEmpty) return const [];
-    final out = <String>{s};
-    try {
-      out.addAll(
-        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(s),
-      );
-    } catch (_) {}
-    out.addAll(TenantResolverService.anchoredClusterIdsFor(s));
-    try {
-      final readId = await TenantResolverService.resolveModuleReadTenantId(s);
-      if (readId.trim().isNotEmpty) out.add(readId.trim());
-    } catch (_) {}
-    try {
-      final op = await ChurchOperationalPaths.resolveCached(s);
-      if (op.trim().isNotEmpty) out.add(op.trim());
-    } catch (_) {}
-    return out.where((e) => e.isNotEmpty).toList();
+    final id = ChurchRepository.churchId(seed);
+    if (id.isEmpty) return const [];
+    return [id];
   }
 
   static int _snapshotRichnessScore(PanelDashboardSnapshot s) {
@@ -270,22 +255,14 @@ class PanelDashboardSnapshotService {
   }
 
   static Future<String> _moduleReadTenantId(String seed) async {
-    try {
-      final readId = await TenantResolverService.resolveModuleReadTenantId(seed);
-      if (readId.trim().isNotEmpty) return readId.trim();
-    } catch (_) {}
-    try {
-      final op = await ChurchOperationalPaths.resolveCached(seed);
-      if (op.trim().isNotEmpty) return op.trim();
-    } catch (_) {}
-    return seed.trim();
+    final id = ChurchRepository.churchId(seed);
+    return id.isNotEmpty ? id : seed.trim();
   }
 
-  /// Doc onde o servidor grava `_panel_cache` (canónico do cluster BPC, etc.).
+  /// Doc onde o servidor grava `_panel_cache` — sempre `igrejas/{churchId}` da sessão.
   static String _panelCacheWriteTenantId(String seed) {
-    final anchored = TenantResolverService.anchoredClusterIdsFor(seed);
-    if (anchored.isNotEmpty) return anchored.first;
-    return seed.trim();
+    final id = ChurchRepository.churchId(seed);
+    return id.isNotEmpty ? id : seed.trim();
   }
 
   /// Cache pré-processado — 1 leitura para todo o Dashboard.

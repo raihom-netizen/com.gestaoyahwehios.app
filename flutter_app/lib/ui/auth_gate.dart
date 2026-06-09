@@ -745,7 +745,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       }
 
       Future<DocumentSnapshot<Map<String, dynamic>>> fetchChurch() async {
-        final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
+        final op = ChurchContextService.panelChurchId(igrejaId);
         try {
           return await ChurchOperationalPaths.churchDoc(op).get().timeout(loadTimeout);
         } catch (_) {

@@ -90,7 +90,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/app_permissions.dart';
 import '../../services/church_funcoes_controle_service.dart';
-import '../../services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'igreja_cadastro_page.dart';
 import 'member_card_page.dart';
@@ -105,6 +105,7 @@ import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'aprovar_membros_pendentes_page.dart';
 import 'funcoes_permissoes_page.dart';
 import 'relatorios_page.dart' show openRelatorioMembrosAvancado;
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class MembersPage extends StatefulWidget {
@@ -206,10 +207,7 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Doc operacional — `igrejas/{churchId}` (contexto da sessão).
   Future<String> _resolveEffectiveTenantId() async =>
-      TenantResolverService.operationalChurchId(
-        seed: widget.tenantId,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      );
+      ChurchContextService.panelChurchId(widget.tenantId);
 
   /// Upload validado (Storage + Firestore) — sucesso só após confirmação completa.
   Future<void> _publishMemberProfilePhotoStrict({
@@ -350,27 +348,11 @@ class _MembersPageState extends State<MembersPage> {
     return list;
   }
 
-  /// IDs Firestore para operações destrutivas — igrejas novas: só doc operacional; BPC: cluster.
+  /// IDs Firestore — só `igrejas/{churchId}` (Web = Android = iOS).
   Future<Set<String>> _resolvedFirestoreTenantIds(String tenantKey) async {
-    final t = tenantKey.trim();
-    if (t.isEmpty) return {};
-    var operational = t;
-    try {
-      operational = await TenantResolverService.resolveOperationalChurchDocId(
-        t,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      );
-    } catch (_) {}
-    final op = operational.trim().isNotEmpty ? operational.trim() : t;
-    final anchored = TenantResolverService.anchoredClusterIdsFor(op);
-    if (anchored.isEmpty) return {op};
-    final out = <String>{op, ...anchored};
-    try {
-      out.addAll(
-        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(op),
-      );
-    } catch (_) {}
-    return out.where((e) => e.trim().isNotEmpty).toSet();
+    final id = ChurchRepository.churchId(tenantKey.trim());
+    if (id.isEmpty) return {};
+    return {id};
   }
 
   String _filtroGenero = 'todos'; // todos, masculino, feminino
@@ -1243,13 +1225,9 @@ class _MembersPageState extends State<MembersPage> {
     final selfOnlyMemberList = AppPermissions.isRestrictedMember(widget.role) &&
         !AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
 
-    List<String> relatedIgrejaDocIds = [effectiveId];
-    if (TenantResolverService.anchoredClusterIdsFor(effectiveId).isNotEmpty) {
-      try {
-        relatedIgrejaDocIds =
-            await TenantResolverService.getAllRelatedIgrejaDocIds(effectiveId);
-      } catch (_) {}
-    }
+    final churchId = ChurchRepository.churchId(effectiveId);
+    final relatedIgrejaDocIds =
+        churchId.isNotEmpty ? [churchId] : [effectiveId];
 
     final db = firebaseDefaultFirestore;
 

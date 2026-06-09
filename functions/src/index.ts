@@ -7567,4 +7567,5 @@ export { resolveStorageDisplayUrls } from "./storageDisplayUrls";
 export { backfillMemberCodigos } from "./memberCodigo";
 
 export { scheduledPurgeStalePendingUploads } from "./purgeStalePendingUploads";
+export { scheduledCleanupOrphanFiles } from "./cleanupOrphanFiles";
 

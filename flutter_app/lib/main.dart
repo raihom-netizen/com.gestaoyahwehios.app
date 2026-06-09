@@ -78,7 +78,7 @@ import 'package:gestao_yahweh/services/panel_notification_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'ui/widgets/ios_payment_unavailable_view.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
-import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/ui/widgets/sync_feedback_listener.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:gestao_yahweh/core/app_deep_link.dart';
@@ -1057,62 +1057,14 @@ class _AppWithThemeState extends State<_AppWithTheme>
             // Evita tela preta ao voltar de outro app ou ao abrir pelo ícone: fundo sempre visível
             final c = child ?? const SizedBox.shrink();
             final bg = Theme.of(context).scaffoldBackgroundColor;
-            return Container(
-              color: bg,
-              child: Stack(
-                fit: StackFit.expand,
-                clipBehavior: Clip.none,
-                children: [
-                  MediaQuery(
-                    data: MediaQuery.of(context)
-                        .copyWith(alwaysUse24HourFormat: true),
-                    child: c,
-                  ),
-                  ValueListenableBuilder<GlobalUploadProgressState?>(
-                    valueListenable: GlobalUploadProgress.instance.state,
-                    builder: (context, state, _) {
-                      if (state == null) return const SizedBox.shrink();
-                      return Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        child: SafeArea(
-                          bottom: false,
-                          child: Material(
-                            elevation: 4,
-                            color: Theme.of(context).colorScheme.surface,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                LinearProgressIndicator(
-                                  value: state.progress >= 1
-                                      ? null
-                                      : state.progress,
-                                  minHeight: 3,
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 12, vertical: 6),
-                                  child: Text(
-                                    state.label,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
+            return SyncFeedbackListener(
+              child: Container(
+                color: bg,
+                child: MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(alwaysUse24HourFormat: true),
+                  child: c,
+                ),
               ),
             );
           },

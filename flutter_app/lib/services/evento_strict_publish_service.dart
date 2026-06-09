@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
+import 'package:gestao_yahweh/services/church_feed_optimistic_publish_service.dart';
 
 /// Evento — pipeline linear: upload → Storage → Firestore → agenda → sucesso.
 abstract final class EventoStrictPublishService {
@@ -25,12 +25,12 @@ abstract final class EventoStrictPublishService {
     String? agendaCategory,
     String? agendaColorHex,
   }) =>
-      ChurchFeedLinearPublishService.publishEvento(
+      ChurchFeedOptimisticPublishService.publishEvento(
         docRef: docRef,
         tenantId: tenantId,
         corePayload: corePayload,
         isNewDoc: isNewDoc,
-        existingPhotoRefs: existingUrls,
+        existingUrls: existingUrls,
         startSlotIndex: startSlotIndex,
         hasVideo: hasVideo,
         newImagesBytes: newImagesBytes,

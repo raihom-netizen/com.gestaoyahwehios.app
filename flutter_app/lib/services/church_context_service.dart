@@ -1,20 +1,20 @@
 import 'dart:async' show unawaited;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
-/// Contexto de igreja da sessão — resolve **uma vez** e expõe [currentChurchId].
+/// Contexto de igreja da sessão — expõe [currentChurchId] a partir de `users/{uid}`.
 ///
-/// Alias (`church_aliases`) só entra na resolução inicial.
-/// Depois disso, todos os módulos usam [currentChurchId] → `igrejas/{churchId}/…`.
+/// Painel igreja: **sem** tenant, alias ou slug resolver.
 abstract final class ChurchContextService {
   ChurchContextService._();
 
-  static const Duration kResolveTimeout = Duration(seconds: 15);
+  static const Duration kResolveTimeout = Duration(seconds: 10);
 
   static String? _currentChurchId;
   static Map<String, dynamic>? _currentChurchData;
@@ -53,6 +53,59 @@ abstract final class ChurchContextService {
     return 'igrejas/$id';
   }
 
+  /// ID do painel — contexto bound → hint do shell.
+  static String panelChurchId([String? shellTenantId]) {
+    final ctx = currentChurchId;
+    if (ctx != null && ctx.isNotEmpty) return ctx;
+    return shellTenantId?.trim() ?? '';
+  }
+
+  static Future<bool> _igrejaDocExists(String churchId) async {
+    final id = churchId.trim();
+    if (id.isEmpty) return false;
+    try {
+      final snap = await firebaseDefaultFirestore
+          .collection('igrejas')
+          .doc(id)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(kResolveTimeout);
+      return snap.exists;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<String?> _churchIdFromUser(String? uid) async {
+    final u = uid?.trim();
+    if (u == null || u.isEmpty) return null;
+    try {
+      final snap = await firebaseDefaultFirestore
+          .collection('users')
+          .doc(u)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(kResolveTimeout);
+      final data = snap.data();
+      if (data == null || data.isEmpty) return null;
+      for (final key in const ['igrejaId', 'churchId', 'tenantId']) {
+        final v = (data[key] ?? '').toString().trim();
+        if (v.isNotEmpty) return v;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static void _applyBind(String churchId, String seed, String? uid) {
+    final id = churchId.trim();
+    _currentChurchId = id;
+    _seedId = seed.trim();
+    _userUid = uid;
+    _boundAt = DateTime.now();
+    _lastError = null;
+    ChurchOperationalPaths.rememberResolved(seed, id, userUid: uid);
+    debugPrint('CHURCH_CONTEXT bound seed=$seed churchId=$id');
+  }
+
+  /// Resolve e fixa [currentChurchId] — lê `users/{uid}`, valida `igrejas/{churchId}`.
   static Future<String> resolveAndBind({
     required String seed,
     String? userUid,
@@ -69,14 +122,6 @@ abstract final class ChurchContextService {
     if (forceRefresh) {
       clear();
       ChurchOperationalPaths.invalidateResolved(s, userUid: uid);
-      TenantResolverService.invalidateOperationalChurchDocCache(
-        seedId: s,
-        userUid: uid,
-      );
-      TenantResolverService.invalidateRegistrationContextCache(
-        seedId: s,
-        userUid: uid,
-      );
     }
 
     if (!forceRefresh &&
@@ -88,40 +133,31 @@ abstract final class ChurchContextService {
     }
 
     try {
-      final resolved = await TenantResolverService.resolveOperationalChurchDocId(
-        s,
-        userUid: uid,
-        forceRefresh: forceRefresh,
-      ).timeout(kResolveTimeout);
+      final candidates = <String>{};
+      if (s.isNotEmpty) candidates.add(s);
+      final fromUser = await _churchIdFromUser(uid);
+      if (fromUser != null && fromUser.isNotEmpty) candidates.add(fromUser);
 
-      final id = resolved.trim();
-      if (id.isEmpty) {
-        _lastError = 'Não foi possível resolver churchId para "$s".';
-        return '';
-      }
-
-      _currentChurchId = id;
-      _seedId = s;
-      _userUid = uid;
-      _boundAt = DateTime.now();
-      _lastError = null;
-
-      if (!forceRefresh &&
-          (_currentChurchData == null || _currentChurchData!.isEmpty)) {
-        final cached = await ChurchPanelLocalCache.readMap(
-          churchId: id,
-          module: ChurchPanelLocalCache.moduleCadastro,
-        );
-        if (cached != null && cached.isNotEmpty) {
-          _currentChurchData = Map<String, dynamic>.from(cached);
+      for (final candidate in candidates) {
+        if (await _igrejaDocExists(candidate)) {
+          _applyBind(candidate, s, uid);
+          if (!forceRefresh &&
+              (_currentChurchData == null || _currentChurchData!.isEmpty)) {
+            final cached = await ChurchPanelLocalCache.readMap(
+              churchId: candidate,
+              module: ChurchPanelLocalCache.moduleCadastro,
+            );
+            if (cached != null && cached.isNotEmpty) {
+              _currentChurchData = Map<String, dynamic>.from(cached);
+            }
+          }
+          return candidate;
         }
       }
 
-      ChurchOperationalPaths.rememberResolved(s, id, userUid: uid);
-      TenantResolverService.rememberModuleReadTenantId(s, id, userUid: uid);
-
-      debugPrint('CHURCH_CONTEXT bound seed=$s churchId=$id');
-      return id;
+      _lastError =
+          'Igreja não encontrada em igrejas/{churchId}. Verifique o cadastro do usuário.';
+      return '';
     } catch (e) {
       _lastError = e.toString();
       rethrow;

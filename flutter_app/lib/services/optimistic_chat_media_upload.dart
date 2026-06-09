@@ -102,6 +102,7 @@ abstract final class OptimisticChatMediaUpload {
     VoidCallback? onWaitingForNetwork,
 
     String? uploadDocId,
+    bool storageBeforeFirestore = false,
 
   }) async {
 
@@ -122,6 +123,7 @@ abstract final class OptimisticChatMediaUpload {
             onReplyCleared: onReplyCleared,
             onWaitingForNetwork: onWaitingForNetwork,
             uploadDocId: uploadDocId,
+            storageBeforeFirestore: storageBeforeFirestore,
           ).timeout(
             _flushTimeoutFor(pending.kind),
             onTimeout: () => throw TimeoutException(
@@ -453,6 +455,7 @@ abstract final class OptimisticChatMediaUpload {
     VoidCallback? onWaitingForNetwork,
 
     String? uploadDocId,
+    bool storageBeforeFirestore = false,
 
   }) async {
 
@@ -479,6 +482,7 @@ abstract final class OptimisticChatMediaUpload {
     void reportProgress(double p) {
       final clamped = p.clamp(0.0, 1.0);
       onProgress(clamped);
+      if (storageBeforeFirestore) return;
       final mid = messageId;
       if (mid != null && mid.isNotEmpty) {
         unawaited(
@@ -493,140 +497,96 @@ abstract final class OptimisticChatMediaUpload {
       }
 
       if (activeUploadId.isNotEmpty) {
-
         unawaited(
-
           ChurchChatUploadsService.patchProgress(
-
             tenantId: tenantId,
-
             uploadId: activeUploadId,
-
             progress: p,
-
             status: ChurchChatUploadsService.statusUploading,
-
           ),
-
         );
-
       }
+    }
 
+    if (storageBeforeFirestore &&
+        (storagePath == null || storagePath!.isEmpty)) {
+      storagePath = ChurchChatService.buildChatMediaStoragePath(
+        tenantId: tenantId,
+        threadId: threadId,
+        kind: pending.kind,
+        fileName: pending.kind == 'document' ? (pending.fileName ?? 'file') : 'media',
+      );
+      pending.storagePath = storagePath;
     }
 
 
 
     try {
-
-      activeUploadId = await ChurchChatUploadsService.upsert(
-
-        tenantId: tenantId,
-
-        threadId: threadId,
-
-        kind: pending.kind,
-
-        localId: pending.localId,
-
-        uploadId: activeUploadId.isEmpty ? null : activeUploadId,
-
-        messageId: messageId,
-
-        storagePath: storagePath,
-
-        localPath: localPath ?? pending.localPath,
-
-        fileName: pending.fileName,
-
-        mime: pending.mime,
-
-        progress: 0.02,
-
-        status: ChurchChatUploadsService.statusUploading,
-
-      );
-
-
-
-      final midRestore = messageId;
-      if (midRestore != null && midRestore.isNotEmpty) {
-        await ChurchChatService.markMediaUploadActive(
+      if (!storageBeforeFirestore) {
+        activeUploadId = await ChurchChatUploadsService.upsert(
           tenantId: tenantId,
           threadId: threadId,
-          messageId: midRestore,
+          kind: pending.kind,
+          localId: pending.localId,
+          uploadId: activeUploadId.isEmpty ? null : activeUploadId,
+          messageId: messageId,
+          storagePath: storagePath,
+          localPath: localPath ?? pending.localPath,
+          fileName: pending.fileName,
+          mime: pending.mime,
+          progress: 0.02,
+          status: ChurchChatUploadsService.statusUploading,
         );
+        final midRestore = messageId;
+        if (midRestore != null && midRestore.isNotEmpty) {
+          await ChurchChatService.markMediaUploadActive(
+            tenantId: tenantId,
+            threadId: threadId,
+            messageId: midRestore,
+          );
+        }
       }
 
-      if (messageId == null || messageId.isEmpty) {
-
+      if (!storageBeforeFirestore &&
+          (messageId == null || messageId.isEmpty)) {
         final can = await ChurchChatMemberPrefs.canSendToDmThread(
-
           tenantId: tenantId,
-
           threadId: threadId,
-
         );
-
         if (!can) {
-
           onFailed('Envio bloqueado — desbloqueie o contacto.');
-
           return;
-
         }
-
         reportProgress(0.04);
-
         ChurchPublishFlowLog.chatStart();
         ChurchPublishFlowLog.uploadStart('chat_${pending.kind}');
         final begun = await ChurchChatService.beginMediaUploadMessage(
-
           tenantId: tenantId,
-
           threadId: threadId,
-
           kind: pending.kind,
-
-          fileName: pending.kind == 'document' ? pending.fileName : null,
-
+          fileName: pending.kind == 'document' ? (pending.fileName ?? 'file') : 'media',
           replyTo: replyTo,
-
           senderDisplayName:
-
               ChurchChatService.senderDisplayNameForNewMessage(),
-
         ).timeout(const Duration(seconds: 20));
-
         messageId = begun.messageId;
-
         storagePath = begun.storagePath;
-
         pending.firestoreMessageId = messageId;
-
         pending.storagePath = storagePath;
-
         onReplyCleared?.call();
-
         unawaited(
-
           ChurchChatMediaOutboxService.updateStub(
-
             tenantId: tenantId,
-
             threadId: threadId,
-
             localId: pending.localId,
-
             firestoreMessageId: messageId,
-
             storagePath: storagePath,
-
             uploadDocId: activeUploadId,
-
           ),
-
         );
-
+      } else if (storageBeforeFirestore) {
+        ChurchPublishFlowLog.chatStart();
+        ChurchPublishFlowLog.uploadStart('chat_${pending.kind}_sync');
       }
 
 
@@ -642,15 +602,6 @@ abstract final class OptimisticChatMediaUpload {
 
 
       if (pending.kind == 'image') {
-
-        final mid = messageId;
-
-        if (mid == null || mid.isEmpty) {
-
-          throw StateError('Stub Firestore ausente para foto.');
-
-        }
-
         final up = await _uploadChatImagePrepared(
 
           pending: pending,
@@ -669,30 +620,20 @@ abstract final class OptimisticChatMediaUpload {
 
         );
 
-        await _finalizeChatMediaUpload(
-
+        await _commitChatMediaAfterUpload(
           tenantId: tenantId,
-
           threadId: threadId,
-
-          messageId: mid,
-
+          messageId: messageId,
           pending: pending,
-
           storagePath: up.path,
-
           thumbStoragePath: up.thumbPath,
-
           uploadDocId: activeUploadId,
-
+          replyTo: replyTo,
+          storageBeforeFirestore: storageBeforeFirestore,
           reportProgress: reportProgress,
-
           onSuccess: onSuccess,
-
         );
-
         return;
-
       }
 
 
@@ -845,30 +786,24 @@ abstract final class OptimisticChatMediaUpload {
 
 
 
-      await _finalizeChatMediaUpload(
-
+      await _commitChatMediaAfterUpload(
         tenantId: tenantId,
-
         threadId: threadId,
-
-        messageId: messageId!,
-
+        messageId: messageId,
         pending: pending,
-
         storagePath: up.path,
-
         thumbStoragePath: thumbStoragePath,
-
         uploadDocId: activeUploadId,
-
+        replyTo: replyTo,
+        storageBeforeFirestore: storageBeforeFirestore,
         reportProgress: reportProgress,
-
         onSuccess: onSuccess,
-
       );
-
     } on FirebaseException catch (e) {
-
+      if (storageBeforeFirestore) {
+        onFailed(formatUploadErrorForUser(e));
+        return;
+      }
       await _handleFailure(
 
         error: e,
@@ -888,30 +823,77 @@ abstract final class OptimisticChatMediaUpload {
       );
 
     } catch (e) {
-
+      if (storageBeforeFirestore) {
+        onFailed(formatUploadErrorForUser(e));
+        return;
+      }
       await _handleFailure(
-
         error: e,
-
         pending: pending,
-
         tenantId: tenantId,
-
         threadId: threadId,
-
         uploadDocId: activeUploadId,
-
         onWaitingForNetwork: onWaitingForNetwork,
-
         onFailed: onFailed,
-
       );
-
     }
-
   }
 
-
+  static Future<void> _commitChatMediaAfterUpload({
+    required String tenantId,
+    required String threadId,
+    required String? messageId,
+    required ChurchChatOutboundPending pending,
+    required String storagePath,
+    String? thumbStoragePath,
+    String? uploadDocId,
+    Map<String, dynamic>? replyTo,
+    required bool storageBeforeFirestore,
+    required void Function(double progress) reportProgress,
+    required VoidCallback onSuccess,
+  }) async {
+    if (storageBeforeFirestore) {
+      reportProgress(0.94);
+      final r = await ChurchChatService.writeMediaMessageFirestoreOnce(
+        tenantId: tenantId,
+        threadId: threadId,
+        kind: pending.kind,
+        storagePath: storagePath,
+        thumbStoragePath: thumbStoragePath,
+        fileName: ChurchChatMessageFields.isDocumentType(pending.kind)
+            ? pending.fileName
+            : null,
+        fileSize: _byteSizeForPending(pending),
+        replyTo: replyTo,
+        senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
+        albumGroupId: pending.albumGroupId,
+        albumIndex: pending.albumIndex,
+        albumCount: pending.albumCount,
+      );
+      if (!r.allowed) {
+        throw StateError('Envio bloqueado — desbloqueie o contacto.');
+      }
+      pending.firestoreMessageId = r.messageId;
+      reportProgress(1.0);
+      onSuccess();
+      return;
+    }
+    final mid = messageId;
+    if (mid == null || mid.isEmpty) {
+      throw StateError('Stub Firestore ausente para mídia.');
+    }
+    await _finalizeChatMediaUpload(
+      tenantId: tenantId,
+      threadId: threadId,
+      messageId: mid,
+      pending: pending,
+      storagePath: storagePath,
+      thumbStoragePath: thumbStoragePath,
+      uploadDocId: uploadDocId,
+      reportProgress: reportProgress,
+      onSuccess: onSuccess,
+    );
+  }
 
   static Future<void> _finalizeChatMediaUpload({
 

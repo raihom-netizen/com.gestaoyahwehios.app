@@ -646,6 +646,11 @@ service cloud.firestore {
         allow read: if isMaster() || canAccessTenant(id) || memberLinkedToTenant(id);
         allow write: if isMaster() || canWriteTenant(id);
       }
+      match /_debug_platform_audit/{platformId} {
+        allow read: if isMaster() || canAccessTenant(id);
+        allow create, update: if isMaster() || canWriteTenant(id);
+        allow delete: if isMaster();
+      }
       // Cache de performance â€” `public_feed` legÃ­vel no site pÃºblico (visitante / anÃ³nimo).
       match /_performance_cache/{docId} {
         allow read: if docId == 'public_feed'

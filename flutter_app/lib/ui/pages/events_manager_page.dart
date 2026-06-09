@@ -6447,6 +6447,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   String? _videoStoragePathForPublish(String igrejaId) {
     if (_eventVideos.isEmpty) return null;
+    final stored = (_eventVideos.first['videoPath'] ?? '').toString().trim();
+    if (stored.isNotEmpty) return stored;
     return EventosPublishVerificationService.hostedVideoStoragePath(
       igrejaId: igrejaId,
       eventoId: _eventDocRef.id,
@@ -6470,11 +6472,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _showEventoPublishVerifiedSuccess({required bool isNewDoc}) async {
     if (!mounted) return;
     unawaited(IosPublishMemory.releaseAfterHeavyWork());
-    ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.successSnackBar(
-        isNewDoc ? 'Evento publicado' : 'Evento atualizado',
-      ),
-    );
     Navigator.pop(context, true);
   }
 
@@ -7127,8 +7124,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         if (result == null || !mounted) return;
         setState(() {
           _eventVideos.add({
-            'videoUrl': result.videoUrl,
-            'thumbUrl': result.thumbUrl,
+            'videoPath': result.videoStoragePath,
+            'thumbStoragePath': result.thumbStoragePath,
           });
         });
         if (_publishedAwaitingVideoMerge) {
@@ -7484,11 +7481,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     } catch (_) {}
   }
 
-  /// Reconexão Firestore após INTERNAL ASSERTION — **Firestore primeiro** (sem upload→set legado).
+  /// Reconexão após INTERNAL ASSERTION — mesmo pipeline linear (upload → Firestore).
   Future<void> _retryEventPublishFirestoreFirst() async {
     await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
-    final docRef = _eventDocRef;
-    final postId = docRef.id;
+    await _waitForVideoUploadComplete();
+    final ctx = await _prepareEventoPublishContext();
+    final docRef = ctx.docRef;
+    final publishTenantId = ctx.igrejaId;
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
     final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
     final hasPendingLocal = _newPhotoCount > 0;
@@ -7500,49 +7499,46 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         if (oar is num) aspectRatio = oar.toDouble();
       }
     }
-    final hasVideo =
-        _eventVideos.isNotEmpty || _videoUrl.text.trim().isNotEmpty;
+    final videoPathForPublish = _videoStoragePathForPublish(publishTenantId);
+    final hasVideo = videoPathForPublish != null &&
+        videoPathForPublish.isNotEmpty;
+    final (eventStart, _) = _computeStartEndForSave();
     final payload = _buildEventCorePayload(
-      allUrls: existingUrls,
+      allUrls: const [],
       aspectRatio: aspectRatio,
       isNewDoc: isNewDoc,
     );
+    payload.remove('videoUrl');
+    List<Uint8List>? bytes;
+    List<String>? paths;
     if (hasPendingLocal) {
-      final startSlot = existingUrls.length;
-      List<Uint8List>? bytes;
-      List<String>? paths;
       if (kIsWeb) {
         bytes = await _copyNewImagesForPublish();
       } else {
         paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
       }
-      final n = bytes?.length ?? paths?.length ?? 0;
-      if (n == 0) {
+      if ((bytes?.length ?? paths?.length ?? 0) == 0) {
         throw StateError('Não foi possível ler as fotos para enviar.');
       }
-      await FeedMediaPublishService.publish(
-        docRef: docRef,
-        tenantId: widget.tenantId,
-        postId: postId,
-        postType: 'evento',
-        corePayload: payload,
-        isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: startSlot,
-        hasVideo: hasVideo,
-        newImagesBytes: bytes,
-        newImagePaths: paths,
-        publicSite: _publicSite,
-      );
-    } else {
-      await FeedMediaPublishService.publishNow(
-        docRef: docRef,
-        payload: payload,
-        isNewDoc: isNewDoc,
-        postType: 'evento',
-        publicSite: _publicSite,
-      );
     }
+    await EventoStrictPublishService.publish(
+      docRef: docRef,
+      tenantId: publishTenantId,
+      corePayload: payload,
+      isNewDoc: isNewDoc,
+      existingUrls: existingUrls,
+      startSlotIndex: existingUrls.length,
+      hasVideo: hasVideo,
+      newImagesBytes: bytes,
+      newImagePaths: paths,
+      videoStoragePath: videoPathForPublish,
+      publicSite: _publicSite,
+      eventStartAt: eventStart,
+      location: _localSalvo(),
+      syncAgenda: _syncAgenda,
+      agendaCategory: _agendaCategoryKeyFromEvent(),
+      agendaColorHex: _agendaColorHexForCategory(),
+    );
   }
 
   Future<void> _waitForInFlightPhotoUploads() async {
@@ -7576,27 +7572,24 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       await AppFinalizeBootstrap.ensureSessionForPublish(
         logLabel: 'evento_save',
       );
-      await _waitForInFlightPhotoUploads();
-      await _waitForVideoUploadComplete();
       ChurchPublishFlowLog.eventoStart();
-      await FeedPublishPreflight.prepareForFirestoreSave(
-        inFlightCount: () => _inFlightPhotoUploads,
-      );
       final ctx = await _prepareEventoPublishContext();
       final docRef = ctx.docRef;
       final publishTenantId = ctx.igrejaId;
       final postId = docRef.id;
 
-      await EventosPublishVerificationService.logPublishPhase(
-        phase: 'before',
-        igrejaId: publishTenantId,
-        uid: uid,
-        titulo: titulo,
-        eventoId: postId,
-        fotos: EventosPublishVerificationService.storagePathsFromUrls(
-          _existingUrls,
+      unawaited(
+        EventosPublishVerificationService.logPublishPhase(
+          phase: 'before',
+          igrejaId: publishTenantId,
+          uid: uid,
+          titulo: titulo,
+          eventoId: postId,
+          fotos: EventosPublishVerificationService.storagePathsFromUrls(
+            _existingUrls,
+          ),
+          videoPath: _videoStoragePathForPublish(publishTenantId),
         ),
-        videoPath: _videoStoragePathForPublish(publishTenantId),
       );
 
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
@@ -7609,8 +7602,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           if (oar is num) aspectRatio = oar.toDouble();
         }
       }
-      final hasVideo =
-          _eventVideos.isNotEmpty || _videoUrl.text.trim().isNotEmpty;
+      final videoPathForPublish = _videoStoragePathForPublish(publishTenantId);
+      final hasVideo = videoPathForPublish != null &&
+          videoPathForPublish.isNotEmpty;
       final (eventStart, _) = _computeStartEndForSave();
       final payload = _buildEventCorePayload(
         allUrls: const [],
@@ -7650,7 +7644,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         hasVideo: hasVideo,
         newImagesBytes: bytes,
         newImagePaths: paths,
-        videoStoragePath: _videoStoragePathForPublish(publishTenantId),
+        videoStoragePath: videoPathForPublish,
         publicSite: _publicSite,
         eventStartAt: eventStart,
         location: _localSalvo(),
@@ -7659,12 +7653,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         agendaColorHex: _agendaColorHexForCategory(),
       );
 
-      await EventosPublishVerificationService.logPublishPhase(
-        phase: 'after',
-        igrejaId: publishTenantId,
-        uid: uid,
-        titulo: titulo,
-        eventoId: postId,
+      unawaited(
+        EventosPublishVerificationService.logPublishPhase(
+          phase: 'after',
+          igrejaId: publishTenantId,
+          uid: uid,
+          titulo: titulo,
+          eventoId: postId,
+        ),
       );
       EventosPublishVerificationService.clearLastError();
       await _showEventoPublishVerifiedSuccess(isNewDoc: isNewDoc);

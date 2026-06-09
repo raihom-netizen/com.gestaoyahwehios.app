@@ -44,6 +44,13 @@
 - **Build parcial** (web, regras, functions, etc.) ou **deploy completo** — **somente** quando o usuário pedir **explicitamente**, de preferência **ao final** de todas as correções da sessão/lista.
 - Regras: `.cursor/rules/sem-deploy-sem-pedido-explicito.mdc` e `deploy-so-ao-final.mdc`.
 
+### Aceite obrigatório (não encerrar sem prova)
+
+- Tarefa **só concluída** com critérios em `.cursor/rules/regra-aceite-obrigatoria.mdc` (testes 1–11 + relatório WEB/Android/iOS).
+- Grep obrigatório: `.\scripts\auditoria_acessos_firestore_storage.ps1`
+- **Proibido** criar novos resolvers — reutilizar `ChurchRepository` como em Membros.
+- DEBUG CHURCH: Configurações → Publicar prova (3 plataformas) → Copiar relatório de aceite.
+
 ### Coerência com o que já existe
 
 - Manter o código modular e limpo; respeitar `.cursor/rules/` (Firebase/imagens, deploy, versão) quando aplicável.

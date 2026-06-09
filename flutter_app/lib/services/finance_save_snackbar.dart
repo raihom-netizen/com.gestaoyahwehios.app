@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'package:gestao_yahweh/services/sync_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Uma SnackBar coerente após gravação no financeiro (incl. lotes de importação).
+/// Feedback breve após gravação no financeiro (via [SyncService]).
 void showFinanceSaveSnackBar(
   BuildContext context, {
   required String message,
@@ -10,12 +11,15 @@ void showFinanceSaveSnackBar(
   Color? backgroundColor,
 }) {
   if (!context.mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(message, style: const TextStyle(color: Colors.white)),
-      backgroundColor: isError
-          ? (backgroundColor ?? ThemeCleanPremium.error)
-          : (backgroundColor ?? ThemeCleanPremium.success),
-    ),
-  );
+  if (isError) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: const TextStyle(color: Colors.white)),
+        backgroundColor: backgroundColor ?? ThemeCleanPremium.error,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    return;
+  }
+  SyncService.notifyUserActionSaved();
 }

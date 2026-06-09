@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/offline/hive_local_store.dart';
 import 'package:gestao_yahweh/core/resilience/degraded_services.dart';
 import 'package:gestao_yahweh/core/resilience/emergency_mode_service.dart';
 import 'package:gestao_yahweh/core/resilience/service_degradation_registry.dart';
+import 'package:gestao_yahweh/core/system_health/session_performance_metrics.dart';
 import 'package:gestao_yahweh/core/system_health/system_last_error_registry.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
@@ -135,6 +136,45 @@ abstract final class SystemHealthService {
             : SystemHealthSeverity.critical,
       ),
       blocksProduction: true,
+    );
+
+    addCheck(
+      SystemHealthCheck(
+        label: 'FCM',
+        ok: firebase.fcmOk,
+        detail: firebase.fcmDetail ??
+            (firebase.fcmOk ? 'Push OK' : 'FCM indisponível'),
+        severity:
+            firebase.fcmOk ? SystemHealthSeverity.ok : SystemHealthSeverity.warn,
+      ),
+    );
+
+    addCheck(
+      SystemHealthCheck(
+        label: 'Cloud Functions',
+        ok: firebase.functionsOk,
+        detail: firebase.functionsDetail ??
+            (firebase.functionsOk ? 'Callable OK' : 'Functions falhou'),
+        severity: firebase.functionsOk
+            ? SystemHealthSeverity.ok
+            : SystemHealthSeverity.warn,
+      ),
+    );
+
+    addCheck(await _mercadoPagoCheck());
+
+    final avgMs = SessionPerformanceMetrics.averageLastMs;
+    addCheck(
+      SystemHealthCheck(
+        label: 'Tempo médio consultas',
+        ok: avgMs == null || avgMs < 2500,
+        detail: avgMs == null
+            ? 'Sem amostras nesta sessão'
+            : '${avgMs.round()} ms (Firestore)',
+        severity: avgMs != null && avgMs >= 4000
+            ? SystemHealthSeverity.warn
+            : SystemHealthSeverity.info,
+      ),
     );
 
     addCheck(
@@ -352,6 +392,43 @@ abstract final class SystemHealthService {
     } catch (e) {
       return SystemHealthCheck(
         label: label,
+        ok: false,
+        detail: e.toString(),
+        severity: SystemHealthSeverity.warn,
+      );
+    }
+  }
+
+  static Future<SystemHealthCheck> _mercadoPagoCheck() async {
+    try {
+      final snap = await firebaseDefaultFirestore
+          .collection('config')
+          .doc('mercado_pago')
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 8));
+      if (!snap.exists) {
+        return const SystemHealthCheck(
+          label: 'Mercado Pago',
+          ok: false,
+          detail: 'config/mercado_pago ausente',
+          severity: SystemHealthSeverity.warn,
+        );
+      }
+      final data = snap.data() ?? {};
+      final mode = (data['mode'] ?? 'production').toString();
+      final token = mode == 'test'
+          ? (data['accessTokenTest'] ?? '').toString()
+          : (data['accessToken'] ?? '').toString();
+      final ok = token.trim().length > 10;
+      return SystemHealthCheck(
+        label: 'Mercado Pago',
+        ok: ok,
+        detail: ok ? 'Credenciais ($mode) configuradas' : 'Token MP vazio',
+        severity: ok ? SystemHealthSeverity.ok : SystemHealthSeverity.warn,
+      );
+    } catch (e) {
+      return SystemHealthCheck(
+        label: 'Mercado Pago',
         ok: false,
         detail: e.toString(),
         severity: SystemHealthSeverity.warn,

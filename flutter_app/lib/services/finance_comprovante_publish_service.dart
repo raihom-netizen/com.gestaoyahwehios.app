@@ -5,6 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/offline/offline_modules.dart';
+import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/extended_publish_verification_services.dart';
@@ -32,12 +34,24 @@ abstract final class FinanceComprovantePublishService {
       patch[comprovanteUploadStateField] = EntityPublishStatus.uploading;
       patch.remove('comprovanteUrl');
     }
+    final tenantId = financeCol.parent?.id ?? '';
     if (isEdit && existingRef != null) {
-      await existingRef.update(patch);
+      await OptimisticFirestoreWrite.update(
+        ref: existingRef,
+        data: patch,
+        module: OfflineModules.financeiro,
+        tenantId: tenantId,
+      );
       YahwehFlowLog.success('FINANCEIRO');
       return existingRef;
     }
-    final ref = await financeCol.add(patch);
+    final ref = financeCol.doc();
+    await OptimisticFirestoreWrite.set(
+      ref: ref,
+      data: patch,
+      module: OfflineModules.financeiro,
+      tenantId: tenantId,
+    );
     YahwehFlowLog.success('FINANCEIRO');
     return ref;
   }

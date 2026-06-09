@@ -1,5 +1,6 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+1855: sync silenciosa, publish otimista aviso/evento/financeiro, dashboard cache 1 read, chat streams, landing botões.
 /// 11.2.305+1854: _panel_cache statistics/public_site, WhatsApp 1 toque, dashboard inteligente, notificações, offline, agenda visual.
 /// 11.2.305+1853: P0 Membros — foto perfil strict publish (paths Storage, sem downloadURL no Firestore).
 /// 11.2.305+1852: Web — cadastro/chat igreja alinhado ao mobile, chat painel tela cheia, consolidação igrejas/{id}/.
@@ -325,7 +326,7 @@ const String appVersion = '11.2.305';
 /// 11.2.295+1803: Aprovações rápidas — pendentes cache-first; sem preparePanelRead.
 /// 11.2.295+1804: Chat Igreja — grupos instantâneos, layout web WhatsApp, mensagens/upload rápidos.
 /// 11.2.295+1805: Minha Escala + Escala Geral — cache-first instantâneo; sem preparePanelRead.
-const String appBuildNumber = '1854';
+const String appBuildNumber = '1855';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

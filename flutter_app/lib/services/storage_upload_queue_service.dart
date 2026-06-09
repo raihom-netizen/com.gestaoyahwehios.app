@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
-import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
@@ -147,17 +146,10 @@ class StorageUploadQueueService {
     if (_queue.isEmpty) return;
     if (!AppConnectivityService.instance.isOnline) return;
     _draining = true;
-    var showedProgress = false;
     try {
       while (_queue.isNotEmpty) {
         if (!AppConnectivityService.instance.isOnline) break;
         final item = _queue.first;
-        if (!showedProgress) {
-          showedProgress = true;
-          GlobalUploadProgress.instance
-              .start('A enviar ficheiros em fila (${_queue.length})…');
-          GlobalUploadProgress.instance.update(0);
-        }
         final tid = item.tenantId;
         final pendingId = item.pendingUploadId;
         if (FirebaseUploadPolicy.firestorePendingQueueEnabled &&
@@ -246,9 +238,6 @@ class StorageUploadQueueService {
             'StorageUploadQueueService: restam ${_queue.length} upload(s)');
       }
     } finally {
-      if (showedProgress) {
-        GlobalUploadProgress.instance.end();
-      }
       _draining = false;
     }
   }

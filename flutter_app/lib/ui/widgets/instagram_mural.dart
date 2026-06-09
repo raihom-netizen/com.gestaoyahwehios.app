@@ -3828,13 +3828,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   Future<void> _showPublishVerifiedSuccess({required bool isNewDoc}) async {
     if (!mounted) return;
     unawaited(IosPublishMemory.releaseAfterHeavyWork());
-    final isEvento = widget.type == 'evento';
-    final msg = isEvento
-        ? (isNewDoc ? 'Evento publicado' : 'Evento atualizado')
-        : (isNewDoc ? 'Publicado com sucesso' : 'Atualizado com sucesso');
-    ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.successSnackBar(msg),
-    );
     Navigator.pop(context, true);
   }
 
@@ -4524,17 +4517,54 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       }
       return;
     }
-    await FeedMediaPublishService.publishNow(
-      docRef: docRef,
-      payload: _buildCorePayload(
-        allUrls: existingUrls,
-        aspectRatio: aspectRatio,
-        isNewDoc: isNewDoc,
-      ),
+    final corePayload = _buildCorePayload(
+      allUrls: const [],
+      aspectRatio: aspectRatio,
       isNewDoc: isNewDoc,
-      postType: widget.type,
-      publicSite: _publicSite,
     );
+    corePayload.remove('videoUrl');
+    if (isEvento) {
+      final videoPath =
+          _videoStoragePathForMuralEvento(publishTenantId, docRef.id);
+      await EventoStrictPublishService.publish(
+        docRef: docRef,
+        tenantId: publishTenantId,
+        corePayload: corePayload,
+        isNewDoc: isNewDoc,
+        existingUrls: existingUrls,
+        startSlotIndex: existingUrls.length,
+        hasVideo: videoPath != null || _videoUrl.text.trim().isNotEmpty,
+        videoStoragePath: videoPath,
+        publicSite: _publicSite,
+        eventStartAt: _eventStartAtForSave(),
+        location: _localSalvo(),
+        syncAgenda: _eventStartAtForSave() != null,
+      );
+    } else if (isAviso) {
+      await AvisoStrictPublishService.publish(
+        docRef: docRef,
+        tenantId: publishTenantId,
+        corePayload: corePayload,
+        isNewDoc: isNewDoc,
+        existingUrls: existingUrls,
+        startSlotIndex: existingUrls.length,
+        publicSite: _publicSite,
+        calendarDate: _validUntil,
+        syncCalendar: _validUntil != null,
+      );
+    } else {
+      await FeedMediaPublishService.publishNow(
+        docRef: docRef,
+        payload: _buildCorePayload(
+          allUrls: existingUrls,
+          aspectRatio: aspectRatio,
+          isNewDoc: isNewDoc,
+        ),
+        isNewDoc: isNewDoc,
+        postType: widget.type,
+        publicSite: _publicSite,
+      );
+    }
   }
 
   DateTime? _eventStartAtForSave() {
@@ -4575,16 +4605,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       await AppFinalizeBootstrap.ensureSessionForPublish(
         logLabel: 'mural_${widget.type}_save',
       );
-      await _waitForInFlightPhotoUploads();
       final hasNewImages = _newPhotoCount > 0;
       if (widget.type == 'evento') {
         ChurchPublishFlowLog.eventoStart();
       } else {
         ChurchPublishFlowLog.avisoStart();
       }
-      await FeedPublishPreflight.prepareForFirestoreSave(
-        inFlightCount: () => _inFlightPhotoUploads,
-      );
       final isAviso = widget.type == 'aviso';
       final isEvento = widget.type == 'evento';
       late final DocumentReference<Map<String, dynamic>> docRef;
@@ -4605,25 +4631,29 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
       final titulo = _title.text.trim();
       if (isAviso) {
-        await AvisosPublishVerificationService.logPublishPhase(
-          phase: 'before',
-          igrejaId: publishTenantId,
-          uid: uid,
-          titulo: titulo,
-          docId: docRef.id,
-          storagePath: _existingUrls.isNotEmpty
-              ? firebaseStorageObjectPathFromHttpUrl(_existingUrls.first)
-              : null,
+        unawaited(
+          AvisosPublishVerificationService.logPublishPhase(
+            phase: 'before',
+            igrejaId: publishTenantId,
+            uid: uid,
+            titulo: titulo,
+            docId: docRef.id,
+            storagePath: _existingUrls.isNotEmpty
+                ? firebaseStorageObjectPathFromHttpUrl(_existingUrls.first)
+                : null,
+          ),
         );
       } else if (isEvento) {
-        await EventosPublishVerificationService.logPublishPhase(
-          phase: 'before',
-          igrejaId: publishTenantId,
-          uid: uid,
-          titulo: titulo,
-          eventoId: docRef.id,
-          fotos: EventosPublishVerificationService.storagePathsFromUrls(
-            _existingUrls,
+        unawaited(
+          EventosPublishVerificationService.logPublishPhase(
+            phase: 'before',
+            igrejaId: publishTenantId,
+            uid: uid,
+            titulo: titulo,
+            eventoId: docRef.id,
+            fotos: EventosPublishVerificationService.storagePathsFromUrls(
+              _existingUrls,
+            ),
           ),
         );
       }
@@ -4691,12 +4721,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             location: _localSalvo(),
             syncAgenda: _eventStartAtForSave() != null,
           );
-          await EventosPublishVerificationService.logPublishPhase(
-            phase: 'after',
-            igrejaId: publishTenantId,
-            uid: uid,
-            titulo: titulo,
-            eventoId: docRef.id,
+          unawaited(
+            EventosPublishVerificationService.logPublishPhase(
+              phase: 'after',
+              igrejaId: publishTenantId,
+              uid: uid,
+              titulo: titulo,
+              eventoId: docRef.id,
+            ),
           );
           EventosPublishVerificationService.clearLastError();
         } else {
@@ -4713,12 +4745,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             calendarDate: _validUntil,
             syncCalendar: _validUntil != null,
           );
-          await AvisosPublishVerificationService.logPublishPhase(
-            phase: 'after',
-            igrejaId: publishTenantId,
-            uid: uid,
-            titulo: titulo,
-            docId: docRef.id,
+          unawaited(
+            AvisosPublishVerificationService.logPublishPhase(
+              phase: 'after',
+              igrejaId: publishTenantId,
+              uid: uid,
+              titulo: titulo,
+              docId: docRef.id,
+            ),
           );
           AvisosPublishVerificationService.clearLastError();
         }

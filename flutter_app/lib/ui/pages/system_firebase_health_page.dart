@@ -181,7 +181,7 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
     final memQueue = StorageUploadQueueService.instance.pendingCount;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Saúde do Sistema'),
+        title: const Text('Diagnóstico do Sistema'),
         bottom: TabBar(
           controller: _tabs,
           isScrollable: true,

@@ -57,30 +57,9 @@ abstract final class ChurchOfflineStatusService {
       );
     }
 
-    if (flushing || pendingQueue > 0) {
-      final queueHint = pendingQueue > 0
-          ? (compact
-              ? ' · $pendingQueue na fila'
-              : ' $pendingQueue alteração(ões) na fila local.')
-          : '';
-      return ChurchOfflineStatusSnapshot(
-        phase: ChurchOfflineUiPhase.syncing,
-        pendingQueueCount: pendingQueue,
-        title: 'Sincronizando…',
-        subtitle: compact
-            ? 'Enviando para a nuvem$queueHint'
-            : 'Enviando alterações para a nuvem.$queueHint',
-      );
-    }
-
-    if (warmingCache) {
-      return ChurchOfflineStatusSnapshot(
-        phase: ChurchOfflineUiPhase.caching,
-        title: compact ? 'Atualizando cache' : 'Atualizando cache local',
-        subtitle: compact
-            ? 'Membros, mural, escalas…'
-            : 'Preparando $_offlineModulesLabel para uso sem internet.',
-      );
+    // Sync/cache em background — nunca banner fixo (ver SyncService + SyncFeedbackListener).
+    if (flushing || pendingQueue > 0 || warmingCache) {
+      return const ChurchOfflineStatusSnapshot(phase: ChurchOfflineUiPhase.hidden);
     }
 
     return const ChurchOfflineStatusSnapshot(phase: ChurchOfflineUiPhase.hidden);

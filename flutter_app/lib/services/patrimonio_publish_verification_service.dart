@@ -4,7 +4,7 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 
 /// Verificação obrigatória pós-gravação de patrimônio — evita falso sucesso.
 abstract final class PatrimonioPublishVerificationService {
@@ -30,28 +30,9 @@ abstract final class PatrimonioPublishVerificationService {
     required String seedTenantId,
     String? userUid,
   }) async {
-    final igrejaId = await TenantResolverService.resolveOperationalChurchDocId(
-      seedTenantId.trim(),
-      userUid: userUid,
-    );
-    final resolved = igrejaId.trim();
-    if (resolved.isEmpty) {
-      throw StateError('Tenant não resolvido para patrimônio.');
-    }
-    _assertOperationalWriteTenant(resolved);
-    debugPrint('TENANT RESOLVIDO (patrimônio):');
-    debugPrint(resolved);
+    final resolved = ChurchPublishContext.churchIdForPublish(seedTenantId);
+    debugPrint('CHURCH_ID (patrimônio): $resolved');
     return resolved;
-  }
-
-  static void _assertOperationalWriteTenant(String igrejaId) {
-    final t = igrejaId.trim();
-    if (TenantResolverService.kBpcLegacyTenantIds.contains(t)) {
-      throw StateError(
-        'Tenant legado proibido: $t. '
-        'Use ${TenantResolverService.kBpcCanonicalIgrejaDocId}.',
-      );
-    }
   }
 
   static void assertPatrimonioDocPath(
@@ -66,7 +47,9 @@ abstract final class PatrimonioPublishVerificationService {
         'Esperado: igrejas/{igrejaId}/patrimonio/{id}',
       );
     }
-    _assertOperationalWriteTenant(parts[1]);
+    if (parts[1].trim().isEmpty) {
+      throw StateError('churchId inválido: ${ref.path}');
+    }
   }
 
   static DocumentReference<Map<String, dynamic>> patrimonioDocRef({

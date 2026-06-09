@@ -11,13 +11,10 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
-import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show
         churchDepartmentDocHasExplicitNameField,
@@ -43,7 +40,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class DepartmentsPage extends StatefulWidget {
   final String tenantId;
@@ -136,51 +132,56 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> _memberDocByNormCpf =
       const {};
 
+  Timer? _webLoadCap;
+
   String get _tid =>
       _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
+
+  String get _churchId => ChurchRepository.churchId(_tid);
+
+  void _bindPanelChurchId() {
+    final id = ChurchRepository.churchId(widget.tenantId);
+    if (id.isNotEmpty) _effectiveTenantId = id;
+  }
+
+  void _startWebLoadingCap() {
+    if (!kIsWeb) return;
+    _webLoadCap?.cancel();
+    _webLoadCap = Timer(const Duration(seconds: 10), () {
+      if (!mounted || !_deptLoading) return;
+      setState(() {
+        _deptLoading = false;
+        _hydratedDeptDocs ??= const [];
+        _deptError ??= TimeoutException(
+          'Tempo esgotado (10s) ao carregar departamentos.',
+        );
+      });
+    });
+  }
 
   @override
   void initState() {
     super.initState();
-    _effectiveTenantId = widget.tenantId;
+    _bindPanelChurchId();
+    if (_effectiveTenantId.isEmpty) _effectiveTenantId = widget.tenantId;
+    _startWebLoadingCap();
     unawaited(_openDepartmentsFast());
   }
 
-  Future<void> _ensureReadTenantResolved() async {
-    final seed = widget.tenantId.trim();
-    if (seed.isEmpty) return;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    final peek = TenantResolverService.peekModuleReadTenantId(
-      seed,
-      userUid: uid,
-    );
-    if (peek != null && peek.isNotEmpty) {
-      if (mounted && peek.trim() != _effectiveTenantId.trim()) {
-        setState(() => _effectiveTenantId = peek.trim());
-      }
-      return;
-    }
-    try {
-      final readId = await TenantResolverService.resolveModuleReadTenantId(
-        seed,
-        userUid: uid,
-      ).timeout(
-        const Duration(seconds: 14),
-        onTimeout: () => _effectiveTenantId.isNotEmpty ? _effectiveTenantId : seed,
-      );
-      if (!mounted || readId.trim().isEmpty) return;
-      if (readId.trim() != _effectiveTenantId.trim()) {
-        setState(() => _effectiveTenantId = readId.trim());
-      }
-    } catch (_) {}
+  @override
+  void dispose() {
+    _webLoadCap?.cancel();
+    super.dispose();
   }
 
-  /// 1.º frame: Hive/Firestore cache; rede + tenant operacional em background.
+  void _ensureReadTenantResolved() => _bindPanelChurchId();
+
+  /// 1.º frame: leitura directa igrejas/{churchId}/departamentos (igual Android).
   Future<void> _openDepartmentsFast() async {
-    await _ensureReadTenantResolved();
-    final seed = _tid.trim().isNotEmpty ? _tid : widget.tenantId.trim();
+    _ensureReadTenantResolved();
+    final seed = _churchId;
     if (seed.isEmpty) {
-      unawaited(_startDeptLoad(forceServer: false));
+      if (mounted) setState(() => _deptLoading = false);
       return;
     }
 
@@ -193,25 +194,35 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
 
     try {
-      final snap = await ChurchTenantResilientReads.departamentos(
-        seed,
-        limit: 120,
-      ).timeout(const Duration(seconds: 24));
+      final snap = await _loadDepartments().timeout(
+        kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 24),
+      );
       if (!mounted) return;
+      _DepartmentsRamCache.put(seed, snap.docs);
+      setState(() {
+        _deptLoading = false;
+        _deptError = null;
+        _hydratedDeptDocs =
+            List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+          snap.docs,
+        );
+      });
       if (snap.docs.isNotEmpty) {
-        _DepartmentsRamCache.put(seed, snap.docs);
-        setState(() {
-          _deptLoading = false;
-          _hydratedDeptDocs =
-              List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-            snap.docs,
-          );
-        });
         unawaited(_loadMemberCpfLookup());
+      } else if (_canWrite) {
+        unawaited(_bootstrapDefaultDepartmentsIfAllowed(seed));
       }
-    } catch (_) {}
-
-    unawaited(_startDeptLoad(forceServer: false));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _deptLoading = false;
+        if (_hydratedDeptDocs == null || _hydratedDeptDocs!.isEmpty) {
+          _deptError = e;
+        }
+      });
+    } finally {
+      _webLoadCap?.cancel();
+    }
   }
 
   @override
@@ -245,10 +256,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     try {
       final loaded = await _resolveTenantAndLoad(forceServer: forceServer)
           .timeout(
-        const Duration(seconds: 18),
+        kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 18),
         onTimeout: () async {
           debugPrint(
-            'DepartmentsPage: timeout — leitura directa no tenant actual.',
+            'DepartmentsPage: timeout — leitura directa igrejas/{churchId}/departamentos.',
           );
           return _loadDepartments(forceServer: true);
         },
@@ -284,30 +295,14 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
   }
 
-  /// Resolve tenant; para quem pode editar: kit vazio + **presets em falta** + backfill de metadados.
-  /// Igrejas novas também recebem seed no servidor ([ensureChurchWelcomeSeed]); o botão “Gravar padrões” cobre sincronização manual.
+  /// Leitura directa — sem tenant/alias resolver (mesmo fluxo Android).
   Future<QuerySnapshot<Map<String, dynamic>>> _resolveTenantAndLoad(
       {bool forceServer = false}) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    String seed = widget.tenantId;
-    try {
-      seed = await TenantResolverService.resolveOperationalChurchDocId(
-        widget.tenantId,
-        userUid: uid,
-      ).timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => _effectiveTenantId.isNotEmpty
-            ? _effectiveTenantId
-            : widget.tenantId,
-      );
-      _effectiveTenantId = seed;
-    } catch (_) {
-      _effectiveTenantId = widget.tenantId;
-    }
+    _bindPanelChurchId();
 
     var loaded = await _loadDepartments(forceServer: forceServer);
 
-    if (loaded.docs.isEmpty && _tid.trim().isNotEmpty && !forceServer) {
+    if (loaded.docs.isEmpty && _churchId.isNotEmpty && !forceServer) {
       try {
         loaded = await _loadDepartments(forceServer: true);
       } catch (e) {
@@ -315,29 +310,15 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       }
     }
 
-    if (loaded.docs.isEmpty && _tid.trim().isNotEmpty) {
-      try {
-        final alt = await TenantResolverService
-            .resolveChurchDocIdPreferringNonEmptyDepartments(_tid)
-            .timeout(const Duration(seconds: 10));
-        if (alt.isNotEmpty && alt != _tid.trim()) {
-          _effectiveTenantId = alt;
-          loaded = await _loadDepartments(forceServer: true);
-        }
-      } catch (e) {
-        debugPrint('DepartmentsPage resolve id com departamentos: $e');
-      }
-    }
-
     if (loaded.docs.isEmpty &&
-        _tid.trim().isNotEmpty &&
+        _churchId.isNotEmpty &&
         AppPermissions.canEditDepartments(widget.role,
             permissions: widget.permissions)) {
-      unawaited(_bootstrapAndReloadDepartments(_tid.trim()));
+      unawaited(_bootstrapAndReloadDepartments(_churchId));
     } else if (loaded.docs.isNotEmpty &&
         AppPermissions.canEditDepartments(widget.role,
             permissions: widget.permissions)) {
-      unawaited(_bootstrapDefaultDepartmentsIfAllowed(_tid.trim()));
+      unawaited(_bootstrapDefaultDepartmentsIfAllowed(_churchId));
     }
 
     return loaded;
@@ -363,8 +344,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   CollectionReference<Map<String, dynamic>> _departamentosCol(String tid) =>
-                ChurchOperationalPaths.churchDoc(tid)
-          .collection('departamentos');
+      ChurchRepository.collection('departamentos', churchIdHint: tid);
 
   void _onDepartmentsBootstrapError(Object e) {
     if (!mounted) return;
@@ -430,29 +410,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         refreshToken: false);
   }
 
-  /// Sem `orderBy` no Firestore: evita índice composto; ordena no cliente.
-  /// Cache Hive + Firestore (padrão Controle Total).
+  /// API única — [ChurchRepository.departamentos].
   Future<QuerySnapshot<Map<String, dynamic>>> _loadDepartments(
-      {bool forceServer = false}) async {
-    final tid = _tid.trim();
-    if (tid.isEmpty) {
-      return _col.get();
-    }
-    if (forceServer) {
-      return FirestoreWebGuard.runWithWebRecovery(
-        () async {
-          final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-          return FirestoreReadResilience.getQuery(
-            ChurchOperationalPaths.churchDoc(op)
-                .collection('departamentos')
-                .limit(120),
-            cacheKey: '${tid}_departamentos_120_srv',
-          );
-        },
-      );
-    }
-    return ChurchTenantResilientReads.departamentos(tid, limit: 120);
-  }
+      {bool forceServer = false}) async =>
+      ChurchRepository.departamentos(churchIdHint: _churchId, limit: 120);
 
   /// União stream + hidratação: evita lista só com o banner “Hub” quando o cache do stream vem vazio ou parcial.
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergeDeptStreamAndHydrated(
@@ -495,9 +456,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         }
       }
 
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-      final snap = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      final snap = await ChurchRepository.collection('membros', churchIdHint: tid)
           .limit(400)
           .get(const GetOptions(source: Source.serverAndCache))
           .timeout(const Duration(seconds: 10));
@@ -773,9 +732,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     required String deptId,
     required String deptName,
   }) async {
-    final op = await ChurchOperationalPaths.resolveCached(_tid.trim());
-    final membrosSnap = await         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros')
+    final membrosSnap = await ChurchRepository.collection('membros', churchIdHint: _tid)
         .where('DEPARTAMENTOS', arrayContains: deptId)
         .get();
     final membros = membrosSnap.docs;
@@ -1084,12 +1041,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _col =>
-                ChurchOperationalPaths.churchDoc(_tid)
-          .collection('departamentos');
+      ChurchRepository.collection('departamentos', churchIdHint: _tid);
 
   CollectionReference<Map<String, dynamic>> get _membersCol =>
-                ChurchOperationalPaths.churchDoc(_tid)
-          .collection('membros');
+      ChurchRepository.collection('membros', churchIdHint: _tid);
 
   bool _deptIdPreferCanonical(String id) =>
       !RegExp(r'_\d+$').hasMatch(id.trim());
@@ -2622,9 +2577,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     if (tid.isEmpty || !mounted) return null;
     QuerySnapshot<Map<String, dynamic>> snap;
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-      snap = await           ChurchOperationalPaths.churchDoc(op)
-          .collection('membros')
+      snap = await ChurchRepository.collection('membros', churchIdHint: tid)
           .limit(450)
           .get();
     } catch (_) {
@@ -3143,7 +3096,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                               ConnectionState.waiting &&
                           !deptSnap.hasData &&
                           !hasHydratedNonEmpty) {
-                        if (!_deptLoading) {
+                        final loadSettled =
+                            !_deptLoading || _hydratedDeptDocs != null;
+                        if (loadSettled) {
                           return Center(
                             child: Padding(
                               padding: EdgeInsets.symmetric(

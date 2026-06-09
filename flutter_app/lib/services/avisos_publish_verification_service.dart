@@ -5,7 +5,8 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/church_publish_state.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show firebaseStorageObjectPathFromHttpUrl;
 
@@ -34,29 +35,21 @@ abstract final class AvisosPublishVerificationService {
     required String seedTenantId,
     String? userUid,
   }) async {
-    final igrejaId = await TenantResolverService.resolveOperationalChurchDocId(
-      seedTenantId.trim(),
-      userUid: userUid,
-    );
-    final resolved = igrejaId.trim();
-    if (resolved.isEmpty) {
-      throw StateError('Tenant não resolvido para publicação de aviso.');
-    }
-    assertOperationalWriteTenant(resolved);
-    debugPrint('TENANT RESOLVIDO:');
-    debugPrint(resolved);
+    final resolved = ChurchPublishContext.churchIdForPublish(seedTenantId);
+    debugPrint('CHURCH_ID (avisos): $resolved');
     return resolved;
   }
 
-  /// Aborta gravação em tenant legado (`brasilparacristo_sistema`, etc.).
   static void assertOperationalWriteTenant(String igrejaId) {
     final t = igrejaId.trim();
-    if (TenantResolverService.kBpcLegacyTenantIds.contains(t)) {
-      throw StateError(
-        'Tenant legado proibido para gravação: $t. '
-        'Use o doc canónico ${TenantResolverService.kBpcCanonicalIgrejaDocId}.',
-      );
-    }
+    if (t.isEmpty) throw StateError('churchId vazio.');
+  }
+
+  /// Grava rascunho antes do upload — falha mantém conteúdo em draft.
+  static Future<void> ensureDraft(
+    DocumentReference<Map<String, dynamic>> docRef,
+  ) async {
+    await docRef.set(ChurchPublishState.draftPatch(), SetOptions(merge: true));
   }
 
   /// Garante path `igrejas/{igrejaId}/avisos/{docId}` — proíbe coleções legadas.

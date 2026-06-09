@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -691,6 +694,93 @@ class ChurchPanelPillPair extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// FutureBuilder com timeout Web (10s) — nunca skeleton infinito.
+class ChurchPanelTimedFutureBuilder<T> extends StatefulWidget {
+  const ChurchPanelTimedFutureBuilder({
+    super.key,
+    required this.future,
+    required this.builder,
+    this.loading,
+    required this.errorTitle,
+    this.onRetry,
+    this.timeout,
+  });
+
+  final Future<T> future;
+  final Widget Function(BuildContext context, T data) builder;
+  final Widget? loading;
+  final String errorTitle;
+  final VoidCallback? onRetry;
+  final Duration? timeout;
+
+  @override
+  State<ChurchPanelTimedFutureBuilder<T>> createState() =>
+      _ChurchPanelTimedFutureBuilderState<T>();
+}
+
+class _ChurchPanelTimedFutureBuilderState<T>
+    extends State<ChurchPanelTimedFutureBuilder<T>> {
+  late Future<T> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _wrap(widget.future);
+  }
+
+  @override
+  void didUpdateWidget(ChurchPanelTimedFutureBuilder<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.future != widget.future) {
+      _future = _wrap(widget.future);
+    }
+  }
+
+  Future<T> _wrap(Future<T> raw) {
+    final cap = widget.timeout ?? ChurchRepository.panelQueryTimeout;
+    if (!kIsWeb) return raw;
+    return raw.timeout(
+      cap,
+      onTimeout: () => throw TimeoutException(
+        'Tempo esgotado (${cap.inSeconds}s).',
+        cap,
+      ),
+    );
+  }
+
+  void _retry() {
+    setState(() => _future = _wrap(widget.future));
+    widget.onRetry?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<T>(
+      future: _future,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return widget.loading ??
+              Center(child: YahwehSkeletonLoading.membrosList(itemCount: 4));
+        }
+        if (snap.hasError) {
+          return ChurchPanelErrorBody(
+            title: widget.errorTitle,
+            error: snap.error,
+            onRetry: _retry,
+          );
+        }
+        if (!snap.hasData) {
+          return ChurchPanelErrorBody(
+            title: widget.errorTitle,
+            onRetry: _retry,
+          );
+        }
+        return widget.builder(context, snap.data as T);
+      },
     );
   }
 }

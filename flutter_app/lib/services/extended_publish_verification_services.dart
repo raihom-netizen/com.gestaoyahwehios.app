@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 
 /// Verificações dos módulos restantes — mesmo padrão Avisos/Eventos.
 abstract final class FinanceiroPublishVerificationService {
@@ -185,17 +185,7 @@ abstract final class SitePublicoPublishVerificationService {
 }
 
 Future<String> _resolve(String seed, String? userUid, String module) async {
-  final igrejaId = await TenantResolverService.resolveOperationalChurchDocId(
-    seed.trim(),
-    userUid: userUid,
-  );
-  final resolved = igrejaId.trim();
-  if (resolved.isEmpty) {
-    throw StateError('Tenant não resolvido ($module).');
-  }
-  if (TenantResolverService.kBpcLegacyTenantIds.contains(resolved)) {
-    throw StateError('Tenant legado proibido: $resolved');
-  }
-  debugPrint('TENANT RESOLVIDO ($module): $resolved');
+  final resolved = ChurchPublishContext.churchIdForPublish(seed);
+  debugPrint('CHURCH_ID ($module): $resolved');
   return resolved;
 }

@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart'
     show MergedFirestoreQuerySnapshot;
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'busca_global_widget.dart';
 import 'grafico_ultra_moderno.dart';
@@ -188,14 +188,11 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
 
     _tenantId = tenantId;
 
-    try {
-      final op = await TenantResolverService.resolveOperationalChurchDocId(
-        tenantId!,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      );
-      if (op.trim().isNotEmpty) tenantId = op.trim();
-      _tenantId = tenantId;
-    } catch (_) {}
+    final op = ChurchRepository.churchId(tenantId!);
+    if (op.isNotEmpty) {
+      tenantId = op;
+      _tenantId = op;
+    }
 
     final tid = tenantId!;
     try {

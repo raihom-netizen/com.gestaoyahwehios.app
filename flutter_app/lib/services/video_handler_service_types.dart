@@ -4,7 +4,14 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 class VideoUploadResult {
   final String videoUrl;
   final String thumbUrl;
-  const VideoUploadResult({required this.videoUrl, required this.thumbUrl});
+  final String videoStoragePath;
+  final String thumbStoragePath;
+  const VideoUploadResult({
+    required this.videoUrl,
+    required this.thumbUrl,
+    required this.videoStoragePath,
+    required this.thumbStoragePath,
+  });
 }
 
 abstract class IVideoHandlerService {

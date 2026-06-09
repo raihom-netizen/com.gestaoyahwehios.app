@@ -1,6 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -119,6 +123,286 @@ abstract final class ChurchRepository {
   static ChurchDataLoadResult? _lastGoodResult;
   static String? _lastMismatchKey;
 
+  // ─── API única painel — Android / iOS / Web (só igrejas/{churchId}) ───────
+
+  /// ID canónico da sessão — **sem** tenant/alias resolver.
+  static String churchId([String? shellHint]) =>
+      ChurchContextService.panelChurchId(shellHint);
+
+  static Duration get panelQueryTimeout =>
+      kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 22);
+
+  static String firestorePath([String? shellHint]) {
+    final id = churchId(shellHint);
+    return id.isEmpty ? '' : 'igrejas/$id';
+  }
+
+  /// Doc raiz `igrejas/{churchId}`.
+  static DocumentReference<Map<String, dynamic>> churchDoc([String? shellHint]) {
+    final id = churchId(shellHint);
+    return firebaseDefaultFirestore.collection('igrejas').doc(id);
+  }
+
+  /// Subcoleção `igrejas/{churchId}/{name}`.
+  static CollectionReference<Map<String, dynamic>> collection(
+    String subcollection, {
+    String? churchIdHint,
+  }) =>
+      churchDoc(churchIdHint).collection(subcollection.trim());
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> _querySubcollection({
+    required String module,
+    required String subcollection,
+    String? churchIdHint,
+    int limit = 120,
+    String? cacheKeySuffix,
+  }) async {
+    final id = churchId(churchIdHint);
+    if (id.isEmpty) return const MergedFirestoreQuerySnapshot([]);
+    final path = 'igrejas/$id/$subcollection';
+    Future<QuerySnapshot<Map<String, dynamic>>> run() =>
+        ChurchModuleFirestoreAudit.traceQuery(
+          module: module,
+          churchId: id,
+          path: path,
+          run: () => FirestoreWebGuard.runWithWebRecovery(
+            () => FirestoreReadResilience.getQuery(
+              collection(subcollection, churchIdHint: id).limit(limit),
+              cacheKey: 'repo_${id}_${cacheKeySuffix ?? subcollection}_$limit',
+            ),
+          ),
+        );
+    if (kIsWeb) {
+      return run().timeout(
+        panelQueryTimeout,
+        onTimeout: () => const MergedFirestoreQuerySnapshot([]),
+      );
+    }
+    return run();
+  }
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> departamentos({
+    String? churchIdHint,
+    int limit = 120,
+  }) =>
+      _querySubcollection(
+        module: 'Departamentos',
+        subcollection: 'departamentos',
+        churchIdHint: churchIdHint,
+        limit: limit,
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> cargos({
+    String? churchIdHint,
+    int limit = 120,
+  }) =>
+      _querySubcollection(
+        module: 'Cargos',
+        subcollection: 'cargos',
+        churchIdHint: churchIdHint,
+        limit: limit,
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> membros({
+    String? churchIdHint,
+    int limit = 250,
+  }) =>
+      _querySubcollection(
+        module: 'Membros',
+        subcollection: 'membros',
+        churchIdHint: churchIdHint,
+        limit: limit,
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> financeiro({
+    String? churchIdHint,
+    int limit = 250,
+  }) =>
+      _querySubcollection(
+        module: 'Financeiro',
+        subcollection: 'finance',
+        churchIdHint: churchIdHint,
+        limit: limit,
+        cacheKeySuffix: 'finance',
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> fornecedores({
+    String? churchIdHint,
+    int limit = 80,
+  }) =>
+      _querySubcollection(
+        module: 'Fornecedores',
+        subcollection: 'fornecedores',
+        churchIdHint: churchIdHint,
+        limit: limit,
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> patrimonio({
+    String? churchIdHint,
+    int limit = 120,
+  }) =>
+      _querySubcollection(
+        module: 'Patrimônio',
+        subcollection: 'patrimonio',
+        churchIdHint: churchIdHint,
+        limit: limit,
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> avisos({
+    String? churchIdHint,
+    int limit = 80,
+  }) =>
+      _querySubcollection(
+        module: 'Avisos',
+        subcollection: 'avisos',
+        churchIdHint: churchIdHint,
+        limit: limit,
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> eventos({
+    String? churchIdHint,
+    int limit = 80,
+  }) =>
+      _querySubcollection(
+        module: 'Eventos',
+        subcollection: 'noticias',
+        churchIdHint: churchIdHint,
+        limit: limit,
+        cacheKeySuffix: 'eventos_noticias',
+      );
+
+  static CollectionReference<Map<String, dynamic>> chats({
+    String? churchIdHint,
+  }) =>
+      collection('chats', churchIdHint: churchIdHint);
+
+  static CollectionReference<Map<String, dynamic>> certificadosCol({
+    String? churchIdHint,
+  }) =>
+      collection('certificados_emitidos', churchIdHint: churchIdHint);
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> certificadosEmitidos({
+    String? churchIdHint,
+    int limit = 80,
+  }) =>
+      _querySubcollection(
+        module: 'Certificados',
+        subcollection: 'certificados_emitidos',
+        churchIdHint: churchIdHint,
+        limit: limit,
+        cacheKeySuffix: 'certificados',
+      );
+
+  /// Alias público — certificados emitidos (`certificados_emitidos`).
+  static Future<QuerySnapshot<Map<String, dynamic>>> certificados({
+    String? churchIdHint,
+    int limit = 80,
+  }) =>
+      certificadosEmitidos(churchIdHint: churchIdHint, limit: limit);
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> visitantes({
+    String? churchIdHint,
+    int limit = 200,
+  }) =>
+      _querySubcollection(
+        module: 'Visitantes',
+        subcollection: 'visitantes',
+        churchIdHint: churchIdHint,
+        limit: limit,
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> escalas({
+    String? churchIdHint,
+    int limit = 120,
+  }) =>
+      _querySubcollection(
+        module: 'Escalas',
+        subcollection: 'escalas',
+        churchIdHint: churchIdHint,
+        limit: limit,
+      );
+
+  static Future<QuerySnapshot<Map<String, dynamic>>> notificacoes({
+    String? churchIdHint,
+    int limit = 80,
+  }) =>
+      _querySubcollection(
+        module: 'Notificações',
+        subcollection: 'notificacoes',
+        churchIdHint: churchIdHint,
+        limit: limit,
+      );
+
+  /// Configurações — subcoleção real `config` (não renomear no Firestore).
+  static CollectionReference<Map<String, dynamic>> configuracoes({
+    String? churchIdHint,
+  }) =>
+      collection('config', churchIdHint: churchIdHint);
+
+  static DocumentReference<Map<String, dynamic>> configuracoesDoc(
+    String docId, {
+    String? churchIdHint,
+  }) =>
+      configuracoes(churchIdHint: churchIdHint).doc(docId.trim());
+
+  /// Carteirinhas — dados em `membros` + mídia em Storage `cartao_membro/`.
+  static CollectionReference<Map<String, dynamic>> carteirinhas({
+    String? churchIdHint,
+  }) =>
+      collection('membros', churchIdHint: churchIdHint);
+
+  /// Alias — coleção `chats`.
+  static Future<QuerySnapshot<Map<String, dynamic>>> chat({
+    String? churchIdHint,
+    int limit = 40,
+  }) =>
+      _querySubcollection(
+        module: 'Chat',
+        subcollection: 'chats',
+        churchIdHint: churchIdHint,
+        limit: limit,
+      );
+
+  /// Cache instantâneo — `igrejas/{churchId}/_dashboard_cache/main`.
+  static DocumentReference<Map<String, dynamic>> dashboardCacheMain({
+    String? churchIdHint,
+  }) =>
+      churchDoc(churchIdHint).collection('_dashboard_cache').doc('main');
+
+  /// Doc raiz `igrejas/{churchId}` com timeout Web.
+  static Future<DocumentSnapshot<Map<String, dynamic>>> church({
+    String? churchIdHint,
+  }) async {
+    final id = churchId(churchIdHint);
+    if (id.isEmpty) {
+      throw ChurchRepositoryException('churchId vazio.');
+    }
+    final path = 'igrejas/$id';
+    ChurchModuleFirestoreAudit.logBeforeQuery(
+      module: 'Igreja',
+      churchId: id,
+      path: path,
+    );
+    Future<DocumentSnapshot<Map<String, dynamic>>> run() =>
+        FirestoreReadResilience.getDocument(
+          churchDoc(id),
+          cacheKey: 'church_snap_$id',
+          maxAttempts: kIsWeb ? 4 : 3,
+          attemptTimeout: panelQueryTimeout,
+        );
+    if (kIsWeb) {
+      return run().timeout(
+        panelQueryTimeout,
+        onTimeout: () => throw ChurchRepositoryException(
+          'Tempo esgotado ao carregar $path.',
+          resolvedChurchId: id,
+          firestorePath: path,
+        ),
+      );
+    }
+    return run();
+  }
+
   static ChurchDataLoadResult? peekLastResult() => _lastGoodResult;
 
   /// RAM — só devolve se o perfil tiver campos reais (nunca `{}` vazio).
@@ -126,28 +410,87 @@ abstract final class ChurchRepository {
     required String seedTenantId,
     String? userUid,
   }) {
-    final peek = TenantResolverService.peekRegistrationContext(
-      seedTenantId,
-      userUid: userUid,
-    );
-    if (peek == null || peek.profile.isEmpty) return _lastGoodResult;
-    if (TenantResolverService.churchProfileRichnessScore(peek.profile) < 4) {
-      return _lastGoodResult;
+    final ctx = ChurchContextService.currentChurchData;
+    final id = ChurchContextService.panelChurchId(seedTenantId);
+    if (ctx != null && ctx.isNotEmpty && id.isNotEmpty) {
+      return ChurchDataLoadResult(
+        seedTenantId: seedTenantId.trim(),
+        churchId: id,
+        firestorePath: 'igrejas/$id',
+        data: Map<String, dynamic>.from(ctx),
+        fieldCount: ctx.length,
+        loadedAt: DateTime.now(),
+        readSource: 'context_cache',
+        logoStoragePath: ChurchStorageLayout.churchIdentityLogoPath(id),
+      );
     }
-    final churchId = peek.operationalId.trim();
-    return ChurchDataLoadResult(
-      seedTenantId: seedTenantId.trim(),
-      churchId: churchId,
-      firestorePath: 'igrejas/$churchId',
-      data: Map<String, dynamic>.from(peek.profile),
-      fieldCount: peek.profile.length,
-      loadedAt: DateTime.now(),
-      readSource: 'ram_cache',
-      logoStoragePath: ChurchStorageLayout.churchIdentityLogoPath(churchId),
-      tenantMismatch: seedTenantId.trim() != churchId &&
-          TenantResolverService.kBpcLegacyTenantIds
-              .contains(seedTenantId.trim()),
+    return _lastGoodResult;
+  }
+
+  /// Leitura directa `igrejas/{churchId}` — **mesmo fluxo que Membros no Android**.
+  /// Sem tenant resolver, alias ou slug lookup.
+  static Future<ChurchDataLoadResult> loadByChurchId(
+    String churchId, {
+    String? seedTenantId,
+    String? userUid,
+  }) async {
+    final id = churchId.trim();
+    if (id.isEmpty) {
+      throw ChurchRepositoryException(
+        'churchId vazio.',
+        seedTenantId: seedTenantId,
+        resolvedChurchId: id,
+      );
+    }
+
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+
+    final firestorePath = 'igrejas/$id';
+    ChurchModuleFirestoreAudit.logBeforeQuery(
+      module: 'Cadastro Igreja',
+      churchId: id,
+      path: firestorePath,
     );
+
+    final snap = await FirestoreReadResilience.getDocument(
+      churchDoc(id),
+      cacheKey: 'church_direct_$id',
+      maxAttempts: kIsWeb ? 4 : 3,
+      attemptTimeout: kIsWeb
+          ? const Duration(seconds: 18)
+          : const Duration(seconds: 12),
+    );
+
+    final data = snap.exists && snap.data() != null
+        ? Map<String, dynamic>.from(snap.data()!)
+        : <String, dynamic>{};
+
+    if (data.isEmpty) {
+      throw ChurchRepositoryException(
+        'Não foi possível carregar os dados da igreja em $firestorePath.',
+        seedTenantId: seedTenantId ?? id,
+        resolvedChurchId: id,
+        firestorePath: firestorePath,
+      );
+    }
+
+    final seed = (seedTenantId ?? id).trim();
+    final result = ChurchDataLoadResult(
+      seedTenantId: seed,
+      churchId: id,
+      firestorePath: firestorePath,
+      data: data,
+      fieldCount: data.length,
+      loadedAt: DateTime.now(),
+      readSource: snap.metadata.isFromCache ? 'cache' : 'server',
+      logoStoragePath: ChurchStorageLayout.churchIdentityLogoPath(id),
+      tenantMismatch: seed != id,
+    );
+    _lastGoodResult = result;
+    ChurchOperationalPaths.rememberResolved(seed, id, userUid: userUid);
+    return result;
   }
 
   /// Carrega `igrejas/{churchId}` após resolver tenant operacional.
@@ -193,10 +536,6 @@ abstract final class ChurchRepository {
     }
 
     if (forceRefresh) {
-      TenantResolverService.invalidateRegistrationContextCache(
-        seedId: seed,
-        userUid: userUid,
-      );
       ChurchOperationalPaths.invalidateResolved(seed, userUid: userUid);
     }
 
@@ -204,93 +543,31 @@ abstract final class ChurchRepository {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
 
-    final churchId = await TenantResolverService.operationalChurchId(
-      seed: seed,
-      userUid: userUid,
-      forceRefresh: forceRefresh,
-    );
-    final resolved = churchId.trim();
-    if (resolved.isEmpty) {
-      throw ChurchRepositoryException(
-        'Não foi possível resolver o tenant operacional da igreja.',
-        seedTenantId: seed,
-      );
-    }
+    final directId = ChurchContextService.panelChurchId(seed);
+    final candidates = <String>{
+      if (directId.isNotEmpty) directId,
+      seed,
+    };
 
-    final firestorePath = 'igrejas/$resolved';
-    debugPrint('WEB CHURCH ID:');
-    debugPrint(resolved);
-    debugPrint('WEB DOC PATH:');
-    debugPrint(firestorePath);
-
-    final tenantMismatch = seed != resolved;
-    if (tenantMismatch) {
-      await _logTenantMismatch(seed: seed, resolved: resolved);
-    }
-
-    ChurchOperationalPaths.rememberResolved(seed, resolved, userUid: userUid);
-
-    Map<String, dynamic> data = await TenantResolverService
-        .loadIgrejaCadastroDocDirect(resolved, preferServer: false);
-    var readSource = 'serverAndCache';
-
-    // Operacional: só igrejas/{churchId} — sem merge de cluster/irmãos.
-
-    if (data.isEmpty) {
+    ChurchRepositoryException? lastError;
+    for (final candidate in candidates) {
+      if (candidate.isEmpty) continue;
       try {
-        final snap = await FirestoreReadResilience.getDocument(
-          ChurchOperationalPaths.churchDoc(resolved),
-          cacheKey: 'church_repo_$resolved',
-          maxAttempts: kIsWeb ? 4 : 3,
-          attemptTimeout: kIsWeb
-              ? const Duration(seconds: 18)
-              : const Duration(seconds: 12),
+        return await loadByChurchId(
+          candidate,
+          seedTenantId: seed,
+          userUid: userUid,
         );
-        if (snap.exists && snap.data() != null) {
-          data = Map<String, dynamic>.from(snap.data()!);
-          readSource = snap.metadata.isFromCache ? 'cache_fallback' : 'server';
-        }
-      } catch (_) {}
+      } on ChurchRepositoryException catch (e) {
+        lastError = e;
+      }
     }
 
-    if (data.isEmpty) {
-      throw ChurchRepositoryException(
-        'Não foi possível carregar os dados da igreja em $firestorePath. '
-        'Verifique a conexão e tente novamente.',
-        seedTenantId: seed,
-        resolvedChurchId: resolved,
-        firestorePath: firestorePath,
-      );
-    }
-
-    final logoPath = ChurchStorageLayout.churchIdentityLogoPath(resolved);
-    // Verificação de logo no Storage é feita pelo ChurchBrandService (não bloqueia cadastro).
-    const logoExists = false;
-
-    final result = ChurchDataLoadResult(
-      seedTenantId: seed,
-      churchId: resolved,
-      firestorePath: firestorePath,
-      data: data,
-      fieldCount: data.length,
-      loadedAt: DateTime.now(),
-      readSource: readSource,
-      logoStoragePath: logoPath,
-      logoExistsInStorage: logoExists,
-      tenantMismatch: tenantMismatch,
-    );
-
-    _lastGoodResult = result;
-    await _logEmptyWebProfileIfNeeded(
-      seed: seed,
-      resolved: resolved,
-      data: data,
-    );
-    TenantResolverService.invalidateRegistrationContextCache(
-      seedId: seed,
-      userUid: userUid,
-    );
-    return result;
+    throw lastError ??
+        ChurchRepositoryException(
+          'Não foi possível carregar os dados da igreja em igrejas/{churchId}.',
+          seedTenantId: seed,
+        );
   }
 
   static Future<void> _logEmptyWebProfileIfNeeded({
@@ -402,14 +679,7 @@ abstract final class ChurchRepository {
       resolved = load.churchId;
     } catch (e) {
       lastError = e.toString();
-      try {
-        resolved = await TenantResolverService.resolveOperationalChurchDocId(
-          seedTenantId,
-          userUid: userUid,
-        );
-      } catch (e2) {
-        lastError = e2.toString();
-      }
+      resolved = churchId(seedTenantId);
     }
 
     final data = load?.data ?? const <String, dynamic>{};

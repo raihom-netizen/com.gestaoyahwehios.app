@@ -36,7 +36,7 @@ import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/church_chat_local_file_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_repository.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
@@ -50,6 +50,7 @@ import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
 import 'package:gestao_yahweh/services/church_chat_diagnostic_service.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
+import 'package:gestao_yahweh/services/church_chat_sync_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -224,7 +225,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Map<String, ChurchChatMemberRef> _senderMemberByUid = {};
   bool _peerOnline = false;
   Timer? _peerPresencePoll;
-  Timer? _webMessagesPoll;
   int? _lastPeerReadSyncMs;
   late final VoidCallback _photoSyncListener;
   final List<ChurchChatOutboundPending> _pendingOutbound = [];
@@ -236,11 +236,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final cached = (_effectiveTenantId ?? '').trim();
     if (cached.isNotEmpty) return cached;
     try {
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(
-        widget.tenantId,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
-        forceRefresh: false,
-      );
+      final tid = ChurchRepository.churchId(widget.tenantId);
       final resolved = tid.trim();
       if (resolved.isEmpty) return widget.tenantId.trim();
       if (mounted && _effectiveTenantId != resolved) {
@@ -281,7 +277,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _ctrl.addListener(_onComposeTyping);
     _msgSearchCtrl.addListener(_onMessageSearchChanged);
     _bindChatFirestoreStreams(_tid);
-    _startWebMessagesPoll();
     unawaited(_primeRecentMessagesFromCacheOrServer());
     unawaited(_initChatThreadTenantAndStreams());
     unawaited(
@@ -301,10 +296,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _initChatThreadTenantAndStreams() async {
     try {
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(
-        widget.tenantId,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
-      );
+      final tid = ChurchRepository.churchId(widget.tenantId);
       if (!mounted || tid.trim().isEmpty) return;
       if (tid != _tid) {
         setState(() => _effectiveTenantId = tid);
@@ -337,15 +329,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       Future<void>.delayed(const Duration(seconds: 4), () {
         if (mounted) unawaited(_bootstrapThreadUploads());
       });
-    });
-  }
-
-  void _startWebMessagesPoll() {
-    if (!kIsWeb) return;
-    _webMessagesPoll?.cancel();
-    _webMessagesPoll = Timer.periodic(const Duration(seconds: 4), (_) {
-      if (!mounted) return;
-      unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
     });
   }
 
@@ -416,7 +399,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _threadSub?.cancel();
     _deptSub?.cancel();
     _peerPresencePoll?.cancel();
-    _webMessagesPoll?.cancel();
     _messagesPrimeFallbackTimer?.cancel();
     _voiceTicker?.cancel();
     unawaited(_chatAudio.dispose());
@@ -2404,42 +2386,40 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     await _awaitOperationalTenantId();
     _enqueuePending(pending);
     _setPendingProgress(pending.localId, 0.02);
-    if (bytes != null && bytes.isNotEmpty) {
-      final u8 = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
-      pending.previewBytes ??= u8;
-      unawaited(
-        ChurchChatMediaOutboxService.registerJob(
-          tenantId: _tid,
-          threadId: widget.threadId,
-          localId: pending.localId,
-          kind: pending.kind,
-          fileName: pending.fileName,
-          mime: pending.mime,
-          localPath: localPath,
-          bytes: u8,
-        ),
-      );
-    }
+    final replyTo =
+        pending.albumIndex == 0 ? _replyDraft?.toReplyPayload() : null;
     unawaited(
       runChatMediaUploadTask(() async {
-        final bytesFuture = _bytesForPendingUpload(
+        final uploadBytes = await _bytesForPendingUpload(
           pending: pending,
           bytes: bytes,
           localPath: localPath,
         );
-        await Future.wait<Object?>([
-          _startPendingFirestoreStub(pending).catchError((Object e, StackTrace st) {
-            YahwehFlowLog.error('CHAT', e, st);
-          }),
-          bytesFuture,
-        ], eagerError: false);
-        final uploadBytes = await bytesFuture;
-        await _flushPendingUpload(
+        await ChurchChatSyncSendService.sendMedia(
+          tenantId: _tid,
+          threadId: widget.threadId,
           pending: pending,
           bytes: uploadBytes,
           localPath: localPath,
+          replyTo: replyTo,
+          onProgress: (p) => _setPendingProgress(pending.localId, p),
+          onSuccess: () {
+            if (mounted && pending.albumIndex == 0) {
+              setState(() => _replyDraft = null);
+            }
+            _removePending(pending.localId);
+          },
+          onError: (msg) {
+            final i =
+                _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
+            if (i >= 0) {
+              _pendingOutbound[i].failed = true;
+              _pendingOutbound[i].errorMessage = msg;
+              if (mounted) setState(() {});
+            }
+          },
         );
-      }, debugLabel: 'chat_media_enqueue').catchError((Object e, StackTrace st) {
+      }, debugLabel: 'chat_media_sync').catchError((Object e, StackTrace st) {
         YahwehFlowLog.error('CHAT', e, st);
         final i =
             _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
@@ -2857,17 +2837,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   p.storagePath = null;
                   if (mounted) setState(() {});
                   unawaited(() async {
-                    try {
-                      await _startPendingFirestoreStub(p);
-                    } catch (_) {
-                      return;
-                    }
-                    await _flushPendingUpload(
+                    await ChurchChatSyncSendService.sendMedia(
+                      tenantId: _tid,
+                      threadId: widget.threadId,
                       pending: p,
                       bytes: p.previewBytes != null
                           ? p.previewBytes!.toList()
                           : null,
                       localPath: p.localPath,
+                      onProgress: (prog) => _setPendingProgress(p.localId, prog),
+                      onSuccess: () => _removePending(p.localId),
+                      onError: (msg) {
+                        p.failed = true;
+                        p.errorMessage = msg;
+                        if (mounted) setState(() {});
+                      },
                     );
                   }());
                 },
