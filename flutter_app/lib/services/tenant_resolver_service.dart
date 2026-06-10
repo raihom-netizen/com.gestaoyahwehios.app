@@ -70,15 +70,11 @@ class TenantResolverService {
     }
   }
 
-  /// Normalização síncrona para paths Storage (antes do resolver async terminar).
+  /// Path Storage/Firestore — ID directo da sessão ou do parâmetro.
   static String syncStorageTenantId(String seedId) {
-    final t = seedId.trim();
-    if (t.isEmpty) return t;
-    if (t == kBpcCanonicalIgrejaDocId) return t;
-    if (kBpcLegacyTenantIds.contains(t)) return kBpcCanonicalIgrejaDocId;
-    final slugCanon = _publicSlugToCanonicalDocId[t.toLowerCase()];
-    if (slugCanon != null && slugCanon.isNotEmpty) return slugCanon;
-    return t;
+    final panel = ChurchContextService.panelChurchId(seedId);
+    if (panel.isNotEmpty) return panel;
+    return seedId.trim();
   }
 
   /// IDs do cluster ancorado — BPC consolidado = só canónico; legado via `church_aliases`.
@@ -128,39 +124,13 @@ class TenantResolverService {
     return resolved;
   }
 
-  /// Irmãos para leitura com fallback — `_sistema` e cluster ancorado primeiro; teto evita N× queries lentas.
+  /// SaaS directo — cada igreja isolada; sem fallback para docs irmãos.
   static List<String> orderedSiblingsForReadFallback(
     String primary,
     List<String> siblings, {
     int maxExtra = 8,
-  }) {
-    final p = primary.trim();
-    if (p.isEmpty || siblings.isEmpty || maxExtra <= 0) return const [];
-
-    final priority = <String>[];
-    final rest = <String>[];
-
-    void addUnique(List<String> bucket, String id) {
-      final t = id.trim();
-      if (t.isEmpty || t == p) return;
-      if (priority.contains(t) || rest.contains(t)) return;
-      bucket.add(t);
-    }
-
-    // Só inclui cluster ancorado (ex.: BPC) quando o doc principal pertence a ele —
-    // evita que igrejas novas (ex.: Batista Renovada) herdem dados de outra igreja.
-    for (final id in anchoredClusterIdsFor(p)) {
-      addUnique(priority, id);
-    }
-    for (final s in siblings) {
-      addUnique(rest, s);
-    }
-    for (final s in siblings) {
-      if (s.trim().endsWith('_sistema')) addUnique(rest, s);
-    }
-
-    return <String>[...priority, ...rest].take(maxExtra).toList();
-  }
+  }) =>
+      const [];
 
   /// Doc canónico para **escritas** e Storage — cluster ancorado + doc com mais dados.
   static Future<String> _resolveCanonicalOperationalId(
@@ -194,46 +164,54 @@ class TenantResolverService {
 
   static Future<void> _ensureFirestore() => ensureFirebaseReadyForPanelRead();
 
-  static const String _aliasesCollection = 'church_aliases';
-  static final Map<String, _AliasCacheEntry> _aliasByKey = {};
-  static const Duration _aliasCacheTtl = Duration(hours: 6);
+  static final Map<String, _AliasCacheEntry> _directDocIdCache = {};
+  static const Duration _directDocIdCacheTtl = Duration(hours: 6);
 
-  /// Mapa `church_aliases/{alias}` → `canonicalId` (fonte da verdade Firestore).
+  /// Resolve para o **doc ID** em `igrejas/{id}` — sem `church_aliases`.
+  /// 1) doc existe com esse id; 2) campo `churchId`/`igrejaId`/`tenantId` no doc raiz.
   static Future<String?> resolveChurchAlias(String rawAlias) async {
     final alias = rawAlias.trim();
     if (alias.isEmpty) return null;
 
-    final hit = _aliasByKey[alias];
+    final hit = _directDocIdCache[alias];
     if (hit != null &&
-        DateTime.now().difference(hit.resolvedAt) < _aliasCacheTtl) {
+        DateTime.now().difference(hit.resolvedAt) < _directDocIdCacheTtl) {
       return hit.canonicalId;
     }
 
     await _ensureFirestore();
     try {
-      final snap = await _firestore
-          .collection(_aliasesCollection)
-          .doc(alias)
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 8));
-      if (!snap.exists || snap.data() == null) return null;
-      final canonical =
-          (snap.data()!['canonicalId'] ?? '').toString().trim();
-      if (canonical.isEmpty) return null;
-      _aliasByKey[alias] = _AliasCacheEntry(canonical, DateTime.now());
-      return canonical;
+      final direct = await _firestore.collection('igrejas').doc(alias).get();
+      if (direct.exists) {
+        _directDocIdCache[alias] =
+            _AliasCacheEntry(alias, DateTime.now());
+        return alias;
+      }
+      for (final field in const ['churchId', 'igrejaId', 'tenantId']) {
+        final q = await _firestore
+            .collection('igrejas')
+            .where(field, isEqualTo: alias)
+            .limit(1)
+            .get();
+        if (q.docs.isNotEmpty) {
+          final id = q.docs.first.id;
+          _directDocIdCache[alias] = _AliasCacheEntry(id, DateTime.now());
+          return id;
+        }
+      }
     } catch (_) {
-      final mem = _aliasByKey[alias];
+      final mem = _directDocIdCache[alias];
       return mem?.canonicalId;
     }
+    return null;
   }
 
   static void invalidateAliasCache({String? alias}) {
     if (alias == null || alias.trim().isEmpty) {
-      _aliasByKey.clear();
+      _directDocIdCache.clear();
       return;
     }
-    _aliasByKey.remove(alias.trim());
+    _directDocIdCache.remove(alias.trim());
   }
 
   /// Contexto operacional completo — alias → canónico + perfil (Regra 3).
@@ -333,20 +311,21 @@ class TenantResolverService {
     }
   }
 
-  /// Resolve `igrejas/{id}` a partir do slug da URL pública (cadastro de membro / site).
+  /// URL pública → doc `igrejas/{churchId}` (directo; sem `church_aliases`).
   static Future<String?> resolveIgrejaDocIdFromPublicSlug(String rawSlug) async {
     final slugTrim = rawSlug.trim();
     if (slugTrim.isEmpty) return null;
 
-    final slugLower = slugTrim.toLowerCase();
-    final anchored = _publicSlugToCanonicalDocId[slugLower];
-    if (anchored != null && anchored.isNotEmpty) return anchored;
-
-    final fromAlias = await resolveChurchAlias(slugTrim);
-    if (fromAlias != null && fromAlias.isNotEmpty) return fromAlias;
-
     await _ensureFirestore();
-    for (final field in const ['slug', 'alias', 'slugId']) {
+    try {
+      final direct = await _firestore.collection('igrejas').doc(slugTrim).get();
+      if (direct.exists) return slugTrim;
+    } catch (_) {}
+
+    final fromDirect = await resolveChurchAlias(slugTrim);
+    if (fromDirect != null && fromDirect.isNotEmpty) return fromDirect;
+
+    for (final field in const ['churchId', 'igrejaId', 'tenantId']) {
       try {
         final q = await _firestore
             .collection('igrejas')
@@ -355,12 +334,6 @@ class TenantResolverService {
             .get();
         if (q.docs.isNotEmpty) return q.docs.first.id;
       } catch (_) {}
-    }
-
-    final norm = slugLower.replaceAll(RegExp(r'[\s_\-]+'), '');
-    for (final entry in _publicSlugToCanonicalDocId.entries) {
-      final kNorm = entry.key.replaceAll(RegExp(r'[\s_\-]+'), '');
-      if (kNorm == norm) return entry.value;
     }
     return null;
   }
@@ -392,95 +365,17 @@ class TenantResolverService {
     );
   }
 
-  /// Resolve o ID efetivo: slug/alias → doc em `igrejas/{id}`.
+  /// Resolve o ID efetivo — directo `igrejas/{churchId}` (sem alias/cluster).
   static Future<String> resolveEffectiveTenantId(String id) async {
     final raw = id.trim();
     if (raw.isEmpty) return id;
-
-    final ctx = ChurchContextService.currentChurchId;
-    if (ctx != null &&
-        ctx.isNotEmpty &&
-        (raw == ctx || raw == ChurchContextService.seedId)) {
-      return ctx;
-    }
-
-    final fromAlias = await resolveChurchAlias(raw);
-    if (fromAlias != null && fromAlias.isNotEmpty) return fromAlias;
-
+    final panel = ChurchContextService.panelChurchId(raw);
+    if (panel.isNotEmpty) return panel;
     await _ensureFirestore();
     try {
       final doc = await _firestore.collection('igrejas').doc(raw).get();
       if (doc.exists) return raw;
     } catch (_) {}
-
-    final suffixFutures = <Future<DocumentSnapshot<Map<String, dynamic>>>>[];
-    for (final suffix in ['_sistema', '_bpc']) {
-      final withSuffix = raw.endsWith(suffix) ? raw : '$raw$suffix';
-      if (withSuffix != raw) {
-        suffixFutures.add(
-            _firestore.collection('igrejas').doc(withSuffix).get());
-      }
-    }
-    if (suffixFutures.isNotEmpty) {
-      try {
-        final snaps = await Future.wait(suffixFutures);
-        for (final d in snaps) {
-          if (d.exists) return d.id;
-        }
-      } catch (_) {}
-    }
-
-    final normalized = _normalize(raw);
-    final slugQueries = <Future<QuerySnapshot<Map<String, dynamic>>>>[];
-    void q(String field, String value) {
-      if (value.isEmpty) return;
-      slugQueries.add(
-        _firestore.collection('igrejas').where(field, isEqualTo: value).limit(1).get(),
-      );
-    }
-
-    q('slug', raw);
-    q('alias', raw);
-    q('slugId', raw);
-    q('churchId', raw);
-    if (normalized.isNotEmpty) {
-      q('slug', normalized);
-      q('alias', normalized);
-      q('slugId', normalized);
-    }
-
-    if (slugQueries.isNotEmpty) {
-      try {
-        final snaps = await Future.wait(slugQueries);
-        for (final qs in snaps) {
-          if (qs.docs.isNotEmpty) return qs.docs.first.id;
-        }
-      } catch (_) {}
-    }
-
-    if (normalized.isEmpty) return raw;
-
-    try {
-      final snapshot = await _firestore.collection('igrejas').limit(_scanLimit).get();
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final slug = (data['slug'] ?? data['slugId'] ?? '').toString().trim();
-        final alias = (data['alias'] ?? '').toString().trim();
-        final nome = (data['nome'] ?? data['name'] ?? '').toString().trim();
-        final nSlug = _normalize(slug);
-        final nAlias = _normalize(alias);
-        final nNome = _normalize(nome);
-        if (nSlug == normalized || nAlias == normalized || nNome == normalized) {
-          return doc.id;
-        }
-        if (normalized.length >= 8 &&
-            (nNome.contains(normalized) ||
-                (nNome.isNotEmpty && normalized.contains(nNome)))) {
-          return doc.id;
-        }
-      }
-    } catch (_) {}
-
     return raw;
   }
 
@@ -572,16 +467,8 @@ class TenantResolverService {
     }
 
     final sw = Stopwatch()..start();
-    String bound = seed;
-    try {
-      bound = await resolveEffectiveTenantIdPreferringUserBinding(
-        seed,
-        userUid: userUid,
-      ).timeout(const Duration(seconds: 12));
-    } catch (_) {}
-
-    // Fonte única: igrejas/{bound} — sem redirecionar para doc «mais rico» do cluster.
-    final operational = bound.trim().isEmpty ? seed : bound.trim();
+    final panel = ChurchContextService.panelChurchId(seed);
+    final operational = panel.isNotEmpty ? panel : seed;
     sw.stop();
     ChurchOperationalFirestoreTrace.record(
       origin: 'TenantResolverService.resolveOperationalChurchDocId',
@@ -1010,175 +897,17 @@ class TenantResolverService {
     return best;
   }
 
-  /// IDs em `igrejas/` ligados ao mesmo slug/alias + variantes `_sistema`/`_bpc`.
-  /// Evita ler centenas de documentos (antes: 2× scan em Membros e painel).
+  /// SaaS directo — só `igrejas/{churchId}` (sem cluster, alias ou docs irmãos).
   static Future<List<String>> getAllRelatedIgrejaDocIds(String resolvedId) async {
     final raw = resolvedId.trim();
     if (raw.isEmpty) return const [];
-
-    await _ensureFirestore();
-    final result = <String>{raw};
-    _addAnchoredClusterMembers(raw, result);
-
-    Map<String, dynamic>? data;
-    try {
-      final snap = await _firestore.collection('igrejas').doc(raw).get();
-      if (snap.exists) data = snap.data();
-    } catch (_) {}
-
-    var slug = '';
-    var slugId = '';
-    var alias = '';
-    if (data != null) {
-      slug = (data['slug'] ?? '').toString().trim();
-      slugId = (data['slugId'] ?? '').toString().trim();
-      alias = (data['alias'] ?? '').toString().trim();
-    }
-
-    final seenPairs = <String>{};
-    final qFutures = <Future<QuerySnapshot<Map<String, dynamic>>>>[];
-    void addQ(String field, String value) {
-      if (value.isEmpty) return;
-      final key = '$field\x00$value';
-      if (!seenPairs.add(key)) return;
-      qFutures.add(
-        _firestore.collection('igrejas').where(field, isEqualTo: value).limit(45).get(),
-      );
-    }
-
-    addQ('slug', slug);
-    addQ('slug', slugId);
-    addQ('alias', alias);
-    addQ('slugId', slugId);
-    if (data == null) {
-      addQ('slug', raw);
-      addQ('alias', raw);
-      addQ('slugId', raw);
-    }
-
-    if (qFutures.isNotEmpty) {
-      try {
-        final snaps = await Future.wait(qFutures);
-        for (final s in snaps) {
-          for (final d in s.docs) {
-            result.add(d.id);
-          }
-        }
-      } catch (_) {}
-    }
-
-    final docFutures = <Future<DocumentSnapshot<Map<String, dynamic>>>>[];
-    for (final suffix in ['_sistema', '_bpc']) {
-      final withSuffix = raw.endsWith(suffix) ? raw : '$raw$suffix';
-      if (withSuffix != raw) {
-        docFutures.add(_firestore.collection('igrejas').doc(withSuffix).get());
-      }
-      if (raw.endsWith(suffix)) {
-        final baseId = raw.substring(0, raw.length - suffix.length).trim();
-        if (baseId.isNotEmpty) {
-          docFutures.add(_firestore.collection('igrejas').doc(baseId).get());
-        }
-      }
-    }
-
-    if (docFutures.isNotEmpty) {
-      try {
-        final snaps = await Future.wait(docFutures);
-        for (final d in snaps) {
-          if (d.exists) result.add(d.id);
-        }
-      } catch (_) {}
-    }
-
-    for (final id in List<String>.from(result)) {
-      _addAnchoredClusterMembers(id, result);
-    }
-
-    return result.toList();
+    return [raw];
   }
 
-  /// Hub de Departamentos / Escalas: se `igrejas/{resolved}/departamentos` estiver vazio mas um doc
-  /// “irmão” (mesmo slug, [id]_sistema, [id]_bpc) tiver itens, usa esse id.
-  ///
-  /// **Performance:** antes lia `igrejas` (até 350 docs) e depois N leituras **sequenciais** a `departamentos`
-  /// sempre em [Source.server] — o módulo Departamentos ficava minutos em loading. Agora: provas em **paralelo**
-  /// com cache primeiro; o scan pesado de slug só corre se o id principal e variantes estiverem vazios.
+  /// Departamentos — directo `igrejas/{churchId}` (SaaS isolado).
   static Future<String> resolveChurchDocIdPreferringNonEmptyDepartments(
       String seedId) async {
-    final resolved = await resolveEffectiveTenantId(seedId);
-    final raw = resolved.trim();
-    if (raw.isEmpty) return resolved;
-
-    Future<String?> _probeDept(String tid, Source src) async {
-      final t = tid.trim();
-      if (t.isEmpty) return null;
-      try {
-        final snap = await FirestoreWebGuard.runWithWebRecovery(() async {
-          return _firestore
-              .collection('igrejas')
-              .doc(t)
-              .collection('departamentos')
-              .limit(1)
-              .get(GetOptions(source: src))
-              .timeout(const Duration(seconds: 14));
-        });
-        return snap.docs.isNotEmpty ? t : null;
-      } on TimeoutException {
-        return null;
-      } catch (_) {
-        return null;
-      }
-    }
-
-    Future<String?> _firstNonEmptyParallel(
-        List<String> ids, Source src) async {
-      if (ids.isEmpty) return null;
-      final out = await Future.wait(ids.map((id) => _probeDept(id, src)));
-      for (final h in out) {
-        if (h != null) return h;
-      }
-      return null;
-    }
-
-    final phase1 = <String>[];
-    void addUnique(String x) {
-      final t = x.trim();
-      if (t.isEmpty) return;
-      if (!phase1.contains(t)) phase1.add(t);
-    }
-
-    addUnique(raw);
-    for (final suf in ['_sistema', '_bpc']) {
-      if (raw.endsWith(suf)) {
-        addUnique(raw.substring(0, raw.length - suf.length));
-      } else {
-        addUnique('$raw$suf');
-      }
-    }
-    for (final anchoredId in anchoredClusterIdsFor(raw)) {
-      addUnique(anchoredId);
-    }
-
-    var hit = await _firstNonEmptyParallel(phase1, Source.serverAndCache);
-    if (hit != null) return hit;
-
-    List<String> siblings = const [];
-    try {
-      siblings = await getAllRelatedIgrejaDocIds(raw);
-    } catch (_) {
-      siblings = const [];
-    }
-    final extra = siblings.where((id) => !phase1.contains(id)).toList();
-    hit = await _firstNonEmptyParallel(extra, Source.serverAndCache);
-    if (hit != null) return hit;
-
-    hit = await _firstNonEmptyParallel(phase1, Source.server);
-    if (hit != null) return hit;
-
-    hit = await _firstNonEmptyParallel(extra, Source.server);
-    if (hit != null) return hit;
-
-    return raw;
+    return resolveEffectiveTenantId(seedId);
   }
 
   static const Map<String, int> _richClusterWeights = {

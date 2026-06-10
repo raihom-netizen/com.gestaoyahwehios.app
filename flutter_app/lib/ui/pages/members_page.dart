@@ -1746,6 +1746,50 @@ class _MembersPageState extends State<MembersPage> {
     });
   }
 
+  void _applyMemberSavedLocally(
+    String memberId,
+    Map<String, dynamic> updates,
+  ) {
+    final overlay = <String, dynamic>{};
+    for (final e in updates.entries) {
+      final v = e.value;
+      if (v is FieldValue) continue;
+      overlay[e.key] = v;
+    }
+    if (overlay.isEmpty) return;
+
+    setState(() {
+      _optimisticMemberOverlays[memberId] = {
+        ...?_optimisticMemberOverlays[memberId],
+        ...overlay,
+      };
+      _patchDirectoryCacheForMember(memberId, overlay);
+    });
+  }
+
+  void _patchDirectoryCacheForMember(
+    String memberId,
+    Map<String, dynamic> updates,
+  ) {
+    if (!_directoryCache.hasEntries) return;
+    final idx =
+        _directoryCache.entries.indexWhere((e) => e.memberDocId == memberId);
+    if (idx < 0) return;
+    final entries = List<MemberDirectoryEntry>.from(_directoryCache.entries);
+    entries[idx] = entries[idx].mergeFirestoreFields(updates);
+    _directoryCache = MembersDirectorySnapshot(
+      totalCount: _directoryCache.totalCount,
+      entries: entries,
+      summary: _directoryCache.summary,
+    );
+    final tid = _effectiveTenantId.trim().isNotEmpty
+        ? _effectiveTenantId.trim()
+        : widget.tenantId.trim();
+    if (tid.isNotEmpty) {
+      MembersDirectorySnapshotService.rememberInMemory(tid, _directoryCache);
+    }
+  }
+
   _MemberDoc _memberWithOptimisticOverlay(_MemberDoc m) {
     final o = _optimisticMemberOverlays[m.id];
     if (o == null || o.isEmpty) return m;
@@ -1810,6 +1854,33 @@ class _MembersPageState extends State<MembersPage> {
       (r['filiacaoMae'] ?? '').toString().trim(),
     );
     put(['SEXO', 'sexo'], (r['sexo'] ?? '').toString().trim());
+    final funcoesRaw = r['funcoesSelecionadas'];
+    if (funcoesRaw is List) {
+      final list = funcoesRaw
+          .map((e) => (e ?? '').toString().trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      if (list.isNotEmpty) {
+        patch['FUNCOES'] = list;
+        patch['funcoes'] = list;
+      }
+    }
+    final funcao = (r['funcao'] ?? '').toString().trim();
+    if (funcao.isNotEmpty) {
+      patch['FUNCAO'] = funcao;
+      patch['funcao'] = funcao;
+      patch['CARGO'] = funcao;
+      patch['cargo'] = funcao;
+    }
+    final nasc = r['nascimento'];
+    if (nasc is DateTime) {
+      patch['DATA_NASCIMENTO'] = Timestamp.fromDate(nasc);
+      patch['dataNascimento'] = Timestamp.fromDate(nasc);
+    }
+    put(
+      ['CPF', 'cpf'],
+      (r['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), ''),
+    );
     if (patch.isEmpty) return;
     setState(() {
       _optimisticMemberOverlays[memberId] = {
@@ -4291,7 +4362,9 @@ class _MembersPageState extends State<MembersPage> {
     final selfOnlySave = result['selfOnly'] == true;
     if (selfOnlySave) {
       try {
-        final targetTenantId = _tenantIdForMemberData(member.data);
+        final targetTenantId = ChurchContextService.panelChurchId(
+          _tenantIdForMemberData(member.data),
+        );
         Uint8List? pendingProfilePhotoBytes;
         final pickedPhotoSelf = newPhoto;
         if (pickedPhotoSelf != null) {
@@ -4374,6 +4447,7 @@ class _MembersPageState extends State<MembersPage> {
           updates: updates,
           userUid: FirebaseAuth.instance.currentUser?.uid,
         );
+        _applyMemberSavedLocally(member.id, updates);
 
         var authUidSelf = member.data['authUid']?.toString().trim();
         final newEmSelf = (updates['EMAIL'] ?? '').toString();
@@ -4461,10 +4535,7 @@ class _MembersPageState extends State<MembersPage> {
               }
             }
           }
-          _refreshMembers(
-            forceServer: true,
-            clearOptimisticMemberOverlayId: member.id,
-          );
+          _refreshMembers(forceServer: true);
         }
         return;
       } catch (e) {
@@ -4499,8 +4570,11 @@ class _MembersPageState extends State<MembersPage> {
     final isMoveToOtherChurch = _canTransferMember &&
         newTenantIdRaw.isNotEmpty &&
         newTenantIdRaw != previousTenantId;
-    final targetTenantId =
-        isMoveToOtherChurch ? newTenantIdRaw : previousTenantId;
+    final targetTenantId = isMoveToOtherChurch
+        ? newTenantIdRaw
+        : ChurchContextService.panelChurchId(
+            _tenantIdForMemberData(member.data).trim(),
+          );
 
     var permBaseFinal = funcaoFinal.toLowerCase();
     try {
@@ -4686,6 +4760,7 @@ class _MembersPageState extends State<MembersPage> {
         updates: updates,
         userUid: FirebaseAuth.instance.currentUser?.uid,
       );
+      _applyMemberSavedLocally(member.id, updates);
       var authUid = member.data['authUid']?.toString().trim();
       final newEmGestor = (updates['EMAIL'] ?? '').toString();
       final prevEmGestor = _str(member.data, 'EMAIL', 'email');
@@ -4854,10 +4929,7 @@ class _MembersPageState extends State<MembersPage> {
         }
       }
       if (mounted) {
-        _refreshMembers(
-          forceServer: true,
-          clearOptimisticMemberOverlayId: member.id,
-        );
+        _refreshMembers(forceServer: true);
       }
     } catch (e) {
       if (mounted) {
@@ -4990,6 +5062,7 @@ class _MembersPageState extends State<MembersPage> {
     try {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       if (kIsWeb) {
+        await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       var loginPurgeWarning = '';
@@ -5016,7 +5089,7 @@ class _MembersPageState extends State<MembersPage> {
       Object? lastDeleteError;
       try {
         await MembroStrictUpdateService.deleteMember(
-          seedTenantId: _effectiveTenantId,
+          seedTenantId: ChurchContextService.panelChurchId(_effectiveTenantId),
           memberDocId: mid,
           userUid: FirebaseAuth.instance.currentUser?.uid,
         );
@@ -5074,10 +5147,7 @@ class _MembersPageState extends State<MembersPage> {
             '"$name" excluído.$loginPurgeWarning',
           ),
         );
-        _refreshMembers(
-          forceServer: true,
-          clearOptimisticRemovedMemberId: mid,
-        );
+        _refreshMembers(forceServer: true);
       }
     } catch (e) {
       if (!mounted) return;

@@ -6,6 +6,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
@@ -29,6 +30,10 @@ abstract final class UnifiedUploadService {
   }
 
   static Future<void> _ensureReady({String? module}) async {
+    if (EcoFireFlow.directStorageUpload) {
+      await ensureFirebaseCore(requireAuth: true);
+      return;
+    }
     if (FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
       try {
         await firebaseDefaultAuth.currentUser

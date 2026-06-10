@@ -1,9 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
+import 'package:gestao_yahweh/services/web_panel_stability.dart';
 
 /// Blindagem Web (padrão Controle Total): **nunca** `terminate()` em retry automático
 /// (mata o singleton → `failed-precondition: client has already been terminated` em Doação,
@@ -67,7 +69,9 @@ class FirestoreWebGuard {
 
   /// Recuperação **suave** (Controle Total): token + rede — **sem** `terminate`/`clearPersistence`.
   static Future<void> recoverFirestoreWebSession({bool allowHardReconnect = false}) async {
+    if (EcoFireFlow.passThroughFirestore) return;
     if (!kIsWeb) return;
+    if (WebPanelStability.isSessionExpired) return;
     await stabilizeAfterWebSignIn();
     if (allowHardReconnect) {
       try {
@@ -126,19 +130,26 @@ class FirestoreWebGuard {
     Future<T> Function() fn, {
     int maxAttempts = 3,
   }) async {
+    if (EcoFireFlow.passThroughFirestore) return fn();
+    if (kIsWeb && WebPanelStability.isSessionExpired) {
+      return fn();
+    }
+    final attempts = kIsWeb ? (maxAttempts > 2 ? 2 : maxAttempts) : maxAttempts;
     Object? lastError;
     StackTrace? lastStack;
-    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+    for (var attempt = 0; attempt < attempts; attempt++) {
       try {
         if (attempt > 0) {
-          debugPrint('FirestoreWebGuard: retry $attempt/$maxAttempts…');
+          debugPrint('FirestoreWebGuard: retry $attempt/$attempts…');
           final hard = lastError != null &&
               (isClientTerminated(lastError!) ||
                   isInternalAssertionError(lastError!));
-          if (kIsWeb && attempt == 1) {
+          if (kIsWeb && attempt == 1 && !WebPanelStability.isSessionExpired) {
             await ensureMasterPanelReady();
           }
-          await recoverFirestoreWebSession(allowHardReconnect: hard);
+          if (!WebPanelStability.isSessionExpired) {
+            await recoverFirestoreWebSession(allowHardReconnect: hard);
+          }
           await Future<void>.delayed(
             Duration(milliseconds: 100 + attempt * 160),
           );
@@ -148,13 +159,14 @@ class FirestoreWebGuard {
         lastError = e;
         lastStack = st;
         final recoverable = kIsWeb &&
+            !WebPanelStability.isSessionExpired &&
             (isInternalAssertionError(e) ||
                 isClientTerminated(e) ||
                 e is FirebaseException &&
                     (e.code == 'unavailable' ||
                         e.code == 'internal' ||
                         e.code == 'unknown'));
-        if (!recoverable || attempt >= maxAttempts - 1) {
+        if (!recoverable || attempt >= attempts - 1) {
           Error.throwWithStackTrace(e, st);
         }
         debugPrint('FirestoreWebGuard: recuperação suave Web…');
@@ -204,6 +216,10 @@ class FirestoreWebGuard {
   static Future<void> prepareForCriticalWrite() async {
     if (!kIsWeb) return;
     applyWebFirestoreSettings();
+    if (EcoFireFlow.passThroughFirestore) {
+      await ensureWebDatabaseConnected(refreshAuth: false);
+      return;
+    }
     await recoverFirestoreWebSession(allowHardReconnect: true);
     await ensureWebDatabaseConnected(refreshAuth: true);
     // Segundo ciclo rede — alinha WatchChangeAggregator após dezenas de listeners no IndexedStack.
@@ -248,6 +264,10 @@ class FirestoreWebGuard {
     Future<T> Function() fn, {
     int maxAttempts = 5,
   }) async {
+    if (EcoFireFlow.passThroughFirestore) {
+      if (kIsWeb) await prepareForChatWrite();
+      return fn();
+    }
     Object? lastError;
     StackTrace? lastStack;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {

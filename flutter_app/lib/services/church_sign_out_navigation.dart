@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/auth_profile_cache_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/session_restore_service.dart';
+import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Logout do painel da igreja — web/PWA vai à [SitePublicPage] (`/`) sem sobrepor o shell.
@@ -112,6 +113,7 @@ abstract final class ChurchSignOutNavigation {
       await appGoogleSignOutForAccountPicker();
     }
     await ChurchAutoSessionService.clearAutoPainel();
+    WebPanelStability.clearOnSignOut();
     ChurchContextService.clear();
     ChurchOperationalFirestoreTrace.clear();
     if (uid != null && uid.isNotEmpty) {

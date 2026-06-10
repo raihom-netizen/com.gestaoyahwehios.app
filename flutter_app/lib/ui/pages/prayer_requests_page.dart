@@ -1243,15 +1243,10 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   /// Carrega todos os membros do tenant (`membros` paginado + legado `members`).
   Future<List<Map<String, String>>> _loadMembrosParaSelecao(String tenantId) async {
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    final effective = await TenantResolverService
-        .resolveEffectiveTenantIdPreferringUserBinding(
-      tenantId.trim(),
-      userUid: FirebaseAuth.instance.currentUser?.uid,
-    );
-    final id = effective.trim().isNotEmpty ? effective : tenantId.trim();
+    final id = ChurchRepository.churchId(tenantId.trim());
     if (id.isEmpty) return [];
 
-    final op = ChurchRepository.churchId(id);
+    final op = id;
     final churchRef = ChurchUiCollections.churchDoc(op);
 
     final membrosDocs = await _paginateSubcollection(churchRef, 'membros');

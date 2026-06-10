@@ -55,6 +55,7 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/panel_finance_accounts_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_premium_widgets.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_premium_lancamento_ui.dart';
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Categorias padrão (seed quando coleções vazias)
@@ -219,36 +220,47 @@ Widget _financeBankMiniLogo({
 }
 
 Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
-  final op = ChurchRepository.churchId(tenantId);
-  final col = ChurchUiCollections.churchDoc(op)
-      .collection('categorias_receitas');
-  var snap = await col.orderBy('nome').get();
-  if (snap.docs.isEmpty) {
-    for (final nome in _categoriasReceitaPadrao) {
-      await col.add(
-          {'nome': nome, 'ordem': _categoriasReceitaPadrao.indexOf(nome)});
+  try {
+    final op = ChurchRepository.churchId(tenantId);
+    if (op.isEmpty) return List<String>.from(_categoriasReceitaPadrao);
+    final col = ChurchUiCollections.churchDoc(op)
+        .collection('categorias_receitas');
+    var snap = await col.orderBy('nome').get();
+    if (snap.docs.isEmpty) {
+      for (final nome in _categoriasReceitaPadrao) {
+        await col.add(
+            {'nome': nome, 'ordem': _categoriasReceitaPadrao.indexOf(nome)});
+      }
+      snap = await col.orderBy('nome').get();
     }
-    snap = await col.orderBy('nome').get();
+    final nomes = snap.docs
+        .map((d) => (d.data()['nome'] ?? '').toString())
+        .where((s) => s.isNotEmpty);
+    final seen = <String>{};
+    final list = nomes.where((n) => seen.add(n)).toList();
+    return list.isEmpty ? List<String>.from(_categoriasReceitaPadrao) : list;
+  } catch (_) {
+    return List<String>.from(_categoriasReceitaPadrao);
   }
-  final nomes = snap.docs
-      .map((d) => (d.data()['nome'] ?? '').toString())
-      .where((s) => s.isNotEmpty);
-  final seen = <String>{};
-  return nomes.where((n) => seen.add(n)).toList();
 }
 
 Future<List<({String id, String nome})>> _financeContasAtivasTenant(
     String tenantId) async {
-  final op = ChurchRepository.churchId(tenantId);
-  final snap = await ChurchUiCollections.churchDoc(op)
-      .collection('contas')
-      .orderBy('nome')
-      .get();
-  return snap.docs
-      .where((d) => d.data()['ativo'] != false)
-      .map((d) => (id: d.id, nome: _financeContaDisplayName(d.data())))
-      .where((e) => e.nome.isNotEmpty)
-      .toList();
+  try {
+    final op = ChurchRepository.churchId(tenantId);
+    if (op.isEmpty) return const [];
+    final snap = await ChurchUiCollections.churchDoc(op)
+        .collection('contas')
+        .orderBy('nome')
+        .get();
+    return snap.docs
+        .where((d) => d.data()['ativo'] != false)
+        .map((d) => (id: d.id, nome: _financeContaDisplayName(d.data())))
+        .where((e) => e.nome.isNotEmpty)
+        .toList();
+  } catch (_) {
+    return const [];
+  }
 }
 
 class _FinancePdfSignerOption {
@@ -1094,10 +1106,12 @@ class _FinancePageState extends State<FinancePage>
       unawaited(s.cancel());
     }
     _financeRealtimeSubs.clear();
-    // Web: listeners paralelos + painel activo → INTERNAL ASSERTION (Firestore 11.x).
+    // Web: um único listener (limit 1) — actualiza extrato/gráficos sem F5.
+    _financeRealtimeSubs.add(
+      _financeCol.limit(1).watchSafe().listen((_) => _scheduleFinanceRealtimeRefresh()),
+    );
     if (kIsWeb) return;
     _financeRealtimeSubs.addAll([
-      _financeCol.limit(1).watchSafe().listen((_) => _scheduleFinanceRealtimeRefresh()),
       ChurchUiCollections.churchDoc(_tid)
           .collection('contas')
           .limit(1)
@@ -1395,52 +1409,23 @@ class _FinancePageState extends State<FinancePage>
                 ),
               ],
             ),
-      floatingActionButton: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              moduleAccent,
-              Color.lerp(moduleAccent, Colors.white, 0.22)!,
-            ],
-          ),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.28),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: moduleAccent.withValues(alpha: 0.42),
-              blurRadius: 22,
-              offset: const Offset(0, 10),
-              spreadRadius: -2,
-            ),
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
-            ),
-          ],
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'fab_finance',
+        backgroundColor: moduleAccent,
+        foregroundColor: Colors.white,
+        elevation: 6,
+        highlightElevation: 10,
+        icon: const Icon(Icons.add_rounded, size: 24),
+        label: const Text(
+          'Lançamento Rápido',
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
         ),
-        child: FloatingActionButton.extended(
-          heroTag: 'fab_finance',
-          backgroundColor: Colors.transparent,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          hoverElevation: 0,
-          focusElevation: 0,
-          highlightElevation: 0,
-          icon: const Icon(Icons.add_rounded, size: 24),
-          label: const Text('Lançamento Rápido',
-              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-          onPressed: () => _showLancamentoDialog(context),
-          shape: RoundedRectangleBorder(
-              borderRadius:
-                  BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+        onPressed: () => unawaited(_showLancamentoDialog(context)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
         ),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       body: DecoratedBox(
         decoration: churchModuleBodyGradient(moduleAccent),
         child: SafeArea(
@@ -1657,12 +1642,40 @@ class _FinancePageState extends State<FinancePage>
 
   // ─── Lançamento Rápido (Receita / Despesa / Transferência) ────────────────────
   Future<void> _showLancamentoDialog(BuildContext context,
-      {DocumentSnapshot<Map<String, dynamic>>? doc}) async {
-    final ok = await showFinanceLancamentoEditorForTenant(context,
-        tenantId: _tid,
+      {DocumentSnapshot<Map<String, dynamic>>? doc,
+      String? presetNovoTipo}) async {
+    final tid = ChurchContextService.panelChurchId(_tid);
+    if (tid.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Igreja não vinculada. Saia e entre novamente no painel.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    try {
+      final ok = await showFinanceLancamentoEditorForTenant(
+        context,
+        tenantId: tid,
         existingDoc: doc,
-        panelRole: widget.role);
-    if (ok && mounted) _notifyFinanceChanged();
+        panelRole: widget.role,
+        presetNovoTipo: presetNovoTipo,
+      );
+      if (ok && mounted) _notifyFinanceChanged();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(formatFirebaseErrorForUser(e)),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
+    }
   }
 
   // ─── Exportar CSV ────────────────────────────────────────────────────────────
@@ -7544,8 +7557,25 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   /// Só para **novo** lançamento: `entrada`, `saida` ou `transferencia`.
   String? presetNovoTipo,
 }) async {
-  await _ensureFinanceWriteReady();
-  final op = ChurchRepository.churchId(tenantId);
+  final effectiveTenantId =
+      ChurchContextService.panelChurchId(ChurchRepository.churchId(tenantId));
+  if (effectiveTenantId.isEmpty) return false;
+
+  try {
+    await _ensureFinanceWriteReady();
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(formatFirebaseErrorForUser(e)),
+          backgroundColor: ThemeCleanPremium.error,
+        ),
+      );
+    }
+    return false;
+  }
+
+  final op = effectiveTenantId;
   final financeCol = ChurchUiCollections.financeiro(op);
 
   final isEdit = existingDoc != null;
@@ -7588,12 +7618,31 @@ Future<bool> showFinanceLancamentoEditorForTenant(
     if (ts is Timestamp) dataSel = ts.toDate();
   }
 
-  final catsReceita = await _financeCategoriasReceitaTenant(tenantId);
-  final catsDespesa = await getCategoriasDespesaForTenant(tenantId);
-  final contas = await _financeContasAtivasTenant(tenantId);
-  final fornecedoresOpts = await _fornecedoresParaFinanceDropdown(tenantId);
-  final membrosOpts = await _membrosParaFinanceDropdown(tenantId);
-  final settings = await FinanceTenantSettings.load(tenantId);
+  List<String> catsReceita;
+  List<String> catsDespesa;
+  List<({String id, String nome})> contas;
+  List<({String id, String nome})> fornecedoresOpts;
+  List<({String id, String nome})> membrosOpts;
+  FinanceTenantSettings settings;
+  try {
+    catsReceita = await _financeCategoriasReceitaTenant(effectiveTenantId);
+    catsDespesa = await getCategoriasDespesaForTenant(effectiveTenantId);
+    contas = await _financeContasAtivasTenant(effectiveTenantId);
+    fornecedoresOpts =
+        await _fornecedoresParaFinanceDropdown(effectiveTenantId);
+    membrosOpts = await _membrosParaFinanceDropdown(effectiveTenantId);
+    settings = await FinanceTenantSettings.load(effectiveTenantId);
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(formatFirebaseErrorForUser(e)),
+          backgroundColor: ThemeCleanPremium.error,
+        ),
+      );
+    }
+    return false;
+  }
 
   final centroCustoCtrl = TextEditingController(
       text: isEdit ? (data?['centroCusto'] ?? '').toString() : '');
@@ -7686,9 +7735,11 @@ Future<bool> showFinanceLancamentoEditorForTenant(
 
   final dataCtrl = TextEditingController(text: formatBrDateDdMmYyyy(dataSel));
 
-  final result = await showDialog<Map<String, dynamic>>(
-    context: context,
-    builder: (ctx) => StatefulBuilder(
+  final result = await Navigator.of(context, rootNavigator: true)
+      .push<Map<String, dynamic>>(
+    MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (ctx) => StatefulBuilder(
       builder: (ctx, setDlgState) {
         final isTransfer = t == 'transferencia';
         final cats = t == 'entrada'
@@ -7696,162 +7747,212 @@ Future<bool> showFinanceLancamentoEditorForTenant(
             : (t == 'saida' ? catsDespesa : <String>[]);
         if (cat.isNotEmpty && cats.isNotEmpty && !cats.contains(cat)) cat = '';
         final contaFieldId = t == 'entrada' ? cdId : coId;
-        return Dialog(
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(24)),
-          clipBehavior: Clip.antiAlias,
-          insetPadding:
-              const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: 440,
-              maxHeight: MediaQuery.sizeOf(ctx).height * 0.88,
-            ),
+        final pageAccent = FinancePremiumLancamentoUi.accentForTipo(t);
+        final pageGradient = FinancePremiumLancamentoUi.gradientForTipo(t);
+        final pagePad = ThemeCleanPremium.pagePadding(ctx);
+
+        void onTipoChanged(String v) {
+          setDlgState(() {
+            final prev = t;
+            t = v;
+            cat = '';
+            if (t == 'transferencia') {
+              fornecedorId = null;
+              fornecedorNome = '';
+              membroId = null;
+              membroNome = '';
+              vinculoTipo = 'nenhum';
+            }
+            if (t == 'entrada') {
+              recebimentoConfirmado = true;
+            } else if (t == 'saida') {
+              pagamentoConfirmado = true;
+            }
+            if (t == 'transferencia' || prev == 'transferencia') {
+              coId = null;
+              cdId = null;
+            } else if (prev == 'entrada' && t == 'saida') {
+              coId = cdId;
+              cdId = null;
+            } else if (prev == 'saida' && t == 'entrada') {
+              cdId = coId;
+              coId = null;
+            }
+          });
+        }
+
+        Future<void> pickDataLancamento() async {
+          final picked = await showDatePicker(
+            context: ctx,
+            initialDate: dataSelLocal,
+            firstDate: DateTime(2020),
+            lastDate: DateTime(2030),
+          );
+          if (picked != null) {
+            setDlgState(() {
+              dataSelLocal = picked;
+              dataCtrl.text = formatBrDateDdMmYyyy(picked);
+            });
+          }
+        }
+
+        void submitLancamento() {
+          final valor = parseBrCurrencyInput(valorCtrl.text);
+          final parsedData = parseBrDateDdMmYyyy(dataCtrl.text.trim());
+          if (parsedData == null) {
+            ScaffoldMessenger.of(ctx).showSnackBar(
+              const SnackBar(content: Text('Informe a data (DD/MM/AAAA).')),
+            );
+            return;
+          }
+          dataSelLocal = parsedData;
+          if (valor <= 0) {
+            ScaffoldMessenger.of(ctx).showSnackBar(
+              const SnackBar(content: Text('Informe um valor válido.')),
+            );
+            return;
+          }
+          if (!isTransfer && cat.isEmpty) {
+            ScaffoldMessenger.of(ctx).showSnackBar(
+              const SnackBar(content: Text('Selecione uma categoria.')),
+            );
+            return;
+          }
+          if (!isTransfer && contas.isNotEmpty) {
+            if (t == 'entrada' && cdId == null) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                const SnackBar(
+                    content: Text('Selecione a conta ou caixa da receita.')),
+              );
+              return;
+            }
+            if (t == 'saida' && coId == null) {
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                const SnackBar(
+                    content: Text('Selecione a conta ou caixa da despesa.')),
+              );
+              return;
+            }
+          }
+          if (isTransfer &&
+              (coId == null || cdId == null || coId == cdId)) {
+            ScaffoldMessenger.of(ctx).showSnackBar(
+              const SnackBar(
+                  content:
+                      Text('Selecione contas de origem e destino diferentes.')),
+            );
+            return;
+          }
+          final map = <String, dynamic>{
+            'type': t,
+            'amount': valor,
+            'descricao': descCtrl.text.trim(),
+            'createdAt': Timestamp.fromDate(dataSelLocal),
+          };
+          if (!isTransfer) {
+            map['categoria'] = cat;
+            map['centroCusto'] = centroCustoCtrl.text.trim();
+            map['extratoRef'] = extratoRefCtrl.text.trim();
+            map['conciliado'] = conciliado;
+          }
+          if (!isTransfer) {
+            final fid = fornecedorId;
+            final mid = membroId;
+            if (lockFornecedor && fid != null && fid.isNotEmpty) {
+              map['fornecedorId'] = fid;
+              map['fornecedorNome'] = fornecedorNome;
+            } else if (!lockFornecedor) {
+              if (vinculoTipo == 'fornecedor' &&
+                  fid != null &&
+                  fid.isNotEmpty) {
+                map['fornecedorId'] = fid;
+                map['fornecedorNome'] = fornecedorNome;
+              }
+              if (vinculoTipo == 'membro' && mid != null && mid.isNotEmpty) {
+                map['membroId'] = mid;
+                map['membroNome'] = membroNome;
+              }
+            }
+            if (t == 'entrada') {
+              map['recebimentoConfirmado'] = recebimentoConfirmado;
+            } else {
+              map['pagamentoConfirmado'] = pagamentoConfirmado;
+            }
+          }
+          if (isTransfer) {
+            map['contaOrigemId'] = coId;
+            map['contaDestinoId'] = cdId;
+            map['contaOrigemNome'] = nomeConta(coId);
+            map['contaDestinoNome'] = nomeConta(cdId);
+          } else if (contas.isNotEmpty) {
+            if (t == 'entrada') {
+              map['contaDestinoId'] = cdId;
+              map['contaDestinoNome'] = nomeConta(cdId);
+            } else {
+              map['contaOrigemId'] = coId;
+              map['contaOrigemNome'] = nomeConta(coId);
+            }
+          }
+          if (t == 'saida') {
+            final lim = settings.limiteAprovacaoDespesa;
+            final need = lim > 0 &&
+                valor > lim &&
+                AppPermissions.despesaFinanceiraExigeSegundaAprovacao(panelRole);
+            map['aprovacaoPendente'] = need;
+          }
+          ThemeCleanPremium.hapticAction();
+          Navigator.pop(ctx, map);
+        }
+
+        return Scaffold(
+          backgroundColor: const Color(0xFFF0F4FF),
+          appBar: financePremiumLancamentoAppBar(
+            title: isEdit ? 'Editar lançamento' : 'Novo lançamento',
+            onBack: () => Navigator.pop(ctx),
+            gradientColors: pageGradient,
+          ),
+          body: SafeArea(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        ThemeCleanPremium.primary,
-                        ThemeCleanPremium.primary.withOpacity(0.82),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 16, 4, 16),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.22),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Icon(
-                            isEdit
-                                ? Icons.edit_note_rounded
-                                : Icons.payments_rounded,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                isEdit ? 'Editar lançamento' : 'Transação',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.3,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Controle por conta ou caixa',
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.92),
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          icon: const Icon(Icons.close_rounded,
-                              color: Colors.white),
-                          tooltip: 'Fechar',
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+                    padding: pagePad.copyWith(top: 14, bottom: 8),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(
-                        value: 'entrada',
-                        label: Text('Receita'),
-                        icon: Icon(Icons.trending_up_rounded)),
-                    ButtonSegment(
-                        value: 'saida',
-                        label: Text('Despesa'),
-                        icon: Icon(Icons.trending_down_rounded)),
-                    ButtonSegment(
-                        value: 'transferencia',
-                        label: Text('Transf.'),
-                        icon: Icon(Icons.swap_horiz_rounded)),
-                  ],
-                  selected: {t},
-                  onSelectionChanged: (s) => setDlgState(() {
-                    final prev = t;
-                    t = s.first;
-                    cat = '';
-                    if (t == 'transferencia') {
-                      fornecedorId = null;
-                      fornecedorNome = '';
-                      membroId = null;
-                      membroNome = '';
-                      vinculoTipo = 'nenhum';
-                    }
-                    if (t == 'entrada') {
-                      recebimentoConfirmado = true;
-                    } else if (t == 'saida') {
-                      pagamentoConfirmado = true;
-                    }
-                    if (t == 'transferencia' || prev == 'transferencia') {
-                      coId = null;
-                      cdId = null;
-                    } else if (prev == 'entrada' && t == 'saida') {
-                      coId = cdId;
-                      cdId = null;
-                    } else if (prev == 'saida' && t == 'entrada') {
-                      cdId = coId;
-                      coId = null;
-                    }
-                  }),
-                  style: SegmentedButton.styleFrom(
-                    foregroundColor: const Color(0xFF334155),
-                    backgroundColor: const Color(0xFFF1F5F9),
-                    selectedForegroundColor: t == 'entrada'
-                        ? _financeEntradas
-                        : t == 'saida'
-                            ? _financeSaidas
-                            : _financeTransferencia,
-                    selectedBackgroundColor: t == 'entrada'
-                        ? const Color(0xFFEFF6FF)
-                        : t == 'saida'
-                            ? const Color(0xFFFEF2F2)
-                            : const Color(0xFFEEF2FF),
-                    side: const BorderSide(color: Color(0xFF94A3B8), width: 1.5),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
-                  ),
+                FinancePremiumTipoToggle(
+                  selected: t,
+                  onChanged: onTipoChanged,
+                ),
+                const SizedBox(height: 18),
+                FinancePremiumAmountField(
+                  controller: valorCtrl,
+                  isReceita: t == 'entrada',
                 ),
                 const SizedBox(height: 16),
-                if (!isTransfer) ...[
+                FinancePremiumFieldTile(
+                  label: 'Data do lançamento',
+                  value: formatBrDateDdMmYyyy(dataSelLocal),
+                  icon: Icons.calendar_today_rounded,
+                  accent: pageAccent,
+                  onTap: pickDataLancamento,
+                ),
+                const SizedBox(height: 18),
+                if (!isTransfer)
+                  FinancePremiumSectionCard(
+                    title: 'Classificação',
+                    icon: Icons.category_rounded,
+                    accent: pageAccent,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                   DropdownButtonFormField<String>(
                     value: cat.isNotEmpty ? cat : null,
-                    decoration: InputDecoration(
-                      labelText: 'Categoria',
-                      filled: true,
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm)),
-                      prefixIcon: const Icon(Icons.category_rounded),
+                    decoration: financePremiumDropdownDecoration(
+                      label: 'Categoria',
+                      prefixIcon: Icons.category_rounded,
+                      accent: pageAccent,
                     ),
                     items: cats
                         .map((c) => DropdownMenuItem(value: c, child: Text(c)))
@@ -7859,7 +7960,6 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                     onChanged: (v) => setDlgState(() => cat = v ?? ''),
                   ),
                   const SizedBox(height: 12),
-                  if (!isTransfer) ...[
                     if (lockFornecedor && fornecedorId != null)
                       InputDecorator(
                         decoration: InputDecoration(
@@ -8032,8 +8132,6 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                               height: 1.35),
                         ),
                     ],
-                    const SizedBox(height: 12),
-                  ],
                   if (contas.isNotEmpty)
                     DropdownButtonFormField<String>(
                       value: contaFieldId != null &&
@@ -8165,19 +8263,25 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                     ),
                   ],
                   const SizedBox(height: 12),
-                ],
-                if (isTransfer) ...[
+                      ],
+                    ),
+                  ),
+                if (isTransfer)
+                  FinancePremiumSectionCard(
+                    title: 'Transferência entre contas',
+                    icon: Icons.swap_horiz_rounded,
+                    accent: pageAccent,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                   DropdownButtonFormField<String>(
                     value: coId != null && contas.any((e) => e.id == coId)
                         ? coId
                         : null,
-                    decoration: InputDecoration(
-                      labelText: 'Conta de origem',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm)),
-                      prefixIcon:
-                          const Icon(Icons.account_balance_wallet_rounded),
+                    decoration: financePremiumDropdownDecoration(
+                      label: 'Conta de origem',
+                      prefixIcon: Icons.account_balance_wallet_rounded,
+                      accent: pageAccent,
                     ),
                     items: contas
                         .map((c) => DropdownMenuItem(
@@ -8190,12 +8294,10 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                     value: cdId != null && contas.any((e) => e.id == cdId)
                         ? cdId
                         : null,
-                    decoration: InputDecoration(
-                      labelText: 'Conta de destino',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm)),
-                      prefixIcon: const Icon(Icons.account_balance_rounded),
+                    decoration: financePremiumDropdownDecoration(
+                      label: 'Conta de destino',
+                      prefixIcon: Icons.account_balance_rounded,
+                      accent: pageAccent,
                     ),
                     items: contas
                         .map((c) => DropdownMenuItem(
@@ -8203,89 +8305,50 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                         .toList(),
                     onChanged: (v) => setDlgState(() => cdId = v),
                   ),
-                  const SizedBox(height: 12),
-                ],
-                TextField(
-                  controller: descCtrl,
-                  decoration: InputDecoration(
-                    labelText: isTransfer
-                        ? 'Anotações (opcional)'
-                        : 'Descrição (opcional)',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusSm)),
-                    prefixIcon: const Icon(Icons.notes_rounded),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: valorCtrl,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [BrCurrencyInputFormatter()],
-                  decoration: InputDecoration(
-                    labelText: r'Valor (R$)',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusSm)),
-                    prefixIcon: const Icon(Icons.attach_money_rounded),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: dataCtrl,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [BrDateDdMmYyyyInputFormatter()],
-                  decoration: InputDecoration(
-                    labelText: 'Data (DD/MM/AAAA)',
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusSm)),
-                    prefixIcon: const Icon(Icons.calendar_today_rounded,
-                        size: 20, color: ThemeCleanPremium.onSurfaceVariant),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.calendar_month_rounded),
-                      onPressed: () async {
-                        final picked = await showDatePicker(
-                          context: ctx,
-                          initialDate: dataSelLocal,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime(2030),
-                        );
-                        if (picked != null) {
-                          setDlgState(() {
-                            dataSelLocal = picked;
-                            dataCtrl.text = formatBrDateDdMmYyyy(picked);
-                          });
-                        }
-                      },
+                      ],
                     ),
                   ),
-                  onChanged: (v) {
-                    final p = parseBrDateDdMmYyyy(v.trim());
-                    if (p != null) setDlgState(() => dataSelLocal = p);
-                  },
+                const SizedBox(height: 16),
+                FinancePremiumSectionCard(
+                  title: isTransfer ? 'Anotações' : 'Descrição',
+                  icon: Icons.notes_rounded,
+                  accent: pageAccent,
+                  child: TextField(
+                  controller: descCtrl,
+                  decoration: financePremiumDropdownDecoration(
+                    label: isTransfer
+                        ? 'Anotações (opcional)'
+                        : 'Descrição (opcional)',
+                    prefixIcon: Icons.notes_rounded,
+                    accent: pageAccent,
+                  ),
+                  maxLines: 2,
                 ),
-                const SizedBox(height: 12),
+                ),
                 if (!isTransfer) ...[
+                  const SizedBox(height: 16),
+                  FinancePremiumSectionCard(
+                    title: 'Informações adicionais',
+                    icon: Icons.more_horiz_rounded,
+                    accent: pageAccent,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                   TextField(
                     controller: centroCustoCtrl,
-                    decoration: InputDecoration(
-                      labelText: 'Centro de custo / projeto (opcional)',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm)),
-                      prefixIcon: const Icon(Icons.hub_rounded),
+                    decoration: financePremiumDropdownDecoration(
+                      label: 'Centro de custo / projeto (opcional)',
+                      prefixIcon: Icons.hub_rounded,
+                      accent: pageAccent,
                     ),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: extratoRefCtrl,
-                    decoration: InputDecoration(
-                      labelText: 'Ref. extrato / ID bancário (opcional)',
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm)),
-                      prefixIcon: const Icon(Icons.tag_rounded),
+                    decoration: financePremiumDropdownDecoration(
+                      label: 'Ref. extrato / ID bancário (opcional)',
+                      prefixIcon: Icons.tag_rounded,
+                      accent: pageAccent,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -8297,19 +8360,18 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                         'Marque após conferir com o extrato ou app do banco.'),
                     contentPadding: EdgeInsets.zero,
                   ),
-                  const SizedBox(height: 8),
+                      ],
+                    ),
+                  ),
                 ],
-                Row(
-                  children: [
-                    Icon(Icons.receipt_long_rounded,
-                        size: 20, color: Colors.grey.shade600),
-                    const SizedBox(width: 8),
-                    Text('Comprovante',
-                        style: TextStyle(
-                            fontSize: 14, color: Colors.grey.shade700)),
-                  ],
-                ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 16),
+                FinancePremiumSectionCard(
+                  title: 'Comprovante',
+                  icon: Icons.receipt_long_rounded,
+                  accent: pageAccent,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                 OutlinedButton.icon(
                   onPressed: () async {
                     final source = await showDialog<ImageSource>(
@@ -8389,158 +8451,23 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                         style: TextStyle(
                             fontSize: 12, color: Colors.grey.shade600)),
                   ),
-              ],
+                    ],
+                  ),
+                ),
+                      ],
                     ),
                   ),
                 ),
-                Material(
-                  color: Theme.of(ctx)
-                      .colorScheme
-                      .surfaceContainerHighest
-                      .withOpacity(0.4),
-                  child: Padding(
-                    padding:
-                        const EdgeInsets.fromLTRB(12, 10, 12, 14),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Cancelar'),
-                        ),
-                        const SizedBox(width: 8),
-                        FilledButton.icon(
-                          onPressed: () {
-                            final valor = parseBrCurrencyInput(valorCtrl.text);
-                            final parsedData =
-                                parseBrDateDdMmYyyy(dataCtrl.text.trim());
-                            if (parsedData == null) {
-                              ScaffoldMessenger.of(ctx).showSnackBar(
-                                  const SnackBar(
-                                      content: Text(
-                                          'Informe a data (DD/MM/AAAA).')));
-                              return;
-                            }
-                            dataSelLocal = parsedData;
-                            if (valor <= 0) {
-                              ScaffoldMessenger.of(ctx).showSnackBar(
-                                  const SnackBar(
-                                      content:
-                                          Text('Informe um valor válido.')));
-                              return;
-                            }
-                            if (!isTransfer && cat.isEmpty) {
-                              ScaffoldMessenger.of(ctx).showSnackBar(
-                                  const SnackBar(
-                                      content: Text(
-                                          'Selecione uma categoria.')));
-                              return;
-                            }
-                            if (!isTransfer && contas.isNotEmpty) {
-                              if (t == 'entrada' && cdId == null) {
-                                ScaffoldMessenger.of(ctx).showSnackBar(
-                                    const SnackBar(
-                                        content: Text(
-                                            'Selecione a conta ou caixa da receita.')));
-                                return;
-                              }
-                              if (t == 'saida' && coId == null) {
-                                ScaffoldMessenger.of(ctx).showSnackBar(
-                                    const SnackBar(
-                                        content: Text(
-                                            'Selecione a conta ou caixa da despesa.')));
-                                return;
-                              }
-                            }
-                            if (isTransfer &&
-                                (coId == null ||
-                                    cdId == null ||
-                                    coId == cdId)) {
-                              ScaffoldMessenger.of(ctx).showSnackBar(
-                                  const SnackBar(
-                                      content: Text(
-                                          'Selecione contas de origem e destino diferentes.')));
-                              return;
-                            }
-                            final map = <String, dynamic>{
-                              'type': t,
-                              'amount': valor,
-                              'descricao': descCtrl.text.trim(),
-                              'createdAt':
-                                  Timestamp.fromDate(dataSelLocal),
-                            };
-                            if (!isTransfer) {
-                              map['categoria'] = cat;
-                              map['centroCusto'] = centroCustoCtrl.text.trim();
-                              map['extratoRef'] = extratoRefCtrl.text.trim();
-                              map['conciliado'] = conciliado;
-                            }
-                            if (!isTransfer) {
-                              final fid = fornecedorId;
-                              final mid = membroId;
-                              if (lockFornecedor &&
-                                  fid != null &&
-                                  fid.isNotEmpty) {
-                                map['fornecedorId'] = fid;
-                                map['fornecedorNome'] = fornecedorNome;
-                              } else if (!lockFornecedor) {
-                                if (vinculoTipo == 'fornecedor' &&
-                                    fid != null &&
-                                    fid.isNotEmpty) {
-                                  map['fornecedorId'] = fid;
-                                  map['fornecedorNome'] = fornecedorNome;
-                                }
-                                if (vinculoTipo == 'membro' &&
-                                    mid != null &&
-                                    mid.isNotEmpty) {
-                                  map['membroId'] = mid;
-                                  map['membroNome'] = membroNome;
-                                }
-                              }
-                              if (t == 'entrada') {
-                                map['recebimentoConfirmado'] =
-                                    recebimentoConfirmado;
-                              } else {
-                                map['pagamentoConfirmado'] =
-                                    pagamentoConfirmado;
-                              }
-                            }
-                            if (isTransfer) {
-                              map['contaOrigemId'] = coId;
-                              map['contaDestinoId'] = cdId;
-                              map['contaOrigemNome'] = nomeConta(coId);
-                              map['contaDestinoNome'] = nomeConta(cdId);
-                            } else if (contas.isNotEmpty) {
-                              if (t == 'entrada') {
-                                map['contaDestinoId'] = cdId;
-                                map['contaDestinoNome'] = nomeConta(cdId);
-                              } else {
-                                map['contaOrigemId'] = coId;
-                                map['contaOrigemNome'] = nomeConta(coId);
-                              }
-                            }
-                            if (t == 'saida') {
-                              final lim = settings.limiteAprovacaoDespesa;
-                              final need = lim > 0 &&
-                                  valor > lim &&
-                                  AppPermissions
-                                      .despesaFinanceiraExigeSegundaAprovacao(
-                                          panelRole);
-                              map['aprovacaoPendente'] = need;
-                            }
-                            Navigator.pop(ctx, map);
-                          },
-                          icon: Icon(isEdit
-                              ? Icons.save_rounded
-                              : Icons.check_rounded),
-                          label:
-                              Text(isEdit ? 'Salvar' : 'Adicionar'),
-                          style: FilledButton.styleFrom(
-                              backgroundColor:
-                                  ThemeCleanPremium.primary),
-                        ),
-                      ],
-                    ),
+                Padding(
+                  padding: pagePad.copyWith(top: 8, bottom: 12),
+                  child: FinancePremiumFormFooterActions(
+                    onCancel: () => Navigator.pop(ctx),
+                    onSave: submitLancamento,
+                    saveLabel:
+                        isEdit ? 'Salvar alterações' : 'Adicionar lançamento',
+                    saveIcon:
+                        isEdit ? Icons.save_rounded : Icons.check_rounded,
+                    accent: pageAccent,
                   ),
                 ),
               ],
@@ -8548,6 +8475,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
           ),
         );
       },
+    ),
     ),
   );
 
@@ -8660,6 +8588,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         showFinanceSaveSnackBar(context, message: 'Lançamento salvo!');
       }
     }
+    unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
     return true;
   } catch (e) {
     if (context.mounted) {

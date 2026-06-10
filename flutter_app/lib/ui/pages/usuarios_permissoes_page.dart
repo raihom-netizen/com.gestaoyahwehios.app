@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import '../../services/app_permissions.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -66,9 +65,7 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
 
   Future<void> _loadMembersAndMembros() async {
     try {
-      final churchId = await TenantResolverService.operationalChurchId(
-        seed: widget.tenantId,
-      );
+      final churchId = ChurchRepository.churchId(widget.tenantId);
       if (churchId.isEmpty) {
         if (mounted) setState(() => _membersFromCollections = []);
         return;

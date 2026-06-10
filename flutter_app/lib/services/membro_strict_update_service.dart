@@ -1,6 +1,14 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
+import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
+import 'package:gestao_yahweh/core/data/church_data_paths.dart';
+import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// CRUD membro — grava só em `igrejas/{churchId}/membros/{memberId}` com verificação.
@@ -13,6 +21,32 @@ abstract final class MembroStrictUpdateService {
   static const String kDeleteVerifyFailedMessage =
       'Não foi possível excluir o membro no banco.';
 
+  static DocumentReference<Map<String, dynamic>> _membroDocRef({
+    required String igrejaId,
+    required String memberDocId,
+  }) {
+    final ref = ChurchFirestoreAccess.collectionRef(
+      igrejaId.trim(),
+      ChurchDataPaths.membros,
+    ).doc(memberDocId.trim());
+    MembroPublishVerificationService.assertMembroDocPath(ref);
+    return ref;
+  }
+
+  static Future<String> _resolveIgrejaId(String seedTenantId) async {
+    final resolved = ChurchContextService.panelChurchId(seedTenantId.trim());
+    if (resolved.isEmpty) {
+      throw StateError('churchId não resolvido para gravar membro.');
+    }
+    if (kDebugMode) debugPrint('CHURCH_ID (membro write): $resolved');
+    return resolved;
+  }
+
+  static Future<void> _prepareWrite() async {
+    if (!kIsWeb) return;
+    await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+  }
+
   /// Atualiza ficha e confirma no servidor (sem «salvo com sucesso» falso).
   static Future<void> updateMember({
     required String seedTenantId,
@@ -20,11 +54,8 @@ abstract final class MembroStrictUpdateService {
     required Map<String, dynamic> updates,
     String? userUid,
   }) async {
-    final igrejaId = await MembroPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: seedTenantId,
-      userUid: userUid,
-    );
-    final docRef = MembroPublishVerificationService.membroDocRef(
+    final igrejaId = await _resolveIgrejaId(seedTenantId);
+    final docRef = _membroDocRef(
       igrejaId: igrejaId,
       memberDocId: memberDocId,
     );
@@ -35,8 +66,7 @@ abstract final class MembroStrictUpdateService {
 
     if (kDebugMode) {
       debugPrint('UPDATE MEMBER');
-      debugPrint(igrejaId);
-      debugPrint(memberDocId);
+      debugPrint('path=${docRef.path}');
       debugPrint(payload.keys.join(', '));
     }
 
@@ -46,11 +76,33 @@ abstract final class MembroStrictUpdateService {
       memberDocId: memberDocId,
     );
 
+    await _prepareWrite();
+
+    final existing = await docRef.get(
+      const GetOptions(source: Source.serverAndCache),
+    );
+
     await FirestoreWebGuard.runWithWebRecovery(
-      () => docRef.set(payload, SetOptions(merge: true)),
+      () async {
+        if (existing.exists) {
+          await docRef.update(payload);
+        } else {
+          await docRef.set(payload, SetOptions(merge: true));
+        }
+      },
+      maxAttempts: kIsWeb ? 3 : 2,
     );
 
     await _verifySavedFields(docRef, payload);
+
+    unawaited(
+      TenantStaleWhileRevalidate.invalidateModule(
+        tenantId: igrejaId,
+        module: TenantModuleKeys.membros,
+      ),
+    );
+    MembersDirectorySnapshotService.invalidateMemory(igrejaId);
+    MembersDirectorySnapshotService.invalidateMemory(seedTenantId.trim());
 
     await MembroPublishVerificationService.logPublishPhase(
       phase: 'update_after',
@@ -65,19 +117,15 @@ abstract final class MembroStrictUpdateService {
     required String memberDocId,
     String? userUid,
   }) async {
-    final igrejaId = await MembroPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: seedTenantId,
-      userUid: userUid,
-    );
-    final docRef = MembroPublishVerificationService.membroDocRef(
+    final igrejaId = await _resolveIgrejaId(seedTenantId);
+    final docRef = _membroDocRef(
       igrejaId: igrejaId,
       memberDocId: memberDocId,
     );
 
     if (kDebugMode) {
       debugPrint('DELETE MEMBER');
-      debugPrint(igrejaId);
-      debugPrint(memberDocId);
+      debugPrint('path=${docRef.path}');
     }
 
     await MembroPublishVerificationService.logPublishPhase(
@@ -86,15 +134,34 @@ abstract final class MembroStrictUpdateService {
       memberDocId: memberDocId,
     );
 
+    await _prepareWrite();
+
     final before = await docRef.get(const GetOptions(source: Source.server));
     if (!before.exists) return;
 
-    await FirestoreWebGuard.runWithWebRecovery(() => docRef.delete());
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => docRef.delete(),
+      maxAttempts: kIsWeb ? 3 : 2,
+    );
 
-    final after = await docRef.get(const GetOptions(source: Source.server));
-    if (after.exists) {
-      throw StateError(kDeleteVerifyFailedMessage);
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final after = await docRef.get(const GetOptions(source: Source.server));
+      if (!after.exists) break;
+      if (attempt >= 2) {
+        throw StateError(kDeleteVerifyFailedMessage);
+      }
+      await Future<void>.delayed(Duration(milliseconds: 120 + attempt * 180));
+      await FirestoreWebGuard.runWithWebRecovery(() => docRef.delete());
     }
+
+    unawaited(
+      TenantStaleWhileRevalidate.invalidateModule(
+        tenantId: igrejaId,
+        module: TenantModuleKeys.membros,
+      ),
+    );
+    MembersDirectorySnapshotService.invalidateMemory(igrejaId);
+    MembersDirectorySnapshotService.invalidateMemory(seedTenantId.trim());
 
     await MembroPublishVerificationService.logPublishPhase(
       phase: 'delete_after',
@@ -110,17 +177,11 @@ abstract final class MembroStrictUpdateService {
     final keysToCheck = payload.keys
         .where((k) => payload[k] is! FieldValue)
         .where((k) => !k.startsWith('_'))
+        .where((k) => k != 'alias' && k != 'slug' && k != 'tenantId')
         .toList();
-    if (keysToCheck.isEmpty) {
-      final snap = await docRef.get(const GetOptions(source: Source.server));
-      if (!snap.exists) {
-        throw StateError(MembroPublishVerificationService.kPublishVerifyFailedMessage);
-      }
-      return;
-    }
 
     Object? last;
-    for (var attempt = 0; attempt < 4; attempt++) {
+    for (var attempt = 0; attempt < 2; attempt++) {
       try {
         final snap = await docRef.get(
           GetOptions(
@@ -132,23 +193,32 @@ abstract final class MembroStrictUpdateService {
             MembroPublishVerificationService.kPublishVerifyFailedMessage,
           );
         }
+        if (keysToCheck.isEmpty) return;
+
         final saved = snap.data() ?? {};
         for (final key in keysToCheck) {
           if (!_fieldMatches(payload[key], saved[key])) {
-            throw StateError(
-              '$kUpdateVerifyFailedMessage (campo: $key)',
-            );
+            throw StateError('$kUpdateVerifyFailedMessage (campo: $key)');
           }
         }
         return;
       } catch (e) {
         last = e;
-        if (attempt < 3) {
-          await Future.delayed(Duration(milliseconds: 200 * (attempt + 1)));
+        if (attempt < 1) {
+          await Future<void>.delayed(const Duration(milliseconds: 150));
         }
       }
     }
     throw last ?? StateError(kUpdateVerifyFailedMessage);
+  }
+
+  static String _normScalar(Object? v) {
+    if (v == null) return '';
+    if (v is Timestamp) return v.millisecondsSinceEpoch.toString();
+    if (v is bool || v is num) return v.toString();
+    final s = v.toString().trim();
+    if (s.isEmpty || s.toLowerCase() == 'null') return '';
+    return s;
   }
 
   static bool _fieldMatches(Object? sent, Object? got) {
@@ -156,18 +226,24 @@ abstract final class MembroStrictUpdateService {
     if (sent is Timestamp && got is Timestamp) {
       return sent.millisecondsSinceEpoch == got.millisecondsSinceEpoch;
     }
-    if (sent is List && got is List) {
-      if (sent.length != got.length) return false;
-      for (var i = 0; i < sent.length; i++) {
-        if (sent[i].toString() != got[i].toString()) return false;
+    if (sent is List || got is List) {
+      final sa = sent is List
+          ? sent.map((e) => e.toString().trim().toLowerCase()).toList()
+          : <String>[];
+      final ga = got is List
+          ? got.map((e) => e.toString().trim().toLowerCase()).toList()
+          : <String>[];
+      sa.sort();
+      ga.sort();
+      if (sa.length != ga.length) return false;
+      for (var i = 0; i < sa.length; i++) {
+        if (sa[i] != ga[i]) return false;
       }
       return true;
     }
     if (sent is bool || got is bool) {
       return sent == got;
     }
-    final s = sent.toString().trim();
-    final g = got.toString().trim();
-    return s == g;
+    return _normScalar(sent) == _normScalar(got);
   }
 }

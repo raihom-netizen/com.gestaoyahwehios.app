@@ -1,10 +1,9 @@
 /**
- * Push FCM por tópico quando há conteúdo novo (avisos, eventos na agenda, escalas).
- * Tópicos alinhados ao app: `gypush_{tenantIdSafe}_{aviso|evento|escala|aniversario|gestores}`.
+ * Push FCM por tópico — avisos, eventos (path directo `igrejas/{churchId}/…`).
+ * Tópicos: `gypush_{churchId}_{aviso|evento|escala|aniversario|gestores}`.
  */
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
-import { tenantIdsForPushTopic } from "./churchClusterAnchors";
 import { buildGyTopicMessage } from "./notificationBranding";
 
 function safeTid(t: string): string {
@@ -56,27 +55,24 @@ async function recordTenantNotification(
   }
 }
 
-async function sendTopicPushCluster(
+/** Push FCM directo — um tópico por `igrejas/{churchId}`. */
+export async function sendGyTopicPush(
   tenantId: string,
   kind: Parameters<typeof topicPushNovo>[1],
   build: (effectiveTenantId: string) => admin.messaging.Message,
 ): Promise<void> {
-  const sent = new Set<string>();
-  for (const tid of tenantIdsForPushTopic(tenantId)) {
-    const topic = topicPushNovo(tid, kind);
-    if (sent.has(topic)) continue;
-    sent.add(topic);
-    await admin.messaging().send(build(tid));
-  }
+  const tid = String(tenantId || "").trim();
+  if (!tid) return;
+  await admin.messaging().send(build(tid));
 }
 
-/** Push FCM para todos os alias do cluster (BPC legado + canónico). */
+/** @deprecated Use [sendGyTopicPush] — mantido para imports legados. */
 export async function sendGyTopicPushCluster(
   tenantId: string,
   kind: Parameters<typeof topicPushNovo>[1],
   build: (effectiveTenantId: string) => admin.messaging.Message,
 ): Promise<void> {
-  await sendTopicPushCluster(tenantId, kind, build);
+  await sendGyTopicPush(tenantId, kind, build);
 }
 
 async function sendNovoAvisoMuralPush(
@@ -87,14 +83,14 @@ async function sendNovoAvisoMuralPush(
   const title = clip(String(d.title || d.titulo || "Novo aviso"), 80) || "Novo aviso";
   const rawBody = String(d.text || d.body || d.mensagem || "").trim();
   const body = clip(rawBody, 140) || title;
-  await sendTopicPushCluster(tenantId, "aviso", (effectiveTenantId) =>
+  await sendGyTopicPush(tenantId, "aviso", (churchId) =>
     buildGyTopicMessage({
-      topic: topicPushNovo(effectiveTenantId, "aviso"),
+      topic: topicPushNovo(churchId, "aviso"),
       title: "📢 Novo aviso",
       body,
       data: {
         type: "novo_aviso",
-        tenantId: effectiveTenantId,
+        tenantId: churchId,
         postId,
         click_action: "FLUTTER_NOTIFICATION_CLICK",
       },
@@ -129,7 +125,6 @@ export const onNovoAvisoMuralPush = functions
     return null;
   });
 
-/** Push quando o aviso passa de `uploading` → `published`. */
 export const onNovoAvisoMuralPublishedPush = functions
   .region("us-central1")
   .firestore.document("igrejas/{tenantId}/avisos/{id}")
@@ -168,14 +163,14 @@ async function sendNovoEventoNoticiaPush(
     extra = ` • ${dt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}`;
   }
   const body = clip(`${title}${extra}`, 180);
-  await sendTopicPushCluster(tenantId, "evento", (effectiveTenantId) =>
+  await sendGyTopicPush(tenantId, "evento", (churchId) =>
     buildGyTopicMessage({
-      topic: topicPushNovo(effectiveTenantId, "evento"),
+      topic: topicPushNovo(churchId, "evento"),
       title: "📅 Novo evento",
       body,
       data: {
         type: "novo_evento",
-        tenantId: effectiveTenantId,
+        tenantId: churchId,
         postId,
         click_action: "FLUTTER_NOTIFICATION_CLICK",
       },
@@ -212,7 +207,6 @@ export const onNovoEventoNoticiaPush = functions
     return null;
   });
 
-/** Push quando o evento passa de `uploading` → `published`. */
 export const onNovoEventoNoticiaPublishedPush = functions
   .region("us-central1")
   .firestore.document("igrejas/{tenantId}/eventos/{id}")

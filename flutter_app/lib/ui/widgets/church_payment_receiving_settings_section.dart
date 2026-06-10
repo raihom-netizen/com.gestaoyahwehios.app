@@ -2,8 +2,8 @@ import 'dart:async' show unawaited;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/mercado_pago_church_settings_section.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
@@ -50,10 +50,7 @@ class _ChurchPaymentReceivingSettingsSectionState
   Future<void> _resolveOperationalTenant() async {
     final seed = widget.tenantId.trim();
     if (seed.isEmpty) return;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    _operationalTenantId = await TenantResolverService
-        .resolveOperationalChurchDocId(seed, userUid: uid)
-        .timeout(const Duration(seconds: 10), onTimeout: () => seed);
+    _operationalTenantId = ChurchRepository.churchId(seed);
   }
 
   Future<void> _load() async {

@@ -10,8 +10,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -52,10 +52,6 @@ abstract final class ChurchTenantResilientReads {
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         if (attempt > 0) {
-          TenantResolverService.invalidateOperationalChurchDocCache(
-            seedId: seed,
-            userUid: userUid,
-          );
           await preparePanelRead(refreshToken: attempt >= 1);
           operational = await operationalTenantId(seed, userUid: userUid);
         } else {
@@ -98,21 +94,13 @@ abstract final class ChurchTenantResilientReads {
     }
   }
 
-  /// Doc operacional da igreja (slug → id + vínculo do utilizador).
+  /// Doc operacional da igreja — path directo `igrejas/{churchId}` (sem resolver).
   static Future<String> operationalTenantId(
     String seed, {
     String? userUid,
   }) async {
-    final s = seed.trim();
-    if (s.isEmpty) return s;
-    final ctx = ChurchContextService.currentChurchId;
-    if (ctx != null && ctx.isNotEmpty) {
-      final sid = ChurchContextService.seedId;
-      if (sid == null || sid.isEmpty || s == ctx || s == sid) return ctx;
-    }
-    return ChurchRepository.churchId(s).isNotEmpty
-        ? ChurchRepository.churchId(s)
-        : s;
+    final direct = ChurchContextService.panelChurchId(seed);
+    return direct.isNotEmpty ? direct : seed.trim();
   }
 
   /// Endereço / formulário — tenant operacional + cache, sem desligar rede.
@@ -386,7 +374,7 @@ abstract final class ChurchTenantResilientReads {
         ),
       );
 
-  /// Se o doc principal estiver vazio, lê o mesmo módulo nos docs irmãos (mesmo slug).
+  /// Leitura directa `igrejas/{churchId}/…` — SaaS isolado (sem docs irmãos).
   static Future<QuerySnapshot<Map<String, dynamic>>> _queryWithSiblingFallback(
     String tenantId,
     Future<QuerySnapshot<Map<String, dynamic>>> Function(String tid) loadFor, {
@@ -400,35 +388,11 @@ abstract final class ChurchTenantResilientReads {
       primary = await _readTenantId(primary, userUid: userUid);
     }
 
-    QuerySnapshot<Map<String, dynamic>> snap;
     try {
-      snap = await loadFor(primary);
+      return await loadFor(primary);
     } catch (_) {
-      snap = const MergedFirestoreQuerySnapshot([]);
+      return const MergedFirestoreQuerySnapshot([]);
     }
-    if (snap.docs.isNotEmpty) return snap;
-
-    List<String> siblings;
-    try {
-      siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(primary);
-    } catch (_) {
-      siblings = const [];
-    }
-    final siblingSet =
-        siblings.map((s) => s.trim()).where((s) => s.isNotEmpty).toSet();
-    final ordered = TenantResolverService.orderedSiblingsForReadFallback(
-      primary,
-      siblings,
-    ).where((sid) => siblingSet.contains(sid.trim())).toList();
-    for (final sid in ordered) {
-      try {
-        final alt = await loadFor(sid).timeout(
-          kIsWeb ? const Duration(seconds: 8) : const Duration(seconds: 14),
-        );
-        if (alt.docs.isNotEmpty) return alt;
-      } catch (_) {}
-    }
-    return snap;
   }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> pedidosOracao(
@@ -625,34 +589,41 @@ abstract final class ChurchTenantResilientReads {
     int limit = 120,
     String? userUid,
   }) async {
-    final uid = userUid ?? FirebaseAuth.instance.currentUser?.uid;
-    final tid = await _readTenantId(tenantId, userUid: uid);
-    final path = 'igrejas/$tid/departamentos';
-    Future<QuerySnapshot<Map<String, dynamic>>> fetch() =>
-        ChurchModuleFirestoreAudit.traceQuery(
-          module: 'Departamentos',
-          churchId: tid,
-          path: path,
-          run: () => FirestoreWebGuard.runWithWebRecovery(
-            () => FirestoreReadResilience.getQuery(
-              _church(tid).collection('departamentos').limit(limit),
-              cacheKey: _key(tid, 'departamentos_$limit'),
+    YahwehFlowLog.start('departamentos');
+    try {
+      final uid = userUid ?? FirebaseAuth.instance.currentUser?.uid;
+      final tid = await _readTenantId(tenantId, userUid: uid);
+      final path = 'igrejas/$tid/departamentos';
+      Future<QuerySnapshot<Map<String, dynamic>>> fetch() =>
+          ChurchModuleFirestoreAudit.traceQuery(
+            module: 'Departamentos',
+            churchId: tid,
+            path: path,
+            run: () => FirestoreWebGuard.runWithWebRecovery(
+              () => FirestoreReadResilience.getQuery(
+                _church(tid).collection('departamentos').limit(limit),
+                cacheKey: _key(tid, 'departamentos_$limit'),
+              ),
             ),
-          ),
-        );
-    final query = TenantStaleWhileRevalidate.loadQuery(
-      tenantId: tid,
-      module: TenantModuleKeys.departamentos,
-      firestoreCacheKey: _key(tid, 'departamentos_$limit'),
-      networkFetch: fetch,
-    );
-    if (kIsWeb) {
-      return query.timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => const MergedFirestoreQuerySnapshot([]),
+          );
+      final query = TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tid,
+        module: TenantModuleKeys.departamentos,
+        firestoreCacheKey: _key(tid, 'departamentos_$limit'),
+        networkFetch: fetch,
       );
+      final result = kIsWeb
+          ? await query.timeout(
+              const Duration(seconds: 10),
+              onTimeout: () => const MergedFirestoreQuerySnapshot([]),
+            )
+          : await query;
+      YahwehFlowLog.success('departamentos');
+      return result;
+    } catch (e, st) {
+      YahwehFlowLog.error('departamentos', e, st);
+      rethrow;
     }
-    return query;
   }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> funcoesControle(
@@ -683,19 +654,27 @@ abstract final class ChurchTenantResilientReads {
     int limit = 120,
     String? userUid,
   }) async {
-    final uid = userUid ?? FirebaseAuth.instance.currentUser?.uid;
-    final tid = await _readTenantId(tenantId, userUid: uid);
-    return TenantStaleWhileRevalidate.loadQuery(
-      tenantId: tid,
-      module: TenantModuleKeys.cargos,
-      firestoreCacheKey: _key(tid, 'cargos_$limit'),
-      networkFetch: () => _queryWithSiblingFallback(
-        tid,
-        (id) => _cargosQueryResilient(id, limit: limit),
-        userUid: uid,
-        tenantAlreadyResolved: true,
-      ),
-    );
+    YahwehFlowLog.start('cargos');
+    try {
+      final uid = userUid ?? FirebaseAuth.instance.currentUser?.uid;
+      final tid = await _readTenantId(tenantId, userUid: uid);
+      final result = await TenantStaleWhileRevalidate.loadQuery(
+        tenantId: tid,
+        module: TenantModuleKeys.cargos,
+        firestoreCacheKey: _key(tid, 'cargos_$limit'),
+        networkFetch: () => _queryWithSiblingFallback(
+          tid,
+          (id) => _cargosQueryResilient(id, limit: limit),
+          userUid: uid,
+          tenantAlreadyResolved: true,
+        ),
+      );
+      YahwehFlowLog.success('cargos');
+      return result;
+    } catch (e, st) {
+      YahwehFlowLog.error('cargos', e, st);
+      rethrow;
+    }
   }
 
   static String _cargoSortKey(Map<String, dynamic> data) =>
@@ -916,27 +895,7 @@ abstract final class ChurchTenantResilientReads {
           _church(tid).collection('patrimonio').doc(id),
           cacheKey: _key(tid, 'patrimonio_item_$id'),
         );
-    final primary = tenantId.trim();
-    if (primary.isEmpty) return loadFor(primary);
-    try {
-      final snap = await loadFor(primary);
-      if (snap.exists) return snap;
-    } catch (_) {}
-    List<String> siblings;
-    try {
-      siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(primary);
-    } catch (_) {
-      siblings = const [];
-    }
-    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
-      primary,
-      siblings,
-    )) {
-      try {
-        final alt = await loadFor(sid);
-        if (alt.exists) return alt;
-      } catch (_) {}
-    }
+    final primary = await _readTenantId(tenantId);
     return loadFor(primary);
   }
 
@@ -949,31 +908,11 @@ abstract final class ChurchTenantResilientReads {
           _church(tid).collection('config').doc('patrimonio'),
           cacheKey: _key(tid, 'patrimonio_config'),
         );
-    final primary = tenantId.trim();
-    if (primary.isEmpty) return loadFor(primary);
-    try {
-      final snap = await loadFor(primary);
-      if ((snap.data() ?? {}).isNotEmpty) return snap;
-    } catch (_) {}
-    List<String> siblings;
-    try {
-      siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(primary);
-    } catch (_) {
-      siblings = const [];
-    }
-    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
-      primary,
-      siblings,
-    )) {
-      try {
-        final alt = await loadFor(sid);
-        if ((alt.data() ?? {}).isNotEmpty) return alt;
-      } catch (_) {}
-    }
+    final primary = await _readTenantId(tenantId);
     return loadFor(primary);
   }
 
-  /// Doc em `igrejas/{tid}/config/{docId}` — tenant + docs irmãos (MP, payment_receiving).
+  /// Doc em `igrejas/{tid}/config/{docId}` — directo (MP, payment_receiving).
   static Future<DocumentSnapshot<Map<String, dynamic>>> configDoc(
     String tenantId,
     String docId,
@@ -983,31 +922,11 @@ abstract final class ChurchTenantResilientReads {
           _church(tid).collection('config').doc(docId),
           cacheKey: _key(tid, 'config_${docId.trim()}'),
         );
-    final primary = tenantId.trim();
-    if (primary.isEmpty) return loadFor(primary);
-    try {
-      final snap = await loadFor(primary);
-      if (snap.exists && (snap.data() ?? {}).isNotEmpty) return snap;
-    } catch (_) {}
-    List<String> siblings;
-    try {
-      siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(primary);
-    } catch (_) {
-      siblings = const [];
-    }
-    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
-      primary,
-      siblings,
-    )) {
-      try {
-        final alt = await loadFor(sid);
-        if (alt.exists && (alt.data() ?? {}).isNotEmpty) return alt;
-      } catch (_) {}
-    }
+    final primary = await _readTenantId(tenantId);
     return loadFor(primary);
   }
 
-  /// Contas tesouraria — sem [preparePanelRead]; doc operacional + irmãos.
+  /// Contas tesouraria — directo `igrejas/{churchId}/contas`.
   static Future<QuerySnapshot<Map<String, dynamic>>> _contasQueryResilient(
     String tenantId, {
     int limit = 80,
@@ -1048,45 +967,21 @@ abstract final class ChurchTenantResilientReads {
     return nome.contains('mercado pago');
   }
 
-  /// Contas MP no tenant — se o doc operacional só tiver BB/Nubank, busca nos irmãos.
+  /// Contas MP — directo `igrejas/{churchId}/contas`.
   static Future<QuerySnapshot<Map<String, dynamic>>> _contasMercadoPagoWithSiblingFallback(
     String tenantId, {
     int limit = 80,
   }) async {
-    final primary = tenantId.trim();
+    final primary = await _readTenantId(tenantId);
     if (primary.isEmpty) return const MergedFirestoreQuerySnapshot([]);
 
-    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> mpFor(
-      String tid,
-    ) async {
-      final snap = await _contasQueryResilient(tid, limit: limit);
-      return snap.docs
+    try {
+      final snap = await _contasQueryResilient(primary, limit: limit);
+      final hit = snap.docs
           .where((d) => _isMercadoPagoContaData(d.data()))
           .toList();
-    }
-
-    try {
-      final hit = await mpFor(primary);
       if (hit.isNotEmpty) return MergedFirestoreQuerySnapshot(hit);
     } catch (_) {}
-
-    List<String> siblings;
-    try {
-      siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(primary);
-    } catch (_) {
-      siblings = const [];
-    }
-    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
-      primary,
-      siblings,
-    )) {
-      try {
-        final alt = await mpFor(sid).timeout(
-          kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 14),
-        );
-        if (alt.isNotEmpty) return MergedFirestoreQuerySnapshot(alt);
-      } catch (_) {}
-    }
     return const MergedFirestoreQuerySnapshot([]);
   }
 
@@ -1170,28 +1065,13 @@ abstract final class ChurchTenantResilientReads {
       return (docId: doc.id, nome: nome);
     }
 
-    final primary = tenantId.trim();
-    if (primary.isEmpty) return loadFor(primary);
+    final primary = await _readTenantId(tenantId);
+    if (primary.isEmpty) return null;
     try {
-      final hit = await loadFor(primary);
-      if (hit != null) return hit;
-    } catch (_) {}
-    List<String> siblings;
-    try {
-      siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(primary);
+      return await loadFor(primary);
     } catch (_) {
-      siblings = const [];
+      return null;
     }
-    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
-      primary,
-      siblings,
-    )) {
-      try {
-        final hit = await loadFor(sid);
-        if (hit != null) return hit;
-      } catch (_) {}
-    }
-    return null;
   }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> contas(
@@ -1659,29 +1539,10 @@ abstract final class ChurchTenantResilientReads {
       final snap = await tryTenant(primary);
       if (snap != null && snap.exists) return snap;
     } catch (_) {}
-
-    List<String> siblings;
-    try {
-      siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(primary);
-    } catch (_) {
-      siblings = const [];
-    }
-    final ordered = TenantResolverService.orderedSiblingsForReadFallback(
-      primary,
-      siblings,
-    );
-    for (final sid in ordered) {
-      try {
-        final alt = await tryTenant(sid).timeout(
-          kIsWeb ? const Duration(seconds: 8) : const Duration(seconds: 12),
-        );
-        if (alt != null && alt.exists) return alt;
-      } catch (_) {}
-    }
     return null;
   }
 
-  /// Carteirinha / perfil do membro logado — vários hints + doc irmão.
+  /// Carteirinha / perfil do membro logado — directo `igrejas/{churchId}/membros`.
   static Future<DocumentSnapshot<Map<String, dynamic>>?> resolveSelfMember(
     String tenantId, {
     String? memberId,

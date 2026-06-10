@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, TargetPlatform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/media_video_compress_quality.dart';
@@ -74,25 +74,17 @@ abstract final class MediaService {
       };
 
   static CompressFormat _formatFor(MediaImageProfile profile) {
-    if (profile == MediaImageProfile.feed &&
-        !kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.iOS) {
-      return CompressFormat.jpeg;
-    }
     return profile == MediaImageProfile.feed ||
-            profile == MediaImageProfile.patrimonio
+            profile == MediaImageProfile.patrimonio ||
+            profile == MediaImageProfile.thumb
         ? CompressFormat.webp
         : CompressFormat.jpeg;
   }
 
   static String _fileExtFor(MediaImageProfile profile) {
-    if (profile == MediaImageProfile.feed &&
-        !kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.iOS) {
-      return 'jpg';
-    }
     return profile == MediaImageProfile.feed ||
-            profile == MediaImageProfile.patrimonio
+            profile == MediaImageProfile.patrimonio ||
+            profile == MediaImageProfile.thumb
         ? 'webp'
         : 'jpg';
   }

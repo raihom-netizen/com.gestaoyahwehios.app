@@ -4,7 +4,7 @@ import * as admin from "firebase-admin";
 import { getFirestore, type DocumentReference, type DocumentData } from "firebase-admin/firestore";
 import { ensureChurchWelcomeSeed } from "./churchWelcomeSeed";
 import { trySendPublicSignupConfirmationEmail } from "./publicSignupEmail";
-import { topicPushNovo, sendGyTopicPushCluster } from "./pushNovoConteudo";
+import { topicPushNovo, sendGyTopicPush } from "./pushNovoConteudo";
 import { notifyGestoresNewMember } from "./memberRegistrationNotify";
 import { buildGyTopicMessage } from "./notificationBranding";
 import { gerarReceitasRecorrentesPendentesForTenant } from "./receitasRecorrentesScheduled";
@@ -14,7 +14,6 @@ import {
   parseCarteirinhaQueryParams,
   validateCarteirinhaCore,
 } from "./carteirinhaValidarPublic";
-import { resolveAnchoredCanonicalTenantId, addAnchoredCluster } from "./churchClusterAnchors";
 import {
   migrateAllChurchTenants,
   provisionChurchTenant,
@@ -218,24 +217,18 @@ async function canManageTenant(uid: string, tokenRole: unknown, tokenTenantId: u
 }
 
 async function callerBelongsToTenant(callerUid: string, tenantId: string): Promise<boolean> {
-  if (!tenantId) return false;
-  const effective = resolveAnchoredCanonicalTenantId(tenantId);
-  const cluster = new Set<string>([tenantId, effective]);
-  addAnchoredCluster(tenantId, cluster);
-  addAnchoredCluster(effective, cluster);
+  const tid = String(tenantId || "").trim();
+  if (!tid) return false;
   try {
     const u = await db.collection("users").doc(callerUid).get();
     const data = u.exists ? u.data() || {} : {};
     const ut = String((data as any).tenantId || (data as any).igrejaId || "").trim();
-    if (ut && cluster.has(ut)) return true;
-    if (ut && resolveAnchoredCanonicalTenantId(ut) === effective) return true;
+    if (ut && ut === tid) return true;
   } catch (_) {}
-  for (const tid of cluster) {
-    try {
-      const iu = await db.collection("igrejas").doc(tid).collection("users").doc(callerUid).get();
-      if (iu.exists) return true;
-    } catch (_) {}
-  }
+  try {
+    const iu = await db.collection("igrejas").doc(tid).collection("users").doc(callerUid).get();
+    if (iu.exists) return true;
+  } catch (_) {}
   return false;
 }
 
@@ -1242,7 +1235,7 @@ export const provisionChurchTenantCallable = functions
       );
     }
 
-    const canonical = resolveAnchoredCanonicalTenantId(tenantId);
+    const canonical = tenantId;
     const isMaster = role === "MASTER" || role === "ADM" || role === "ADMIN";
 
     if (!isMaster) {
@@ -1252,8 +1245,7 @@ export const provisionChurchTenantCallable = functions
           "Conta sem igreja vinculada.",
         );
       }
-      const claimCanon = resolveAnchoredCanonicalTenantId(claimTenant);
-      if (claimCanon !== canonical && claimTenant !== tenantId && claimTenant !== canonical) {
+      if (claimTenant !== tenantId && claimTenant !== canonical) {
         throw new functions.https.HttpsError(
           "permission-denied",
           "Igreja não vinculada à sua conta.",
@@ -2486,6 +2478,7 @@ export const repairMyChurchBinding = functions
   .region("us-central1")
   .runWith({ timeoutSeconds: 120, memory: "256MB" })
   .https.onCall(async (_, context) => {
+    try {
     if (!context.auth?.uid) {
       throw new functions.https.HttpsError("unauthenticated", "Faça login.");
     }
@@ -2752,6 +2745,20 @@ export const repairMyChurchBinding = functions
       role: roleOut,
       pendingApproval,
     };
+    } catch (e: unknown) {
+      if (e instanceof functions.https.HttpsError) throw e;
+      const err = e instanceof Error ? e : new Error(String(e));
+      functions.logger.error("repairMyChurchBinding: unhandled 500", {
+        uid: context.auth?.uid ?? null,
+        message: err.message,
+        stack: err.stack ?? null,
+      });
+      throw new functions.https.HttpsError(
+        "internal",
+        err.message || "Erro interno ao reparar vínculo com a igreja.",
+        { stack: err.stack ?? null }
+      );
+    }
   });
 
 /**
@@ -4406,17 +4413,9 @@ async function findMemberDocument(
   tenantId: string,
   memberId: string
 ): Promise<{ ref: DocumentReference; data: DocumentData } | null> {
-  const cluster = new Set<string>();
-  const seed = String(tenantId || "").trim();
-  if (!seed) return null;
-  cluster.add(seed);
-  cluster.add(resolveAnchoredCanonicalTenantId(seed));
-  addAnchoredCluster(seed, cluster);
-  for (const tid of cluster) {
-    const hit = await findMemberDocumentInTenant(tid, memberId);
-    if (hit) return hit;
-  }
-  return null;
+  const tid = String(tenantId || "").trim();
+  if (!tid) return null;
+  return findMemberDocumentInTenant(tid, memberId);
 }
 
 /**
@@ -5372,12 +5371,11 @@ export const setMemberApproved = functions
     const role = String((context.auth.token?.role as string) || "").toUpperCase();
     const igrejaId = context.auth.token?.igrejaId || context.auth.token?.tenantId;
     const email = String(context.auth.token?.email || "").trim().toLowerCase();
-    const effectiveTenantId = resolveAnchoredCanonicalTenantId(tenantId);
     const canApprove = await callerCanApprovePendingMembers(
       context.auth.uid,
       role,
       igrejaId,
-      effectiveTenantId,
+      tenantId,
       email,
     );
     if (!canApprove) {
@@ -5386,7 +5384,7 @@ export const setMemberApproved = functions
         "Sem permissão para aprovar cadastros (gestor, pastor ou secretário).",
       );
     }
-    const found = await findMemberDocument(effectiveTenantId, memberId);
+    const found = await findMemberDocument(tenantId, memberId);
     if (!found) {
       throw new functions.https.HttpsError("not-found", "Membro não encontrado.");
     }
@@ -5402,7 +5400,7 @@ export const setMemberApproved = functions
     );
     try {
       await ensureCodigoMembroOnMember(
-        effectiveTenantId,
+        tenantId,
         memberId,
         found.data as Record<string, unknown>
       );
@@ -5414,7 +5412,7 @@ export const setMemberApproved = functions
     let authUid = String(d.authUid || "").trim();
     if (!authUid) {
       const r = await ensureMemberFirebaseAuth(
-        effectiveTenantId,
+        tenantId,
         memberId,
         memberRef,
         { ...d, STATUS: "ativo", status: "ativo" },
@@ -5428,8 +5426,8 @@ export const setMemberApproved = functions
     }
     await admin.auth().setCustomUserClaims(authUid, {
       role: "membro",
-      igrejaId: effectiveTenantId,
-      tenantId: effectiveTenantId,
+      igrejaId: tenantId,
+      tenantId: tenantId,
       active: true,
       isUser: true,
       isDriver: false,
@@ -5441,13 +5439,13 @@ export const setMemberApproved = functions
       const idx = { active: true, pendingApproval: false };
       await db
         .collection("tenants")
-        .doc(effectiveTenantId)
+        .doc(tenantId)
         .collection("usersIndex")
         .doc(cpf)
         .set(idx, { merge: true });
       await db
         .collection("igrejas")
-        .doc(effectiveTenantId)
+        .doc(tenantId)
         .collection("usersIndex")
         .doc(cpf)
         .set(idx, { merge: true });
@@ -6679,13 +6677,13 @@ export const onScheduleCreate = functions
       });
 
     try {
-      await sendGyTopicPushCluster(tenantId, "escala", (effectiveTenantId) =>
+      await sendGyTopicPush(tenantId, "escala", (churchId) =>
         buildGyTopicMessage({
-          topic: topicPushNovo(effectiveTenantId, "escala"),
+          topic: topicPushNovo(churchId, "escala"),
           title: "📋 Nova escala",
           body,
           data: {
-            tenantId: effectiveTenantId,
+            tenantId: churchId,
             departmentId: deptId,
             scheduleId: context.params.id,
             type: "nova_escala",

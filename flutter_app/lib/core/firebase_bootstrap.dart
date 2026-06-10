@@ -2,7 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart' as fb_core;
+import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
@@ -38,6 +40,7 @@ Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
   if (!requireAuth) return;
   final user = FirebaseBootstrapService.auth.currentUser;
   if (user == null || user.isAnonymous) {
+    if (kIsWeb) WebPanelStability.markSessionExpired();
     throw StateError(
       'Sessão expirada. Saia e entre de novo no painel antes de publicar.',
     );

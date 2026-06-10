@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
+import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Utilitários para streams Firestore — evita crash «Bad state: Stream has already
@@ -73,6 +74,11 @@ class FirestoreStreamUtils {
       ref.snapshots();
 
   static void _scheduleWebRecovery(Object error) {
+    if (kIsWeb) {
+      if (WebPanelStability.isSessionExpired) return;
+      // Web: não dispara recovery automático em erro de listener — evita loop ca9.
+      return;
+    }
     if (!FirestoreWebGuard.isInternalAssertionError(error) &&
         !FirestoreWebGuard.isClientTerminated(error) &&
         !isTransientNetworkError(error)) {
@@ -120,6 +126,9 @@ class FirestoreStreamUtils {
       yield const MergedFirestoreQuerySnapshot([]);
     }
     if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
+    if (!WebPanelStability.tryOpenListener('query')) {
+      return;
+    }
     // Único uso intencional de `.snapshots()` no app — mobile pós-bootstrap.
     yield* resilientQuery(_nativeQuerySnapshots(query), broadcast: broadcast);
   }

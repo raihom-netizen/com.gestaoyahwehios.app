@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -50,7 +51,7 @@ abstract final class TenantStaleWhileRevalidate {
     StackTrace? lastStack;
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        if (kIsWeb && attempt >= 2) {
+        if (kIsWeb && attempt >= 2 && !WebPanelStability.isSessionExpired) {
           await FirestoreWebGuard.recoverFirestoreWebSession(
             allowHardReconnect: true,
           );

@@ -63,8 +63,8 @@ class EventoGalleryService {
     );
   }
 
-  /// Adiciona mídia a um evento referenciado por [eventRef] (ex.: tenants/tenantId/noticias/docId).
-  /// [storagePathPrefix] ex.: 'tenants/xyz/eventos/docId'. [photoField]: 'fotos' ou 'imageUrls'.
+  /// Adiciona mídia a um evento referenciado por [eventRef] (ex.: `igrejas/{churchId}/eventos/docId`).
+  /// [storagePathPrefix] ex.: `igrejas/{churchId}/eventos/{eventoId}`. [photoField]: 'fotos' ou 'imageUrls'.
   Future<void> adicionarMidiaAoEventoRef(
     DocumentReference<Map<String, dynamic>> eventRef,
     String storagePathPrefix,

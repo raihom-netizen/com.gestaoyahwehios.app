@@ -320,7 +320,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(AppFinalizeBootstrap.onAppResume());
+      if (!kIsWeb) unawaited(AppFinalizeBootstrap.onAppResume());
       unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
       ChurchChatMediaOutboxService.resumePendingOnAppStart();
       final t = _resolvedTenantId;

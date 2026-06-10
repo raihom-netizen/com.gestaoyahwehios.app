@@ -1,9 +1,9 @@
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 
-/// Paths físicos `tenants/{id}/media/…` para **novos** uploads de avisos/eventos.
+/// Paths canónicos `igrejas/{churchId}/avisos|eventos/…` para **novos** uploads (EcoFire).
 ///
-/// Leitura continua a aceitar URLs em `igrejas/{id}/…` (legado). Firestore guarda a URL
-/// real do objeto (bucket). [canonicalIgrejasPathHint] documenta o alias legado.
+/// `usePhysicalTenantPaths == false` — produção. Legado `tenants/{id}/media/…` só leitura/migração.
+/// Firestore guarda a URL HTTPS do objeto. [canonicalIgrejasPathHint] traduz paths antigos.
 abstract final class FeedTenantStorageMap {
   FeedTenantStorageMap._();
 

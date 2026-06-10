@@ -50,7 +50,6 @@ const receitasRecorrentesScheduled_1 = require("./receitasRecorrentesScheduled")
 const churchMercadoPago_1 = require("./churchMercadoPago");
 const memberCodigo_1 = require("./memberCodigo");
 const carteirinhaValidarPublic_1 = require("./carteirinhaValidarPublic");
-const churchClusterAnchors_1 = require("./churchClusterAnchors");
 const churchTenantProvisioning_1 = require("./churchTenantProvisioning");
 admin.initializeApp();
 const db = admin.firestore();
@@ -255,30 +254,23 @@ async function canManageTenant(uid, tokenRole, tokenTenantId, tenantId) {
     return false;
 }
 async function callerBelongsToTenant(callerUid, tenantId) {
-    if (!tenantId)
+    const tid = String(tenantId || "").trim();
+    if (!tid)
         return false;
-    const effective = (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(tenantId);
-    const cluster = new Set([tenantId, effective]);
-    (0, churchClusterAnchors_1.addAnchoredCluster)(tenantId, cluster);
-    (0, churchClusterAnchors_1.addAnchoredCluster)(effective, cluster);
     try {
         const u = await db.collection("users").doc(callerUid).get();
         const data = u.exists ? u.data() || {} : {};
         const ut = String(data.tenantId || data.igrejaId || "").trim();
-        if (ut && cluster.has(ut))
-            return true;
-        if (ut && (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(ut) === effective)
+        if (ut && ut === tid)
             return true;
     }
     catch (_) { }
-    for (const tid of cluster) {
-        try {
-            const iu = await db.collection("igrejas").doc(tid).collection("users").doc(callerUid).get();
-            if (iu.exists)
-                return true;
-        }
-        catch (_) { }
+    try {
+        const iu = await db.collection("igrejas").doc(tid).collection("users").doc(callerUid).get();
+        if (iu.exists)
+            return true;
     }
+    catch (_) { }
     return false;
 }
 /** Alinhado a [AppPermissions.canEditMembersDirectory] + pertença à igreja. */
@@ -1130,14 +1122,13 @@ exports.provisionChurchTenantCallable = functions
     if (!tenantId) {
         throw new functions.https.HttpsError("invalid-argument", "tenantId obrigatório.");
     }
-    const canonical = (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(tenantId);
+    const canonical = tenantId;
     const isMaster = role === "MASTER" || role === "ADM" || role === "ADMIN";
     if (!isMaster) {
         if (!claimTenant) {
             throw new functions.https.HttpsError("permission-denied", "Conta sem igreja vinculada.");
         }
-        const claimCanon = (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(claimTenant);
-        if (claimCanon !== canonical && claimTenant !== tenantId && claimTenant !== canonical) {
+        if (claimTenant !== tenantId && claimTenant !== canonical) {
             throw new functions.https.HttpsError("permission-denied", "Igreja não vinculada à sua conta.");
         }
     }
@@ -2158,102 +2149,52 @@ exports.repairMyChurchBinding = functions
     .region("us-central1")
     .runWith({ timeoutSeconds: 120, memory: "256MB" })
     .https.onCall(async (_, context) => {
-    if (!context.auth?.uid) {
-        throw new functions.https.HttpsError("unauthenticated", "Faça login.");
-    }
-    const uid = context.auth.uid;
-    const authEmail = String(context.auth.token?.email || "")
-        .trim()
-        .toLowerCase();
-    if (!authEmail || !authEmail.includes("@")) {
-        throw new functions.https.HttpsError("failed-precondition", "Conta sem e-mail para recalcular o vínculo com a igreja.");
-    }
-    const emailLower = authEmail;
-    const emailRaw = authEmail;
-    async function firstIgrejaFromGestorFields() {
-        const fields = [
-            "email",
-            "gestorEmail",
-            "emailGestor",
-            "emailContato",
-            "responsavelEmail",
-        ];
-        const vals = emailLower === emailRaw ? [emailLower] : [emailLower, emailRaw];
-        const tasks = [];
-        for (const field of fields) {
-            for (const val of vals) {
-                tasks.push({ field, val });
+    try {
+        if (!context.auth?.uid) {
+            throw new functions.https.HttpsError("unauthenticated", "Faça login.");
+        }
+        const uid = context.auth.uid;
+        const authEmail = String(context.auth.token?.email || "")
+            .trim()
+            .toLowerCase();
+        if (!authEmail || !authEmail.includes("@")) {
+            throw new functions.https.HttpsError("failed-precondition", "Conta sem e-mail para recalcular o vínculo com a igreja.");
+        }
+        const emailLower = authEmail;
+        const emailRaw = authEmail;
+        async function firstIgrejaFromGestorFields() {
+            const fields = [
+                "email",
+                "gestorEmail",
+                "emailGestor",
+                "emailContato",
+                "responsavelEmail",
+            ];
+            const vals = emailLower === emailRaw ? [emailLower] : [emailLower, emailRaw];
+            const tasks = [];
+            for (const field of fields) {
+                for (const val of vals) {
+                    tasks.push({ field, val });
+                }
             }
-        }
-        const snaps = await Promise.all(tasks.map((t) => db.collection("igrejas").where(t.field, "==", t.val).limit(1).get()));
-        for (let i = 0; i < snaps.length; i++) {
-            const q = snaps[i];
-            if (q.empty)
-                continue;
-            const id = q.docs[0].id;
-            const ig = await db.collection("igrejas").doc(id).get();
-            if (ig.exists)
-                return id;
-        }
-        return null;
-    }
-    async function fromMembrosAuthUid() {
-        const snap = await db
-            .collectionGroup("membros")
-            .where("authUid", "==", uid)
-            .limit(15)
-            .get();
-        for (const doc of snap.docs) {
-            const parts = doc.ref.path.split("/");
-            if (parts[0] !== "igrejas" || parts[2] !== "membros")
-                continue;
-            const tid = parts[1];
-            const ig = await db.collection("igrejas").doc(tid).get();
-            if (!ig.exists)
-                continue;
-            const md = doc.data() || {};
-            const st = String(md.STATUS || md.status || "").toLowerCase();
-            const pending = st === "pendente";
-            const roleRaw = String(md.role || md.FUNCAO || md.funcao || "membro").trim();
-            return { tenantId: tid, role: roleRaw || "membro", pending };
-        }
-        return null;
-    }
-    async function fromUsersIndex() {
-        const snap = await db
-            .collectionGroup("usersIndex")
-            .where("email", "==", emailLower)
-            .limit(5)
-            .get();
-        for (const d of snap.docs) {
-            const data = d.data() || {};
-            const tid = String(data.tenantId || d.ref.parent.parent?.id || "").trim();
-            if (!tid)
-                continue;
-            const ig = await db.collection("igrejas").doc(tid).get();
-            if (!ig.exists)
-                continue;
-            const role = String(data.role || "GESTOR").trim() || "GESTOR";
-            return { tenantId: tid, role };
-        }
-        return null;
-    }
-    async function fromMembrosEmail() {
-        const fields = ["EMAIL", "email", "mail"];
-        const vals = emailLower === emailRaw ? [emailLower] : [emailLower, emailRaw];
-        const tasks = [];
-        for (const field of fields) {
-            for (const val of vals) {
-                tasks.push({ field, val });
+            const snaps = await Promise.all(tasks.map((t) => db.collection("igrejas").where(t.field, "==", t.val).limit(1).get()));
+            for (let i = 0; i < snaps.length; i++) {
+                const q = snaps[i];
+                if (q.empty)
+                    continue;
+                const id = q.docs[0].id;
+                const ig = await db.collection("igrejas").doc(id).get();
+                if (ig.exists)
+                    return id;
             }
+            return null;
         }
-        const snaps = await Promise.all(tasks.map((t) => db
-            .collectionGroup("membros")
-            .where(t.field, "==", t.val)
-            .limit(8)
-            .get()));
-        for (let i = 0; i < snaps.length; i++) {
-            const snap = snaps[i];
+        async function fromMembrosAuthUid() {
+            const snap = await db
+                .collectionGroup("membros")
+                .where("authUid", "==", uid)
+                .limit(15)
+                .get();
             for (const doc of snap.docs) {
                 const parts = doc.ref.path.split("/");
                 if (parts[0] !== "igrejas" || parts[2] !== "membros")
@@ -2264,129 +2205,192 @@ exports.repairMyChurchBinding = functions
                     continue;
                 const md = doc.data() || {};
                 const st = String(md.STATUS || md.status || "").toLowerCase();
-                if (st === "reprovado")
-                    continue;
                 const pending = st === "pendente";
                 const roleRaw = String(md.role || md.FUNCAO || md.funcao || "membro").trim();
                 return { tenantId: tid, role: roleRaw || "membro", pending };
             }
+            return null;
         }
-        return null;
-    }
-    function claimRoleFromRaw(raw, fallback) {
-        const s = String(raw || "").trim();
-        if (!s)
-            return fallback;
-        const low = s.toLowerCase();
-        if (low === "membro")
-            return "membro";
-        if (low === "gestor")
-            return "GESTOR";
-        if (low === "adm" || low === "admin" || low === "administrador")
-            return "ADM";
-        return s.length <= 24 ? s.toUpperCase() : "membro";
-    }
-    let tenantId = null;
-    let roleOut = "GESTOR";
-    let pendingApproval = false;
-    let activeClaim = true;
-    const [gestorId, byUid, ui] = await Promise.all([
-        firstIgrejaFromGestorFields(),
-        fromMembrosAuthUid(),
-        fromUsersIndex(),
-    ]);
-    if (gestorId) {
-        tenantId = gestorId;
-        roleOut = "GESTOR";
-        pendingApproval = false;
-        activeClaim = true;
-    }
-    else if (byUid) {
-        tenantId = byUid.tenantId;
-        roleOut = claimRoleFromRaw(byUid.role, "membro");
-        pendingApproval = byUid.pending;
-        activeClaim = !byUid.pending;
-    }
-    else if (ui) {
-        tenantId = ui.tenantId;
-        roleOut = claimRoleFromRaw(ui.role, "GESTOR");
-    }
-    if (!tenantId) {
-        const byEmail = await fromMembrosEmail();
-        if (byEmail) {
-            tenantId = byEmail.tenantId;
-            roleOut = claimRoleFromRaw(byEmail.role, "membro");
-            pendingApproval = byEmail.pending;
-            activeClaim = !byEmail.pending;
-        }
-    }
-    if (!tenantId) {
-        throw new functions.https.HttpsError("not-found", "Nenhuma igreja ativa encontrada para sua conta. Use a página inicial (Carregar igreja) ou peça ao gestor.");
-    }
-    const churchSnap = await db.collection("igrejas").doc(tenantId).get();
-    if (!churchSnap.exists) {
-        throw new functions.https.HttpsError("not-found", "Igreja não encontrada.");
-    }
-    const authUser = await admin.auth().getUser(uid);
-    const cur = (authUser.customClaims || {});
-    await admin.auth().setCustomUserClaims(uid, {
-        ...cur,
-        role: roleOut,
-        igrejaId: tenantId,
-        tenantId,
-        active: activeClaim,
-        isUser: true,
-        isDriver: cur.isDriver === true,
-        pendingApproval,
-    });
-    await db.collection("users").doc(uid).set({
-        uid,
-        email: authEmail,
-        igrejaId: tenantId,
-        tenantId,
-        role: roleOut,
-        ativo: activeClaim,
-        active: activeClaim,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
-    try {
-        const membroSnap = await db
-            .collectionGroup("membros")
-            .where("authUid", "==", uid)
-            .limit(3)
-            .get();
-        for (const m of membroSnap.docs) {
-            const parts = m.ref.path.split("/");
-            if (parts[0] !== "igrejas" || parts[2] !== "membros" || parts[1] !== tenantId) {
-                continue;
+        async function fromUsersIndex() {
+            const snap = await db
+                .collectionGroup("usersIndex")
+                .where("email", "==", emailLower)
+                .limit(5)
+                .get();
+            for (const d of snap.docs) {
+                const data = d.data() || {};
+                const tid = String(data.tenantId || d.ref.parent.parent?.id || "").trim();
+                if (!tid)
+                    continue;
+                const ig = await db.collection("igrejas").doc(tid).get();
+                if (!ig.exists)
+                    continue;
+                const role = String(data.role || "GESTOR").trim() || "GESTOR";
+                return { tenantId: tid, role };
             }
-            const { syncSessionFromMembroDoc } = await Promise.resolve().then(() => __importStar(require("./membroSessionSync")));
-            await syncSessionFromMembroDoc(tenantId, m.id, m.data());
-            break;
+            return null;
         }
+        async function fromMembrosEmail() {
+            const fields = ["EMAIL", "email", "mail"];
+            const vals = emailLower === emailRaw ? [emailLower] : [emailLower, emailRaw];
+            const tasks = [];
+            for (const field of fields) {
+                for (const val of vals) {
+                    tasks.push({ field, val });
+                }
+            }
+            const snaps = await Promise.all(tasks.map((t) => db
+                .collectionGroup("membros")
+                .where(t.field, "==", t.val)
+                .limit(8)
+                .get()));
+            for (let i = 0; i < snaps.length; i++) {
+                const snap = snaps[i];
+                for (const doc of snap.docs) {
+                    const parts = doc.ref.path.split("/");
+                    if (parts[0] !== "igrejas" || parts[2] !== "membros")
+                        continue;
+                    const tid = parts[1];
+                    const ig = await db.collection("igrejas").doc(tid).get();
+                    if (!ig.exists)
+                        continue;
+                    const md = doc.data() || {};
+                    const st = String(md.STATUS || md.status || "").toLowerCase();
+                    if (st === "reprovado")
+                        continue;
+                    const pending = st === "pendente";
+                    const roleRaw = String(md.role || md.FUNCAO || md.funcao || "membro").trim();
+                    return { tenantId: tid, role: roleRaw || "membro", pending };
+                }
+            }
+            return null;
+        }
+        function claimRoleFromRaw(raw, fallback) {
+            const s = String(raw || "").trim();
+            if (!s)
+                return fallback;
+            const low = s.toLowerCase();
+            if (low === "membro")
+                return "membro";
+            if (low === "gestor")
+                return "GESTOR";
+            if (low === "adm" || low === "admin" || low === "administrador")
+                return "ADM";
+            return s.length <= 24 ? s.toUpperCase() : "membro";
+        }
+        let tenantId = null;
+        let roleOut = "GESTOR";
+        let pendingApproval = false;
+        let activeClaim = true;
+        const [gestorId, byUid, ui] = await Promise.all([
+            firstIgrejaFromGestorFields(),
+            fromMembrosAuthUid(),
+            fromUsersIndex(),
+        ]);
+        if (gestorId) {
+            tenantId = gestorId;
+            roleOut = "GESTOR";
+            pendingApproval = false;
+            activeClaim = true;
+        }
+        else if (byUid) {
+            tenantId = byUid.tenantId;
+            roleOut = claimRoleFromRaw(byUid.role, "membro");
+            pendingApproval = byUid.pending;
+            activeClaim = !byUid.pending;
+        }
+        else if (ui) {
+            tenantId = ui.tenantId;
+            roleOut = claimRoleFromRaw(ui.role, "GESTOR");
+        }
+        if (!tenantId) {
+            const byEmail = await fromMembrosEmail();
+            if (byEmail) {
+                tenantId = byEmail.tenantId;
+                roleOut = claimRoleFromRaw(byEmail.role, "membro");
+                pendingApproval = byEmail.pending;
+                activeClaim = !byEmail.pending;
+            }
+        }
+        if (!tenantId) {
+            throw new functions.https.HttpsError("not-found", "Nenhuma igreja ativa encontrada para sua conta. Use a página inicial (Carregar igreja) ou peça ao gestor.");
+        }
+        const churchSnap = await db.collection("igrejas").doc(tenantId).get();
+        if (!churchSnap.exists) {
+            throw new functions.https.HttpsError("not-found", "Igreja não encontrada.");
+        }
+        const authUser = await admin.auth().getUser(uid);
+        const cur = (authUser.customClaims || {});
+        await admin.auth().setCustomUserClaims(uid, {
+            ...cur,
+            role: roleOut,
+            igrejaId: tenantId,
+            tenantId,
+            active: activeClaim,
+            isUser: true,
+            isDriver: cur.isDriver === true,
+            pendingApproval,
+        });
+        await db.collection("users").doc(uid).set({
+            uid,
+            email: authEmail,
+            igrejaId: tenantId,
+            tenantId,
+            role: roleOut,
+            ativo: activeClaim,
+            active: activeClaim,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        try {
+            const membroSnap = await db
+                .collectionGroup("membros")
+                .where("authUid", "==", uid)
+                .limit(3)
+                .get();
+            for (const m of membroSnap.docs) {
+                const parts = m.ref.path.split("/");
+                if (parts[0] !== "igrejas" || parts[2] !== "membros" || parts[1] !== tenantId) {
+                    continue;
+                }
+                const { syncSessionFromMembroDoc } = await Promise.resolve().then(() => __importStar(require("./membroSessionSync")));
+                await syncSessionFromMembroDoc(tenantId, m.id, m.data());
+                break;
+            }
+        }
+        catch (e) {
+            functions.logger.warn("repairMyChurchBinding: sync chat profile", { uid, tenantId, e });
+        }
+        try {
+            const { repairDmThreadsForTenant } = await Promise.resolve().then(() => __importStar(require("./churchChatDmThreadNormalize")));
+            const repaired = await repairDmThreadsForTenant(tenantId);
+            if (repaired > 0) {
+                functions.logger.info("repairMyChurchBinding: DM threads reparados", {
+                    tenantId,
+                    repaired,
+                });
+            }
+        }
+        catch (e) {
+            functions.logger.warn("repairMyChurchBinding: repair DM threads", { uid, tenantId, e });
+        }
+        return {
+            ok: true,
+            tenantId,
+            role: roleOut,
+            pendingApproval,
+        };
     }
     catch (e) {
-        functions.logger.warn("repairMyChurchBinding: sync chat profile", { uid, tenantId, e });
+        if (e instanceof functions.https.HttpsError)
+            throw e;
+        const err = e instanceof Error ? e : new Error(String(e));
+        functions.logger.error("repairMyChurchBinding: unhandled 500", {
+            uid: context.auth?.uid ?? null,
+            message: err.message,
+            stack: err.stack ?? null,
+        });
+        throw new functions.https.HttpsError("internal", err.message || "Erro interno ao reparar vínculo com a igreja.", { stack: err.stack ?? null });
     }
-    try {
-        const { repairDmThreadsForTenant } = await Promise.resolve().then(() => __importStar(require("./churchChatDmThreadNormalize")));
-        const repaired = await repairDmThreadsForTenant(tenantId);
-        if (repaired > 0) {
-            functions.logger.info("repairMyChurchBinding: DM threads reparados", {
-                tenantId,
-                repaired,
-            });
-        }
-    }
-    catch (e) {
-        functions.logger.warn("repairMyChurchBinding: repair DM threads", { uid, tenantId, e });
-    }
-    return {
-        ok: true,
-        tenantId,
-        role: roleOut,
-        pendingApproval,
-    };
 });
 /**
  * GESTOR/ADM/MASTER — Após alterar funções do membro no painel: atualiza custom claims + users + usersIndex
@@ -3700,19 +3704,10 @@ async function findMemberDocumentInTenant(tenantId, memberId) {
     return null;
 }
 async function findMemberDocument(tenantId, memberId) {
-    const cluster = new Set();
-    const seed = String(tenantId || "").trim();
-    if (!seed)
+    const tid = String(tenantId || "").trim();
+    if (!tid)
         return null;
-    cluster.add(seed);
-    cluster.add((0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(seed));
-    (0, churchClusterAnchors_1.addAnchoredCluster)(seed, cluster);
-    for (const tid of cluster) {
-        const hit = await findMemberDocumentInTenant(tid, memberId);
-        if (hit)
-            return hit;
-    }
-    return null;
+    return findMemberDocumentInTenant(tid, memberId);
 }
 /**
  * Cria Firebase Auth (UID gerado pelo Firebase), grava users + usersIndex e move o doc de
@@ -4523,12 +4518,11 @@ exports.setMemberApproved = functions
     const role = String(context.auth.token?.role || "").toUpperCase();
     const igrejaId = context.auth.token?.igrejaId || context.auth.token?.tenantId;
     const email = String(context.auth.token?.email || "").trim().toLowerCase();
-    const effectiveTenantId = (0, churchClusterAnchors_1.resolveAnchoredCanonicalTenantId)(tenantId);
-    const canApprove = await callerCanApprovePendingMembers(context.auth.uid, role, igrejaId, effectiveTenantId, email);
+    const canApprove = await callerCanApprovePendingMembers(context.auth.uid, role, igrejaId, tenantId, email);
     if (!canApprove) {
         throw new functions.https.HttpsError("permission-denied", "Sem permissão para aprovar cadastros (gestor, pastor ou secretário).");
     }
-    const found = await findMemberDocument(effectiveTenantId, memberId);
+    const found = await findMemberDocument(tenantId, memberId);
     if (!found) {
         throw new functions.https.HttpsError("not-found", "Membro não encontrado.");
     }
@@ -4540,7 +4534,7 @@ exports.setMemberApproved = functions
         aprovadoEm: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     try {
-        await (0, memberCodigo_1.ensureCodigoMembroOnMember)(effectiveTenantId, memberId, found.data);
+        await (0, memberCodigo_1.ensureCodigoMembroOnMember)(tenantId, memberId, found.data);
     }
     catch (codErr) {
         console.warn("setMemberApproved codigoMembro", codErr);
@@ -4549,7 +4543,7 @@ exports.setMemberApproved = functions
     const d = after.data() || {};
     let authUid = String(d.authUid || "").trim();
     if (!authUid) {
-        const r = await ensureMemberFirebaseAuth(effectiveTenantId, memberId, memberRef, { ...d, STATUS: "ativo", status: "ativo" });
+        const r = await ensureMemberFirebaseAuth(tenantId, memberId, memberRef, { ...d, STATUS: "ativo", status: "ativo" });
         authUid = r.uid;
     }
     try {
@@ -4560,8 +4554,8 @@ exports.setMemberApproved = functions
     }
     await admin.auth().setCustomUserClaims(authUid, {
         role: "membro",
-        igrejaId: effectiveTenantId,
-        tenantId: effectiveTenantId,
+        igrejaId: tenantId,
+        tenantId: tenantId,
         active: true,
         isUser: true,
         isDriver: false,
@@ -4573,13 +4567,13 @@ exports.setMemberApproved = functions
         const idx = { active: true, pendingApproval: false };
         await db
             .collection("tenants")
-            .doc(effectiveTenantId)
+            .doc(tenantId)
             .collection("usersIndex")
             .doc(cpf)
             .set(idx, { merge: true });
         await db
             .collection("igrejas")
-            .doc(effectiveTenantId)
+            .doc(tenantId)
             .collection("usersIndex")
             .doc(cpf)
             .set(idx, { merge: true });
@@ -5698,12 +5692,12 @@ exports.onScheduleCreate = functions
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     try {
-        await (0, pushNovoConteudo_1.sendGyTopicPushCluster)(tenantId, "escala", (effectiveTenantId) => (0, notificationBranding_1.buildGyTopicMessage)({
-            topic: (0, pushNovoConteudo_1.topicPushNovo)(effectiveTenantId, "escala"),
+        await (0, pushNovoConteudo_1.sendGyTopicPush)(tenantId, "escala", (churchId) => (0, notificationBranding_1.buildGyTopicMessage)({
+            topic: (0, pushNovoConteudo_1.topicPushNovo)(churchId, "escala"),
             title: "📋 Nova escala",
             body,
             data: {
-                tenantId: effectiveTenantId,
+                tenantId: churchId,
                 departmentId: deptId,
                 scheduleId: context.params.id,
                 type: "nova_escala",

@@ -1,0 +1,271 @@
+import 'dart:typed_data';
+
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
+import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
+
+/// Upload directo Storage → URL — port 1:1 do EcoFire `StorageUploadService`,
+/// com paths canónicos `igrejas/{churchId}/…` do Gestão YAHWEH.
+abstract final class EcoFireStorageUpload {
+  EcoFireStorageUpload._();
+
+  static const int _maxAttempts = 2;
+
+  static Future<String> putData({
+    required String storagePath,
+    required Uint8List bytes,
+    required String mimeType,
+    void Function(double progress)? onProgress,
+  }) async {
+    LegacyPathGuard.assertCanonicalStoragePath(
+      storagePath,
+      context: 'EcoFireStorageUpload.putData',
+    );
+    EcoFireFlow.log('STORAGE putData $storagePath');
+    await ensureFirebaseCore(requireAuth: true);
+
+    Object? lastError;
+    for (var attempt = 0; attempt < _maxAttempts; attempt++) {
+      try {
+        if (attempt > 0) {
+          await Future<void>.delayed(Duration(milliseconds: 400 * attempt));
+        }
+        final ref = firebaseStorageRef(storagePath);
+        final ct = StorageUploadMetadata.contentTypeForPut(
+          contentType: mimeType,
+          storagePath: storagePath,
+        );
+        final task = ref.putData(
+          bytes,
+          SettableMetadata(
+            contentType: ct,
+            cacheControl: StorageUploadMetadata.cacheControl,
+          ),
+        );
+        if (onProgress != null) {
+          task.snapshotEvents.listen((snap) {
+            final total = snap.totalBytes;
+            if (total > 0) {
+              onProgress(snap.bytesTransferred / total);
+            }
+          });
+        }
+        await task;
+        final url = await ref.getDownloadURL();
+        EcoFireFlow.log('STORAGE OK $storagePath');
+        return url;
+      } catch (e) {
+        lastError = e;
+        EcoFireFlow.log('STORAGE retry $attempt: $e');
+      }
+    }
+    throw lastError ?? StateError('storage_upload_failed:$storagePath');
+  }
+
+  /// Logo igreja — sobrescreve `configuracoes/logo_igreja.png`.
+  static Future<({String url, String storagePath})> uploadChurchLogo({
+    required String churchId,
+    required Uint8List bytes,
+    required String mimeType,
+    void Function(double progress)? onProgress,
+  }) async {
+    final path = ChurchStorageLayout.churchIdentityLogoPath(churchId);
+    final url = await putData(
+      storagePath: path,
+      bytes: bytes,
+      mimeType: mimeType,
+      onProgress: onProgress,
+    );
+    return (url: url, storagePath: path);
+  }
+
+  /// Foto perfil membro — `membros/fotos/{id}.webp` (+ thumb opcional).
+  static Future<({String url, String storagePath, String? thumbUrl})>
+      uploadMemberProfile({
+    required String churchId,
+    required String memberId,
+    required Uint8List fullBytes,
+    required String mimeType,
+    Uint8List? thumbBytes,
+    void Function(double progress)? onProgress,
+  }) async {
+    final path = ChurchStorageLayout.memberProfilePhotoPath(churchId, memberId);
+    final url = await putData(
+      storagePath: path,
+      bytes: fullBytes,
+      mimeType: mimeType,
+      onProgress: onProgress,
+    );
+    String? thumbUrl;
+    if (thumbBytes != null && thumbBytes.isNotEmpty) {
+      final thumbPath =
+          ChurchStorageLayout.memberProfileThumbPath(churchId, memberId);
+      thumbUrl = await putData(
+        storagePath: thumbPath,
+        bytes: thumbBytes,
+        mimeType: 'image/webp',
+      );
+    }
+    return (url: url, storagePath: path, thumbUrl: thumbUrl);
+  }
+
+  static Future<({String url, String storagePath})> uploadAvisoPhoto({
+    required String churchId,
+    required String postId,
+    required int slotIndex,
+    required Uint8List bytes,
+    required String mimeType,
+    void Function(double progress)? onProgress,
+  }) async {
+    final path =
+        ChurchStorageLayout.avisoPostPhotoPath(churchId, postId, slotIndex);
+    final url = await putData(
+      storagePath: path,
+      bytes: bytes,
+      mimeType: mimeType,
+      onProgress: onProgress,
+    );
+    return (url: url, storagePath: path);
+  }
+
+  static Future<({String url, String storagePath})> uploadEventoPhoto({
+    required String churchId,
+    required String postId,
+    required int slotIndex,
+    required Uint8List bytes,
+    required String mimeType,
+    void Function(double progress)? onProgress,
+  }) async {
+    final path =
+        ChurchStorageLayout.eventPostPhotoPath(churchId, postId, slotIndex);
+    final url = await putData(
+      storagePath: path,
+      bytes: bytes,
+      mimeType: mimeType,
+      onProgress: onProgress,
+    );
+    return (url: url, storagePath: path);
+  }
+
+  static Future<({String url, String storagePath})> uploadPatrimonioPhoto({
+    required String churchId,
+    required String itemId,
+    required int slotIndex,
+    required Uint8List bytes,
+    required String mimeType,
+    void Function(double progress)? onProgress,
+  }) async {
+    final path =
+        ChurchStorageLayout.patrimonioPhotoPath(churchId, itemId, slotIndex);
+    final url = await putData(
+      storagePath: path,
+      bytes: bytes,
+      mimeType: mimeType,
+      onProgress: onProgress,
+    );
+    return (url: url, storagePath: path);
+  }
+
+  static Future<({String url, String storagePath})> uploadFinanceComprovante({
+    required String churchId,
+    required String lancamentoId,
+    required Uint8List bytes,
+    required String mimeType,
+    DateTime? referenceDate,
+    void Function(double progress)? onProgress,
+  }) async {
+    final ext = EcoFireImageProcess.extensionFromMime(mimeType);
+    final path = ChurchStorageLayout.financeComprovantePath(
+      tenantId: churchId,
+      lancamentoId: lancamentoId,
+      referenceDate: referenceDate,
+      ext: ext,
+    );
+    final url = await putData(
+      storagePath: path,
+      bytes: bytes,
+      mimeType: mimeType,
+      onProgress: onProgress,
+    );
+    return (url: url, storagePath: path);
+  }
+
+  /// Fallback EcoFire: resolve URL quando Firestore não tem https válido.
+  static Future<String?> downloadUrlFromStoragePath(String? storagePath) async {
+    final p = (storagePath ?? '').trim();
+    if (p.isEmpty || p.startsWith('http')) return null;
+    try {
+      await ensureFirebaseCore(requireAuth: false);
+      return await firebaseStorageRef(p).getDownloadURL();
+    } catch (_) {}
+    return null;
+  }
+
+  /// Fallback logo — tenta paths canónicos da igreja.
+  static Future<String?> churchLogoFallback(
+    String churchId, {
+    String? churchName,
+  }) async {
+    for (final path in ChurchStorageLayout.churchLogoObjectPathsToTry(
+      churchId,
+      churchName,
+    )) {
+      final url = await downloadUrlFromStoragePath(path);
+      if (url != null && url.isNotEmpty) return url;
+    }
+    return null;
+  }
+
+  /// Fallback foto membro — canónico + legado `foto_perfil.jpg`.
+  static Future<String?> memberPhotoFallback(
+    String churchId,
+    String memberId,
+  ) async {
+    final paths = <String>[
+      ChurchStorageLayout.memberProfilePhotoPath(churchId, memberId),
+      ChurchStorageLayout.memberProfileThumbPath(churchId, memberId),
+      ChurchStorageLayout.memberCanonicalProfilePhotoPathLegacy(
+        churchId,
+        memberId,
+      ),
+    ];
+    for (final path in paths) {
+      final url = await downloadUrlFromStoragePath(path);
+      if (url != null && url.isNotEmpty) return url;
+    }
+    try {
+      final prefix = ChurchStorageLayout.memberProfilePhotoPath(churchId, memberId)
+          .split('/')
+          .last
+          .replaceAll('.webp', '');
+      final folder = firebaseStorageRef(
+        '${ChurchStorageLayout.churchRoot(churchId)}/${ChurchStorageLayout.kSegMembros}/fotos',
+      );
+      final list = await folder.listAll();
+      for (final item in list.items) {
+        if (item.name.startsWith(prefix)) {
+          return item.getDownloadURL();
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Fallback aviso/evento — tenta extensões comuns no path base.
+  static Future<String?> postPhotoFallback(String storagePathBase) async {
+    final base = storagePathBase.trim();
+    if (base.isEmpty) return null;
+    for (final ext in ['webp', 'jpg', 'jpeg', 'png']) {
+      final url = await downloadUrlFromStoragePath('$base.$ext');
+      if (url != null && url.isNotEmpty) return url;
+    }
+    if (base.contains('.')) {
+      return downloadUrlFromStoragePath(base);
+    }
+    return null;
+  }
+}

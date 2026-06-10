@@ -43,7 +43,7 @@ import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
@@ -363,15 +363,10 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   Future<void> _bootstrapFirestoreTenant() async {
-    final uid = firebaseDefaultAuth.currentUser?.uid;
     try {
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(
-        widget.tenantId,
-        userUid: uid,
-      ).timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => _firestoreTenantId ?? widget.tenantId,
-      );
+      final tid = ChurchRepository.churchId(widget.tenantId).isNotEmpty
+          ? ChurchRepository.churchId(widget.tenantId)
+          : widget.tenantId.trim();
       if (!mounted) return;
       final changed = tid.isNotEmpty && tid != _tid;
       if (changed) {
@@ -3520,7 +3515,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   Future<void> _addEncodedFeedPhoto(XFile encoded) async {
     final displayName = encoded.name.isNotEmpty
         ? encoded.name
-        : (kIsWeb ? 'foto.webp' : 'foto.jpg');
+        : 'foto.webp';
     Uint8List? webBytes;
     String? mobilePath;
     if (kIsWeb) {
@@ -3774,10 +3769,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   Future<void> _resolveOperationalTenantForEditor() async {
     try {
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(
-        widget.tenantId,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
-      );
+      final tid = ChurchRepository.churchId(widget.tenantId);
       if (!mounted || tid.trim().isEmpty) return;
       setState(() => _operationalTenantId = tid.trim());
     } catch (_) {}

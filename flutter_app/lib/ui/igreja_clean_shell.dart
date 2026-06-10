@@ -2572,12 +2572,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                 const ChurchPanelAppUpdateBanner(),
                                 _buildPaymentConfirmedBanner(),
                                 _buildGracePeriodBanner(guard),
-                                /// Fornecedores / Financeiro: UI própria em ecrã completo (abas pill / resumo) — sem título duplicado.
-                                /// Chat (24) tem barra própria compacta — evita título duplicado.
-                                if (_selectedIndex != 0 &&
-                                    _selectedIndex != 21 &&
-                                    _selectedIndex != 20 &&
-                                    _selectedIndex != ChurchShellIndices.chatIgreja)
+                                /// Módulos com UI full-bleed no telefone: [ModuleHeaderPremium] traz voltar ao Painel.
+                                if (_selectedIndex != 0)
                                   ModuleHeaderPremium(
                                     title: _items[_selectedIndex].label,
                                     icon: _items[_selectedIndex].icon,

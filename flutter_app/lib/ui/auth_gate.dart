@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import '../services/ios_payments_gate.dart';
 
@@ -35,6 +36,7 @@ import '../services/persistent_auth_session_service.dart';
 import '../services/session_restore_service.dart';
 import '../services/church_sign_out_navigation.dart';
 import '../services/app_session_stability.dart';
+import '../services/web_panel_stability.dart';
 import '../core/firebase_auth_token_guard.dart';
 import '../core/roles_permissions.dart';
 import '../core/app_constants.dart';
@@ -504,6 +506,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     AppSessionStability.rememberUser(FirebaseAuth.instance.currentUser);
+    WebPanelStability.bindLoginSession(FirebaseAuth.instance.currentUser);
     if (kIsWeb) {
       _scheduleWebSessionCap();
     }
@@ -1229,6 +1232,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
   }
 
   Future<void> _scheduleChurchBindingRepair(User user) async {
+    if (EcoFireFlow.disableRepairMyChurchBinding) return;
     if (!AppConnectivityService.instance.isOnline) return;
     if (await ChurchBindingRepairCoordinator.shouldSkipRepairDueToRecentSuccess(
         user.uid)) {
@@ -1246,7 +1250,15 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       if (fresh != null) {
         await AuthProfileCacheService.instance.save(user.uid, fresh);
       }
-    } catch (_) {}
+    } on FirebaseFunctionsException catch (e, st) {
+      debugPrint(
+        'repairMyChurchBinding (soft fail, sessão mantida): ${e.code} ${e.message}\n$st',
+      );
+    } on TimeoutException catch (e) {
+      debugPrint('repairMyChurchBinding timeout (soft fail): $e');
+    } catch (e, st) {
+      debugPrint('repairMyChurchBinding (soft fail): $e\n$st');
+    }
   }
 
   Future<void> _enrichProfileWithMemberAsync(

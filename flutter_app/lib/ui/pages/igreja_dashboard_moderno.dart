@@ -46,6 +46,7 @@ import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/panel_finance_snapshot_service.dart';
+import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/yahweh_panel_cache_warmup.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/utils/independent_futures.dart';
@@ -218,6 +219,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   bool _initialAuthTokenForced = false;
 
+  int _financeDashTick = 0;
+  VoidCallback? _financeMutationListener;
+
   DateTimeRange get _resolvedDashFinanceRange =>
       ChurchDashboardFinancePeriod.resolve(
         preset: _dashFinancePreset,
@@ -289,6 +293,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       unawaited(_hydrateMembersDirectory(tidBoot));
     }
     _loadStreams();
+    _financeMutationListener = () {
+      if (!mounted) return;
+      setState(() => _financeDashTick++);
+    };
+    ChurchFinanceRealtimeService.mutationEpoch
+        .addListener(_financeMutationListener!);
   }
 
   void _attachHeavyDashboardStreamsInline(List<String> allIds) {
@@ -345,6 +355,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   @override
   void dispose() {
+    if (_financeMutationListener != null) {
+      ChurchFinanceRealtimeService.mutationEpoch
+          .removeListener(_financeMutationListener!);
+    }
     WidgetsBinding.instance.removeObserver(this);
     _dashboardMainSub?.cancel();
     _membersDirectorySub?.cancel();
@@ -1258,6 +1272,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                 tenantId: _effectiveTenantId,
                                 range: _resolvedDashFinanceRange,
                                 preset: _dashFinancePreset,
+                                financeRefreshTick: _financeDashTick,
                               ),
                             ),
                             const SizedBox(height: ThemeCleanPremium.spaceLg),
@@ -1272,6 +1287,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                                 podeVerFinanceiro: widget.podeVerFinanceiro,
                                 permissions: widget.permissions,
                                 isNarrow: isNarrow,
+                                financeRefreshTick: _financeDashTick,
                               ),
                             ),
                           ],
@@ -5647,17 +5663,49 @@ class _HorizontalDespesasBarChart extends StatelessWidget {
   }
 }
 
-/// Gráfico fluxo financeiro — cache `finance_summary` (sem stream de 2500).
-class _GraficoFinanceiro extends StatelessWidget {
+/// Gráfico fluxo financeiro — cache `finance_summary` + refresh após lançamento.
+class _GraficoFinanceiro extends StatefulWidget {
   final String tenantId;
   final DateTimeRange range;
   final ChurchDashboardFinancePreset preset;
+  final int financeRefreshTick;
 
   const _GraficoFinanceiro({
     required this.tenantId,
     required this.range,
     required this.preset,
+    this.financeRefreshTick = 0,
   });
+
+  @override
+  State<_GraficoFinanceiro> createState() => _GraficoFinanceiroState();
+}
+
+class _GraficoFinanceiroState extends State<_GraficoFinanceiro> {
+  PanelFinanceSnapshot? _serverSnapshot;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.financeRefreshTick > 0) {
+      unawaited(_loadServerSnapshot());
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _GraficoFinanceiro oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.financeRefreshTick != widget.financeRefreshTick) {
+      unawaited(_loadServerSnapshot());
+    }
+  }
+
+  Future<void> _loadServerSnapshot() async {
+    final snap = await PanelFinanceSnapshotService.readOnceFromServer(
+      widget.tenantId,
+    );
+    if (mounted) setState(() => _serverSnapshot = snap);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -5665,7 +5713,7 @@ class _GraficoFinanceiro extends StatelessWidget {
       title: 'Fluxo Financeiro',
       icon: Icons.account_balance_wallet_rounded,
       child: StreamBuilder<PanelFinanceSnapshot>(
-        stream: PanelFinanceSnapshotService.watch(tenantId),
+        stream: PanelFinanceSnapshotService.watch(widget.tenantId),
         builder: (context, snap) {
           if (snap.hasError) {
             return SizedBox(
@@ -5684,14 +5732,18 @@ class _GraficoFinanceiro extends StatelessWidget {
               child: Center(child: CircularProgressIndicator()),
             );
           }
-          return _buildChartFromSnapshot(snap.data ?? const PanelFinanceSnapshot());
+          final streamSnap = snap.data ?? const PanelFinanceSnapshot();
+          final snapshot = (_serverSnapshot != null && _serverSnapshot!.hasData)
+              ? _serverSnapshot!
+              : streamSnap;
+          return _buildChartFromSnapshot(snapshot);
         },
       ),
     );
   }
 
   Widget _buildChartFromSnapshot(PanelFinanceSnapshot snapshot) {
-    final buckets = _dashboardFinanceBuckets(range, preset);
+    final buckets = _dashboardFinanceBuckets(widget.range, widget.preset);
     final byBucket = PanelFinanceSnapshotService.netFlowByBuckets(
       snapshot: snapshot,
       bucketStarts: buckets.bucketStarts,
@@ -5717,9 +5769,9 @@ class _GraficoFinanceiro extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '${ChurchDashboardFinancePeriod.presetLabel(preset)} · '
-          '${range.start.day.toString().padLeft(2, '0')}/${range.start.month.toString().padLeft(2, '0')} '
-          '— ${range.end.day.toString().padLeft(2, '0')}/${range.end.month.toString().padLeft(2, '0')}/${range.end.year}',
+          '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} · '
+          '${widget.range.start.day.toString().padLeft(2, '0')}/${widget.range.start.month.toString().padLeft(2, '0')} '
+          '— ${widget.range.end.day.toString().padLeft(2, '0')}/${widget.range.end.month.toString().padLeft(2, '0')}/${widget.range.end.year}',
           style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
         ),
         const SizedBox(height: 8),
@@ -5900,6 +5952,7 @@ class _PainelDespesasDashboard extends StatefulWidget {
   final bool? podeVerFinanceiro;
   final List<String>? permissions;
   final bool isNarrow;
+  final int financeRefreshTick;
 
   const _PainelDespesasDashboard({
     required this.range,
@@ -5910,6 +5963,7 @@ class _PainelDespesasDashboard extends StatefulWidget {
     this.podeVerFinanceiro,
     this.permissions,
     required this.isNarrow,
+    this.financeRefreshTick = 0,
   });
 
   @override
@@ -5929,6 +5983,7 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
   void didUpdateWidget(covariant _PainelDespesasDashboard oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId ||
+        oldWidget.financeRefreshTick != widget.financeRefreshTick ||
         !ChurchDashboardFinancePeriod.sameRange(
           oldWidget.range,
           widget.range,
@@ -5944,10 +5999,10 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
       _recentDespesasFuture = null;
       return;
     }
-    _recentDespesasFuture =         ChurchUiCollections.financeiro(tid)
-        .orderBy('createdAt', descending: true)
-        .limit(180)
-        .get();
+    _recentDespesasFuture = ChurchFinanceRealtimeService.fetchFinanceFresh(
+      tid,
+      limit: 180,
+    );
   }
 
   static bool _ehDespesa(Map<String, dynamic> data) {

@@ -33,7 +33,10 @@ node_modules/
 functions/node_modules/
 scripts/node_modules/
 
-# IDE / OS
+# Referência EcoFire (extração local — não versionar)
+_ecofire_ref/
+Ecofire_Independente.rar
+
 .idea/
 .vscode/
 *.iml

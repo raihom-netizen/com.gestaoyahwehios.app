@@ -153,4 +153,18 @@ class PanelFinanceSnapshotService {
       return const PanelFinanceSnapshot();
     }
   }
+
+  /// Ignora cache local — uso após lançamento financeiro (actualização imediata).
+  static Future<PanelFinanceSnapshot> readOnceFromServer(String tenantId) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return const PanelFinanceSnapshot();
+    try {
+      final snap = await cacheRef(tid).get(
+        const GetOptions(source: Source.server),
+      );
+      return PanelFinanceSnapshot.fromMap(snap.data());
+    } catch (_) {
+      return readOnce(tid);
+    }
+  }
 }

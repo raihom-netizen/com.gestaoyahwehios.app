@@ -11,15 +11,9 @@ import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
-import 'package:gestao_yahweh/services/global_tenant_audit_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/core/tenant/diagnostic_access_policy.dart';
-import 'package:gestao_yahweh/ui/pages/church_panel_diagnostic_page.dart';
-import 'package:gestao_yahweh/ui/pages/church_system_health_page.dart';
-import 'package:gestao_yahweh/ui/pages/debug_church_page.dart';
-import 'package:gestao_yahweh/ui/pages/church_sync_test_page.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
@@ -88,57 +82,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   bool _userAtivoNoPainel = false;
   String _accountEmailDisplay = '';
   String? _operationalTenantId;
-  GlobalTenantAuditReport? _globalAudit;
-  ChurchDataAuditReport? _dataLayerAudit;
-  bool _churchSyncDiagnosticLoading = false;
-  bool _dataLayerAuditLoading = false;
 
   String get _effectiveTenantId =>
       (_operationalTenantId ?? widget.tenantId).trim();
-
-  /// Diagnóstico técnico (DEBUG CHURCH, paths Firestore) — somente Master.
-  bool get _isMasterDiagnosticRole =>
-      DiagnosticAccessPolicy.isMasterDiagnosticRole(widget.role);
-
-  Future<void> _runChurchSyncDiagnostic() async {
-    if (_churchSyncDiagnosticLoading) return;
-    setState(() => _churchSyncDiagnosticLoading = true);
-    try {
-      final report = await GlobalTenantAuditService.run(
-        seedTenantId: _effectiveTenantId,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      );
-      if (!mounted) return;
-      setState(() {
-        _globalAudit = report;
-        _churchSyncDiagnosticLoading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _churchSyncDiagnosticLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Diagnóstico falhou: $e')),
-      );
-    }
-  }
-
-  Future<void> _runDataLayerAudit() async {
-    if (_dataLayerAuditLoading) return;
-    setState(() => _dataLayerAuditLoading = true);
-    try {
-      final report = await ChurchRepository.runFullAudit(
-        churchIdHint: _effectiveTenantId,
-      );
-      if (!mounted) return;
-      setState(() {
-        _dataLayerAudit = report;
-        _dataLayerAuditLoading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _dataLayerAuditLoading = false);
-    }
-  }
 
   @override
   void initState() {
@@ -149,10 +95,6 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     if (seed.isNotEmpty) {
       final op = ChurchContextService.panelChurchId(seed);
       if (op.isNotEmpty) _operationalTenantId = op;
-    }
-    if (_isMasterDiagnosticRole && _effectiveTenantId.isNotEmpty) {
-      unawaited(_runChurchSyncDiagnostic());
-      unawaited(_runDataLayerAudit());
     }
   }
 
@@ -822,16 +764,6 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                   const SizedBox(height: 24),
                   _SectionTitle(icon: Icons.notifications_active_rounded, title: 'Notificações e acesso'),
                   _buildNotificacoesCard(),
-                  if (_isMasterDiagnosticRole) ...[
-                    const SizedBox(height: 24),
-                    _SectionTitle(
-                      icon: Icons.health_and_safety_rounded,
-                      title: 'Diagnóstico e saúde',
-                    ),
-                    _buildSystemHealthEntry(context),
-                    const SizedBox(height: 12),
-                    _buildChurchSyncDiagnosticCard(context),
-                  ],
                   const SizedBox(height: 24),
                   ..._buildBackupSection(context),
                   ..._buildDicasSection(),
@@ -1089,299 +1021,6 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
               value: _bioEnabled,
               onChanged: _bioToggling ? null : _onBiometricSwitch,
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSystemHealthEntry(BuildContext context) {
-    return _Card(
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: Icon(Icons.monitor_heart_rounded, color: ThemeCleanPremium.primary),
-        title: const Text(
-          'Saúde do Sistema',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-        subtitle: const Text(
-          'Firestore, Storage, Auth, Mercado Pago, módulos e auditoria completa',
-          style: TextStyle(fontSize: 12),
-        ),
-        trailing: const Icon(Icons.chevron_right_rounded),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ChurchSystemHealthPage(
-                tenantId: _effectiveTenantId,
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  int? _auditCount(ChurchDataAuditReport? report, String module) {
-    if (report == null) return null;
-    for (final r in report.rows) {
-      if (r.module == module) return r.count;
-    }
-    return null;
-  }
-
-  Widget _buildChurchSyncDiagnosticCard(BuildContext context) {
-    final audit = _globalAudit;
-    final d = audit?.syncReport;
-    final counts = audit?.moduleCounts;
-    final layer = _dataLayerAudit;
-    return _Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Firestore e Storage são uma única estrutura — o mesmo '
-            '`churchId` em `igrejas/{id}` e `igrejas/{id}/`.',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-          ),
-          const SizedBox(height: 12),
-          if (_churchSyncDiagnosticLoading || _dataLayerAuditLoading)
-            const Center(child: CircularProgressIndicator(strokeWidth: 2))
-          else if (layer != null) ...[
-            Text(
-              'Auditoria automática — ${layer.platform}',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _diagLine('Membros', '${_auditCount(layer, 'MEMBROS') ?? 0}'),
-            _diagLine('Departamentos', '${_auditCount(layer, 'DEPARTAMENTOS') ?? 0}'),
-            _diagLine('Cargos', '${_auditCount(layer, 'CARGOS') ?? 0}'),
-            _diagLine('Eventos', '${_auditCount(layer, 'EVENTOS') ?? 0}'),
-            _diagLine('Avisos', '${_auditCount(layer, 'AVISOS') ?? 0}'),
-            _diagLine('Patrimônio', '${_auditCount(layer, 'PATRIMÔNIO') ?? 0}'),
-            _diagLine('Chat', '${_auditCount(layer, 'CHAT') ?? 0}'),
-            _diagLine('Financeiro', '${_auditCount(layer, 'FINANCEIRO') ?? 0}'),
-            if (!layer.allOk)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'Contagem 0 ou FALHA — abra Saúde do Sistema para detalhes.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: ThemeCleanPremium.error,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            const SizedBox(height: 12),
-          ],
-          if (!_churchSyncDiagnosticLoading && !_dataLayerAuditLoading && d != null) ...[
-            _diagLine('Church ID', d.resolvedChurchId),
-            _diagLine('Seed (entrada)', d.seedTenantId),
-            _diagLine('Firestore Path', d.firestorePath),
-            _diagLine('Storage Path', d.storageRootPath ?? '—'),
-            _diagLine('Bucket', d.storageBucket),
-            _diagLine(
-              'Firestore ativo',
-              d.firestoreActive == true ? 'sim' : (d.firestoreActive == false ? 'não' : '—'),
-            ),
-            _diagLine(
-              'Storage ativo',
-              d.storageActive == true ? 'sim' : (d.storageActive == false ? 'não' : '—'),
-            ),
-            _diagLine(
-              'Alinhado',
-              d.storageAligned ? 'sim' : 'NÃO — abortar uploads',
-            ),
-            _diagLine('Campos Firestore', '${d.fieldCount}'),
-            _diagLine(
-              'Última leitura',
-              d.lastReadAt?.toIso8601String() ?? '—',
-            ),
-            _diagLine(
-              'Último upload',
-              d.lastUploadPath != null
-                  ? '${d.lastUploadAt?.toIso8601String() ?? ''}\n${d.lastUploadPath}'
-                  : '—',
-            ),
-            _diagLine(
-              'Último download',
-              d.lastDownloadPath != null
-                  ? '${d.lastDownloadAt?.toIso8601String() ?? ''}\n${d.lastDownloadPath}'
-                  : '—',
-            ),
-            if (d.tenantMismatch || !d.storageAligned)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  d.tenantMismatch
-                      ? 'WEB_FIRESTORE_MISMATCH detectado'
-                      : 'STORAGE_TENANT_MISMATCH detectado',
-                  style: TextStyle(
-                    color: ThemeCleanPremium.error,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            if (d.lastError != null)
-              Text(
-                'Último erro: ${d.lastError}',
-                style: TextStyle(fontSize: 12, color: ThemeCleanPremium.error),
-              ),
-            if (counts != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Documentos (amostra até ${YahwehPerformanceV4.dashboardStatsSampleLimit}/coleção)',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.grey.shade700,
-                ),
-              ),
-              _diagLine('Membros', '${counts.membros}'),
-              _diagLine('Eventos', '${counts.eventos}'),
-              _diagLine('Avisos', '${counts.avisos}'),
-              _diagLine('Departamentos', '${counts.departamentos}'),
-              _diagLine('Cargos', '${counts.cargos}'),
-              _diagLine('Patrimônios', '${counts.patrimonio}'),
-              _diagLine('Chats', '${counts.chats}'),
-              _diagLine('Escalas', '${counts.escalas}'),
-              _diagLine('Financeiro', '${counts.financeiro}'),
-              _diagLine('Fornecedores', '${counts.fornecedores}'),
-              _diagLine('Pedidos Oração', '${counts.pedidosOracao}'),
-              _diagLine('Cartas/Transfer.', '${counts.cartasHistorico}'),
-              _diagLine('Certificados', '${counts.certificados}'),
-            ],
-            if (audit?.moduleStatuses.isNotEmpty == true) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Módulos padronizados',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.grey.shade700,
-                ),
-              ),
-              for (final m in audit!.moduleStatuses)
-                _diagLine(
-                  m.module,
-                  m.standardized
-                      ? 'OK — ${m.firestoreCollection ?? ''}'
-                      : (m.lastError ?? 'pendente'),
-                ),
-            ],
-          ],
-          const SizedBox(height: 12),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.bug_report_rounded, color: ThemeCleanPremium.primary),
-            title: const Text(
-              'DEBUG CHURCH (auditoria com provas)',
-              style: TextStyle(fontWeight: FontWeight.w800),
-            ),
-            subtitle: const Text(
-              'churchId, paths Firestore/Storage, contagens — print Web/Android/iOS',
-              style: TextStyle(fontSize: 12),
-            ),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => DebugChurchPage(
-                    tenantId: _effectiveTenantId,
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.speed_rounded, color: ThemeCleanPremium.primary),
-            title: const Text(
-              'Diagnóstico permanente',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            subtitle: const Text(
-              'Firestore, Storage, tempos de Dashboard/Login e contadores',
-              style: TextStyle(fontSize: 12),
-            ),
-            trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ChurchPanelDiagnosticPage(
-                    tenantId: _effectiveTenantId,
-                  ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: (_churchSyncDiagnosticLoading || _dataLayerAuditLoading)
-                      ? null
-                      : () {
-                          unawaited(_runChurchSyncDiagnostic());
-                          unawaited(_runDataLayerAudit());
-                        },
-                  icon: const Icon(Icons.medical_information_outlined, size: 18),
-                  label: const Text('Executar auditoria'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => ChurchSyncTestPage(
-                          tenantId: _effectiveTenantId,
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.science_outlined, size: 18),
-                  label: const Text('Tela de teste'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _diagLine(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 130,
-            child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 12)),
-          ),
         ],
       ),
     );

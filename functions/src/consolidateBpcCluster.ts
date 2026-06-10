@@ -235,45 +235,13 @@ async function migrateAllSubcollections(
   return perCol;
 }
 
+/** `church_aliases` descontinuado — SaaS directo só `igrejas/{churchId}`. */
 async function writeChurchAliases(
-  canonical: string,
-  legacyIds: string[],
+  _canonical: string,
+  _legacyIds: string[],
   dryRun: boolean,
 ): Promise<number> {
-  const aliases = new Set<string>([...legacyIds]);
-  aliases.add("brasilparacristo");
-  aliases.add("brasilparacristo_sistema");
-  aliases.add("iobpc-jardim-goiano");
-  aliases.add("o-brasil-cristo-jardim-goiano");
-  aliases.add("brasil-para-cristo");
-  aliases.add("bpc_jd");
-  aliases.delete(canonical);
-
-  if (dryRun) return aliases.size;
-
-  let batch = db().batch();
-  let ops = 0;
-  for (const alias of aliases) {
-    batch.set(
-      db().collection("church_aliases").doc(alias),
-      {
-        canonicalId: canonical,
-        alias,
-        redirectOnly: true,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        source: "consolidateBpcCluster",
-      },
-      { merge: true },
-    );
-    ops += 1;
-    if (ops >= 400) {
-      await batch.commit();
-      batch = db().batch();
-      ops = 0;
-    }
-  }
-  if (ops > 0) await batch.commit();
-  return aliases.size;
+  return dryRun ? 0 : 0;
 }
 
 async function repointUsers(

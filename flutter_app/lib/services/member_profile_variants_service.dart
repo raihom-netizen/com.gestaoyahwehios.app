@@ -1,10 +1,10 @@
 import 'dart:typed_data';
 
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/core/yahweh_unified_image_pipeline.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap;
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
@@ -18,41 +18,8 @@ abstract final class MemberProfileVariantsService {
   static Future<({
     Uint8List thumb,
     Uint8List full,
-  })> encodeProfileTiers(Uint8List raw) async {
-    if (raw.isEmpty) throw StateError('Sem bytes de imagem.');
-    final results = await Future.wait([
-      _encodeWebpWithQuality(
-        raw,
-        YahwehPerformanceV4.profileThumbEdge,
-        YahwehPerformanceV4.profileThumbQuality,
-      ),
-      _encodeWebpWithQuality(
-        raw,
-        YahwehPerformanceV4.profileFullEdge,
-        YahwehPerformanceV4.profileFullQuality,
-      ),
-    ]);
-    return (thumb: results[0], full: results[1]);
-  }
-
-  static Future<Uint8List> _encodeWebpWithQuality(
-    Uint8List raw,
-    int minSide,
-    int quality,
-  ) async {
-    if (raw.isEmpty) return raw;
-    try {
-      final out = await FlutterImageCompress.compressWithList(
-        raw,
-        quality: quality,
-        format: CompressFormat.webp,
-        minWidth: minSide,
-        minHeight: minSide,
-      );
-      if (out.isNotEmpty) return Uint8List.fromList(out);
-    } catch (_) {}
-    return raw;
-  }
+  })> encodeProfileTiers(Uint8List raw) =>
+      YahwehUnifiedImagePipeline.encodeMemberProfileTiers(raw);
 
   static Future<({
     String photoThumb,

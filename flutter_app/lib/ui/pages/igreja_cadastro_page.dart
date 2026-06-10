@@ -1290,11 +1290,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         .replaceAll(RegExp(r'[^a-z0-9\-]'), '-')
         .replaceAll(RegExp(r'-+'), '-')
         .replaceAll(RegExp(r'^-|-$'), '');
-    final al = (tenantLive?['alias'] ?? slugRaw).toString().trim();
-    final sl = (tenantLive?['slug'] ?? slugRaw).toString().trim();
-    final alias = al.isEmpty ? resolvedId : al;
-    final slug = sl.isEmpty ? resolvedId : sl;
-
     final col =         ChurchRepository.churchDoc(resolvedId)
         .collection('membros');
     final roleLower = widget.role.toLowerCase();
@@ -1376,9 +1371,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final payload = <String, dynamic>{
       'MEMBER_ID': docId,
       'CREATED_BY_CPF': cpfDigits,
-      'alias': alias,
-      'slug': slug,
       'tenantId': resolvedId,
+      'igrejaId': resolvedId,
+      'churchId': resolvedId,
       'NOME_COMPLETO': nome,
       'EMAIL': email,
       'TELEFONES': _gestorTelefoneCtrl.text.trim(),
@@ -1939,9 +1934,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         'igrejaId': resolvedId,
         'tenantId': resolvedId,
         'churchId': resolvedId,
+        'churchCanonicalId': resolvedId,
+        'canonicalTenantId': resolvedId,
         'registrationComplete': true,
-        'slug': slugRaw.isEmpty ? null : slugRaw,
-        'slugId': slugRaw.isEmpty ? null : slugRaw,
+        'alias': FieldValue.delete(),
+        'slug': FieldValue.delete(),
+        'slugId': FieldValue.delete(),
         'cidade':
             _cidadeCtrl.text.trim().isEmpty ? null : _cidadeCtrl.text.trim(),
         'estado':

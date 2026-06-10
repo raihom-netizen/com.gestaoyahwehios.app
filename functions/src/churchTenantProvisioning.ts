@@ -1,14 +1,9 @@
 /**
- * Alinha doc raiz `igrejas/{id}`, `church_aliases` e pastas Storage `igrejas/{id}/…`.
- * Usado no cadastro da igreja, signup de gestor e migração em lote.
+ * Alinha doc raiz `igrejas/{id}` e pastas Storage `igrejas/{id}/…` (SaaS directo).
+ * Sem `church_aliases` — cada igreja isolada pelo doc ID.
  */
 import * as admin from "firebase-admin";
 import type { Firestore } from "firebase-admin/firestore";
-import {
-  BPC_CANONICAL_IGREJA_ID,
-  BPC_PUBLIC_SLUG,
-  resolveAnchoredCanonicalTenantId,
-} from "./churchClusterAnchors";
 import {
   ensureConfiguracoesStorageFolder,
   ensureFinanceiroStorageFolder,
@@ -50,71 +45,33 @@ export function slugHintFromDocId(docId: string): string {
   return s.replace(/_/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 
-/** Candidatos a alias → doc canónico (exclui o próprio canónico). */
-export function collectAliasCandidates(
-  docId: string,
-  data: Record<string, unknown> | undefined,
-): string[] {
-  const canonical = resolveAnchoredCanonicalTenantId(docId);
-  const out = new Set<string>();
-  const add = (raw: string) => {
-    const t = str(raw);
-    if (!t || t === canonical) return;
-    out.add(t);
-  };
-
-  if (data) {
-    for (const k of ["slug", "slugId", "alias", "churchId"]) {
-      add(str(data[k]));
-    }
-    add(str(data["igrejaId"]));
-    add(str(data["tenantId"]));
-  }
-  add(docId);
-
-  const hinted = slugHintFromDocId(docId);
-  if (hinted) add(hinted);
-
-  return Array.from(out);
-}
-
 /** Preenche campos mínimos do doc raiz (inclui «fantasma» só com subcoleções). */
 export function buildRootDocPatch(
   docId: string,
   data: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
-  const canonical = resolveAnchoredCanonicalTenantId(docId);
+  const id = str(docId);
   const d = data ?? {};
   const patch: Record<string, unknown> = {};
 
   const nome =
     str(d["nome"]) ||
     str(d["name"]) ||
-    docId.replace(/^igreja_/, "").replace(/_/g, " ").trim() ||
-    docId;
+    id.replace(/^igreja_/, "").replace(/_/g, " ").trim() ||
+    id;
 
   if (!str(d["nome"])) patch.nome = nome;
   if (!str(d["name"])) patch.name = nome;
-  if (!str(d["tenantId"])) patch.tenantId = canonical;
-  if (!str(d["igrejaId"])) patch.igrejaId = canonical;
-  if (!str(d["churchId"])) patch.churchId = canonical;
-  if (!str(d["canonicalTenantId"])) patch.canonicalTenantId = canonical;
+  if (!str(d["tenantId"])) patch.tenantId = id;
+  if (!str(d["igrejaId"])) patch.igrejaId = id;
+  if (!str(d["churchId"])) patch.churchId = id;
+  if (!str(d["canonicalTenantId"])) patch.canonicalTenantId = id;
+  if (!str(d["churchCanonicalId"])) patch.churchCanonicalId = id;
 
-  const isBpcCanonical = canonical === BPC_CANONICAL_IGREJA_ID;
-  const slug = isBpcCanonical
-    ? BPC_PUBLIC_SLUG
-    : str(d["slug"]) || str(d["slugId"]) || str(d["alias"]) || slugHintFromDocId(docId);
-  if (slug) {
-    if (isBpcCanonical || !str(d["slug"])) patch.slug = slug;
-    if (isBpcCanonical || !str(d["slugId"])) patch.slugId = slug;
-    if (isBpcCanonical || !str(d["alias"])) patch.alias = slug;
-  }
-  if (isBpcCanonical) {
-    patch.tenantId = BPC_CANONICAL_IGREJA_ID;
-    patch.igrejaId = BPC_CANONICAL_IGREJA_ID;
-    patch.churchId = BPC_CANONICAL_IGREJA_ID;
-    patch.canonicalTenantId = BPC_CANONICAL_IGREJA_ID;
-  }
+  // SaaS directo — sem alias/slug; paths Firestore/Storage usam só o doc ID.
+  patch.alias = admin.firestore.FieldValue.delete();
+  patch.slug = admin.firestore.FieldValue.delete();
+  patch.slugId = admin.firestore.FieldValue.delete();
 
   if (d["ativa"] === undefined && d["active"] === undefined) {
     patch.ativa = true;
@@ -129,43 +86,13 @@ export function buildRootDocPatch(
   return patch;
 }
 
+/** Legado — `church_aliases` removido; mantido só para compat de import. */
 export async function upsertChurchAliases(
-  canonicalId: string,
-  aliases: string[],
-  source: string,
+  _canonicalId: string,
+  _aliases: string[],
+  _source: string,
 ): Promise<number> {
-  const canonical = resolveAnchoredCanonicalTenantId(canonicalId);
-  if (!canonical) return 0;
-
-  let count = 0;
-  const batchSize = 400;
-  let batch = db().batch();
-  let inBatch = 0;
-
-  for (const alias of aliases) {
-    const a = str(alias);
-    if (!a || a === canonical) continue;
-    const ref = db().collection("church_aliases").doc(a);
-    batch.set(
-      ref,
-      {
-        canonicalId: canonical,
-        alias: a,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        source,
-      },
-      { merge: true },
-    );
-    count += 1;
-    inBatch += 1;
-    if (inBatch >= batchSize) {
-      await batch.commit();
-      batch = db().batch();
-      inBatch = 0;
-    }
-  }
-  if (inBatch > 0) await batch.commit();
-  return count;
+  return 0;
 }
 
 export async function provisionChurchTenant(
@@ -193,7 +120,7 @@ export async function provisionChurchTenant(
     };
   }
 
-  const canonical = resolveAnchoredCanonicalTenantId(rawId);
+  const canonical = rawId;
   const churchRef = db().collection("igrejas").doc(rawId);
 
   let data = options.data;
@@ -213,11 +140,7 @@ export async function provisionChurchTenant(
     }
   }
 
-  let aliasesUpserted = 0;
-  if (!options.skipAliases) {
-    const aliases = collectAliasCandidates(rawId, data);
-    aliasesUpserted = await upsertChurchAliases(canonical, aliases, source);
-  }
+  const aliasesUpserted = 0;
 
   let storageConfigCreated = false;
   let storageFinanceiroCreated = false;
@@ -264,7 +187,7 @@ export async function migrateAllChurchTenants(
       console.error(`migrateAllChurchTenants ${id}:`, e);
       results.push({
         ok: false,
-        canonicalId: resolveAnchoredCanonicalTenantId(id),
+        canonicalId: id,
         docId: id,
         rootPatched: false,
         aliasesUpserted: 0,

@@ -120,40 +120,37 @@ abstract final class MultiTenantDiagnosticService {
 
   static Future<MultiTenantCheckResult> _checkAlias(String seed) async {
     try {
-      final alias = await TenantResolverService.resolveChurchAlias(seed);
-      if (alias != null && alias.isNotEmpty && alias != seed) {
-        return MultiTenantCheckResult(
-          id: 'alias',
-          label: 'church_aliases',
-          status: MultiTenantCheckStatus.ok,
-          detail: '$seed → $alias',
+      final id = seed.trim();
+      if (id.isEmpty) {
+        return const MultiTenantCheckResult(
+          id: 'direct_path',
+          label: 'igrejas/{churchId}',
+          status: MultiTenantCheckStatus.warn,
+          detail: 'ID vazio',
         );
       }
-      final aliasDoc = await firebaseDefaultFirestore
-          .collection('church_aliases')
-          .doc(seed)
+      final snap = await firebaseDefaultFirestore
+          .collection('igrejas')
+          .doc(id)
           .get();
-      if (aliasDoc.exists) {
-        final c = (aliasDoc.data()?['canonicalId'] ?? '').toString();
+      if (snap.exists) {
         return MultiTenantCheckResult(
-          id: 'alias',
-          label: 'church_aliases',
-          status: c.isNotEmpty
-              ? MultiTenantCheckStatus.ok
-              : MultiTenantCheckStatus.warn,
-          detail: c.isEmpty ? 'Doc alias sem canonicalId' : '$seed → $c',
+          id: 'direct_path',
+          label: 'igrejas/{churchId}',
+          status: MultiTenantCheckStatus.ok,
+          detail: 'igrejas/$id',
         );
       }
       return MultiTenantCheckResult(
-        id: 'alias',
-        label: 'church_aliases',
+        id: 'direct_path',
+        label: 'igrejas/{churchId}',
         status: MultiTenantCheckStatus.warn,
-        detail: 'Sem alias registado (usa doc directo ou cluster).',
+        detail: 'Doc não encontrado: igrejas/$id',
       );
     } catch (e) {
       return MultiTenantCheckResult(
-        id: 'alias',
-        label: 'church_aliases',
+        id: 'direct_path',
+        label: 'igrejas/{churchId}',
         status: MultiTenantCheckStatus.error,
         detail: MasterAdminFirestore.formatLoadError(e),
       );

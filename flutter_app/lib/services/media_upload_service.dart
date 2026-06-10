@@ -4,6 +4,9 @@ import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_media_upload.dart';
+import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
@@ -113,6 +116,21 @@ class MediaUploadService {
     /// JPEG do chat: preset mais leve (menos CPU + menos bytes → upload mais rápido).
     bool chatJpegFast = false,
   }) async {
+    if (EcoFireFlow.directStorageUpload) {
+      if (deleteFirebaseDownloadUrlsBefore != null) {
+        for (final u in deleteFirebaseDownloadUrlsBefore) {
+          await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(u);
+        }
+      }
+      final profile = YahwehMediaUploadPipeline.ecofireProfileFromPath(storagePath);
+      return EcoFireMediaUpload.uploadBytes(
+        storagePath: storagePath,
+        bytes: bytes,
+        contentType: contentType,
+        profile: profile,
+        onProgress: onProgress,
+      );
+    }
     if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
       await ensureUploadBootstrapForStoragePath(storagePath);
     }
@@ -224,6 +242,21 @@ class MediaUploadService {
     bool skipRecompress = false,
     bool chatJpegFast = false,
   }) async {
+    if (EcoFireFlow.directStorageUpload && !kIsWeb) {
+      if (deleteFirebaseDownloadUrlsBefore != null) {
+        for (final u in deleteFirebaseDownloadUrlsBefore) {
+          await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(u);
+        }
+      }
+      final profile = YahwehMediaUploadPipeline.ecofireProfileFromPath(storagePath);
+      return EcoFireMediaUpload.uploadFile(
+        storagePath: storagePath,
+        file: file,
+        contentType: contentType,
+        profile: profile,
+        onProgress: onProgress,
+      );
+    }
     // Web: sem putFile — sempre putData via bytes.
     if (kIsWeb) {
       return uploadBytesWithRetry(

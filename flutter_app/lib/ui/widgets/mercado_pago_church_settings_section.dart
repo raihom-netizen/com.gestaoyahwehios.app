@@ -7,9 +7,9 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/firebase_options.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -64,12 +64,7 @@ class _MercadoPagoChurchSettingsSectionState
     try {
       final seed = widget.tenantId.trim();
       if (seed.isNotEmpty) {
-        final uid = FirebaseAuth.instance.currentUser?.uid;
-        _operationalTenantId = await TenantResolverService
-            .resolveOperationalChurchDocId(
-          seed,
-          userUid: uid,
-        ).timeout(const Duration(seconds: 12), onTimeout: () => seed);
+        _operationalTenantId = ChurchRepository.churchId(seed);
       }
       await ChurchTenantResilientReads.preparePanelRead();
       final tid = _effectiveTenantId;

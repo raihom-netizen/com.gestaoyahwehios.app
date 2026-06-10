@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
@@ -37,7 +38,9 @@ abstract final class BackgroundUploadWorker {
     _drainBusy = true;
     YahwehFlowLog.sync('UPLOAD_QUEUE', reason);
     try {
-      await ChurchChatAutoRecoveryService.recoverOnSessionStart();
+      if (WebPanelStability.allowAutomaticRecovery) {
+        await ChurchChatAutoRecoveryService.recoverOnSessionStart();
+      }
       await ChurchChatMediaOutboxService.resumeRecoverableNow();
 
       await MuralPublishOutboxService.drainPendingJobs();
@@ -62,6 +65,10 @@ abstract final class BackgroundUploadWorker {
       }
     } catch (e, st) {
       YahwehFlowLog.error('UPLOAD_QUEUE', e, st);
+      if (kIsWeb &&
+          (e is StateError && e.message.contains('Sessão expirada'))) {
+        WebPanelStability.markSessionExpired();
+      }
       if (kDebugMode) {
         debugPrint('BackgroundUploadWorker.drainAll: $e\n$st');
       }

@@ -5994,7 +5994,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _addEncodedEventPhoto(XFile encoded) async {
     final displayName = encoded.name.isNotEmpty
         ? encoded.name
-        : (kIsWeb ? 'foto.webp' : 'foto.jpg');
+        : 'foto.webp';
     Uint8List? webBytes;
     String? mobilePath;
     if (kIsWeb) {

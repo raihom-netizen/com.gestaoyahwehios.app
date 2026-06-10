@@ -35,14 +35,14 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.onNovoEventoNoticiaPublishedPush = exports.onNovoEventoNoticiaPush = exports.onNovoAvisoMuralPublishedPush = exports.onNovoAvisoMuralPush = void 0;
 exports.topicPushNovo = topicPushNovo;
+exports.sendGyTopicPush = sendGyTopicPush;
 exports.sendGyTopicPushCluster = sendGyTopicPushCluster;
 /**
- * Push FCM por tópico quando há conteúdo novo (avisos, eventos na agenda, escalas).
- * Tópicos alinhados ao app: `gypush_{tenantIdSafe}_{aviso|evento|escala|aniversario|gestores}`.
+ * Push FCM por tópico — avisos, eventos (path directo `igrejas/{churchId}/…`).
+ * Tópicos: `gypush_{churchId}_{aviso|evento|escala|aniversario|gestores}`.
  */
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
-const churchClusterAnchors_1 = require("./churchClusterAnchors");
 const notificationBranding_1 = require("./notificationBranding");
 function safeTid(t) {
     return String(t || "").replace(/[^a-zA-Z0-9\-_.~%]/g, "_");
@@ -77,31 +77,28 @@ async function recordTenantNotification(tenantId, payload) {
         /* opcional */
     }
 }
-async function sendTopicPushCluster(tenantId, kind, build) {
-    const sent = new Set();
-    for (const tid of (0, churchClusterAnchors_1.tenantIdsForPushTopic)(tenantId)) {
-        const topic = topicPushNovo(tid, kind);
-        if (sent.has(topic))
-            continue;
-        sent.add(topic);
-        await admin.messaging().send(build(tid));
-    }
+/** Push FCM directo — um tópico por `igrejas/{churchId}`. */
+async function sendGyTopicPush(tenantId, kind, build) {
+    const tid = String(tenantId || "").trim();
+    if (!tid)
+        return;
+    await admin.messaging().send(build(tid));
 }
-/** Push FCM para todos os alias do cluster (BPC legado + canónico). */
+/** @deprecated Use [sendGyTopicPush] — mantido para imports legados. */
 async function sendGyTopicPushCluster(tenantId, kind, build) {
-    await sendTopicPushCluster(tenantId, kind, build);
+    await sendGyTopicPush(tenantId, kind, build);
 }
 async function sendNovoAvisoMuralPush(tenantId, postId, d) {
     const title = clip(String(d.title || d.titulo || "Novo aviso"), 80) || "Novo aviso";
     const rawBody = String(d.text || d.body || d.mensagem || "").trim();
     const body = clip(rawBody, 140) || title;
-    await sendTopicPushCluster(tenantId, "aviso", (effectiveTenantId) => (0, notificationBranding_1.buildGyTopicMessage)({
-        topic: topicPushNovo(effectiveTenantId, "aviso"),
+    await sendGyTopicPush(tenantId, "aviso", (churchId) => (0, notificationBranding_1.buildGyTopicMessage)({
+        topic: topicPushNovo(churchId, "aviso"),
         title: "📢 Novo aviso",
         body,
         data: {
             type: "novo_aviso",
-            tenantId: effectiveTenantId,
+            tenantId: churchId,
             postId,
             click_action: "FLUTTER_NOTIFICATION_CLICK",
         },
@@ -131,7 +128,6 @@ exports.onNovoAvisoMuralPush = functions
     }
     return null;
 });
-/** Push quando o aviso passa de `uploading` → `published`. */
 exports.onNovoAvisoMuralPublishedPush = functions
     .region("us-central1")
     .firestore.document("igrejas/{tenantId}/avisos/{id}")
@@ -166,13 +162,13 @@ async function sendNovoEventoNoticiaPush(tenantId, postId, d) {
         extra = ` • ${dt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}`;
     }
     const body = clip(`${title}${extra}`, 180);
-    await sendTopicPushCluster(tenantId, "evento", (effectiveTenantId) => (0, notificationBranding_1.buildGyTopicMessage)({
-        topic: topicPushNovo(effectiveTenantId, "evento"),
+    await sendGyTopicPush(tenantId, "evento", (churchId) => (0, notificationBranding_1.buildGyTopicMessage)({
+        topic: topicPushNovo(churchId, "evento"),
         title: "📅 Novo evento",
         body,
         data: {
             type: "novo_evento",
-            tenantId: effectiveTenantId,
+            tenantId: churchId,
             postId,
             click_action: "FLUTTER_NOTIFICATION_CLICK",
         },
@@ -204,7 +200,6 @@ exports.onNovoEventoNoticiaPush = functions
     }
     return null;
 });
-/** Push quando o evento passa de `uploading` → `published`. */
 exports.onNovoEventoNoticiaPublishedPush = functions
     .region("us-central1")
     .firestore.document("igrejas/{tenantId}/eventos/{id}")

@@ -1,11 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/offline/firebase_remote_repository.dart';
 import 'package:gestao_yahweh/core/offline/hive_local_store.dart';
 import 'package:gestao_yahweh/core/offline/offline_firestore_executor.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
@@ -44,9 +45,12 @@ abstract final class OfflineBootstrap {
       MuralPublishOutboxService.resumePendingOnAppStart();
     });
     SyncEngine.registerModuleFlusher('storage', () async {
+      if (EcoFireFlow.disableUploadQueues) return;
       await StorageUploadPersistenceService.resumePendingOnAppStart();
     });
     SyncEngine.registerModuleFlusher('bootstrap', () async {
+      if (EcoFireFlow.disableComplexBootstrap) return;
+      if (kIsWeb) return;
       await AppFinalizeBootstrap.onAppResume();
     });
     for (final mod in const [

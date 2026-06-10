@@ -2,15 +2,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/tenant/church_profile_loader.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart'
-    show TenantResolverService;
 
-/// Caminhos Firestore `igrejas/{churchId}/…` — **só** [ChurchRepository.churchId].
+/// Caminhos Firestore `igrejas/{churchId}/…` — SaaS directo (Web = Android = iOS).
 ///
-/// Painel igreja: sem tenant/alias/slug resolver. Legado isolado em
-/// [TenantResolverService] (site público / ADM / migração).
+/// Sem `church_aliases`, alias, slug resolver ou cluster de docs irmãos.
 abstract final class ChurchOperationalPaths {
   ChurchOperationalPaths._();
 
@@ -23,7 +19,6 @@ abstract final class ChurchOperationalPaths {
   static String _cacheKey(String seed, String? userUid) =>
       '${(userUid ?? _currentUid ?? '').trim()}\x00${seed.trim()}';
 
-  /// Resolve slug/legado/`_sistema` → doc canónico do cluster.
   static Future<String> resolve(
     String seed, {
     String? userUid,
@@ -37,7 +32,6 @@ abstract final class ChurchOperationalPaths {
     return resolveCached(s, userUid: userUid);
   }
 
-  /// Dedupe awaits na mesma sessão/ecrã.
   static Future<String> resolveCached(
     String seed, {
     String? userUid,
@@ -99,7 +93,6 @@ abstract final class ChurchOperationalPaths {
     _resolvedMemory.clear();
   }
 
-  /// Após [TenantResolverService.resolveModuleReadTenantId] no shell — evita re-resolver em cada módulo.
   static void rememberResolved(
     String seed,
     String operationalId, {
@@ -114,7 +107,6 @@ abstract final class ChurchOperationalPaths {
     }
   }
 
-  /// ID operacional em memória/contexto — mesmo critério Membros/Android.
   static String syncEffectiveChurchId(String seedOrOperational) {
     final panel = ChurchContextService.panelChurchId(seedOrOperational);
     if (panel.isNotEmpty) return panel;
@@ -123,7 +115,6 @@ abstract final class ChurchOperationalPaths {
     return seedOrOperational.trim();
   }
 
-  /// Referência `igrejas/{churchId}` — delega a [ChurchRepository] (API única).
   static DocumentReference<Map<String, dynamic>> churchDoc(String operationalId) =>
       ChurchRepository.churchDoc(operationalId);
 
@@ -149,7 +140,6 @@ abstract final class ChurchOperationalPaths {
       (await subcollectionResolved(seed, subcollection, userUid: userUid))
           .doc(docId.trim());
 
-  /// Perfil da igreja (cadastro) — servidor + cache.
   static Future<Map<String, dynamic>> loadChurchProfileMap(
     String seed, {
     String? userUid,
@@ -168,7 +158,6 @@ abstract final class ChurchOperationalPaths {
     }
   }
 
-  /// Resolve slug/legado → doc canónico + doc com subcoleções reais (leituras).
   static Future<String> resolveModuleReadTenantId(
     String seed, {
     String? userUid,
@@ -181,24 +170,16 @@ abstract final class ChurchOperationalPaths {
     return Future.value(id.isNotEmpty ? id : seed.trim());
   }
 
-  /// IDs do cluster (canónico + irmãos) para leituras master / migração.
+  /// Painel master/igreja — uma igreja = um doc (sem cluster).
   static Future<List<String>> clusterDocIds(String seed) async {
-    final canonical = await resolve(seed);
-    if (canonical.isEmpty) return const [];
-    try {
-      final related =
-          await TenantResolverService.getAllRelatedIgrejaDocIds(canonical);
-      final out = <String>{canonical, ...related};
-      return out.toList();
-    } catch (_) {
-      return [canonical];
-    }
+    final id = await resolve(seed);
+    if (id.isEmpty) return const [];
+    return [id];
   }
 
   static Future<void> preparePanelRead({bool refreshToken = false}) =>
       ChurchTenantResilientReads.preparePanelRead(refreshToken: refreshToken);
 
-  /// Contexto completo (alias → canónico + perfil) — Regra 3.
   static Future<({
     String canonicalId,
     String seedId,
@@ -208,10 +189,27 @@ abstract final class ChurchOperationalPaths {
     String seed, {
     String? userUid,
     bool forceRefresh = false,
-  }) =>
-      TenantResolverService.resolveOperationalChurch(
-        seed,
-        userUid: userUid ?? _currentUid,
-        forceRefresh: forceRefresh,
+  }) async {
+    final s = seed.trim();
+    if (s.isEmpty) {
+      return (
+        canonicalId: '',
+        seedId: '',
+        resolvedAlias: null,
+        profile: <String, dynamic>{},
       );
+    }
+    final canonical = await resolveCached(s, userUid: userUid, forceRefresh: forceRefresh);
+    final profile = await loadChurchProfileMap(
+      canonical,
+      userUid: userUid,
+      preferServer: true,
+    );
+    return (
+      canonicalId: canonical,
+      seedId: s,
+      resolvedAlias: null,
+      profile: profile,
+    );
+  }
 }

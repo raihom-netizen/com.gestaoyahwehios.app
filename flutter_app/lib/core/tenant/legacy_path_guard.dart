@@ -53,10 +53,19 @@ abstract final class LegacyPathGuard {
     }
   }
 
+  /// Prefixos permitidos fora de `igrejas/` (institucional master / legado público).
+  static const allowedNonIgrejasStoragePrefixes = <String>{
+    'public/gestao_yahweh/',
+    'members/', // cadastro público legado (leitura); novos uploads usam igrejas/{id}/membros/
+  };
+
   static void assertCanonicalStoragePath(String storagePath, {String? context}) {
     final p = storagePath.replaceAll('\\', '/').trim();
     if (p.isEmpty) return;
     if (p.startsWith(canonicalStoragePrefix)) return;
+    for (final ok in allowedNonIgrejasStoragePrefixes) {
+      if (p.startsWith(ok)) return;
+    }
     if (p.startsWith('tenants/')) {
       final msg =
           'LEGACY_STORAGE: $p${context != null ? " ($context)" : ""} — use igrejas/{churchId}/...';

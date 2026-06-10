@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:flutter/services.dart';
@@ -19,6 +20,7 @@ import 'package:gestao_yahweh/services/app_google_sign_in.dart'
         isGoogleSignInUserCancellation;
 import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
+import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
 import 'package:gestao_yahweh/services/session_restore_service.dart';
 import 'package:gestao_yahweh/services/church_binding_repair_coordinator.dart';
@@ -858,6 +860,7 @@ class _LoginPageState extends State<LoginPage> {
     required bool persistPasswordFields,
   }) async {
     if (!mounted) return false;
+    WebPanelStability.bindLoginSession(FirebaseAuth.instance.currentUser);
     final isAdminRoute = widget.afterLoginRoute == '/admin';
     if (!isAdminRoute) {
       final versionOk = await _ensureLatestVersion();
@@ -935,6 +938,12 @@ class _LoginPageState extends State<LoginPage> {
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context)
           .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
+      return;
+    }
+
+    if (EcoFireFlow.disableRepairMyChurchBinding) {
+      await user.getIdToken(false);
+      await _finalizeChurchLoginAfterAuth(persistPasswordFields: false);
       return;
     }
 

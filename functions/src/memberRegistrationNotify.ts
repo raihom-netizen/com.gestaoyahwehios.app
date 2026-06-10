@@ -4,7 +4,7 @@
  */
 import * as admin from "firebase-admin";
 import { buildGyTopicMessage } from "./notificationBranding";
-import { topicPushNovo, sendGyTopicPushCluster } from "./pushNovoConteudo";
+import { topicPushNovo, sendGyTopicPush } from "./pushNovoConteudo";
 
 function getDb(): admin.firestore.Firestore {
   return admin.firestore();
@@ -34,14 +34,14 @@ export async function notifyGestoresNewMember(params: {
     ? `${nome} cadastrou-se pelo site público. Toque para ver ou aprovar.`
     : `${nome} foi cadastrado(a) na igreja. Toque para ver a ficha.`;
 
-  await sendGyTopicPushCluster(tenantId, "gestores", (effectiveTenantId) =>
+  await sendGyTopicPush(tenantId, "gestores", (churchId) =>
     buildGyTopicMessage({
-      topic: topicPushNovo(effectiveTenantId, "gestores"),
+      topic: topicPushNovo(churchId, "gestores"),
       title: publicSignup ? "⚡ Novo cadastro (site)" : "👤 Novo membro",
       body,
       data: {
         type: "new_member",
-        tenantId: effectiveTenantId,
+        tenantId: churchId,
         memberId: membroId,
         publicSignup: publicSignup ? "1" : "0",
         click_action: "FLUTTER_NOTIFICATION_CLICK",

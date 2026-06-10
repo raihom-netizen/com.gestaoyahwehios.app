@@ -1,7 +1,7 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 
-/// Provisiona aliases, doc raiz e pastas Storage após cadastro da igreja.
+/// Provisiona doc raiz `igrejas/{id}` e pastas Storage directas após cadastro.
 abstract final class ChurchTenantProvisioningService {
   ChurchTenantProvisioningService._();
 

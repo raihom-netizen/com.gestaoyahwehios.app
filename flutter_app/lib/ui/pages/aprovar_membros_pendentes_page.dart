@@ -9,7 +9,6 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -123,13 +122,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
 
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
-      final op = await TenantResolverService.resolveOperationalChurchDocId(
-        seed,
-        userUid: uid,
-      ).timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => _effectiveTenantId.isNotEmpty ? _effectiveTenantId : seed,
-      );
+      final op = ChurchRepository.churchId(seed);
       if (!mounted || op.isEmpty || op == _tid) return;
       setState(() {
         _effectiveTenantId = op;

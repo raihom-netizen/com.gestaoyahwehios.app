@@ -1,9 +1,8 @@
-﻿import * as functions from "firebase-functions/v1";
+import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { recomputeMembersDirectoryFromDocs } from "./membersDirectoryCache";
 import { recomputePanelMediaPrefetch } from "./panelMediaPrefetch";
 import { resolveTenantIdForCallable } from "./tenantCallableResolve";
-import { resolveAnchoredCanonicalTenantId } from "./churchClusterAnchors";
 import {
   mirrorChurchCountersToRoot,
   mirrorDashboardCacheAlias,
@@ -735,8 +734,7 @@ function computeCorpoAdmin(
  */
 export async function recomputePanelDashboardSummary(tenantId: string): Promise<void> {
   const db = admin.firestore();
-  const canonical = resolveAnchoredCanonicalTenantId(String(tenantId || "").trim());
-  const tid = canonical || String(tenantId || "").trim();
+  const tid = String(tenantId || "").trim();
   if (!tid) return;
 
   const clusterIds = clusterDocIdsForPanel(tid);
@@ -952,8 +950,8 @@ export async function recomputePanelDashboardSummary(tenantId: string): Promise<
 }
 
 function scheduleRecompute(tenantId: string) {
-  const canonical = resolveAnchoredCanonicalTenantId(tenantId);
-  recomputePanelDashboardSummary(canonical || tenantId).catch((e) => {
+  const tid = String(tenantId || "").trim();
+  recomputePanelDashboardSummary(tid).catch((e) => {
     functions.logger.error("panelDashboardCache: recompute", { tenantId, e });
   });
 }
@@ -989,7 +987,7 @@ export const onChurchMembroWritePanelDashboard = dashboardTrigger(
 );
 /** Atualiza só `recentAvisos` no cache (rápido) — evita recompute completo a cada aviso. */
 async function patchRecentAvisosInDashboard(tenantId: string): Promise<void> {
-  const tid = resolveAnchoredCanonicalTenantId(String(tenantId || "").trim());
+  const tid = String(tenantId || "").trim();
   if (!tid) return;
   const db = admin.firestore();
   const clusterIds = clusterDocIdsForPanel(tid);
@@ -1036,7 +1034,7 @@ export const onChurchAvisoWritePanelDashboard = functions
   });
 /** Atualiza só blocos de eventos no cache (rápido) — publicar evento no app nativo não dispara recompute pesado. */
 async function patchRecentEventosInDashboard(tenantId: string): Promise<void> {
-  const tid = resolveAnchoredCanonicalTenantId(String(tenantId || "").trim());
+  const tid = String(tenantId || "").trim();
   if (!tid) return;
   const db = admin.firestore();
   const clusterIds = clusterDocIdsForPanel(tid);
@@ -1116,12 +1114,12 @@ export const getChurchPanelSnapshot = functions
     if (!tenantId) {
       throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
     }
-    const canonical = resolveAnchoredCanonicalTenantId(tenantId);
+    const tid = String(tenantId || "").trim();
 
     const db = admin.firestore();
     const summaryRef = db
       .collection("igrejas")
-      .doc(canonical)
+      .doc(tid)
       .collection("_panel_cache")
       .doc("dashboard_summary");
 
@@ -1136,12 +1134,12 @@ export const getChurchPanelSnapshot = functions
 
     const mediaRef = db
       .collection("igrejas")
-      .doc(canonical)
+      .doc(tid)
       .collection("_panel_cache")
       .doc("media_prefetch");
 
     if (isStale) {
-      await recomputePanelDashboardSummary(canonical);
+      await recomputePanelDashboardSummary(tid);
       summary = (await summaryRef.get()).data();
     }
 
@@ -1153,21 +1151,21 @@ export const getChurchPanelSnapshot = functions
       Date.now() - mpUpdated.toMillis() > staleMs;
     if (mpStale) {
       try {
-        await recomputePanelMediaPrefetch(canonical);
+        await recomputePanelMediaPrefetch(tid);
         mediaPrefetch = (await mediaRef.get()).data();
       } catch (e) {
-        functions.logger.warn("getChurchPanelSnapshot: media_prefetch", { tenantId: canonical, e });
+        functions.logger.warn("getChurchPanelSnapshot: media_prefetch", { tenantId: tid, e });
       }
     }
 
     const statsRef = db
       .collection("igrejas")
-      .doc(canonical)
+      .doc(tid)
       .collection("_panel_cache")
       .doc("statistics_summary");
     const publicSiteRef = db
       .collection("igrejas")
-      .doc(canonical)
+      .doc(tid)
       .collection("_panel_cache")
       .doc("public_site");
 
@@ -1184,7 +1182,7 @@ export const getChurchPanelSnapshot = functions
       !publicSite || !psUpdated || Date.now() - psUpdated.toMillis() > staleMs;
 
     if (statsStale || psStale) {
-      await recomputePanelDashboardSummary(canonical);
+      await recomputePanelDashboardSummary(tid);
       summary = (await summaryRef.get()).data();
       statistics = (await statsRef.get()).data();
       publicSite = (await publicSiteRef.get()).data();
@@ -1192,7 +1190,7 @@ export const getChurchPanelSnapshot = functions
 
     return {
       ok: true,
-      tenantId: canonical,
+      tenantId: tid,
       summary: summary ?? {},
       statistics: statistics ?? {},
       publicSite: publicSite ?? {},
@@ -1216,9 +1214,9 @@ export const warmChurchTenantCaches = functions
     if (!tenantId) {
       throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
     }
-    const canonical = resolveAnchoredCanonicalTenantId(tenantId);
-    await recomputePanelDashboardSummary(canonical);
-    return { ok: true, tenantId: canonical, warmed: true };
+    const tid = String(tenantId || "").trim();
+    await recomputePanelDashboardSummary(tid);
+    return { ok: true, tenantId: tid, warmed: true };
   });
 
 /** Mantém `_panel_cache` fresco para apps nativos (leitura de 1 documento). */

@@ -10,7 +10,7 @@ import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show memberPhotoDisplayCacheRevision;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -180,9 +180,13 @@ class MemberProfilePhotoUpdateService {
       'photoUploadError': error.toString(),
       'ATUALIZADO_EM': FieldValue.serverTimestamp(),
     };
-    var tenantIds =
-        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(tenantId);
-    if (tenantIds.isEmpty) tenantIds = [tenantId];
+    var tenantIds = <String>[];
+    try {
+      tenantIds = [ChurchPublishContext.churchIdForPublish(tenantId)];
+    } catch (_) {
+      tenantIds = [tenantId.trim()];
+    }
+    if (tenantIds.isEmpty || tenantIds.first.isEmpty) tenantIds = [tenantId];
     final db = firebaseDefaultFirestore;
     await Future.wait(
       tenantIds.map(
@@ -348,10 +352,15 @@ class MemberProfilePhotoUpdateService {
           '',
     );
 
-    var tenantIds =
-        await TenantResolverService.getAllTenantIdsWithSameSlugOrAlias(
-            primaryTenantId);
-    if (tenantIds.isEmpty) tenantIds = [primaryTenantId];
+    var tenantIds = <String>[];
+    try {
+      tenantIds = [ChurchPublishContext.churchIdForPublish(primaryTenantId)];
+    } catch (_) {
+      tenantIds = [primaryTenantId.trim()];
+    }
+    if (tenantIds.isEmpty || tenantIds.first.isEmpty) {
+      tenantIds = [primaryTenantId];
+    }
 
     final sp = (photoStoragePath ??
             memberData['photoStoragePath'] ??

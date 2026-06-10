@@ -21,7 +21,6 @@ import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
@@ -851,14 +850,7 @@ class _CalendarPageState extends State<CalendarPage>
     final seed = widget.tenantId.trim();
     if (seed.isEmpty) return;
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      final op = await TenantResolverService.resolveOperationalChurchDocId(
-        seed,
-        userUid: uid,
-      ).timeout(
-        const Duration(seconds: 8),
-        onTimeout: () => _effectiveTenantId.isNotEmpty ? _effectiveTenantId : seed,
-      );
+      final op = ChurchRepository.churchId(seed);
       if (!mounted || op.isEmpty || op == _tid) return;
       setState(() => _effectiveTenantId = op);
       _restartAgendaSubscription();

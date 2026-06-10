@@ -412,7 +412,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(AppFinalizeBootstrap.onAppResume());
+      if (!kIsWeb) unawaited(AppFinalizeBootstrap.onAppResume());
       unawaited(
         ChatThreadOperations.markThreadLastSeen(
           tenantId: _tid,

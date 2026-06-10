@@ -4,6 +4,9 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_media_upload.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_firestore_meta.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
@@ -33,6 +36,10 @@ abstract final class YahwehMediaUploadPipeline {
   YahwehMediaUploadPipeline._();
 
   static void bindOnAppStart() {
+    if (EcoFireFlow.disableUploadQueues) {
+      EcoFireFlow.log('filas de upload desligadas');
+      return;
+    }
     if (FirebaseUploadPolicy.memoryQueueOnNetworkError) {
       UploadQueueService.instance.start();
     }
@@ -88,6 +95,31 @@ abstract final class YahwehMediaUploadPipeline {
     return file;
   }
 
+  static EcoFireMediaProfile ecofireProfileFromPath(
+    String storagePath, {
+    YahwehUploadModule? module,
+  }) {
+    final p = storagePath.toLowerCase();
+    if (p.contains('/membros/') || p.contains('foto_perfil')) {
+      return p.contains('/thumbs/') || p.contains('thumb')
+          ? EcoFireMediaProfile.memberThumb
+          : EcoFireMediaProfile.memberProfile;
+    }
+    if (p.contains('/patrimonio/')) return EcoFireMediaProfile.patrimonio;
+    if (p.contains('/configuracoes/') ||
+        p.contains('/logo/') ||
+        p.contains('logo_igreja')) {
+      return EcoFireMediaProfile.logo;
+    }
+    if (module == YahwehUploadModule.chat || p.contains('/chat_media/')) {
+      return EcoFireMediaProfile.chat;
+    }
+    if (p.contains('/financeiro/') || p.contains('.pdf')) {
+      return EcoFireMediaProfile.document;
+    }
+    return EcoFireMediaProfile.feedPhoto;
+  }
+
   /// Upload com bootstrap, progresso, fila offline, pending Firestore e analytics.
   static Future<String> uploadBytes({
     required String storagePath,
@@ -103,6 +135,27 @@ abstract final class YahwehMediaUploadPipeline {
     void Function(UploadTask task)? onUploadTaskCreated,
     int maxAttempts = 4,
   }) async {
+    if (EcoFireFlow.directStorageUpload) {
+      final mod = module ?? moduleFromStoragePath(storagePath);
+      final profile = ecofireProfileFromPath(storagePath, module: mod);
+      showProgress(switch (mod) {
+        YahwehUploadModule.chat => 'A enviar no chat…',
+        YahwehUploadModule.aviso => 'A enviar foto do aviso…',
+        YahwehUploadModule.evento => 'A enviar mídia do evento…',
+        YahwehUploadModule.generic => 'A enviar ficheiro…',
+      });
+      try {
+        return await EcoFireMediaUpload.uploadBytes(
+          storagePath: storagePath,
+          bytes: bytes,
+          contentType: contentType,
+          profile: profile,
+          onProgress: onProgress,
+        );
+      } finally {
+        hideProgress();
+      }
+    }
     final mod = module ?? moduleFromStoragePath(storagePath);
     final tenant = tenantId ?? tenantFromStoragePath(storagePath) ?? '';
     await ensureUploadBootstrapForStoragePath(storagePath);
@@ -251,6 +304,16 @@ abstract final class YahwehMediaUploadPipeline {
     void Function(UploadTask task)? onUploadTaskCreated,
     bool requireAuth = true,
   }) async {
+    if (EcoFireFlow.directStorageUpload) {
+      final profile = ecofireProfileFromPath(storagePath);
+      return EcoFireMediaUpload.uploadBytes(
+        storagePath: storagePath,
+        bytes: bytes,
+        contentType: contentType,
+        profile: profile,
+        onProgress: onProgress,
+      );
+    }
     if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
       await _ensureStorageBootstrap(
         storagePath: storagePath,

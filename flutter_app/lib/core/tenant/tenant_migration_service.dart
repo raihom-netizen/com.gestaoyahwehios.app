@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Migração silenciosa ao abrir o app — sem UI «Sincronizando».
@@ -19,7 +18,6 @@ abstract final class TenantMigrationService {
 
   static const _legacyPathTokens = <String>[
     'tenants/',
-    'church_aliases',
     'church_roots',
     'organizations/',
     'organizationId',
@@ -49,10 +47,9 @@ abstract final class TenantMigrationService {
     }
 
     final seed = (seedHint ?? ChurchContext.seedId ?? churchId).trim();
-    final canonical = TenantResolverService.syncStorageTenantId(seed);
     final report = TenantMigrationReport(
       churchId: churchId,
-      canonicalId: canonical.isNotEmpty ? canonical : churchId,
+      canonicalId: churchId,
       seed: seed,
     );
 
@@ -61,13 +58,6 @@ abstract final class TenantMigrationService {
     }
 
     try {
-      if (seed != churchId && TenantResolverService.kBpcLegacyTenantIds.contains(seed)) {
-        report.legacySeedRedirected = true;
-        debugPrint(
-          'TENANT_MIGRATION legacy seed=$seed → churchId=$churchId',
-        );
-      }
-
       await _migrateNoticiasToEventosIfNeeded(churchId, report);
       await _probeCanonicalCollections(churchId, report);
       report.storageAligned = ChurchContext.storageRoot == 'igrejas/$churchId';

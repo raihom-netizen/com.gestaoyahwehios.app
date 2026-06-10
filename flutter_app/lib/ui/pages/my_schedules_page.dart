@@ -8,7 +8,6 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/schedule_swap_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
@@ -950,13 +949,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     }
     try {
       final hint = widget.tenantId.trim();
-      var tid = _effectiveTenantId.isNotEmpty ? _effectiveTenantId : hint;
-      try {
-        tid = await TenantResolverService.resolveOperationalChurchDocId(
-          widget.tenantId,
-          userUid: FirebaseAuth.instance.currentUser?.uid,
-        ).timeout(const Duration(seconds: 8), onTimeout: () => tid);
-      } catch (_) {}
+      var tid = ChurchRepository.churchId(hint);
+      if (tid.isEmpty) tid = _effectiveTenantId.isNotEmpty ? _effectiveTenantId : hint;
       if (mounted && tid != _effectiveTenantId) {
         setState(() => _effectiveTenantId = tid);
       }

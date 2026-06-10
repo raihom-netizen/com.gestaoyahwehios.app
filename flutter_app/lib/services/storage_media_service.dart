@@ -1,5 +1,7 @@
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_media_upload.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_media_service.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
@@ -87,6 +89,9 @@ class StorageMediaService {
         ChurchTenantMediaActivity.recordDownload(s);
         return url;
       } catch (_) {}
+      if (EcoFireFlow.enabled) {
+        return EcoFireMediaUpload.resolveDisplayUrl(storagePath: s);
+      }
     }
     return null;
   }

@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
@@ -99,8 +100,12 @@ abstract final class AppSessionStability {
       _stickyUser = u;
     }
     final runHeavy = force || FirebaseAuthTokenGuard.shouldHandleAppResume();
-    if (runHeavy) {
-      unawaited(AppFinalizeBootstrap.onAppResume());
+    if (runHeavy && !(kIsWeb && WebPanelStability.isSessionExpired)) {
+      if (kIsWeb) {
+        unawaited(FirestoreWebGuard.ensureWebDatabaseConnected(refreshAuth: true));
+      } else {
+        unawaited(AppFinalizeBootstrap.onAppResume());
+      }
       if (kIsWeb) {
         unawaited(FirestoreWebGuard.bindWebHostingDomainSession());
       }

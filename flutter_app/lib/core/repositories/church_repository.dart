@@ -8,10 +8,12 @@
 /// ```
 library;
 
-export 'package:gestao_yahweh/core/data/church_data_audit.dart';
+export 'package:gestao_yahweh/core/church_panel_paths.dart';
+export 'package:gestao_yahweh/core/yahweh_unified_image_pipeline.dart';
 export 'package:gestao_yahweh/core/data/church_data_paths.dart';
 export 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 export 'package:gestao_yahweh/core/data/church_data_result.dart';
+export 'package:gestao_yahweh/core/data/church_data_audit.dart';
 export 'package:gestao_yahweh/core/tenant/church_context.dart';
 export 'package:gestao_yahweh/core/tenant/diagnostic_access_policy.dart';
 export 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
