@@ -1,4 +1,4 @@
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
 /// churchId único para gravações — Web / Android / iOS (sem tenant/alias).
 abstract final class ChurchPublishContext {

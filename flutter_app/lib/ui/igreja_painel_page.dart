@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart'
     show MergedFirestoreQuerySnapshot;
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'busca_global_widget.dart';
 import 'grafico_ultra_moderno.dart';

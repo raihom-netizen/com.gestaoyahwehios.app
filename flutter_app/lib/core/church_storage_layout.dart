@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_logo_storage_naming.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
-import 'package:gestao_yahweh/services/church_repository.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
 /// Layout canônico do **Firebase Storage** por igreja (tenant = id do doc em `igrejas/{id}`).
 ///

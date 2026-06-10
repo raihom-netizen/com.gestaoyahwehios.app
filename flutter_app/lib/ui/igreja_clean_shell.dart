@@ -23,7 +23,6 @@ import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/services/church_tenant_dashboard_warmup_service.dart';
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
-import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_cluster_sync_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_consolidation_service.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
@@ -442,7 +441,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   void dispose() {
     AppSessionStability.unregisterResumeListener(_onGlobalSessionResume);
     WidgetsBinding.instance.removeObserver(this);
-    ChurchChatService.stopAppWidePresenceHeartbeat();
+    ChatPresenceEngine.stopAppWideHeartbeat();
     ChurchPanelNavigationBridge.instance.unregisterShellNavigator();
     HardwareKeyboard.instance.removeHandler(_onShellHardwareKey);
     PaymentUiFeedbackService.paymentConfirmedTick
@@ -529,7 +528,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       AppSessionStability.onGlobalResume();
-      unawaited(ChurchChatService.appWidePresencePingIfActive());
+      unawaited(ChatPresenceEngine.pingAppWideHeartbeatIfActive());
       unawaited(_resolveOperationalTenant(forceRefresh: true));
       ChurchTenantOfflineWarmupService.instance
           .scheduleLightRefreshOnResume(_moduleTenantId);
@@ -540,7 +539,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     ChurchTenantOfflineWarmupService.instance
         .scheduleLightRefreshOnResume(_moduleTenantId);
     unawaited(_resolveOperationalTenant(forceRefresh: true));
-    unawaited(ChurchChatService.appWidePresencePingIfActive());
+    unawaited(ChatPresenceEngine.pingAppWideHeartbeatIfActive());
   }
 
   Future<void> _bootstrapChatPresenceHeartbeat() async {
@@ -551,12 +550,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     try {
       final tid = ChurchRepository.churchId(raw);
       if (!mounted) return;
-      ChurchChatService.startAppWidePresenceHeartbeat(
+      ChatPresenceEngine.startAppWideHeartbeat(
         tid.isNotEmpty ? tid : raw,
       );
     } catch (_) {
       if (!mounted) return;
-      ChurchChatService.startAppWidePresenceHeartbeat(raw);
+      ChatPresenceEngine.startAppWideHeartbeat(raw);
     }
   }
 

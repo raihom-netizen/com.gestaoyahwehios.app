@@ -20,6 +20,8 @@ export 'package:gestao_yahweh/core/tenant/tenant_migration_service.dart';
 export 'package:gestao_yahweh/core/chat_engine/chat_hub_operations.dart';
 export 'package:gestao_yahweh/core/chat_engine/chat_hub_threads.dart';
 export 'package:gestao_yahweh/core/chat_engine/chat_messaging_engine.dart';
+export 'package:gestao_yahweh/core/chat_engine/chat_presence_engine.dart';
+export 'package:gestao_yahweh/core/chat_engine/chat_thread_operations.dart';
 export 'package:gestao_yahweh/core/chat_engine/chat_models.dart';
 export 'package:gestao_yahweh/core/chat_engine/chat_engine_paths.dart';
 

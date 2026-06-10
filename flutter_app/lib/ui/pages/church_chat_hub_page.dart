@@ -14,7 +14,6 @@ import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/church_chat_local_conversations.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_threads_list_cache.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
@@ -175,7 +174,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   List<_DeptEntry> _departments = [];
   bool _departmentsLoading = false;
   int _deptSyncGeneration = 0;
-  /// Stream único de `chat_threads` (reconexão automática em [ChurchChatService]).
+  /// Stream único de `chat_threads` (reconexão automática em [ChatHubThreads]).
   Stream<QuerySnapshot<Map<String, dynamic>>>? _chatThreadsStream;
   /// Evita lista de conversas «a piscar»: mantém o último snapshot válido se o stream falhar de momento.
   QuerySnapshot<Map<String, dynamic>>? _lastGoodChatThreadsSnap;

@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Presença — online, visto por último, digitando, gravando áudio.
@@ -158,5 +160,43 @@ abstract final class ChatPresenceEngine {
       }
     }
     return out;
+  }
+
+  static Timer? _appHeartbeat;
+  static String? _appChurchId;
+
+  /// Heartbeat «online» enquanto o painel igreja está aberto (shell).
+  static void startAppWideHeartbeat(String churchIdHint) {
+    final id = ChurchContext.resolveChurchId(churchIdHint).trim();
+    if (id.isEmpty) {
+      stopAppWideHeartbeat();
+      return;
+    }
+    final uid = FirebaseAuth.instance.currentUser?.uid?.trim() ?? '';
+    if (uid.isEmpty) {
+      stopAppWideHeartbeat();
+      return;
+    }
+    if (_appHeartbeat != null && _appChurchId == id) return;
+    _appHeartbeat?.cancel();
+    _appChurchId = id;
+    unawaited(setOnline(churchId: id, uid: uid));
+    _appHeartbeat = Timer.periodic(
+      const Duration(seconds: 25),
+      (_) => setOnline(churchId: id, uid: uid),
+    );
+  }
+
+  static void stopAppWideHeartbeat() {
+    _appHeartbeat?.cancel();
+    _appHeartbeat = null;
+    _appChurchId = null;
+  }
+
+  static Future<void> pingAppWideHeartbeatIfActive() async {
+    final id = _appChurchId;
+    final uid = FirebaseAuth.instance.currentUser?.uid?.trim() ?? '';
+    if (id == null || id.isEmpty || uid.isEmpty) return;
+    await setOnline(churchId: id, uid: uid);
   }
 }
