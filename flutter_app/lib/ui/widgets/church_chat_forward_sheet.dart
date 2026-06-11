@@ -125,6 +125,16 @@ class ChurchChatForwardSheet extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                             ),
                       onTap: () async {
+                        final block =
+                            ChurchChatService.forwardBlockReason(messageData);
+                        if (block != null) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(block)),
+                            );
+                          }
+                          return;
+                        }
                         Navigator.pop(context);
                         final ok = await ChurchChatService.forwardMessageToThread(
                           tenantId: tenantId,

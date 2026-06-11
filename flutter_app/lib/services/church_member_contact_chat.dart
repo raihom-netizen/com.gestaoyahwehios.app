@@ -3,20 +3,32 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/app_navigator.dart';
-import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
-import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 /// Contato por chat da igreja ou WhatsApp — web, iOS e Android.
 abstract final class ChurchMemberContactChat {
   ChurchMemberContactChat._();
 
   static const String faleComigoDraft = 'Olá! Gostaria de falar com você.';
+
+  /// Fecha dialog/sheet/ficha empilhada antes de ir ao módulo Chat (web painel).
+  static void _popPanelOverlayIfNeeded(BuildContext context) {
+    if (!context.mounted) return;
+    final route = ModalRoute.of(context);
+    if (route is PopupRoute) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final nav = Navigator.of(context);
+    if (nav.canPop()) {
+      nav.pop();
+    }
+  }
 
   static String? authUidFromMember(Map<String, dynamic> data) {
     for (final k in [
@@ -84,11 +96,16 @@ abstract final class ChurchMemberContactChat {
       return (data: data, memberDocId: docId, peerUid: null);
     }
 
+    final viewerUid = FirebaseAuth.instance.currentUser?.uid?.trim();
+
     try {
       await ChurchTenantResilientReads.preparePanelRead();
       var operational = tid;
       try {
-        operational = await ChurchTenantResilientReads.operationalTenantId(tid);
+        operational = await TenantResolverService.resolveOperationalChurchDocId(
+          tid,
+          userUid: viewerUid,
+        );
       } catch (_) {}
 
       Future<void> mergeSnap(DocumentSnapshot<Map<String, dynamic>> snap) async {
@@ -112,6 +129,7 @@ abstract final class ChurchMemberContactChat {
             operational,
             hint,
             cpfDigits: cpf.length == 11 ? cpf : null,
+            userUid: viewerUid,
           );
           if (snap == null || !snap.exists) continue;
           await mergeSnap(snap);
@@ -257,9 +275,14 @@ abstract final class ChurchMemberContactChat {
     bool popSheetBeforeNavigate = false,
   }) async {
     final myUid = FirebaseAuth.instance.currentUser?.uid?.trim();
+    final messenger = ScaffoldMessenger.maybeOf(context);
+
+    if (popSheetBeforeNavigate && context.mounted) {
+      _popPanelOverlayIfNeeded(context);
+    }
+
     if (myUid == null || myUid.isEmpty) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
           'Entre na sua conta para usar o chat da igreja.',
         ),
@@ -282,8 +305,7 @@ abstract final class ChurchMemberContactChat {
     );
     final peerUid = resolved.peerUid?.trim();
     if (peerUid == null || peerUid.isEmpty) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
           'Este membro ainda não tem conta no app (login). '
           'Ative o acesso em Membros ou use o WhatsApp.',
@@ -292,8 +314,7 @@ abstract final class ChurchMemberContactChat {
       return;
     }
     if (peerUid == myUid) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
           'Você não pode abrir chat consigo mesmo.',
         ),
@@ -304,15 +325,6 @@ abstract final class ChurchMemberContactChat {
     final titulo =
         displayName.trim().isEmpty ? 'Membro' : displayName.trim();
 
-    final messenger = ScaffoldMessenger.maybeOf(context);
-
-    if (popSheetBeforeNavigate && context.mounted) {
-      final nav = Navigator.of(context);
-      if (nav.canPop()) {
-        nav.pop();
-      }
-    }
-
     final titleA = FirebaseAuth.instance.currentUser?.displayName ?? 'Eu';
     final ensured = await ChurchChatService.ensureDmThreadResilient(
       tenantId: operationalTenant,
@@ -321,7 +333,7 @@ abstract final class ChurchMemberContactChat {
       titleA: titleA,
       titleB: titulo,
     );
-    if (!ensured && context.mounted) {
+    if (!ensured) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
           'A sincronizar o chat — a conversa abre na mesma.',
@@ -331,41 +343,21 @@ abstract final class ChurchMemberContactChat {
 
     final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
     final draft = draftText.trim();
-    final cpfClean = viewerCpfDigits.replaceAll(RegExp(r'\D'), '');
+    final bridgeTenant = ChurchContext.currentChurchId?.trim() ??
+        ChurchContext.resolveChurchId(operationalTenant);
+    final bridgeTenantArg =
+        bridgeTenant.isEmpty ? operationalTenant : bridgeTenant;
 
-    ChurchPanelNavigationBridge.instance.consumePendingChatThreadOpen();
-
-    void pushThread(NavigatorState nav) {
-      unawaited(
-        nav.push<void>(
-          MaterialPageRoute<void>(
-            fullscreenDialog: true,
-            builder: (_) => ChurchChatThreadPage(
-              tenantId: operationalTenant,
-              threadId: threadId,
-              title: titulo,
-              isDepartment: false,
-              peerUid: peerUid,
-              memberRole: memberRole,
-              memberCpfDigits: cpfClean,
-              initialDraftText: draft.isEmpty ? null : draft,
-            ),
-          ),
-        ),
-      );
-    }
-
-    final rootNav = appRootNavigatorKey.currentState;
-    if (rootNav != null) {
-      pushThread(rootNav);
-      ChurchPanelNavigationBridge.instance
-          .requestNavigateToShellIndex(kChurchShellIndexChat);
-      return;
-    }
-
-    if (context.mounted) {
-      pushThread(Navigator.of(context));
-    }
+    // Abre o módulo Chat e deixa a conversa pendente para [ChurchChatHubPage].
+    // Não usar push no root navigator — na web embutida no shell isso não abre a thread.
+    ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
+      threadId: threadId,
+      tenantId: bridgeTenantArg,
+      peerUid: peerUid,
+      displayName: titulo,
+      initialDraftText: draft.isEmpty ? null : draft,
+    );
+    ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
   }
 
   static Future<void> openWhatsAppFaleComigo(

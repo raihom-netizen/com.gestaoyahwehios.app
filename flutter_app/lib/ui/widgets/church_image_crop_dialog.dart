@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:crop_your_image/crop_your_image.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/feed_photo_bottom_actions.dart';
 
 /// Cortar logo (quadrado) ou foto do gestor (círculo) antes do upload.
 ///
@@ -63,8 +64,8 @@ Future<Uint8List?> showChurchPhotoCropDialog(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Text(
                   circleUi
-                      ? 'Arraste e ajuste o zoom. Use Aplicar para confirmar o recorte.'
-                      : 'Ajuste a área. Use Aplicar para confirmar o recorte.',
+                      ? 'Arraste e ajuste o zoom. Confirme na barra inferior.'
+                      : 'Ajuste a área. Confirme na barra inferior.',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey.shade700,
@@ -102,32 +103,15 @@ Future<Uint8List?> showChurchPhotoCropDialog(
                   ),
                 ),
               ),
-              const Divider(height: 1),
-              SafeArea(
-                top: false,
-                minimum: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                child: Wrap(
-                  alignment: WrapAlignment.end,
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    OutlinedButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('Cancelar'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: () {
-                        if (circleUi) {
-                          cropController.cropCircle();
-                        } else {
-                          cropController.crop();
-                        }
-                      },
-                      icon: const Icon(Icons.check_rounded, size: 20),
-                      label: const Text('Aplicar'),
-                    ),
-                  ],
-                ),
+              FeedPhotoBottomActions(
+                onCancel: () => Navigator.of(ctx).pop(),
+                onConfirm: () {
+                  if (circleUi) {
+                    cropController.cropCircle();
+                  } else {
+                    cropController.crop();
+                  }
+                },
               ),
             ],
           ),

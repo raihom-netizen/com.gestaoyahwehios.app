@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/login_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
@@ -67,8 +66,9 @@ class _DepartmentInvitePageState extends State<DepartmentInvitePage> {
     });
 
     try {
-      final effectiveTid =
-          await TenantResolverService.resolveEffectiveTenantId(tidRaw);
+      final effectiveTid = ChurchRepository.churchId(tidRaw).isNotEmpty
+          ? ChurchRepository.churchId(tidRaw)
+          : tidRaw.trim();
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -79,7 +79,9 @@ class _DepartmentInvitePageState extends State<DepartmentInvitePage> {
           .trim();
       final resolvedUserChurch = userChurch.isEmpty
           ? ''
-          : await TenantResolverService.resolveEffectiveTenantId(userChurch);
+          : (ChurchRepository.churchId(userChurch).isNotEmpty
+              ? ChurchRepository.churchId(userChurch)
+              : userChurch);
 
       if (resolvedUserChurch.isEmpty ||
           resolvedUserChurch != effectiveTid) {

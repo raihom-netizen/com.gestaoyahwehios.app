@@ -11,12 +11,14 @@ class MemberCardCnhFullscreenPage extends StatelessWidget {
     required this.role,
     this.memberId,
     this.cpf,
+    this.memberSeedData,
   });
 
   final String tenantId;
   final String role;
   final String? memberId;
   final String? cpf;
+  final Map<String, dynamic>? memberSeedData;
 
   static Future<void> open(
     BuildContext context, {
@@ -24,6 +26,7 @@ class MemberCardCnhFullscreenPage extends StatelessWidget {
     required String role,
     String? memberId,
     String? cpf,
+    Map<String, dynamic>? memberSeedData,
   }) {
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -33,6 +36,7 @@ class MemberCardCnhFullscreenPage extends StatelessWidget {
           role: role,
           memberId: memberId,
           cpf: cpf,
+          memberSeedData: memberSeedData,
         ),
       ),
     );
@@ -112,6 +116,7 @@ class MemberCardCnhFullscreenPage extends StatelessWidget {
               role: role,
               memberId: memberId,
               cpf: cpf,
+              memberSeedData: memberSeedData,
               cnhFullscreenOnly: true,
             ),
           ),

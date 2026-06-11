@@ -62,13 +62,52 @@ service cloud.firestore {
           )
         : '';
     }
+    /// Todos os IDs de igreja gravados em `users/{uid}` (migração canónica).
+    function userDocMatchesTenant(tenantId) {
+      let p = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isSignedIn() && exists(p) && (
+        get(p).data.igrejaId == tenantId
+        || get(p).data.tenantId == tenantId
+        || get(p).data.churchId == tenantId
+        || get(p).data.churchCanonicalId == tenantId
+        || get(p).data.canonicalTenantId == tenantId
+      );
+    }
+    /// Igreja Brasil para Cristo — doc canónico + IDs legados do mesmo cluster.
+    function bpcCanonicalId() {
+      return 'igreja_o_brasil_para_cristo_jardim_goiano';
+    }
+    function isBpcLegacyTenantId(id) {
+      return id == 'brasilparacristo'
+        || id == 'brasilparacristo_sistema'
+        || id == 'iobpc-jardim-goiano'
+        || id == 'o-brasil-cristo-jardim-goiano';
+    }
+    function bpcClusterMatches(tenantId) {
+      let bound = userBoundTenantId();
+      return isSignedIn() && (
+        (tenantId == bpcCanonicalId() && (
+          isBpcLegacyTenantId(bound)
+          || (request.auth.token.igrejaId != null && isBpcLegacyTenantId(request.auth.token.igrejaId))
+          || (request.auth.token.tenantId != null && isBpcLegacyTenantId(request.auth.token.tenantId))
+        ))
+        || (isBpcLegacyTenantId(tenantId) && (
+          bound == bpcCanonicalId()
+          || (request.auth.token.igrejaId != null && request.auth.token.igrejaId == bpcCanonicalId())
+          || (request.auth.token.tenantId != null && request.auth.token.tenantId == bpcCanonicalId())
+        ))
+      );
+    }
     // sameChurch: vínculo directo ao doc `igrejas/{churchId}`.
     function sameChurch(tenantId) {
       let bound = userBoundTenantId();
       return isSignedIn() && (
         bound == tenantId
+        || userDocMatchesTenant(tenantId)
+        || bpcClusterMatches(tenantId)
         || request.auth.token.igrejaId == tenantId
         || request.auth.token.tenantId == tenantId
+        || request.auth.token.churchId == tenantId
       );
     }
     // Inclui capitalizaÃ§Ã£o comum no app (ex.: "Gestor", "Master") â€” sem isto canWriteTenant falha e nada grava (avisos, departamentos, mÃ­dia-meta).
@@ -430,6 +469,7 @@ service cloud.firestore {
     /// Membro comum e permissÃ£o granular `eventos` isolada nÃ£o publicam (chat continua aberto a todos).
     function canWriteMuralFeed(tenantId) {
       return isAdminPanel() || canWriteTenant(tenantId)
+        || (emailMatchesTenant(tenantId) && canManageChurch())
         || muralRoleFromMemberDoc(tenantId)
         || muralRoleFromLinkedMemberDoc(tenantId)
         || muralRoleFromTenantUserDoc(tenantId)
@@ -455,6 +495,7 @@ service cloud.firestore {
         || emailMatchesTenant(tenantId)
         || request.auth.token.igrejaId == tenantId
         || request.auth.token.tenantId == tenantId
+        || request.auth.token.churchId == tenantId
         || exists(/databases/$(database)/documents/igrejas/$(tenantId)/users/$(request.auth.uid))
         || exists(/databases/$(database)/documents/igrejas/$(tenantId)/membros/$(request.auth.uid))
         || memberLinkedToTenant(tenantId)
@@ -867,6 +908,31 @@ service cloud.firestore {
         }
       }
       // Eventos (subcoleÃ§Ã£o legada/alternativa ao feed) â€” alinhado ao mural de eventos.
+      match /noticias/{docId} {
+        allow read: if isMaster() || canAccessTenant(id)
+          || noticiaDocPublicSiteReadable();
+        allow create, delete: if canWriteMuralFeed(id);
+        allow update: if muralPostPublishFinalizeAllowed(id)
+          || canWriteMuralFeed(id)
+          || (sameChurch(id) && isSignedIn() && noticiaSocialFieldsOnly());
+        match /comentarios/{commentId} {
+          allow read: if isMaster() || canAccessTenant(id) || noticiaPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id)
+            && request.resource.data.authorUid == request.auth.uid
+            && (request.resource.data.text is string || request.resource.data.texto is string);
+          allow delete: if isAdminPanel() || canWriteTenant(id)
+            || (isSignedIn() && resource.data.authorUid == request.auth.uid);
+          allow update: if false;
+        }
+        match /curtidas/{uid} {
+          allow read: if isMaster() || canAccessTenant(id) || noticiaPublicReadable(id, docId);
+          allow create: if isSignedIn() && sameChurch(id) && request.auth.uid == uid
+            && request.resource.data.uid == uid
+            && request.resource.data.memberName is string;
+          allow delete: if isSignedIn() && sameChurch(id) && request.auth.uid == uid;
+          allow update: if false;
+        }
+      }
       match /eventos/{docId} {
         allow read: if isMaster() || canAccessTenant(id);
         allow write: if canWriteMuralFeed(id);
@@ -1189,6 +1255,8 @@ service cloud.firestore {
           || dmThreadAuthUserInThreadId(threadId)
           || (isDept && (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId)))
           || (memberLinkedToTenant(tenantId) && dmThreadAuthUserInThreadId(threadId))
+          || canWriteTenant(tenantId)
+          || (emailMatchesTenant(tenantId) && isSignedIn())
         );
       }
 
@@ -1271,7 +1339,7 @@ service cloud.firestore {
 
       /// MÃ­dia: stub Â«uploadingÂ» â†’ `sent` apÃ³s Storage â€” sem segundo `get(thread)` (sÃ³ valida remetente).
       function chatMessageSendingFinalizeAllowed(tenantId, threadId) {
-        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId) || canWriteTenant(tenantId))
           && resource.data.senderUid == request.auth.uid
           && resource.data.deliveryStatus == 'sending'
           && request.resource.data.deliveryStatus == 'sent'
@@ -1289,7 +1357,7 @@ service cloud.firestore {
       }
 
       function chatMessageMediaDeliveryPatchAllowed(tenantId, threadId) {
-        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId) || canWriteTenant(tenantId))
           && resource.data.senderUid == request.auth.uid
           && resource.data.deliveryStatus in ['uploading', 'queued']
           && request.resource.data.deliveryStatus == 'sent'
@@ -1306,7 +1374,7 @@ service cloud.firestore {
       }
 
       function chatMessageMediaUploadFailedAllowed(tenantId, threadId) {
-        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId) || canWriteTenant(tenantId))
           && resource.data.senderUid == request.auth.uid
           && resource.data.deliveryStatus in ['uploading', 'queued']
           && request.resource.data.deliveryStatus == 'failed'
@@ -1318,7 +1386,7 @@ service cloud.firestore {
       }
 
       function chatMessageUploadProgressOnly(tenantId, threadId) {
-        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId) || canWriteTenant(tenantId))
           && resource.data.senderUid == request.auth.uid
           && resource.data.deliveryStatus in ['uploading', 'queued']
           && request.resource.data.deliveryStatus in ['uploading', 'queued']
@@ -1327,7 +1395,7 @@ service cloud.firestore {
       }
 
       function chatMessageUploadQueuedOnly(tenantId, threadId) {
-        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId))
+        return (chatTenantMemberFast(tenantId) || memberLinkedToTenant(tenantId) || canWriteTenant(tenantId))
           && resource.data.senderUid == request.auth.uid
           && resource.data.deliveryStatus in ['uploading', 'queued']
           && request.resource.data.deliveryStatus == 'queued'
@@ -1467,7 +1535,7 @@ service cloud.firestore {
         match /messages/{msgId} {
           allow read: if (canAccessTenant(id) || memberLinkedToTenant(id))
             && canReadChatThreadDoc(id, threadId);
-          allow create: if (chatTenantMemberFast(id) || memberLinkedToTenant(id))
+          allow create: if (chatTenantMemberFast(id) || memberLinkedToTenant(id) || canWriteTenant(id))
             && chatSenderMayPostToThread(id, threadId)
             && request.resource.data.senderUid == request.auth.uid
             && request.resource.data.keys().hasAll(['senderUid', 'type', 'createdAt', 'expiresAt'])

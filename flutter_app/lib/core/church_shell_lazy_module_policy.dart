@@ -20,6 +20,7 @@ abstract final class ChurchShellLazyModulePolicy {
     ChurchShellIndices.membros,
     ChurchShellIndices.muralAvisos,
     ChurchShellIndices.muralEventos,
+    ChurchShellIndices.agenda,
     ChurchShellIndices.chatIgreja,
   };
 

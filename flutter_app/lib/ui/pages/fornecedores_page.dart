@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -1032,29 +1033,71 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   late TabController _tabMain;
   QuerySnapshot<Map<String, dynamic>>? _fornecedoresCacheSnap;
   late Future<QuerySnapshot<Map<String, dynamic>>> _fornecedoresFuture;
+  String? _resolvedTenantId;
+
+  String get _effectiveTenantId {
+    final r = _resolvedTenantId?.trim() ?? '';
+    if (r.isNotEmpty) return r;
+    final bound = ChurchContext.currentChurchId?.trim() ?? '';
+    if (bound.isNotEmpty) return bound;
+    final panel = ChurchContextService.panelChurchId(widget.tenantId);
+    return panel.isNotEmpty ? panel : widget.tenantId.trim();
+  }
+
+  Future<void> _bootstrapTenant() async {
+    await ChurchTenantResilientReads.preparePanelRead();
+    final bound = ChurchContext.currentChurchId?.trim() ?? '';
+    final panel = ChurchContextService.panelChurchId(widget.tenantId);
+    final tid = bound.isNotEmpty
+        ? bound
+        : (panel.isNotEmpty ? panel : widget.tenantId.trim());
+    if (!mounted) return;
+    final cached = tid.isNotEmpty ? _FornecedoresRamCache.peek(tid) : null;
+    if (cached != null && cached.docs.isNotEmpty) {
+      setState(() {
+        _resolvedTenantId = tid;
+        _fornecedoresCacheSnap = cached;
+        _fornecedoresFuture = Future.value(cached);
+      });
+      _refreshFornecedoresBackground();
+      return;
+    }
+    setState(() => _resolvedTenantId = tid);
+    _reloadFornecedoresList();
+  }
 
   void _reloadFornecedoresList() {
+    final tid = _effectiveTenantId;
+    if (tid.isEmpty) {
+      _fornecedoresFuture =
+          Future.value(const MergedFirestoreQuerySnapshot([]));
+      return;
+    }
     _fornecedoresFuture = ChurchTenantResilientReads.fornecedores(
-      widget.tenantId,
+      tid,
       limit: _fornecedoresListLimit,
+    ).timeout(
+      const Duration(seconds: 28),
+      onTimeout: () => const MergedFirestoreQuerySnapshot([]),
     ).then((snap) {
       if (snap.docs.isNotEmpty) {
-        _FornecedoresRamCache.store(widget.tenantId, snap);
+        _FornecedoresRamCache.store(tid, snap);
         _fornecedoresCacheSnap = snap;
       }
       return snap;
-    });
+    }).catchError((_) => const MergedFirestoreQuerySnapshot([]));
   }
 
   void _refreshFornecedoresBackground() {
+    final tid = _effectiveTenantId;
     unawaited(() async {
       try {
         final snap = await ChurchTenantResilientReads.fornecedores(
-          widget.tenantId,
+          tid,
           limit: _fornecedoresListLimit,
         );
         if (snap.docs.isNotEmpty) {
-          _FornecedoresRamCache.store(widget.tenantId, snap);
+          _FornecedoresRamCache.store(tid, snap);
         }
         if (!mounted) return;
         setState(() {
@@ -1087,13 +1130,17 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     _tabMain.addListener(() {
       if (!_tabMain.indexIsChanging && mounted) setState(() {});
     });
-    final cached = _FornecedoresRamCache.peek(widget.tenantId);
-    if (cached != null && cached.docs.isNotEmpty) {
-      _fornecedoresCacheSnap = cached;
-      _fornecedoresFuture = Future.value(cached);
-      _refreshFornecedoresBackground();
-    } else {
-      _reloadFornecedoresList();
+    _fornecedoresFuture =
+        Future.value(const MergedFirestoreQuerySnapshot([]));
+    unawaited(_bootstrapTenant());
+  }
+
+  @override
+  void didUpdateWidget(covariant FornecedoresPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _resolvedTenantId = null;
+      unawaited(_bootstrapTenant());
     }
   }
 
@@ -1112,13 +1159,14 @@ class _FornecedoresPageState extends State<FornecedoresPage>
         permissions: widget.permissions,
       );
 
-  CollectionReference<Map<String, dynamic>> get _col =>       ChurchUiCollections.fornecedores(widget.tenantId);
+  CollectionReference<Map<String, dynamic>> get _col =>
+      ChurchUiCollections.fornecedores(_effectiveTenantId);
 
   void _openHub(String id) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => FornecedorHubPage(
-          tenantId: widget.tenantId,
+          tenantId: _effectiveTenantId,
           role: widget.role,
           fornecedorId: id,
           podeVerFinanceiro: widget.podeVerFinanceiro,
@@ -1135,7 +1183,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _FornecedorFormSheet(
-        tenantId: widget.tenantId,
+        tenantId: _effectiveTenantId,
         col: _col,
         docId: docId,
       ),
@@ -1315,12 +1363,12 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                   children: [
                     _buildCadastrosTab(),
                     _FornecedoresAgendaGeralTab(
-                      tenantId: widget.tenantId,
+                      tenantId: _effectiveTenantId,
                       colFornecedores: _col,
                       onOpenFornecedor: _openHub,
                     ),
                     _FornecedoresCompromissosListaTab(
-                      tenantId: widget.tenantId,
+                      tenantId: _effectiveTenantId,
                       colFornecedores: _col,
                       onOpenFornecedor: _openHub,
                       fornecedorIdFilter: null,

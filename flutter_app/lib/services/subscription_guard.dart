@@ -46,10 +46,34 @@ class SubscriptionGuard {
   }) {
     final current = now ?? DateTime.now();
     final c = church ?? const <String, dynamic>{};
-    final lic = c['license'] is Map ? Map<String, dynamic>.from(c['license'] as Map) : const <String, dynamic>{};
+    final lic = c['license'] is Map
+        ? Map<String, dynamic>.from(c['license'] as Map)
+        : const <String, dynamic>{};
 
-    final isFree = LicenseAccessPolicy.churchIsFree(c);
-    final adminBlocked = c['adminBlocked'] == true || lic['adminBlocked'] == true;
+    final adminBlocked =
+        c['adminBlocked'] == true || lic['adminBlocked'] == true;
+
+    /// Master / sync: subscription FREE prevalece sobre datas legadas no doc igreja.
+    if (LicenseAccessPolicy.subscriptionIsFree(subscription) ||
+        LicenseAccessPolicy.churchIsFree(c)) {
+      final dataVencimento = LicenseAccessPolicy.churchAccessEnd(c) ??
+          _pickLatestDate(
+            subscription?['data_vencimento'],
+            subscription?['nextChargeAt'],
+            subscription?['trialEndsAt'],
+            subscription?['currentPeriodEnd'],
+          );
+      return SubscriptionGuardState(
+        statusAssinatura: 'active',
+        dataVencimento: dataVencimento,
+        dataBloqueio: null,
+        isFree: true,
+        adminBlocked: adminBlocked,
+        blocked: adminBlocked,
+        inGrace: false,
+        graceDaysLeft: 0,
+      );
+    }
     /// Master / documento: igreja desligada no ecossistema (site público + bloqueio alinhado ao painel).
     final ecosystemOff = adminBlocked ||
         lic['active'] == false ||
@@ -82,22 +106,8 @@ class SubscriptionGuard {
               )
             : null);
 
-    if (isFree) {
-      // FREE = acesso liberado; só bloqueia se o master ligou «Bloquear igreja».
-      return SubscriptionGuardState(
-        statusAssinatura: 'active',
-        dataVencimento: dataVencimento,
-        dataBloqueio: null,
-        isFree: true,
-        adminBlocked: adminBlocked,
-        blocked: adminBlocked,
-        inGrace: false,
-        graceDaysLeft: 0,
-      );
-    }
-
-    // `status_assinatura: suspended` pode ter sido gravado pelo próprio painel numa
-    // avaliação anterior errada — só bloqueia por status se a data + carência já passou.
+    /// Ecosystem off / planos pagos — (FREE já retornou acima).
+    // `status_assinatura: suspended` — só bloqueia se data + carência já passou.
     final blockedByDate =
         dataBloqueio != null && current.isAfter(dataBloqueio);
     final suspendedByStatus =

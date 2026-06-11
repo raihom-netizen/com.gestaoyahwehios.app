@@ -107,6 +107,7 @@ class FinancePremiumAccountCard extends StatelessWidget {
     this.accent,
     this.leading,
     this.onTap,
+    this.onTransfer,
   });
 
   final String nome;
@@ -117,6 +118,7 @@ class FinancePremiumAccountCard extends StatelessWidget {
   final Color? accent;
   final Widget? leading;
   final VoidCallback? onTap;
+  final VoidCallback? onTransfer;
 
   static final _nf = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
@@ -214,12 +216,71 @@ class FinancePremiumAccountCard extends StatelessWidget {
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                _miniChip('↑ ${_nf.format(receitasMes)}',
-                                    const Color(0xFF10B981)),
+                                _fluxoChip(
+                                  'Receitas',
+                                  _nf.format(receitasMes),
+                                  Icons.trending_up_rounded,
+                                  const Color(0xFF10B981),
+                                ),
                                 const SizedBox(width: 8),
-                                _miniChip('↓ ${_nf.format(despesasMes)}',
-                                    const Color(0xFFEF4444)),
+                                _fluxoChip(
+                                  'Despesas',
+                                  _nf.format(despesasMes),
+                                  Icons.trending_down_rounded,
+                                  const Color(0xFFEF4444),
+                                ),
                               ],
+                            ),
+                          ],
+                          if (onTransfer != null) ...[
+                            const SizedBox(height: 12),
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: onTransfer,
+                                borderRadius: BorderRadius.circular(14),
+                                child: Ink(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        const Color(0xFF4F46E5),
+                                        Color.lerp(ac, const Color(0xFF818CF8), 0.5)!,
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(14),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF4F46E5)
+                                            .withValues(alpha: 0.28),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 11,
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.swap_horiz_rounded,
+                                            color: Colors.white, size: 20),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'Transferir entre contas',
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
                           ],
                         ],
@@ -235,19 +296,55 @@ class FinancePremiumAccountCard extends StatelessWidget {
     );
   }
 
-  Widget _miniChip(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-          color: color,
+  Widget _fluxoChip(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              color.withValues(alpha: 0.16),
+              color.withValues(alpha: 0.06),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.28)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 14, color: color),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      color: color.withValues(alpha: 0.85),
+                    ),
+                  ),
+                  Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: color,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

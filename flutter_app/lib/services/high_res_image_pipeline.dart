@@ -10,12 +10,11 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/feed_image_encode_isolate.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
-import 'package:gestao_yahweh/ui/widgets/ios_feed_photo_confirm_screen.dart';
+import 'package:gestao_yahweh/ui/widgets/church_image_crop_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_feed_image_crop_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:gestao_yahweh/services/biometric_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 
 /// Perfil de recorte antes do upload (Yahweh Geral em alta definição).
@@ -67,8 +66,8 @@ const int kAvisoFeedWebpQuality = kPremiumMuralFeedWebpQuality;
 
 /// Seleciona imagem → recorte nativo ([image_cropper]) → WebP.
 ///
-/// **Feed (eventos/avisos):** web = foto inteira + WebP automático (Controle Total);
-/// Android = [PremiumFeedImageCropScreen]; iOS = [IosFeedPhotoConfirmScreen].
+/// **Feed (eventos/avisos):** [PremiumFeedImageCropScreen] com **Confirmar em baixo** (web, Android, iOS).
+/// **Membro/logo:** [showChurchPhotoCropDialog] com **Confirmar em baixo**.
 Future<XFile?> pickCropEncodeWebp({
   required ImageSource source,
   required HighResCropProfile profile,
@@ -107,13 +106,8 @@ int get _mobileCropMaxDimension =>
 bool get _feedIosUsesStableJpeg =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
-bool get _isIosNative => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
-
-bool get _isAndroidNative =>
-    !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
-
-/// Android mural: recorte Flutter com **Confirmar em baixo** (não uCrop nativo no topo).
-Future<XFile?> _androidFeedCropAndEncode(
+/// Mural (web/Android/iOS): recorte Flutter com **Confirmar em baixo**.
+Future<XFile?> _flutterFeedCropAndEncode(
   XFile working,
   BuildContext? webCropContext,
   int webpOutputQuality,
@@ -144,34 +138,27 @@ Future<XFile?> _androidFeedCropAndEncode(
       encodeMaxHeight: edge,
     );
   } catch (e) {
-    if (kDebugMode) debugPrint('androidFeedCrop: $e');
+    if (kDebugMode) debugPrint('flutterFeedCrop: $e');
     return _encodeFeedImageFromXFile(working);
   }
 }
 
-/// iOS mural: confirmação Flutter (sem TOCropViewController — crash em TestFlight).
-Future<XFile?> _iosFeedConfirmAndEncode(
-  XFile working,
-  BuildContext? webCropContext,
-) async {
-  final prepared = await _encodeFeedImageFromXFile(working);
-  if (prepared == null) return null;
-  final path = prepared.path;
-  if (path.isEmpty) return prepared;
-  if (webCropContext == null || !webCropContext.mounted) {
-    return prepared;
-  }
+/// Perfil/logo: diálogo Flutter com **Confirmar em baixo** (quadrado ou círculo).
+Future<Uint8List?> _flutterMemberLogoCrop(
+  BuildContext context,
+  Uint8List previewBytes, {
+  bool circleUi = false,
+  String title = 'Ajustar enquadramento',
+}) async {
   // ignore: use_build_context_synchronously
-  final confirmed = await Navigator.of(webCropContext, rootNavigator: true)
-      .push<String?>(
-    MaterialPageRoute(
-      fullscreenDialog: true,
-      builder: (_) => IosFeedPhotoConfirmScreen(imagePath: path),
-    ),
+  if (!context.mounted) return null;
+  return showChurchPhotoCropDialog(
+    context,
+    imageBytes: previewBytes,
+    title: title,
+    circleUi: circleUi,
+    aspectRatio: circleUi ? null : 1,
   );
-  if (confirmed == null || confirmed.isEmpty) return null;
-  if (confirmed == path) return prepared;
-  return _encodeFeedImageFile(confirmed);
 }
 
 /// No mobile, reduz no disco antes do recorte (HEIC/12MP → JPEG leve ~1080px).
@@ -498,65 +485,39 @@ Future<XFile?> cropEncodePickedToWebp(
     working = await _mobilePreparePickedForCrop(picked);
   }
   final square = profile == HighResCropProfile.memberSquare;
+  final feed = profile == HighResCropProfile.feedFree;
 
-  /// Web + feed: foto inteira automática (sem ecrã «Ajustar enquadramento»).
-  if (profile == HighResCropProfile.feedFree && kIsWeb) {
-    return encodeFeedPickedWebAuto(
+  if (feed) {
+    return _flutterFeedCropAndEncode(
       working,
-      webpOutputQuality: webpOutputQuality,
+      webCropContext,
+      webpOutputQuality,
+    );
+  }
+
+  if (square && webCropContext != null) {
+    final rawBytes = await _readPickedImageBytes(working);
+    if (rawBytes == null) return null;
+    final previewBytes = await _downscaleBytesForFeedCropUi(rawBytes);
+    // ignore: use_build_context_synchronously
+    if (!webCropContext.mounted) return null;
+    final croppedBytes = await _flutterMemberLogoCrop(
+      webCropContext,
+      previewBytes,
+      title: 'Ajustar foto de perfil',
+    );
+    if (croppedBytes == null || croppedBytes.isEmpty) return null;
+    return _bytesToWebpXFile(
+      croppedBytes,
+      quality: webpOutputQuality,
+      encodeMaxWidth: kMemberCropWebpMaxEdgePx,
+      encodeMaxHeight: kMemberCropWebpMaxEdgePx,
     );
   }
 
   CroppedFile? cropped;
 
-  if (kIsWeb) {
-    if (webCropContext != null && square) {
-      final ctx = webCropContext;
-      final mq = MediaQuery.sizeOf(ctx);
-      final reserved = kToolbarHeight + 120;
-      final cropH = (mq.height - reserved).clamp(200.0, 620.0).round();
-      final cropW = (mq.width - 24).clamp(280.0, 560.0).round();
-
-      cropped = await ImageCropper().cropImage(
-        sourcePath: picked.path,
-        maxWidth: kHighResCropMaxWidth,
-        maxHeight: kHighResCropMaxHeight,
-        compressQuality: kCropperCompressQuality,
-        compressFormat: ImageCompressFormat.jpg,
-        aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
-        uiSettings: [
-          WebUiSettings(
-            context: ctx,
-            presentStyle: WebPresentStyle.page,
-            size: CropperSize(width: cropW, height: cropH),
-            translations: const WebTranslations(
-              title: 'Ajustar enquadramento',
-              rotateLeftTooltip: 'Girar 90° à esquerda',
-              rotateRightTooltip: 'Girar 90° à direita',
-              cancelButton: 'Cancelar',
-              cropButton: 'Confirmar',
-            ),
-            themeData: const WebThemeData(
-              backIcon: Icons.close_rounded,
-              doneIcon: Icons.check_rounded,
-            ),
-          ),
-        ],
-      );
-    }
-  } else {
-    final feed = profile == HighResCropProfile.feedFree;
-    if (feed && _isIosNative) {
-      return _iosFeedConfirmAndEncode(working, webCropContext);
-    }
-    if (feed && _isAndroidNative) {
-      return _androidFeedCropAndEncode(
-        working,
-        webCropContext,
-        webpOutputQuality,
-      );
-    }
-
+  if (!kIsWeb) {
     final cropMax = _mobileCropMaxDimension;
     try {
       cropped = await ImageCropper().cropImage(
@@ -621,22 +582,12 @@ Future<XFile?> cropEncodePickedToWebp(
   }
 
   final pathIn = cropped?.path ?? working.path;
-  final feedEncoded = profile == HighResCropProfile.feedFree;
-
-  if (!kIsWeb && feedEncoded) {
-    if (cropped != null) {
-      return _encodeFeedImageFile(pathIn);
-    }
-    return _encodeFeedImageFromXFile(working);
-  }
-
   final rawBytes = await XFile(pathIn).readAsBytes();
-  final feedEdge = kEffectiveFeedEncodeMaxEdgePx;
   return _bytesToWebpXFile(
     rawBytes,
     quality: webpOutputQuality,
-    encodeMaxWidth: feedEncoded ? feedEdge : kMemberCropWebpMaxEdgePx,
-    encodeMaxHeight: feedEncoded ? feedEdge : kMemberCropWebpMaxEdgePx,
+    encodeMaxWidth: kMemberCropWebpMaxEdgePx,
+    encodeMaxHeight: kMemberCropWebpMaxEdgePx,
   );
 }
 

@@ -152,6 +152,7 @@ class PastoralAttentionMemberCard extends StatelessWidget {
                       displayName: alert.name,
                       memberDocId: alert.memberId,
                       draftText: whatsappPrefill,
+                      popSheetBeforeNavigate: true,
                     ),
                   ),
                 ),

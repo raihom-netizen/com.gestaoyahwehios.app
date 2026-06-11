@@ -12,10 +12,12 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -31,10 +33,21 @@ abstract final class ChurchTenantResilientReads {
   static DocumentReference<Map<String, dynamic>> _church(String tenantId) =>
       ChurchRepository.churchDoc(tenantId);
 
-  /// Mesmo critério Membros/Android: contexto → tenantId do shell (já operacional).
+  /// Doc canónico em `igrejas/{churchId}` — leitura directa do painel (sem redireccionar para doc irmão sem permissão).
   static Future<String> _readTenantId(String tenantId, {String? userUid}) async {
-    final id = ChurchContextService.panelChurchId(tenantId);
-    return id.isNotEmpty ? id : tenantId.trim();
+    final bound = ChurchContext.currentChurchId?.trim() ?? '';
+    if (bound.isNotEmpty) return bound;
+    final seed = ChurchContextService.panelChurchId(tenantId);
+    final hint = seed.isNotEmpty ? seed : tenantId.trim();
+    if (hint.isEmpty) return '';
+    try {
+      return await TenantResolverService.resolveModuleReadTenantId(
+        hint,
+        userUid: userUid,
+      ).timeout(const Duration(seconds: 6), onTimeout: () => hint);
+    } catch (_) {
+      return hint;
+    }
   }
 
   /// Regra 8 — permission-denied / rede: re-resolve tenant e refaz leitura.
@@ -388,6 +401,31 @@ abstract final class ChurchTenantResilientReads {
       primary = await _readTenantId(primary, userUid: userUid);
     }
 
+    QuerySnapshot<Map<String, dynamic>>? primarySnap;
+    try {
+      primarySnap = await loadFor(primary);
+      if (primarySnap.docs.isNotEmpty) return primarySnap;
+    } catch (_) {}
+
+    final siblings = TenantResolverService.orderedSiblingsForReadFallback(
+      primary,
+      await TenantResolverService.getAllRelatedIgrejaDocIds(primary),
+    );
+    for (final sid in siblings) {
+      try {
+        final snap = await loadFor(sid);
+        if (snap.docs.isNotEmpty) {
+          TenantResolverService.rememberModuleReadTenantId(
+            tenantId,
+            sid,
+            userUid: userUid,
+          );
+          return snap;
+        }
+      } catch (_) {}
+    }
+
+    if (primarySnap != null) return primarySnap;
     try {
       return await loadFor(primary);
     } catch (_) {
@@ -1349,13 +1387,23 @@ abstract final class ChurchTenantResilientReads {
     required int limit,
     required String cacheSuffix,
   }) =>
-      FirestoreReadResilience.getQuery(
-        _church(tenantId)
-            .collection(subcollection)
-            .orderBy(orderField, descending: descending)
-            .limit(limit),
-        cacheKey: _key(tenantId, cacheSuffix),
-      );
+      FirestoreWebGuard.runWithWebRecovery(() async {
+        final church = _church(tenantId);
+        try {
+          return await FirestoreReadResilience.getQuery(
+            church
+                .collection(subcollection)
+                .orderBy(orderField, descending: descending)
+                .limit(limit),
+            cacheKey: _key(tenantId, cacheSuffix),
+          );
+        } catch (_) {
+          return await FirestoreReadResilience.getQuery(
+            church.collection(subcollection).limit(limit),
+            cacheKey: _key(tenantId, '${cacheSuffix}_plain'),
+          );
+        }
+      });
 
   static String _rangeCacheSuffix(Timestamp start, Timestamp end) =>
       '${start.seconds}_${end.seconds}';
@@ -1521,11 +1569,14 @@ abstract final class ChurchTenantResilientReads {
     String tenantId,
     String hint, {
     String? cpfDigits,
+    String? userUid,
   }) async {
     await preparePanelRead();
     final h = hint.trim();
     if (h.isEmpty) return null;
-    final primary = tenantId.trim();
+    final seed = tenantId.trim();
+    if (seed.isEmpty) return null;
+    final primary = await _readTenantId(seed, userUid: userUid);
     if (primary.isEmpty) return null;
 
     Future<DocumentSnapshot<Map<String, dynamic>>?> tryTenant(String tid) =>
@@ -1539,6 +1590,24 @@ abstract final class ChurchTenantResilientReads {
       final snap = await tryTenant(primary);
       if (snap != null && snap.exists) return snap;
     } catch (_) {}
+
+    final siblings = TenantResolverService.orderedSiblingsForReadFallback(
+      primary,
+      await TenantResolverService.getAllRelatedIgrejaDocIds(primary),
+    );
+    for (final sid in siblings) {
+      try {
+        final snap = await tryTenant(sid);
+        if (snap != null && snap.exists) {
+          TenantResolverService.rememberModuleReadTenantId(
+            seed,
+            sid,
+            userUid: userUid,
+          );
+          return snap;
+        }
+      } catch (_) {}
+    }
     return null;
   }
 

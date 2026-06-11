@@ -1526,101 +1526,77 @@ Future<_ChurchPublicTenantResolved?> _resolveChurchPublicTenantBySlug(
   if (slug.isEmpty) return null;
 
   try {
-    await ensureFirebaseReadyForPanelRead();
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady();
-    }
-  } catch (e) {
-    AgentDebugLog.log(
-      location: 'church_public_page.dart:resolve',
-      message: 'public_site_firebase_prep_failed',
-      hypothesisId: 'PUB-C',
-      data: {'slug': slug, 'error': e.toString()},
-    );
-  }
+    await ensureFirebaseReadyForPanelRead()
+        .timeout(const Duration(seconds: 3), onTimeout: () {});
+  } catch (_) {}
 
-  for (var attempt = 0; attempt < 4; attempt++) {
+  Future<_ChurchPublicTenantResolved?> fromDocId(String id) async {
+    final t = id.trim();
+    if (t.isEmpty) return null;
     try {
-      if (attempt > 0) {
-        await Future<void>.delayed(
-          Duration(milliseconds: 280 * attempt),
-        );
-        if (kIsWeb) {
-          await FirestoreWebGuard.ensurePanelReadReady();
-        }
-      }
-
-      final resolved =
-          await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(slug)
-              .timeout(const Duration(seconds: 12));
-
-      if (resolved != null && resolved.isNotEmpty) {
-        Map<String, dynamic> profile = const {};
-        try {
-          final load = await ChurchRepository.loadChurchData(
-            seedTenantId: resolved,
-            forceRefresh: kIsWeb && attempt == 0,
-            directDocOnly: true,
-          );
-          profile = load.data;
-        } catch (_) {}
-        AgentDebugLog.log(
-          location: 'church_public_page.dart:resolve',
-          message: 'public_site_tenant_resolved',
-          hypothesisId: 'PUB-A',
-          data: {
-            'slug': slug,
-            'resolved': resolved,
-            'attempt': attempt,
-            'profileKeys': profile.keys.length,
-            'hasCidade': (profile['cidade'] ?? '').toString().isNotEmpty,
-            'hasNome': (profile['name'] ?? profile['nome'] ?? '')
-                .toString()
-                .isNotEmpty,
-          },
-        );
-        if (profile.isNotEmpty) {
-          return _ChurchPublicTenantResolved(
-            id: resolved,
-            data: profile,
-          );
-        }
-      }
-
-      for (final field in const ['slug', 'alias', 'slugId']) {
-        final q = await firebaseDefaultFirestore
+      var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
+        t,
+        preferServer: kIsWeb,
+      ).timeout(const Duration(seconds: 10));
+      if (profile.isEmpty) {
+        final snap = await firebaseDefaultFirestore
             .collection('igrejas')
-            .where(field, isEqualTo: slug)
-            .limit(1)
-            .get(
-              GetOptions(
-                source: kIsWeb && attempt == 0
-                    ? Source.server
-                    : Source.serverAndCache,
-              ),
-            )
-            .timeout(const Duration(seconds: 10));
-        if (q.docs.isNotEmpty) {
-          final d = q.docs.first;
-          return _ChurchPublicTenantResolved(
-            id: d.id,
-            data: d.data(),
-          );
+            .doc(t)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 6));
+        if (snap.exists && snap.data() != null) {
+          profile = Map<String, dynamic>.from(snap.data()!);
         }
       }
-    } catch (e) {
-      AgentDebugLog.log(
-        location: 'church_public_page.dart:resolve',
-        message: 'public_site_resolve_attempt_failed',
-        hypothesisId: 'PUB-B',
-        data: {
-          'slug': slug,
-          'attempt': attempt,
-          'error': e.toString(),
-        },
-      );
-    }
+      if (profile.isNotEmpty) {
+        return _ChurchPublicTenantResolved(id: t, data: profile);
+      }
+    } catch (_) {}
+    return null;
   }
+
+  final syncId =
+      TenantResolverService.mapLegacySeedToCanonical(slug) ?? slug;
+  final syncHit = await fromDocId(syncId);
+  if (syncHit != null) return syncHit;
+
+  try {
+    final resolved = await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(
+      slug,
+    ).timeout(const Duration(seconds: 8));
+    if (resolved != null && resolved.isNotEmpty && resolved != syncId) {
+      final hit = await fromDocId(resolved);
+      if (hit != null) return hit;
+    }
+  } catch (_) {}
+
+  try {
+    final siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(syncId)
+        .timeout(const Duration(seconds: 6));
+    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
+      syncId,
+      siblings,
+    )) {
+      final hit = await fromDocId(sid);
+      if (hit != null) return hit;
+    }
+  } catch (_) {}
+
+  for (final field in const ['slug', 'alias', 'slugId']) {
+    try {
+      final q = await firebaseDefaultFirestore
+          .collection('igrejas')
+          .where(field, isEqualTo: slug)
+          .limit(1)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(const Duration(seconds: 6));
+      if (q.docs.isNotEmpty) {
+        final d = q.docs.first;
+        return _ChurchPublicTenantResolved(id: d.id, data: d.data());
+      }
+    } catch (_) {}
+  }
+
   return null;
 }
 

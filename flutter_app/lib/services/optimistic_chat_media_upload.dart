@@ -8,6 +8,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 
 import 'package:flutter/foundation.dart' show VoidCallback, kIsWeb;
 
+import 'package:gestao_yahweh/services/church_chat_attachment_utils.dart';
 import 'package:gestao_yahweh/services/church_chat_fs.dart'
 
     show churchChatReadFileBytes;
@@ -458,6 +459,13 @@ abstract final class OptimisticChatMediaUpload {
     bool storageBeforeFirestore = false,
 
   }) async {
+
+    final kindBlocked =
+        ChurchChatAttachmentUtils.blockReasonForChatKind(pending.kind);
+    if (kindBlocked != null) {
+      onFailed(kindBlocked);
+      return;
+    }
 
     if (kIsWeb) {
       unawaited(FirestoreWebGuard.prepareForChatWrite().catchError((_) {}));

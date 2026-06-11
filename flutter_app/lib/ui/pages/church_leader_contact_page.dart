@@ -207,6 +207,7 @@ class ChurchLeaderContactPage extends StatelessWidget {
                   memberData: memberData,
                   displayName: titulo,
                   memberDocId: memberDocId,
+                  popSheetBeforeNavigate: true,
                 ),
               ),
               const SizedBox(height: 10),

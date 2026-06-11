@@ -1,5 +1,7 @@
 ﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+1877: Avisos — publish linear EcoFire (fotos Storage → Firestore, sem spinner/sync).
+/// 11.2.305+1876: atalhos Chat Igreja — Atenção pastoral, galeria líderes e corpo admin (bridge + overlay).
 /// 11.2.305+1856: unificação ChurchRepository, chat engine (hub/thread/presence), cache-first módulos, deploy completo.
 /// 11.2.305+1855: sync silenciosa, publish otimista aviso/evento/financeiro, dashboard cache 1 read, chat streams, landing botões.
 /// 11.2.305+1854: _panel_cache statistics/public_site, WhatsApp 1 toque, dashboard inteligente, notificações, offline, agenda visual.
@@ -327,7 +329,19 @@ const String appVersion = '11.2.305';
 /// 11.2.295+1803: Aprovações rápidas — pendentes cache-first; sem preparePanelRead.
 /// 11.2.295+1804: Chat Igreja — grupos instantâneos, layout web WhatsApp, mensagens/upload rápidos.
 /// 11.2.295+1805: Minha Escala + Escala Geral — cache-first instantâneo; sem preparePanelRead.
-const String appBuildNumber = '1858';
+/// 11.2.305+1861: BPC — links públicos instantâneos (slug conhecido); cadastro leitura directa Firestore como header.
+/// 11.2.305+1862: BPC — permissões cluster Firestore; sync users+JWT antes de módulos; leitura doc com dados reais.
+/// 11.2.305+1863: Site público + cadastro membro + Cadastro Igreja — leitura Firestore directa rápida (slug BPC).
+/// 11.2.305+1864: Recorte Confirmar em baixo (logo/membro/avisos/eventos); permissões mural+Storage; UI mídia premium.
+/// 11.2.305+1865: Cadastro + Config MP + licença — leitura directa igrejas/{id} (sem bootstrap pesado).
+/// 11.2.305+1869: Chat web — stub+upload+finalize; permissões gestor; retry Storage/Firestore.
+/// 11.2.305+1870: Membros — filiação pai/mãe persiste; atalho Chat igreja via bridge.
+/// 11.2.305+1871: Financeiro/Fornecedores — leitura directa igrejas/{id}; queries resilientes.
+/// 11.2.305+1872: Aniversariantes ano todo — cluster + fallback DATA_NASCIMENTO.
+/// 11.2.305+1873: Carteirinha membro — cluster BPC + fallback dados da lista.
+/// 11.2.305+1874: Painel — líderes/corpo admin rápidos (cache + cluster departamentos).
+/// 11.2.305+1875: Eventos — publicação EcoFire (Storage+URL+thumb, linear, ampliar foto).
+const String appBuildNumber = '1877';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

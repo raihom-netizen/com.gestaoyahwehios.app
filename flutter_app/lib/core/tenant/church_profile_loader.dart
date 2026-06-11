@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -137,7 +138,9 @@ abstract final class ChurchProfileLoader {
     }
 
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.ensurePanelReadReady()
+          .timeout(const Duration(seconds: 2), onTimeout: () {})
+          .catchError((_) {});
     }
 
     final firestorePath = 'igrejas/$id';
@@ -147,18 +150,58 @@ abstract final class ChurchProfileLoader {
       path: firestorePath,
     );
 
-    final snap = await FirestoreReadResilience.getDocument(
-      ChurchFirestoreAccess.churchDoc(id),
-      cacheKey: 'church_direct_$id',
-      maxAttempts: kIsWeb ? 4 : 3,
-      attemptTimeout: kIsWeb
-          ? const Duration(seconds: 18)
-          : const Duration(seconds: 12),
-    );
+    var data = <String, dynamic>{};
+    var readSource = 'server';
+    final ref = ChurchFirestoreAccess.churchDoc(id);
 
-    final data = snap.exists && snap.data() != null
-        ? Map<String, dynamic>.from(snap.data()!)
-        : <String, dynamic>{};
+    try {
+      final cacheSnap = await ref
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(milliseconds: 900));
+      if (cacheSnap.exists && cacheSnap.data() != null) {
+        data = Map<String, dynamic>.from(cacheSnap.data()!);
+        readSource = 'cache';
+      }
+    } catch (_) {}
+
+    final directScore = TenantResolverService.churchProfileRichnessScore(data);
+    if (directScore < 6) {
+      try {
+        final snap = await FirestoreReadResilience.getDocument(
+          ref,
+          cacheKey: 'church_direct_$id',
+          maxAttempts: kIsWeb ? 2 : 3,
+          attemptTimeout: kIsWeb
+              ? const Duration(seconds: 8)
+              : const Duration(seconds: 12),
+        );
+        if (snap.exists && snap.data() != null) {
+          final fresh = Map<String, dynamic>.from(snap.data()!);
+          if (TenantResolverService.churchProfileRichnessScore(fresh) >
+              directScore) {
+            data = fresh;
+            readSource = snap.metadata.isFromCache ? 'cache' : 'server';
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (data.isEmpty ||
+        TenantResolverService.churchProfileRichnessScore(data) < 6) {
+      try {
+        final richest =
+            await TenantResolverService.richestChurchProfileForCadastro(
+          id,
+          preferServer: kIsWeb,
+        ).timeout(Duration(seconds: kIsWeb ? 8 : 10));
+        if (richest.isNotEmpty &&
+            TenantResolverService.churchProfileRichnessScore(richest) >
+                TenantResolverService.churchProfileRichnessScore(data)) {
+          data = Map<String, dynamic>.from(richest);
+          readSource = 'cluster_sibling';
+        }
+      } catch (_) {}
+    }
 
     if (data.isEmpty) {
       throw ChurchRepositoryException(
@@ -177,7 +220,7 @@ abstract final class ChurchProfileLoader {
       data: data,
       fieldCount: data.length,
       loadedAt: DateTime.now(),
-      readSource: snap.metadata.isFromCache ? 'cache' : 'server',
+      readSource: readSource,
       logoStoragePath: ChurchStorageLayout.churchIdentityLogoPath(id),
       tenantMismatch: seed != id,
     );
@@ -228,7 +271,9 @@ abstract final class ChurchProfileLoader {
     }
 
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.ensurePanelReadReady()
+          .timeout(const Duration(seconds: 2), onTimeout: () {})
+          .catchError((_) {});
     }
 
     final directId = ChurchContext.resolveChurchId(seed);

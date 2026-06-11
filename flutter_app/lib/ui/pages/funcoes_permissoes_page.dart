@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_funcoes_controle_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
@@ -29,7 +29,11 @@ class _FuncoesPermissoesPageState extends State<FuncoesPermissoesPage> {
   @override
   void initState() {
     super.initState();
-    _resolvedIdFuture = TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+    _resolvedIdFuture = Future.value(
+      ChurchRepository.churchId(widget.tenantId).isNotEmpty
+          ? ChurchRepository.churchId(widget.tenantId)
+          : widget.tenantId.trim(),
+    );
   }
 
   List<String> _chipsForDoc(Map<String, dynamic>? data) {

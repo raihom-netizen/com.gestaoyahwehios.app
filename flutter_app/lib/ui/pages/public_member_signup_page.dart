@@ -452,27 +452,44 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
 
   Future<void> _loadTenant() async {
     try {
-      await ensureFirebaseReadyForPanelRead();
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady();
-      }
+      await ensureFirebaseReadyForPanelRead()
+          .timeout(const Duration(seconds: 3), onTimeout: () {});
 
       final slugTrim = widget.slug?.trim() ?? '';
       final tenantHint = widget.tenantId?.trim() ?? '';
 
       String? resolvedId;
+      if (slugTrim.isNotEmpty) {
+        resolvedId = TenantResolverService.mapLegacySeedToCanonical(slugTrim) ??
+            slugTrim;
+      }
+      if ((resolvedId == null || resolvedId.isEmpty) && tenantHint.isNotEmpty) {
+        resolvedId = TenantResolverService.mapLegacySeedToCanonical(tenantHint) ??
+            tenantHint;
+      }
+      if (resolvedId != null && resolvedId.isNotEmpty) {
+        var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
+          resolvedId,
+          preferServer: kIsWeb,
+        ).timeout(const Duration(seconds: 10));
+        if (profile.isNotEmpty) {
+          await _applyTenantFromChurchData(resolvedId, profile);
+          return;
+        }
+      }
+
       if (tenantHint.isNotEmpty) {
         resolvedId =
             await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(
                   tenantHint,
                 )
-                .timeout(const Duration(seconds: 12), onTimeout: () => tenantHint) ??
+                .timeout(const Duration(seconds: 8), onTimeout: () => tenantHint) ??
             tenantHint;
       }
       if ((resolvedId == null || resolvedId.isEmpty) && slugTrim.isNotEmpty) {
         resolvedId =
             await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(slugTrim)
-                .timeout(const Duration(seconds: 12));
+                .timeout(const Duration(seconds: 8));
       }
 
       if (resolvedId != null && resolvedId.isNotEmpty) {

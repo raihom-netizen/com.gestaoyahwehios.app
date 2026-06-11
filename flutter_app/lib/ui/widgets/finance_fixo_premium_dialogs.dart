@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
     show kFornecedoresModuleIcon;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_premium_lancamento_ui.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
@@ -46,7 +47,6 @@ class FinanceFixoVinculoSegmentDespesa extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = ThemeCleanPremium.primary;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -60,34 +60,9 @@ class FinanceFixoVinculoSegmentDespesa extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        SegmentedButton<String>(
-          segments: const [
-            ButtonSegment<String>(
-              value: 'nenhum',
-              label: Text('Nenhum'),
-              icon: Icon(Icons.link_off_rounded, size: 16),
-            ),
-            ButtonSegment<String>(
-              value: 'membro',
-              label: Text('Membro'),
-              icon: Icon(Icons.person_rounded, size: 18),
-            ),
-            ButtonSegment<String>(
-              value: 'fornecedor',
-              label: Text('Fornecedor'),
-              icon: Icon(kFornecedoresModuleIcon, size: 18),
-            ),
-          ],
-          selected: {value},
-          onSelectionChanged: (s) {
-            if (s.isNotEmpty) onChanged(s.first);
-          },
-          style: ButtonStyle(
-            visualDensity: VisualDensity.compact,
-            side: WidgetStateProperty.all(
-              BorderSide(color: p.withValues(alpha: 0.35)),
-            ),
-          ),
+        FinancePremiumVinculoToggle(
+          selected: value,
+          onChanged: onChanged,
         ),
       ],
     );
@@ -107,7 +82,6 @@ class FinanceFixoVinculoSegment extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final p = ThemeCleanPremium.primary;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -121,29 +95,10 @@ class FinanceFixoVinculoSegment extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        SegmentedButton<String>(
-          segments: const [
-            ButtonSegment<String>(
-              value: 'membro',
-              label: Text('Membro'),
-              icon: Icon(Icons.person_rounded, size: 18),
-            ),
-            ButtonSegment<String>(
-              value: 'fornecedor',
-              label: Text('Fornecedor'),
-              icon: Icon(kFornecedoresModuleIcon, size: 18),
-            ),
-          ],
-          selected: {value},
-          onSelectionChanged: (s) {
-            if (s.isNotEmpty) onChanged(s.first);
-          },
-          style: ButtonStyle(
-            visualDensity: VisualDensity.compact,
-            side: WidgetStateProperty.all(
-              BorderSide(color: p.withValues(alpha: 0.35)),
-            ),
-          ),
+        FinancePremiumVinculoToggle(
+          selected: value,
+          includeNenhum: false,
+          onChanged: onChanged,
         ),
       ],
     );

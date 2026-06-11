@@ -8,7 +8,7 @@ import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/firebase_options.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -63,19 +63,16 @@ class _MercadoPagoChurchSettingsSectionState
     setState(() => _loading = true);
     try {
       final seed = widget.tenantId.trim();
-      if (seed.isNotEmpty) {
-        _operationalTenantId = ChurchRepository.churchId(seed);
-      }
-      await ChurchTenantResilientReads.preparePanelRead();
-      final tid = _effectiveTenantId;
-      var d = await ChurchTenantResilientReads.configDoc(
-        tid,
+      final hit = await IgrejaDirectFirestoreReads.readIgrejaConfig(
+        seed,
         'mercado_pago',
       );
-      if (!(d.exists && (d.data() ?? {}).isNotEmpty) && tid != seed) {
-        d = await ChurchTenantResilientReads.configDoc(seed, 'mercado_pago');
+      if (hit != null) {
+        _operationalTenantId = hit.docId;
+        _cfg = hit.data;
+      } else {
+        _cfg = null;
       }
-      _cfg = d.data();
       _publicKeyCtrl.text = (_cfg?['publicKey'] ?? '').toString();
       _clientIdCtrl.text = (_cfg?['clientId'] ?? '').toString();
       _webhookCtrl.text = (_cfg?['notificationWebhookUrl'] ?? '').toString();
@@ -85,8 +82,8 @@ class _MercadoPagoChurchSettingsSectionState
         hypothesisId: 'E',
         data: {
           'seed': widget.tenantId,
-          'operational': _effectiveTenantId,
-          'exists': d.exists,
+          'operational': _operationalTenantId ?? seed,
+          'exists': _cfg != null && _cfg!.isNotEmpty,
           'hasPublicKey': (_cfg?['publicKey'] ?? '').toString().isNotEmpty,
           'hasClientId': (_cfg?['clientId'] ?? '').toString().isNotEmpty,
         },
@@ -98,7 +95,7 @@ class _MercadoPagoChurchSettingsSectionState
         hypothesisId: 'E',
         data: {
           'seed': widget.tenantId,
-          'operational': _effectiveTenantId,
+          'operational': _operationalTenantId,
           'error': e.runtimeType.toString(),
         },
       );

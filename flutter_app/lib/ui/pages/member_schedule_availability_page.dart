@@ -3,7 +3,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -51,8 +50,9 @@ class _MemberScheduleAvailabilityPageState
   }
 
   Future<_BootstrapResult> _loadBootstrap() async {
-    final tid = await TenantResolverService.resolveEffectiveTenantId(
-        widget.tenantId);
+    final tid = ChurchRepository.churchId(widget.tenantId).isNotEmpty
+        ? ChurchRepository.churchId(widget.tenantId)
+        : widget.tenantId.trim();
     final doc = await _memberDoc(tid);
     if (!doc.exists) {
       return _BootstrapResult(

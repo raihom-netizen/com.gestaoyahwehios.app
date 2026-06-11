@@ -8,6 +8,7 @@ void openMemberCardCnhFullscreen(
   required String role,
   String? memberId,
   String? cpf,
+  Map<String, dynamic>? memberSeedData,
 }) {
   MemberCardCnhFullscreenPage.open(
     context,
@@ -15,5 +16,6 @@ void openMemberCardCnhFullscreen(
     role: role,
     memberId: memberId,
     cpf: cpf,
+    memberSeedData: memberSeedData,
   );
 }

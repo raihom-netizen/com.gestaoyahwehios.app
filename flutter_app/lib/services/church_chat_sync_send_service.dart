@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/services/chat_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
 
-/// Chat estilo WhatsApp — Storage primeiro, Firestore depois (sem stub/fila).
+/// Chat mídia — web: stub Firestore → Storage → `sent`; mobile: Storage → Firestore.
 abstract final class ChurchChatSyncSendService {
   ChurchChatSyncSendService._();
 
@@ -21,15 +23,20 @@ abstract final class ChurchChatSyncSendService {
   }) async {
     pending.firestoreMessageId = null;
     pending.storagePath = null;
+    final resolvedTenant =
+        await ChatPublishVerificationService.resolveTenantForPublish(
+      seedTenantId: tenantId,
+    );
     try {
       await OptimisticChatMediaUpload.flush(
         pending: pending,
-        tenantId: tenantId,
+        tenantId: resolvedTenant,
         threadId: threadId,
         bytes: bytes,
         localPath: localPath,
         replyTo: replyTo,
-        storageBeforeFirestore: true,
+        // Web: stub primeiro — evita INTERNAL ASSERTION do Firestore com listeners activos.
+        storageBeforeFirestore: !kIsWeb,
         onProgress: onProgress ?? (_) {},
         onFailed: (msg) => throw StateError(msg),
         onSuccess: () => onSuccess?.call(),

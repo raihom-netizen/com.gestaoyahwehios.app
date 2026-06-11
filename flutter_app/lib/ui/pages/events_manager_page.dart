@@ -91,6 +91,7 @@ import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/immediate_feed_photo_attach.dart';
+import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
@@ -7483,10 +7484,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final docRef = ctx.docRef;
     final publishTenantId = ctx.igrejaId;
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
+    await _waitForInFlightPhotoUploads();
+    await _flushPendingEventPhotosBeforePublish(publishTenantId);
     final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
-    final hasPendingLocal = _newPhotoCount > 0;
     double? aspectRatio;
-    if (!hasPendingLocal && existingUrls.isNotEmpty) {
+    if (existingUrls.isNotEmpty) {
       final prev = widget.doc?.data()?['media_info'];
       if (prev is Map) {
         final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
@@ -7498,23 +7500,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         videoPathForPublish.isNotEmpty;
     final (eventStart, _) = _computeStartEndForSave();
     final payload = _buildEventCorePayload(
-      allUrls: const [],
+      allUrls: existingUrls,
       aspectRatio: aspectRatio,
       isNewDoc: isNewDoc,
     );
     payload.remove('videoUrl');
-    List<Uint8List>? bytes;
-    List<String>? paths;
-    if (hasPendingLocal) {
-      if (kIsWeb) {
-        bytes = await _copyNewImagesForPublish();
-      } else {
-        paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
-      }
-      if ((bytes?.length ?? paths?.length ?? 0) == 0) {
-        throw StateError('Não foi possível ler as fotos para enviar.');
-      }
-    }
     await EventoStrictPublishService.publish(
       docRef: docRef,
       tenantId: publishTenantId,
@@ -7523,8 +7513,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       existingUrls: existingUrls,
       startSlotIndex: existingUrls.length,
       hasVideo: hasVideo,
-      newImagesBytes: bytes,
-      newImagePaths: paths,
+      newImagesBytes: null,
+      newImagePaths: null,
       videoStoragePath: videoPathForPublish,
       publicSite: _publicSite,
       eventStartAt: eventStart,
@@ -7536,10 +7526,101 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   Future<void> _waitForInFlightPhotoUploads() async {
-    const maxWait = Duration(seconds: 2);
+    const maxWait = Duration(seconds: 90);
     final deadline = DateTime.now().add(maxWait);
     while (_inFlightPhotoUploads > 0 && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+    }
+    if (_inFlightPhotoUploads > 0) {
+      throw StateError(
+        'Ainda a enviar fotos. Aguarde o vínculo ao Storage e tente de novo.',
+      );
+    }
+  }
+
+  Future<void> _flushPendingEventPhotosBeforePublish(String tenantId) async {
+    if (_newPhotoCount <= 0) return;
+    final postId = _eventDocRef.id;
+    if (widget.doc == null && !_eventDraftEnsured) {
+      await ImmediateFeedPhotoAttach.ensureDraftPost(
+        docRef: _eventDocRef,
+        isNewDoc: true,
+        tenantId: tenantId,
+        postType: 'evento',
+        title: _title.text,
+      );
+      _eventDraftEnsured = true;
+    }
+    final start = _existingUrls.length;
+    final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
+      tenantId: tenantId,
+      postType: 'evento',
+      postId: postId,
+      startSlotIndex: start,
+      bytesList: kIsWeb ? List<Uint8List>.from(_newImages) : null,
+      localPaths: kIsWeb
+          ? null
+          : FeedEditorMediaService.existingValidPaths(_newImagePaths),
+    );
+    if (!mounted) return;
+    setState(() {
+      _newImages.clear();
+      _newImagePaths.clear();
+      _newNames.clear();
+      for (final s in slots) {
+        _existingUrls.add(s.fullUrl);
+      }
+    });
+  }
+
+  void _openEventEditorPhotoLightbox({
+    required List<String> urls,
+    required int initialIndex,
+    List<Uint8List>? localBytes,
+    List<String>? localPaths,
+  }) {
+    final network = urls.where((u) => u.trim().isNotEmpty).toList();
+    if (network.isNotEmpty) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => _FullScreenGallery(
+            images: network,
+            initial: initialIndex.clamp(0, network.length - 1),
+          ),
+        ),
+      );
+      return;
+    }
+    if (localBytes != null &&
+        initialIndex >= 0 &&
+        initialIndex < localBytes.length) {
+      showDialog<void>(
+        context: context,
+        barrierColor: Colors.black87,
+        builder: (ctx) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(16),
+          child: Stack(
+            children: [
+              InteractiveViewer(
+                child: Image.memory(
+                  localBytes[initialIndex],
+                  fit: BoxFit.contain,
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  onPressed: () => Navigator.pop(ctx),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
     }
   }
 
@@ -7572,6 +7653,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final publishTenantId = ctx.igrejaId;
       final postId = docRef.id;
 
+      await _waitForInFlightPhotoUploads();
+      await _flushPendingEventPhotosBeforePublish(publishTenantId);
+
       unawaited(
         EventosPublishVerificationService.logPublishPhase(
           phase: 'before',
@@ -7587,9 +7671,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
 
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
-      final hasPendingLocal = _newPhotoCount > 0;
       double? aspectRatio;
-      if (!hasPendingLocal && existingUrls.isNotEmpty) {
+      if (existingUrls.isNotEmpty) {
         final prev = widget.doc?.data()?['media_info'];
         if (prev is Map) {
           final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
@@ -7601,32 +7684,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           videoPathForPublish.isNotEmpty;
       final (eventStart, _) = _computeStartEndForSave();
       final payload = _buildEventCorePayload(
-        allUrls: const [],
+        allUrls: existingUrls,
         aspectRatio: aspectRatio,
         isNewDoc: isNewDoc,
       );
       payload.remove('videoUrl');
-      if (aspectRatio != null) {
-        payload['media_info'] = <String, dynamic>{
-          'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
-          'tipo': hasVideo ? 'video' : 'image',
-        };
-      }
-
-      List<Uint8List>? bytes;
-      List<String>? paths;
-      final startSlot = existingUrls.length;
-      if (hasPendingLocal) {
-        if (kIsWeb) {
-          bytes = await _copyNewImagesForPublish();
-        } else {
-          paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
-        }
-        final n = bytes?.length ?? paths?.length ?? 0;
-        if (n == 0) {
-          throw StateError('Não foi possível ler as fotos para enviar.');
-        }
-      }
 
       await EventoStrictPublishService.publish(
         docRef: docRef,
@@ -7634,10 +7696,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         corePayload: payload,
         isNewDoc: isNewDoc,
         existingUrls: existingUrls,
-        startSlotIndex: startSlot,
+        startSlotIndex: existingUrls.length,
         hasVideo: hasVideo,
-        newImagesBytes: bytes,
-        newImagePaths: paths,
+        newImagesBytes: null,
+        newImagePaths: null,
         videoStoragePath: videoPathForPublish,
         publicSite: _publicSite,
         eventStartAt: eventStart,
@@ -7781,7 +7843,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     for (var i = 0; i < _existingUrls.length; i++) {
       final idx = i;
       allPreviews.add(Stack(children: [
-        ClipRRect(
+        GestureDetector(
+          onTap: () => _openEventEditorPhotoLightbox(
+            urls: _existingUrls,
+            initialIndex: idx,
+          ),
+          child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: SafeNetworkImage(
                 imageUrl: _existingUrls[idx],
@@ -7799,7 +7866,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     height: 100,
                     color: Colors.grey.shade300,
                     child: const Icon(Icons.broken_image_rounded,
-                        color: Colors.grey)))),
+                        color: Colors.grey))),
+          ),
+        ),
         Positioned(
             top: 2,
             right: 2,
@@ -7827,8 +7896,18 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               size: 100,
             );
       allPreviews.add(Stack(children: [
-        ClipRRect(
-            borderRadius: BorderRadius.circular(12), child: thumbChild),
+        GestureDetector(
+          onTap: () => _openEventEditorPhotoLightbox(
+            urls: const [],
+            initialIndex: idx,
+            localBytes: kIsWeb ? _newImages : null,
+            localPaths: kIsWeb ? null : _newImagePaths,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: thumbChild,
+          ),
+        ),
         Positioned(
             top: 2,
             right: 2,

@@ -14,7 +14,7 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
@@ -219,15 +219,19 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       _accountEmailDisplay = email;
     }
     SubscriptionGuardState? guard;
+    Map<String, dynamic>? churchData;
     try {
-      final tid = _effectiveTenantId;
+      final tid = widget.tenantId.trim().isNotEmpty
+          ? widget.tenantId.trim()
+          : _effectiveTenantId;
       if (tid.isNotEmpty) {
-        final op = ChurchRepository.churchId(tid);
-        final chSnap = await ChurchUiCollections.churchDoc(op)
-            .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 8));
+        final hit = await IgrejaDirectFirestoreReads.readIgrejaDoc(tid);
+        churchData = hit?.data;
+        if (hit != null && hit.docId.isNotEmpty) {
+          _operationalTenantId = hit.docId;
+        }
         guard = SubscriptionGuard.evaluate(
-          church: chSnap.data(),
+          church: churchData,
           subscription: widget.subscription,
         );
       } else {
@@ -238,7 +242,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       }
     } catch (_) {
       guard = SubscriptionGuard.evaluate(
-        church: null,
+        church: churchData,
         subscription: widget.subscription,
       );
     }
@@ -255,6 +259,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     }
     _subscriptionGuard = guard;
     _userAtivoNoPainel = userAtivo;
+    if (mounted) setState(() {});
   }
 
   Future<void> _trocarConta(BuildContext context) async {

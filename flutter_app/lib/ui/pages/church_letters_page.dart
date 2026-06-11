@@ -246,8 +246,9 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
 
     unawaited(() async {
       try {
-        final tid =
-            await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+        final tid = ChurchRepository.churchId(widget.tenantId).isNotEmpty
+            ? ChurchRepository.churchId(widget.tenantId)
+            : widget.tenantId.trim();
         if (tid.isNotEmpty && tid != _effectiveTenantId && mounted) {
           setState(() {
             _effectiveTenantId = tid;

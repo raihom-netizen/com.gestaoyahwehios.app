@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
 
 
@@ -113,13 +114,11 @@ abstract final class ChurchContextService {
   /// ID do painel — contexto bound → hint do shell.
 
   static String panelChurchId([String? shellTenantId]) {
-
     final ctx = currentChurchId;
-
     if (ctx != null && ctx.isNotEmpty) return ctx;
-
-    return shellTenantId?.trim() ?? '';
-
+    final hint = shellTenantId?.trim() ?? '';
+    if (hint.isEmpty) return '';
+    return TenantResolverService.mapLegacySeedToCanonical(hint) ?? hint;
   }
 
 
@@ -321,63 +320,64 @@ abstract final class ChurchContextService {
 
 
     try {
-
-      final candidates = <String>{};
-
-      if (s.isNotEmpty) candidates.add(s);
-
+      final tryOrder = <String>[];
+      if (s.isNotEmpty) tryOrder.add(s);
       final fromUser = await _churchIdFromUser(uid);
-
-      if (fromUser != null && fromUser.isNotEmpty) candidates.add(fromUser);
-
-
-
-      for (final candidate in candidates) {
-
-        final id = candidate.trim();
-
-        if (id.isEmpty || !await _igrejaDocExists(id)) continue;
-
-        _applyBind(id, s, uid);
-
-        if (uid != null && uid.isNotEmpty) {
-
-          unawaited(_syncUserDirectChurchId(uid, id));
-
-        }
-
-        if (!forceRefresh &&
-
-            (_currentChurchData == null || _currentChurchData!.isEmpty)) {
-
-          final cached = await ChurchPanelLocalCache.readMap(
-
-            churchId: id,
-
-            module: ChurchPanelLocalCache.moduleCadastro,
-
-          );
-
-          if (cached != null && cached.isNotEmpty) {
-
-            _currentChurchData = Map<String, dynamic>.from(cached);
-
-          }
-
-        }
-
-        return id;
-
+      if (fromUser != null &&
+          fromUser.isNotEmpty &&
+          !tryOrder.contains(fromUser)) {
+        tryOrder.add(fromUser);
       }
 
+      String? boundId;
+      for (final candidate in tryOrder) {
+        final mapped =
+            TenantResolverService.mapLegacySeedToCanonical(candidate) ??
+                candidate.trim();
+        var id = mapped.trim();
+        if (id.isEmpty) continue;
+        if (!await _igrejaDocExists(id)) {
+          final raw = candidate.trim();
+          if (raw.isNotEmpty && raw != id && await _igrejaDocExists(raw)) {
+            id = raw;
+          } else {
+            continue;
+          }
+        }
+        boundId = id;
+        break;
+      }
 
+      if (boundId != null && boundId.isNotEmpty) {
+        _applyBind(boundId, s, uid);
+        if (uid != null && uid.isNotEmpty) {
+          await _syncUserDirectChurchId(uid, boundId);
+          final synced = await TenantResolverService.syncUserToCanonicalChurchId(
+            userUid: uid,
+            canonicalId: boundId,
+          );
+          if (synced) {
+            try {
+              await FirebaseAuth.instance.currentUser?.getIdToken(true);
+            } catch (_) {}
+          }
+        }
+        if (!forceRefresh &&
+            (_currentChurchData == null || _currentChurchData!.isEmpty)) {
+          final cached = await ChurchPanelLocalCache.readMap(
+            churchId: boundId,
+            module: ChurchPanelLocalCache.moduleCadastro,
+          );
+          if (cached != null && cached.isNotEmpty) {
+            _currentChurchData = Map<String, dynamic>.from(cached);
+          }
+        }
+        return boundId;
+      }
 
       _lastError =
-
           'Igreja não encontrada em igrejas/$s. O ID deve ser o documento real (ex.: igreja_nome_da_igreja).';
-
       return '';
-
     } catch (e) {
 
       _lastError = e.toString();

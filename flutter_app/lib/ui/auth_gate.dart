@@ -26,6 +26,7 @@ import '../services/church_funcoes_controle_service.dart';
 import '../services/fcm_service.dart';
 import '../services/internal_notification_inbox_service.dart';
 import '../services/app_permissions.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import '../services/church_binding_repair_coordinator.dart';
@@ -1091,18 +1092,31 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         igrejaId = await ChurchContextService.resolveAndBind(
           seed: igrejaId,
           userUid: user.uid,
-        ).timeout(
-          const Duration(seconds: 2),
-          onTimeout: () => seedIgrejaId,
-        );
-      } catch (_) {}
+        ).timeout(ChurchContextService.kResolveTimeout);
+      } catch (_) {
+        final fallback = ChurchRepository.churchId(seedIgrejaId);
+        if (fallback.isNotEmpty) {
+          igrejaId = fallback;
+          unawaited(
+            ChurchContextService.resolveAndBind(
+              seed: seedIgrejaId,
+              userUid: user.uid,
+            ),
+          );
+        }
+      }
 
-      unawaited(
-        TenantResolverService.syncUserToCanonicalChurchId(
+      if (igrejaId.isNotEmpty) {
+        final synced = await TenantResolverService.syncUserToCanonicalChurchId(
           userUid: user.uid,
           canonicalId: igrejaId,
-        ),
-      );
+        );
+        if (synced) {
+          try {
+            await user.getIdToken(true);
+          } catch (_) {}
+        }
+      }
 
       Map<String, dynamic> churchData;
       if (cached?['church'] is Map &&

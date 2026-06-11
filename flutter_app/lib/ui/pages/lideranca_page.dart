@@ -6,7 +6,6 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
@@ -46,8 +45,9 @@ class _LiderancaPageState extends State<LiderancaPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final tid =
-          await TenantResolverService.resolveEffectiveTenantId(widget.tenantId);
+      final tid = ChurchRepository.churchId(widget.tenantId).isNotEmpty
+          ? ChurchRepository.churchId(widget.tenantId)
+          : widget.tenantId.trim();
       _effectiveTenantId = tid;
 
       final panel = await PanelDashboardSnapshotService.readOnce(tid);

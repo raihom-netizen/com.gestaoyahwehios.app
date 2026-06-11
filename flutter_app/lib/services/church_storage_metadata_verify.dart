@@ -6,6 +6,7 @@ abstract final class ChurchStorageMetadataVerify {
   ChurchStorageMetadataVerify._();
 
   static const Duration kDefaultTimeout = Duration(seconds: 15);
+  static const int kMaxAttempts = 6;
 
   static Future<void> assertExists(
     String storagePath, {
@@ -15,7 +16,23 @@ abstract final class ChurchStorageMetadataVerify {
     if (path.isEmpty) {
       throw StateError('storagePath vazio — upload não concluído.');
     }
-    await firebaseDefaultStorage.ref(path).getMetadata().timeout(timeout);
+    Object? last;
+    for (var attempt = 0; attempt < kMaxAttempts; attempt++) {
+      try {
+        await firebaseDefaultStorage
+            .ref(path)
+            .getMetadata()
+            .timeout(timeout);
+        return;
+      } catch (e) {
+        last = e;
+        if (attempt >= kMaxAttempts - 1) break;
+        await Future<void>.delayed(
+          Duration(milliseconds: 180 + attempt * 220),
+        );
+      }
+    }
+    throw last ?? StateError('Ficheiro não confirmado no Storage: $path');
   }
 
   static Future<void> assertAllExist(

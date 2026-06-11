@@ -163,8 +163,9 @@ class MediaHandlerService {
     if (list.isEmpty) return [];
     onGalleryPicked?.call(list);
     if (kIsWeb) {
-      return pickMultiEncodeFeedWebAuto(
+      return pickMultiCropEncodeFeedWebpSequential(
         list,
+        webCropContext: webCropContext,
         webpOutputQuality: webpOutputQuality,
         onPickedBeforeEncode: onPickedBeforeEncode,
         onEachReady: onEachReady,

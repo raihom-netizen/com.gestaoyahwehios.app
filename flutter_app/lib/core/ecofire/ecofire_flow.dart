@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint, kIsWeb;
 
 /// Arquitetura **EcoFire** — Auth → Firestore → Storage → Tela.
 ///
@@ -10,7 +10,8 @@ abstract final class EcoFireFlow {
   /// Activar padrão EcoFire em todo o app (recomendado produção).
   static const bool enabled = true;
 
-  static bool get passThroughFirestore => enabled;
+  /// Web: manter recovery Firestore em leituras/gravações críticas.
+  static bool get passThroughFirestore => enabled && !kIsWeb;
 
   static bool get disableAutomaticRecovery => enabled;
 

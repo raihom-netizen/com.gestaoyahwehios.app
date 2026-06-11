@@ -79,6 +79,12 @@ class ChurchPanelNavigationBridge {
     }
   }
 
+  /// Re-dispara consumo da conversa pendente (hub ainda não montado ou tenant a resolver).
+  void renotifyPendingChatThreadOpen() {
+    if (_pendingChatOpen == null) return;
+    _notifyChatOpenListeners();
+  }
+
   void registerShellNavigator(void Function(int index) onNavigate) {
     _onNavigate = onNavigate;
     final p = _pendingShellIndex;

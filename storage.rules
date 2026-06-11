@@ -27,6 +27,7 @@ service firebase.storage {
     /// iOS/Android podem enviar MIME atípico (ex.: audio/x-caf, image/heic, video/quicktime).
     function chatMediaOrBlob() {
       return mediaImageVideoOrBlob()
+        || request.resource.contentType == 'image/webp'
         || request.resource.contentType.matches('audio/.*')
         || request.resource.contentType.matches('application/pdf')
         || request.resource.contentType.matches('application/msword')
@@ -67,6 +68,9 @@ service firebase.storage {
     // Só imagem (foto de membro, logo, patrimônio) + octet-stream / vazio
     function photoImageOrBlob() {
       return request.resource.contentType.matches('image/.*')
+        || request.resource.contentType == 'image/webp'
+        || request.resource.contentType == 'image/heic'
+        || request.resource.contentType == 'image/heif'
         || request.resource.contentType == 'application/octet-stream'
         || request.resource.contentType == '';
     }
@@ -188,20 +192,31 @@ service firebase.storage {
         && comprovanteOrBlob();
     }
 
-    // Mural eventos/avisos — write autenticado; quem pode publicar valida-se no Firestore (`canWriteMuralFeed`).
+    // Mural eventos/avisos — leitura pública; gravação: autenticado + MIME (Firestore: canWriteMuralFeed).
     match /igrejas/{igrejaId}/eventos/{path=**} {
       allow read: if true;
-      allow write: if authMediaWriteMax(120 * 1024 * 1024);
+      allow write: if authMediaWriteMax(120 * 1024 * 1024)
+        && mediaImageVideoOrBlob();
     }
 
     match /igrejas/{igrejaId}/noticias/{path=**} {
       allow read: if true;
-      allow write: if authMediaWriteMax(120 * 1024 * 1024);
+      allow write: if authMediaWriteMax(120 * 1024 * 1024)
+        && mediaImageVideoOrBlob();
     }
 
     match /igrejas/{igrejaId}/avisos/{path=**} {
       allow read: if true;
-      allow write: if authMediaWriteMax(120 * 1024 * 1024);
+      allow write: if authMediaWriteMax(120 * 1024 * 1024)
+        && mediaImageVideoOrBlob();
+    }
+
+    // Fotos de departamentos (path canónico sob igrejas/{id}/departamentos/).
+    match /igrejas/{igrejaId}/departamentos/{path=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.resource.size < 15 * 1024 * 1024
+        && photoImageOrBlob();
     }
 
     match /tenants/{tenantId}/media/{path=**} {
@@ -209,19 +224,10 @@ service firebase.storage {
       allow write: if authMediaWriteMax(120 * 1024 * 1024);
     }
 
-    function userChurchMatchesStorage(igrejaId) {
-      return request.auth != null
-        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
-        && (
-          firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.igrejaId == igrejaId
-          || firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.tenantId == igrejaId
-        );
-    }
-
-    // Chat igreja — membro autenticado + MIME (PDF, Office, áudio, vídeo, octet-stream).
+    // Chat igreja — qualquer sessão autenticada grava/lê (Firestore valida thread/mensagem).
     match /igrejas/{igrejaId}/chat_media/{path=**} {
-      allow read: if userChurchMatchesStorage(igrejaId);
-      allow write: if userChurchMatchesStorage(igrejaId)
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
         && request.resource.size < 200 * 1024 * 1024
         && chatMediaOrBlob();
     }
@@ -317,6 +323,7 @@ service firebase.storage {
         && seg != 'gestor'
         && seg != 'chat_media'
         && seg != 'chat_stickers'
+        && seg != 'departamentos'
         && seg != 'uploads'
         && seg != 'patrimonio'
         && seg != 'certificados'

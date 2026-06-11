@@ -249,7 +249,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   Widget? _buildChurchBottomNavigationBar() {
     if (!_isMobile) return null;
     // Rodapé + atalhos coloridos Super Premium (cores alinhadas a [kChurchShellNavEntries]).
-    // Painel, Membros, Eventos, Avisos, Chat — o drawer continua acessível pelo menu no topo.
+    // Painel, Membros, Eventos, Agenda, Avisos, Chat — drawer no menu superior.
     final shortcuts = <_ChurchShellFooterShortcut>[
       _ChurchShellFooterShortcut(
         shellIndex: 0,
@@ -265,6 +265,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         shellIndex: ChurchShellIndices.muralEventos,
         shortLabel: 'Eventos',
         accent: kChurchShellNavEntries[ChurchShellIndices.muralEventos].accent,
+      ),
+      _ChurchShellFooterShortcut(
+        shellIndex: ChurchShellIndices.agenda,
+        shortLabel: 'Agenda',
+        accent: kChurchShellNavEntries[ChurchShellIndices.agenda].accent,
       ),
       _ChurchShellFooterShortcut(
         shellIndex: ChurchShellIndices.muralAvisos,
@@ -311,55 +316,72 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   ),
                 ],
               ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
-                child: Row(
-                  children: [
-                    for (var s = 0; s < shortcuts.length; s++)
-                      Expanded(
-                        child: _PremiumShellFooterShortcut(
-                          shellIndex: shortcuts[s].shellIndex,
-                          shortLabel: shortcuts[s].shortLabel,
-                          accent: shortcuts[s].accent,
-                          opensDrawer: shortcuts[s].opensDrawer,
-                          icon: shortcuts[s].opensDrawer
-                              ? Icons.menu_rounded
-                              : _items[shortcuts[s].shellIndex!].icon,
-                          fullTooltip: shortcuts[s].opensDrawer
-                              ? 'Mais opções (menu lateral)'
-                              : _items[shortcuts[s].shellIndex!].label,
-                          selected: shortcuts[s].opensDrawer
-                              ? false
-                              : _selectedIndex == shortcuts[s].shellIndex,
-                          onTap: () {
-                            if (shortcuts[s].opensDrawer) {
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                _scaffoldKey.currentState?.openDrawer();
-                              });
-                              return;
-                            }
-                            final idx = shortcuts[s].shellIndex!;
-                            if (!_canAccessItem(idx)) {
-                              _showPanelSnack(
-                                'Sem acesso a este módulo.',
-                                isError: true,
-                              );
-                              return;
-                            }
-                            _prefetchShellModuleData(idx);
-                            TenantIntelligentPreload.scheduleModuleForShellIndex(
-                              _moduleTenantId,
-                              idx,
-                            );
-                            if (_pageCache[idx] == null) {
-                              _pageCache[idx] = _buildPageForIndex(idx);
-                            }
-                            setState(() => _selectedIndex = idx);
-                          },
-                        ),
-                      ),
-                  ],
-                ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final count = shortcuts.length;
+                  final slotW = constraints.maxWidth / count;
+                  final circleSize =
+                      (slotW * 0.76).clamp(42.0, 50.0).toDouble();
+                  final glyphSize =
+                      (circleSize * 0.52).clamp(22.0, 26.0).toDouble();
+                  final labelSize =
+                      constraints.maxWidth < 340 ? 9.5 : 10.0;
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(2, 4, 2, 0),
+                    child: Row(
+                      children: [
+                        for (var s = 0; s < shortcuts.length; s++)
+                          Expanded(
+                            child: _PremiumShellFooterShortcut(
+                              shellIndex: shortcuts[s].shellIndex,
+                              shortLabel: shortcuts[s].shortLabel,
+                              accent: shortcuts[s].accent,
+                              opensDrawer: shortcuts[s].opensDrawer,
+                              icon: shortcuts[s].opensDrawer
+                                  ? Icons.menu_rounded
+                                  : _items[shortcuts[s].shellIndex!].icon,
+                              fullTooltip: shortcuts[s].opensDrawer
+                                  ? 'Mais opções (menu lateral)'
+                                  : _items[shortcuts[s].shellIndex!].label,
+                              selected: shortcuts[s].opensDrawer
+                                  ? false
+                                  : _selectedIndex == shortcuts[s].shellIndex,
+                              circleSize: circleSize,
+                              iconSize: glyphSize,
+                              labelFontSize: labelSize,
+                              onTap: () {
+                                if (shortcuts[s].opensDrawer) {
+                                  WidgetsBinding.instance
+                                      .addPostFrameCallback((_) {
+                                    _scaffoldKey.currentState?.openDrawer();
+                                  });
+                                  return;
+                                }
+                                final idx = shortcuts[s].shellIndex!;
+                                if (!_canAccessItem(idx)) {
+                                  _showPanelSnack(
+                                    'Sem acesso a este módulo.',
+                                    isError: true,
+                                  );
+                                  return;
+                                }
+                                _prefetchShellModuleData(idx);
+                                TenantIntelligentPreload
+                                    .scheduleModuleForShellIndex(
+                                  _moduleTenantId,
+                                  idx,
+                                );
+                                if (_pageCache[idx] == null) {
+                                  _pageCache[idx] = _buildPageForIndex(idx);
+                                }
+                                setState(() => _selectedIndex = idx);
+                              },
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
             const ChurchShellBottomVerseStrip(),
@@ -372,6 +394,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   @override
   void initState() {
     super.initState();
+    final hint = widget.tenantId.trim();
+    if (hint.isNotEmpty) {
+      final mapped = ChurchRepository.churchId(hint);
+      _operationalTenantId = mapped.isNotEmpty ? mapped : hint;
+      _tenantResolveComplete = true;
+    }
     WidgetsBinding.instance.addObserver(this);
     AppSessionStability.registerResumeListener(_onGlobalSessionResume);
     final rawOpen = widget.initialOpenMemberDocId?.trim() ?? '';
@@ -386,13 +414,20 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       if (!mounted) return;
       if (!_canAccessItem(idx)) return;
       setState(() => _selectedIndex = idx);
+      if (idx == ChurchShellIndices.chatIgreja) {
+        _pageCache[idx] ??= _buildPageForIndex(idx);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
+        });
+      }
     });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await ensureFirebaseReadyForPanelRead().catchError((_) {});
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      await _resolveOperationalTenant(forceRefresh: true);
+      await _resolveOperationalTenant(forceRefresh: false);
       if (!mounted) return;
       setState(() => _tenantResolveComplete = true);
       ChurchTenantConsolidationService.ensureConsolidated(
@@ -529,7 +564,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (state == AppLifecycleState.resumed) {
       AppSessionStability.onGlobalResume();
       unawaited(ChatPresenceEngine.pingAppWideHeartbeatIfActive());
-      unawaited(_resolveOperationalTenant(forceRefresh: true));
+      unawaited(_resolveOperationalTenant(forceRefresh: false));
       ChurchTenantOfflineWarmupService.instance
           .scheduleLightRefreshOnResume(_moduleTenantId);
     }
@@ -538,7 +573,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   void _onGlobalSessionResume() {
     ChurchTenantOfflineWarmupService.instance
         .scheduleLightRefreshOnResume(_moduleTenantId);
-    unawaited(_resolveOperationalTenant(forceRefresh: true));
+    unawaited(_resolveOperationalTenant(forceRefresh: false));
     unawaited(ChatPresenceEngine.pingAppWideHeartbeatIfActive());
   }
 
@@ -1552,6 +1587,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   Future<void> _syncSubscriptionSnapshot(SubscriptionGuardState guard) async {
+    if (guard.isFree) return;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     if (nowMs - _lastSubscriptionSyncMs < 5 * 60 * 1000) return;
     _lastSubscriptionSyncMs = nowMs;
@@ -1566,7 +1602,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   Widget _buildGracePeriodBanner(SubscriptionGuardState guard) {
-    if (!guard.inGrace || guard.blocked) return const SizedBox.shrink();
+    if (guard.isFree || !guard.inGrace || guard.blocked) {
+      return const SizedBox.shrink();
+    }
     final days = guard.graceDaysLeft;
     final txt = days <= 0
         ? 'Atenção: sua assinatura venceu. O sistema será bloqueado hoje.'
@@ -2315,7 +2353,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       );
     }
 
-    /// Mobile: só a aba ativa do rodapé — evita 5 módulos pesados em paralelo.
+    /// Mobile: só a aba ativa do rodapé — evita 6 módulos pesados em paralelo.
     final footerTab =
         ChurchShellLazyModulePolicy.isMobileFooterTab(_selectedIndex);
     if (footerTab) {
@@ -2729,10 +2767,22 @@ class _HeaderVencimento extends StatelessWidget {
             .watchSafe(),
       builder: (context, snap) {
         final textColor = light ? Colors.white70 : const Color(0xFF64748B);
-        if (!snap.hasData)
+        if (!snap.hasData) {
           return Text('Vencimento: —',
               style: TextStyle(fontSize: 11, color: textColor));
-        final billing = snap.data!.data()?['billing'] as Map<String, dynamic>?;
+        }
+        final data = snap.data!.data();
+        if (LicenseAccessPolicy.churchIsFree(data)) {
+          return Text(
+            'Licença: FREE',
+            style: TextStyle(
+              fontSize: 11,
+              color: light ? const Color(0xFF6EE7B7) : const Color(0xFF0D9488),
+              fontWeight: FontWeight.w700,
+            ),
+          );
+        }
+        final billing = data?['billing'] as Map<String, dynamic>?;
         final next = billing?['nextChargeAt'];
         if (next == null)
           return Text('Vencimento: —',
@@ -2776,6 +2826,9 @@ class _PremiumShellFooterShortcut extends StatelessWidget {
   final IconData icon;
   final String fullTooltip;
   final bool selected;
+  final double circleSize;
+  final double iconSize;
+  final double labelFontSize;
   final VoidCallback onTap;
 
   const _PremiumShellFooterShortcut({
@@ -2786,6 +2839,9 @@ class _PremiumShellFooterShortcut extends StatelessWidget {
     required this.icon,
     required this.fullTooltip,
     required this.selected,
+    required this.circleSize,
+    required this.iconSize,
+    required this.labelFontSize,
     required this.onTap,
   });
 
@@ -2802,7 +2858,7 @@ class _PremiumShellFooterShortcut extends StatelessWidget {
           splashColor: c.withValues(alpha: 0.2),
           highlightColor: c.withValues(alpha: 0.08),
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 0),
+            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -2811,17 +2867,17 @@ class _PremiumShellFooterShortcut extends StatelessWidget {
                   accent: c,
                   selected: selected,
                   shape: ChurchShellIconShape.circle,
-                  size: 46,
-                  iconSize: 24,
+                  size: circleSize,
+                  iconSize: iconSize,
                 ),
-                const SizedBox(height: 5),
+                SizedBox(height: circleSize >= 48 ? 5 : 4),
                 Text(
                   shortLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 10.5,
+                    fontSize: labelFontSize,
                     height: 1.05,
                     fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
                     letterSpacing: -0.25,

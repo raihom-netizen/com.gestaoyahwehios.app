@@ -69,11 +69,59 @@ class LicenseAccessPolicy {
   static bool churchIsFree(Map<String, dynamic>? church) {
     if (church == null) return false;
     final lic = church['license'];
+    final licMap =
+        lic is Map ? Map<String, dynamic>.from(lic as Map) : null;
+    final billing = church['billing'] is Map
+        ? Map<String, dynamic>.from(church['billing'] as Map)
+        : null;
     final planKey =
         (church['plano'] ?? church['planId'] ?? '').toString().toLowerCase();
-    return planKey == 'free' ||
-        church['isFree'] == true ||
-        (lic is Map && lic['isFree'] == true);
+
+    if (planKey == 'free') return true;
+    if (church['isFree'] == true || church['isFreeMode'] == true) {
+      return true;
+    }
+    if (licMap != null) {
+      if (licMap['isFree'] == true || licMap['isFreeMode'] == true) {
+        return true;
+      }
+      final licPay = (licMap['paymentMode'] ??
+              licMap['pagamento'] ??
+              licMap['paymentStatus'] ??
+              '')
+          .toString()
+          .toLowerCase();
+      if (licPay == 'free' || licPay == 'gratuito') return true;
+    }
+    if (billing != null) {
+      if (billing['isFree'] == true || billing['isFreeMode'] == true) {
+        return true;
+      }
+      final billPay = (billing['paymentMode'] ?? billing['paymentStatus'] ?? '')
+          .toString()
+          .toLowerCase();
+      if (billPay == 'free' || billPay == 'gratuito') return true;
+    }
+    final pay = (church['paymentStatus'] ??
+            church['status_pagamento'] ??
+            church['pagamento'] ??
+            '')
+        .toString()
+        .toLowerCase();
+    if (pay == 'free' || pay == 'gratuito') return true;
+    return false;
+  }
+
+  /// Doc `subscriptions/*` sincronizado pelo master (modo FREE).
+  static bool subscriptionIsFree(Map<String, dynamic>? subscription) {
+    if (subscription == null) return false;
+    if (subscription['isFree'] == true || subscription['isFreeMode'] == true) {
+      return true;
+    }
+    final plan = (subscription['planId'] ?? subscription['plano'] ?? '')
+        .toString()
+        .toLowerCase();
+    return plan == 'free';
   }
 
   /// Bloqueio do painel da igreja: master bloqueou, ou (vencimento + 3 dias de carência), ou assinatura ACTIVE vencida.
@@ -82,13 +130,16 @@ class LicenseAccessPolicy {
     required Map<String, dynamic>? subscription,
     required Map<String, dynamic>? church,
   }) {
-    if (church != null) {
-      final lic = church['license'];
-      if (churchIsFree(church)) {
+    if (subscriptionIsFree(subscription) || churchIsFree(church)) {
+      if (church != null) {
+        final lic = church['license'];
         if (church['adminBlocked'] == true) return true;
         if (lic is Map && lic['adminBlocked'] == true) return true;
-        return false;
       }
+      return false;
+    }
+    if (church != null) {
+      final lic = church['license'];
       if (church['adminBlocked'] == true) return true;
       if (church['ativa'] == false) return true;
       if (church['masterInactive'] == true) return true;

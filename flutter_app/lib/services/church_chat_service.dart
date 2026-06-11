@@ -38,6 +38,7 @@ import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'analytics_service.dart';
 import 'media_upload_service.dart';
+import 'storage_media_service.dart';
 import 'upload_storage_task.dart' show formatUploadErrorForUser;
 
 /// Indicadores «a digitar / a gravar» num thread (polling leve).
@@ -1165,6 +1166,37 @@ class ChurchChatService {
     };
   }
 
+  /// Motivo pelo qual a mensagem não pode ser reencaminhada (`null` = OK).
+  static String? forwardBlockReason(Map<String, dynamic> messageData) {
+    final type = (messageData['type'] ?? 'text').toString().trim();
+    if (type == 'video') {
+      return 'Vídeos não podem ser reencaminhados no chat.';
+    }
+    if (type == 'text') {
+      final text = (messageData['text'] ?? '').toString().trim();
+      if (text.isEmpty) return 'Mensagem vazia.';
+      return null;
+    }
+    if (ChurchChatMessageFields.isUploadInProgress(messageData)) {
+      return 'Aguarde o envio terminar antes de reencaminhar.';
+    }
+    final sp = _storagePathForForward(messageData);
+    if (sp.isEmpty) {
+      return 'Mídia ainda não disponível para reencaminhar.';
+    }
+    return null;
+  }
+
+  static String _storagePathForForward(Map<String, dynamic> messageData) {
+    var sp = ChurchChatMessageFields.storagePath(messageData);
+    if (sp.isNotEmpty) return sp;
+    sp = StorageMediaService.storageObjectPathFromPathOrUrl(
+          ChurchChatMessageFields.mediaUrl(messageData),
+        ) ??
+        '';
+    return sp.trim();
+  }
+
   /// Reencaminha cópia para outro thread (texto ou mídia já no Storage).
   static Future<bool> forwardMessageToThread({
     required String tenantId,
@@ -1176,6 +1208,7 @@ class ChurchChatService {
     if (targetThreadId.trim().isEmpty || sourceThreadId == targetThreadId) {
       return false;
     }
+    if (forwardBlockReason(messageData) != null) return false;
     final fwd = forwardedFromMessageDoc(
       sourceThreadId,
       messageId,
@@ -1193,7 +1226,7 @@ class ChurchChatService {
         senderDisplayName: senderDisplayNameForNewMessage(),
       );
     }
-    final sp = ChurchChatMessageFields.storagePath(messageData);
+    final sp = _storagePathForForward(messageData);
     if (sp.isEmpty) return false;
     return sendMediaMessage(
       tenantId: tenantId,
@@ -2014,6 +2047,9 @@ class ChurchChatService {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
   }) async {
+    if (ChurchChatAttachmentUtils.blockReasonForChatKind(kind) != null) {
+      return false;
+    }
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: tenantId,
       threadId: threadId,
@@ -2427,19 +2463,33 @@ class ChurchChatService {
       data['thumbStoragePath'] = thumb;
     }
     await _ensureDmThreadDocBeforeSend(resolvedTenant, threadId);
-    await _commitMessageAndThreadIndex(
-      tenantId: resolvedTenant,
-      threadId: threadId,
-      msgRef: msgRef,
-      messageData: ChurchChatMessageFields.withCanonicalAliases(data),
-      preview: preview,
-      senderUid: uid,
-      messageType: kind,
-    );
-    ChurchPublishFlowLog.chatMessageCreated();
-    ChurchPublishFlowLog.chatFileUploaded();
-    ChurchPublishFlowLog.chatFinalOk();
-    return (messageId: msgRef.id, allowed: true);
+    Object? last;
+    for (var attempt = 1; attempt <= 5; attempt++) {
+      try {
+        if (attempt > 1) {
+          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
+          await ensureFirebaseReadyForChatSend();
+          await Future<void>.delayed(Duration(milliseconds: 240 * attempt));
+        }
+        await _commitMessageAndThreadIndex(
+          tenantId: resolvedTenant,
+          threadId: threadId,
+          msgRef: msgRef,
+          messageData: ChurchChatMessageFields.withCanonicalAliases(data),
+          preview: preview,
+          senderUid: uid,
+          messageType: kind,
+        );
+        ChurchPublishFlowLog.chatMessageCreated();
+        ChurchPublishFlowLog.chatFileUploaded();
+        ChurchPublishFlowLog.chatFinalOk();
+        return (messageId: msgRef.id, allowed: true);
+      } catch (e) {
+        last = e;
+        if (attempt >= 5) break;
+      }
+    }
+    throw last ?? StateError('Não foi possível gravar a mensagem no servidor.');
   }
 
   /// Patch permitido pelas regras Firestore (`chatMessageMediaDeliveryPatchAllowed`).

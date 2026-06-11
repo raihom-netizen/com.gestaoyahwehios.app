@@ -555,6 +555,646 @@ class FinancePremiumFormFooterActions extends StatelessWidget {
   }
 }
 
+/// Chip de filtro — gradiente colorido quando selecionado (mobile-first).
+class FinancePremiumFilterChip extends StatelessWidget {
+  const FinancePremiumFilterChip({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.accent,
+    required this.selected,
+    required this.onTap,
+    this.compact = false,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color accent;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final minH = compact ? 40.0 : ThemeCleanPremium.minTouchTarget;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          constraints: BoxConstraints(minHeight: minH),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 10 : 14,
+            vertical: compact ? 8 : 10,
+          ),
+          decoration: BoxDecoration(
+            gradient: selected
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      accent,
+                      Color.lerp(accent, ThemeCleanPremium.primaryLight, 0.4)!,
+                    ],
+                  )
+                : null,
+            color: selected ? null : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected ? accent : const Color(0xFFE2E8F0),
+              width: selected ? 0 : 1.2,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: accent.withValues(alpha: 0.38),
+                      blurRadius: 14,
+                      offset: const Offset(0, 5),
+                    ),
+                  ]
+                : ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: compact ? 16 : 18,
+                color: selected ? Colors.white : accent.withValues(alpha: 0.85),
+              ),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: compact ? 11.5 : 13,
+                  color: selected ? Colors.white : const Color(0xFF334155),
+                  letterSpacing: -0.15,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Segmento colorido — vínculo, situação, tipo de conta (área de toque ≥ 48px).
+class FinancePremiumColorSegment<T> extends StatelessWidget {
+  const FinancePremiumColorSegment({
+    super.key,
+    required this.selected,
+    required this.onChanged,
+    required this.options,
+    this.scrollable = true,
+  });
+
+  final T selected;
+  final ValueChanged<T> onChanged;
+  final List<({
+    T value,
+    String label,
+    IconData icon,
+    List<Color> colors,
+  })> options;
+  final bool scrollable;
+
+  @override
+  Widget build(BuildContext context) {
+    final narrow = MediaQuery.sizeOf(context).width < 380;
+    final children = options.map((opt) {
+      final isSel = selected == opt.value;
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => onChanged(opt.value),
+            borderRadius: BorderRadius.circular(16),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 220),
+              constraints: BoxConstraints(
+                minHeight: ThemeCleanPremium.minTouchTarget,
+                minWidth: narrow ? 96 : 0,
+              ),
+              padding: EdgeInsets.symmetric(
+                horizontal: narrow ? 10 : 14,
+                vertical: 12,
+              ),
+              decoration: BoxDecoration(
+                gradient: isSel
+                    ? LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: opt.colors,
+                      )
+                    : null,
+                color: isSel ? null : const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isSel
+                      ? opt.colors.first.withValues(alpha: 0.5)
+                      : const Color(0xFFCBD5E1),
+                  width: isSel ? 0 : 1.3,
+                ),
+                boxShadow: isSel
+                    ? [
+                        BoxShadow(
+                          color: opt.colors.first.withValues(alpha: 0.32),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    opt.icon,
+                    size: 18,
+                    color: isSel ? Colors.white : opt.colors.first,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      opt.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: narrow ? 12 : 13.5,
+                        color: isSel ? Colors.white : const Color(0xFF334155),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }).toList();
+
+    if (scrollable || narrow) {
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(children: children),
+      );
+    }
+    return Row(children: children);
+  }
+}
+
+/// Vínculo: nenhum / fornecedor / membro.
+class FinancePremiumVinculoToggle extends StatelessWidget {
+  const FinancePremiumVinculoToggle({
+    super.key,
+    required this.selected,
+    required this.onChanged,
+    this.includeNenhum = true,
+  });
+
+  final String selected;
+  final ValueChanged<String> onChanged;
+  final bool includeNenhum;
+
+  @override
+  Widget build(BuildContext context) {
+    final opts = <({
+      String value,
+      String label,
+      IconData icon,
+      List<Color> colors,
+    })>[
+      if (includeNenhum)
+        (
+          value: 'nenhum',
+          label: 'Nenhum',
+          icon: Icons.link_off_rounded,
+          colors: const [Color(0xFF64748B), Color(0xFF94A3B8)],
+        ),
+      (
+        value: 'fornecedor',
+        label: 'Fornecedor',
+        icon: Icons.handshake_rounded,
+        colors: const [Color(0xFF0D9488), Color(0xFF2DD4BF)],
+      ),
+      (
+        value: 'membro',
+        label: 'Membro',
+        icon: Icons.person_rounded,
+        colors: const [Color(0xFF2563EB), Color(0xFF60A5FA)],
+      ),
+    ];
+    return FinancePremiumColorSegment<String>(
+      selected: selected,
+      onChanged: onChanged,
+      options: opts,
+    );
+  }
+}
+
+/// Situação receita (recebido/pendente) ou despesa (pago/pendente).
+class FinancePremiumSituacaoToggle extends StatelessWidget {
+  const FinancePremiumSituacaoToggle({
+    super.key,
+    required this.confirmed,
+    required this.onChanged,
+    this.isReceita = true,
+  });
+
+  final bool confirmed;
+  final ValueChanged<bool> onChanged;
+  final bool isReceita;
+
+  @override
+  Widget build(BuildContext context) {
+    return FinancePremiumColorSegment<bool>(
+      selected: confirmed,
+      onChanged: onChanged,
+      scrollable: false,
+      options: [
+        (
+          value: true,
+          label: isReceita ? 'Recebido' : 'Pago',
+          icon: Icons.check_circle_rounded,
+          colors: const [
+            FinancePremiumLancamentoUi.receitaGreen,
+            FinancePremiumLancamentoUi.receitaGreenLight,
+          ],
+        ),
+        (
+          value: false,
+          label: 'Pendente',
+          icon: Icons.schedule_rounded,
+          colors: const [Color(0xFFD97706), Color(0xFFFBBF24)],
+        ),
+      ],
+    );
+  }
+}
+
+/// Tipo de conta bancária: corrente / poupança / caixa.
+class FinancePremiumContaTipoToggle extends StatelessWidget {
+  const FinancePremiumContaTipoToggle({
+    super.key,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final String selected;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return FinancePremiumColorSegment<String>(
+      selected: selected,
+      onChanged: onChanged,
+      options: const [
+        (
+          value: 'corrente',
+          label: 'Corrente',
+          icon: Icons.credit_card_rounded,
+          colors: [Color(0xFF1D4ED8), Color(0xFF3B82F6)],
+        ),
+        (
+          value: 'poupanca',
+          label: 'Poupança',
+          icon: Icons.savings_rounded,
+          colors: [Color(0xFF7C3AED), Color(0xFFA78BFA)],
+        ),
+        (
+          value: 'caixa',
+          label: 'Caixa',
+          icon: Icons.payments_rounded,
+          colors: [Color(0xFF059669), Color(0xFF34D399)],
+        ),
+      ],
+    );
+  }
+}
+
+/// Badge de status em cards de lançamento.
+class FinancePremiumStatusPill extends StatelessWidget {
+  const FinancePremiumStatusPill({
+    super.key,
+    required this.label,
+    required this.icon,
+    required this.colors,
+  });
+
+  final String label;
+  final IconData icon;
+  final List<Color> colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [
+          colors.first.withValues(alpha: 0.18),
+          colors.last.withValues(alpha: 0.10),
+        ]),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.first.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: colors.first),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: colors.first,
+              letterSpacing: 0.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Chip de vínculo (membro / fornecedor) no card.
+class FinancePremiumVinculoPill extends StatelessWidget {
+  const FinancePremiumVinculoPill({
+    super.key,
+    required this.label,
+    required this.isMembro,
+  });
+
+  final String label;
+  final bool isMembro;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = isMembro
+        ? const [Color(0xFF2563EB), Color(0xFF60A5FA)]
+        : const [Color(0xFF0D9488), Color(0xFF2DD4BF)];
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            colors.first.withValues(alpha: 0.14),
+            colors.last.withValues(alpha: 0.06),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: colors.first.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isMembro ? Icons.person_rounded : Icons.handshake_rounded,
+            size: 13,
+            color: colors.first,
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+                color: colors.first,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Transferência entre contas — visual premium com fluxo origem → destino.
+class FinancePremiumTransferAccountsSection extends StatelessWidget {
+  const FinancePremiumTransferAccountsSection({
+    super.key,
+    required this.contas,
+    required this.origemId,
+    required this.destinoId,
+    required this.onOrigemChanged,
+    required this.onDestinoChanged,
+    this.accent = FinancePremiumLancamentoUi.transferPurple,
+  });
+
+  final List<({String id, String nome})> contas;
+  final String? origemId;
+  final String? destinoId;
+  final ValueChanged<String?> onOrigemChanged;
+  final ValueChanged<String?> onDestinoChanged;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _transferTile(
+          label: 'Conta de origem',
+          hint: 'De onde sai o valor',
+          icon: Icons.account_balance_wallet_rounded,
+          value: origemId,
+          accent: const Color(0xFFDC2626),
+          onChanged: onOrigemChanged,
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            children: [
+              Expanded(child: Divider(color: accent.withValues(alpha: 0.25))),
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 10),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [accent, const Color(0xFF818CF8)],
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: accent.withValues(alpha: 0.35),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.swap_vert_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+              Expanded(child: Divider(color: accent.withValues(alpha: 0.25))),
+            ],
+          ),
+        ),
+        _transferTile(
+          label: 'Conta de destino',
+          hint: 'Para onde entra o valor',
+          icon: Icons.account_balance_rounded,
+          value: destinoId,
+          accent: FinancePremiumLancamentoUi.receitaGreen,
+          onChanged: onDestinoChanged,
+        ),
+      ],
+    );
+  }
+
+  Widget _transferTile({
+    required String label,
+    required String hint,
+    required IconData icon,
+    required String? value,
+    required Color accent,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          colors: [
+            accent.withValues(alpha: 0.08),
+            Colors.white,
+          ],
+        ),
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
+      ),
+      child: DropdownButtonFormField<String>(
+        value: value != null && contas.any((e) => e.id == value) ? value : null,
+        decoration: financePremiumDropdownDecoration(
+          label: label,
+          prefixIcon: icon,
+          accent: accent,
+        ),
+        hint: Text(hint),
+        isExpanded: true,
+        items: contas
+            .map((c) => DropdownMenuItem(value: c.id, child: Text(c.nome)))
+            .toList(),
+        onChanged: onChanged,
+      ),
+    );
+  }
+}
+
+/// Botão de ação compacto — editar, excluir, comprovante (≥ 48px).
+class FinancePremiumIconAction extends StatelessWidget {
+  const FinancePremiumIconAction({
+    super.key,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+    required this.tooltip,
+  });
+
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            constraints: const BoxConstraints(
+              minWidth: ThemeCleanPremium.minTouchTarget,
+              minHeight: ThemeCleanPremium.minTouchTarget,
+            ),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  color.withValues(alpha: 0.22),
+                  color.withValues(alpha: 0.08),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: color.withValues(alpha: 0.32)),
+              boxShadow: [
+                BoxShadow(
+                  color: color.withValues(alpha: 0.14),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Icon(icon, size: 20, color: color),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Filtros de situação — pendente, recebido, a pagar, etc.
+class FinancePremiumExtraStatusFilters extends StatelessWidget {
+  const FinancePremiumExtraStatusFilters({
+    super.key,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  final String selected;
+  final ValueChanged<String> onChanged;
+
+  static const _items = [
+    ('todos', 'Todos', Icons.apps_rounded, Color(0xFF64748B)),
+    ('pendente_aprovacao', 'Pend. aprovação', Icons.gavel_rounded, Color(0xFFEA580C)),
+    ('nao_conciliados', 'Conciliar', Icons.sync_problem_rounded, Color(0xFFF59E0B)),
+    ('a_pagar', 'A pagar', Icons.schedule_rounded, Color(0xFFDC2626)),
+    ('pagos', 'Pagos', Icons.check_circle_rounded, Color(0xFF059669)),
+    ('a_receber', 'A receber', Icons.hourglass_top_rounded, Color(0xFF2563EB)),
+    ('recebidos', 'Recebidos', Icons.payments_rounded, Color(0xFF16A34A)),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final item in _items)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FinancePremiumFilterChip(
+                label: item.$2,
+                icon: item.$3,
+                accent: item.$4,
+                selected: selected == item.$1,
+                onTap: () => onChanged(item.$1),
+                compact: true,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Card secção do formulário.
 class FinancePremiumSectionCard extends StatelessWidget {
   const FinancePremiumSectionCard({

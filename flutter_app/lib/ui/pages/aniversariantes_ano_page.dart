@@ -1,6 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/church_birthday_query_service.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
@@ -42,8 +45,15 @@ class _AniversariantesAnoPageState extends State<AniversariantesAnoPage> {
     }
   }
 
+  String get _effectiveTenantId {
+    final bound = ChurchContext.currentChurchId?.trim() ?? '';
+    if (bound.isNotEmpty) return bound;
+    final panel = ChurchContextService.panelChurchId(widget.tenantId);
+    return panel.isNotEmpty ? panel : widget.tenantId.trim();
+  }
+
   Future<void> _load() async {
-    final tid = widget.tenantId.trim();
+    final tid = _effectiveTenantId;
     if (tid.isEmpty) {
       setState(() {
         _loading = false;
@@ -55,22 +65,17 @@ class _AniversariantesAnoPageState extends State<AniversariantesAnoPage> {
       _loading = true;
       _error = null;
     });
-    try {
-      final loaded = await ChurchBirthdayQueryService.fetchYearAllMonths(
-        tenantId: tid,
-      );
-      if (!mounted) return;
-      setState(() {
-        _docs = loaded;
-        _loading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = 'Não foi possível carregar aniversariantes.';
-      });
-    }
+    await ChurchTenantResilientReads.preparePanelRead();
+    final loaded = await ChurchBirthdayQueryService.fetchYearAllMonths(
+      tenantId: tid,
+      perMonthLimit: ChurchBirthdayQueryService.yearViewPerMonthLimit,
+    );
+    if (!mounted) return;
+    setState(() {
+      _docs = loaded;
+      _loading = false;
+      _error = null;
+    });
   }
 
   static DateTime? _parseBirthDate(Map<String, dynamic> data) =>
@@ -173,7 +178,7 @@ class _AniversariantesAnoPageState extends State<AniversariantesAnoPage> {
                               nome: _nome,
                               avatarColor: _avatarColor,
                               diaDoMes: _diaDoMes,
-                              tenantId: widget.tenantId,
+                              tenantId: _effectiveTenantId,
                             ),
                             const SizedBox(height: ThemeCleanPremium.spaceMd),
                           ],

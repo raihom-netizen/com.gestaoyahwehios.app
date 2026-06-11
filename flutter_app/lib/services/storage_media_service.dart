@@ -53,6 +53,23 @@ class StorageMediaService {
     return t.startsWith('gs://');
   }
 
+  /// Caminho `igrejas/...` a partir de path bruto, `gs://` ou URL https do Storage.
+  static String? storageObjectPathFromPathOrUrl(String? raw) {
+    final t = (raw ?? '').trim();
+    if (t.isEmpty) return null;
+    final gs = t.toLowerCase();
+    if (gs.startsWith('gs://')) {
+      final rest = t.substring(5);
+      final idx = rest.indexOf('/');
+      if (idx >= 0 && idx < rest.length - 1) {
+        return rest.substring(idx + 1);
+      }
+      return null;
+    }
+    if (t.contains('/') && !t.startsWith('http')) return t;
+    return firebaseStorageObjectPathFromHttpUrl(t);
+  }
+
   /// Resolve caminho `igrejas/...` ou URL antiga para URL atual de download.
   static Future<String?> downloadUrlFromPathOrUrl(String? raw) async {
     await ensureFirebaseReadyForMediaUpload();

@@ -9,6 +9,8 @@ import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
 /// Membro leve no cache do painel (`_panel_cache/dashboard_summary`).
 class PanelHomeMemberLite {
@@ -216,11 +218,23 @@ class PanelDashboardSnapshotService {
   static final _functions =
       FirebaseFunctions.instanceFor(region: 'us-central1');
 
-  /// Um único `igrejas/{churchId}` — Web = Android = iOS (sem cluster slug/alias).
+  /// Canónico + irmãos BPC — lê `_panel_cache` e departamentos onde os dados existem.
   static Future<List<String>> clusterDocIdsForPanel(String seed) async {
-    final id = ChurchRepository.churchId(seed);
+    final bound = ChurchContext.currentChurchId?.trim() ?? '';
+    final id = bound.isNotEmpty
+        ? bound
+        : ChurchRepository.churchId(seed).trim().isNotEmpty
+            ? ChurchRepository.churchId(seed).trim()
+            : seed.trim();
     if (id.isEmpty) return const [];
-    return [id];
+    try {
+      final related = await TenantResolverService.getAllRelatedIgrejaDocIds(id);
+      final out = <String>{id};
+      out.addAll(related);
+      return out.where((x) => x.trim().isNotEmpty).toList();
+    } catch (_) {
+      return [id];
+    }
   }
 
   static int _snapshotRichnessScore(PanelDashboardSnapshot s) {

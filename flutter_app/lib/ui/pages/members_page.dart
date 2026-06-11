@@ -65,6 +65,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
@@ -205,9 +206,11 @@ class _MembersPageState extends State<MembersPage> {
 
   String get _effectiveTenantId => _resolvedTenantId ?? widget.tenantId;
 
-  /// Doc operacional — `igrejas/{churchId}` (contexto da sessão).
-  Future<String> _resolveEffectiveTenantId() async =>
-      ChurchContextService.panelChurchId(widget.tenantId);
+  /// Doc operacional — `igrejas/{churchId}` directo (contexto + mapa BPC).
+  Future<String> _resolveEffectiveTenantId() async {
+    final id = ChurchRepository.churchId(widget.tenantId);
+    return id.isNotEmpty ? id : widget.tenantId.trim();
+  }
 
   /// Upload validado (Storage + Firestore) — sucesso só após confirmação completa.
   Future<void> _publishMemberProfilePhotoStrict({
@@ -934,8 +937,10 @@ class _MembersPageState extends State<MembersPage> {
       if (cur == null) {
         byId[m.id] = m;
       } else {
-        byId[m.id] =
-            _MemberDoc(m.id, _mergeMemberPhotoFields(cur.data, m.data));
+        byId[m.id] = _MemberDoc(
+          m.id,
+          _mergeMemberCacheWithFirestore(cur.data, m.data),
+        );
       }
     }
     return byId.values.toList();
@@ -1796,6 +1801,34 @@ class _MembersPageState extends State<MembersPage> {
     return _MemberDoc(m.id, {...m.data, ...o});
   }
 
+  /// Ficha completa do Firestore (filição, endereço, etc.) — o cache leve do painel omite estes campos.
+  Future<_MemberDoc> _hydrateMemberDocFull(_MemberDoc member) async {
+    var m = _memberWithOptimisticOverlay(member);
+    final tid = _effectiveTenantId.trim();
+    if (tid.isEmpty) return m;
+    try {
+      await ChurchTenantResilientReads.preparePanelRead();
+      var operational = tid;
+      try {
+        operational =
+            await ChurchTenantResilientReads.operationalTenantId(tid);
+      } catch (_) {}
+      final cpf = _str(m.data, 'CPF', 'cpf').replaceAll(RegExp(r'\D'), '');
+      final snap = await ChurchTenantResilientReads.membroByHint(
+        operational,
+        m.id,
+        cpfDigits: cpf.length == 11 ? cpf : null,
+      );
+      if (snap != null && snap.exists) {
+        final fresh = snap.data();
+        if (fresh != null && fresh.isNotEmpty) {
+          m = _MemberDoc(m.id, {...m.data, ...fresh});
+        }
+      }
+    } catch (_) {}
+    return m;
+  }
+
   void _applyOptimisticMemberEditOverlay(
       String memberId, Map<String, dynamic> r) {
     final patch = <String, dynamic>{};
@@ -2317,7 +2350,9 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   // ─── Ver Detalhes do Membro ───────────────────────────────────────────────
-  void _showMemberDetails(BuildContext context, _MemberDoc member) {
+  Future<void> _showMemberDetails(BuildContext context, _MemberDoc member) async {
+    member = await _hydrateMemberDocFull(member);
+    if (!context.mounted) return;
     unawaited(
       AppResumeStateService.saveOpenMember(
         tenantId: _effectiveTenantId,
@@ -2677,6 +2712,8 @@ class _MembersPageState extends State<MembersPage> {
                             role: widget.role,
                             memberId: member.id,
                             cpf: _memberCpfDigitsForCarteira(member.data),
+                            memberSeedData:
+                                Map<String, dynamic>.from(member.data),
                           );
                         }),
                   if (_isSelfMember(member) && _memberHasLogin(member))
@@ -2882,6 +2919,8 @@ class _MembersPageState extends State<MembersPage> {
       }
       return;
     }
+    member = await _hydrateMemberDocFull(member);
+    if (!mounted) return;
     final selfOnly = !staffEdit;
     final d = member.data;
     String selectedTenantIdForEdit = _tenantIdForMemberData(
@@ -4627,19 +4666,28 @@ class _MembersPageState extends State<MembersPage> {
             Timestamp.fromDate(result['dataConsagracao'] as DateTime),
       'ESTADO_CIVIL': _normalizeEstadoCivilValue(
           (result['estadoCivil'] ?? estadoCivilSelected).toString().trim()),
-      'NOME_CONJUGE': conjugeCtrl.text.trim(),
-      'ESCOLARIDADE': escolaridadeCtrl.text.trim(),
-      'PROFISSAO': profissaoCtrl.text.trim(),
-      'FILIACAO_PAI': filiacaoPaiCtrl.text.trim(),
-      'FILIACAO_MAE': filiacaoMaeCtrl.text.trim(),
+      'NOME_CONJUGE': (result['conjuge'] ?? conjugeCtrl.text).toString().trim(),
+      'ESCOLARIDADE':
+          (result['escolaridade'] ?? escolaridadeCtrl.text).toString().trim(),
+      'PROFISSAO':
+          (result['profissao'] ?? profissaoCtrl.text).toString().trim(),
+      'FILIACAO_PAI': (result['filiacaoPai'] ?? '').toString().trim(),
+      'FILIACAO_MAE': (result['filiacaoMae'] ?? '').toString().trim(),
+      'filiacaoPai': (result['filiacaoPai'] ?? '').toString().trim(),
+      'filiacaoMae': (result['filiacaoMae'] ?? '').toString().trim(),
       'FILIACAO': _buildFiliacaoLegado(
-          filiacaoPaiCtrl.text.trim(), filiacaoMaeCtrl.text.trim()),
-      'ENDERECO': enderecoCtrl.text.trim(),
-      'QUADRA_LOTE_NUMERO': quadraLoteNumeroCtrl.text.trim(),
-      'BAIRRO': bairroCtrl.text.trim(),
-      'CIDADE': cidadeCtrl.text.trim(),
-      'CEP': cepCtrl.text.trim(),
-      'ESTADO': estadoCtrl.text.trim(),
+        (result['filiacaoPai'] ?? '').toString().trim(),
+        (result['filiacaoMae'] ?? '').toString().trim(),
+      ),
+      'ENDERECO': (result['endereco'] ?? enderecoCtrl.text).toString().trim(),
+      'QUADRA_LOTE_NUMERO':
+          (result['quadraLoteNumero'] ?? quadraLoteNumeroCtrl.text)
+              .toString()
+              .trim(),
+      'BAIRRO': (result['bairro'] ?? bairroCtrl.text).toString().trim(),
+      'CIDADE': (result['cidade'] ?? cidadeCtrl.text).toString().trim(),
+      'CEP': (result['cep'] ?? cepCtrl.text).toString().trim(),
+      'ESTADO': (result['estado'] ?? estadoCtrl.text).toString().trim(),
       'ATUALIZADO_EM': FieldValue.serverTimestamp(),
     };
     if (result['dataBatismo'] is DateTime) {
@@ -5648,6 +5696,8 @@ class _MembersPageState extends State<MembersPage> {
                                           role: widget.role,
                                           memberId: docs[i].id,
                                           cpf: _memberCpfDigitsForCarteira(data),
+                                          memberSeedData:
+                                              Map<String, dynamic>.from(data),
                                         );
                                       }
                                       if (v == 'password_self') {
@@ -5979,6 +6029,8 @@ class _MembersPageState extends State<MembersPage> {
                                     role: widget.role,
                                     memberId: member.id,
                                     cpf: _memberCpfDigitsForCarteira(member.data),
+                                    memberSeedData:
+                                        Map<String, dynamic>.from(member.data),
                                   );
                                 }
                                 if (v == 'password_self') {
@@ -7145,8 +7197,10 @@ class _MembersPageState extends State<MembersPage> {
           if (cur == null) {
             combined[doc.id] = doc;
           } else {
-            combined[doc.id] =
-                _MemberDoc(doc.id, _mergeMemberPhotoFields(cur.data, doc.data));
+            combined[doc.id] = _MemberDoc(
+              doc.id,
+              _mergeMemberCacheWithFirestore(cur.data, doc.data),
+            );
           }
         }
 
@@ -7702,7 +7756,10 @@ class _MembersPageState extends State<MembersPage> {
         combined[doc.id] = doc;
       } else {
         combined[doc.id] =
-            _MemberDoc(doc.id, _mergeMemberPhotoFields(cur.data, doc.data));
+            _MemberDoc(
+              doc.id,
+              _mergeMemberCacheWithFirestore(cur.data, doc.data),
+            );
       }
     }
 
@@ -9590,6 +9647,16 @@ String _normalizeFuncao(String v) {
 /// Une mapas de membro: se [a] não tem URL de foto válida, copia campos de imagem de [b]
 /// (ex.: foto em `users` e cadastro vazio em `membros`, ou cópias entre tenants).
 ///
+/// Mescla cache leve do painel com doc completo do Firestore (filição, endereço, etc.).
+Map<String, dynamic> _mergeMemberCacheWithFirestore(
+  Map<String, dynamic> cacheData,
+  Map<String, dynamic> firestoreData,
+) =>
+    _mergeMemberPhotoFields(
+      <String, dynamic>{...cacheData, ...firestoreData},
+      firestoreData,
+    );
+
 /// **Importante:** não retornar [a] só porque já tem URL "válida" (ex. avatar Google em `photoURL`):
 /// senão a [FOTO_URL_OU_ID] nova do Storage em [b] (membros) nunca entra na lista após salvar.
 Map<String, dynamic> _mergeMemberPhotoFields(

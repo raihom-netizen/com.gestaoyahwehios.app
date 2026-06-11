@@ -35,6 +35,7 @@ import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
 import 'package:gestao_yahweh/services/immediate_feed_photo_attach.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
@@ -4267,34 +4268,39 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                       ),
                     ],
                   ),
-                  if (_isAviso)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        'Até $_maxPhotosPerPost fotos por aviso · só imagens (vídeos ficam nos eventos).',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          height: 1.35,
-                          color: Colors.grey.shade700,
-                        ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      _isAviso
+                          ? 'Até $_maxPhotosPerPost fotos · recorte com Confirmar em baixo.'
+                          : 'Fotos com recorte · Confirmar sempre na barra inferior.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.35,
+                        color: Colors.grey.shade700,
                       ),
                     ),
-                  const SizedBox(height: 16),
+                  ),
+                  const SizedBox(height: 12),
                   ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.grey.shade200),
+                    ),
                     leading: CircleAvatar(
                       backgroundColor: const Color(0xFFF0FDF4),
                       child: Icon(Icons.photo_library_rounded,
-                          color: Colors.green.shade700),
+                          color: Colors.green.shade700, size: 24),
                     ),
                     title: const Text('Fotos da galeria',
                         style: TextStyle(fontWeight: FontWeight.w700)),
                     subtitle: Text(
                       photosFull
-                          ? 'Limite de $_maxPhotosPerPost fotos'
-                          : (_isAviso
-                              ? 'Até $_maxPhotosPerPost · foto inteira automática'
-                              : 'Várias · recorte'),
+                          ? 'Limite de $_maxPhotosPerPost fotos atingido'
+                          : 'Várias imagens · recorte por foto',
                       style: TextStyle(
                         fontSize: 12,
                         color: photosFull
@@ -4310,15 +4316,33 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                             unawaited(_pickImages());
                           },
                   ),
+                  const SizedBox(height: 8),
                   ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.grey.shade200),
+                    ),
                     leading: CircleAvatar(
                       backgroundColor:
                           ThemeCleanPremium.primary.withValues(alpha: 0.12),
                       child: Icon(Icons.camera_alt_rounded,
-                          color: ThemeCleanPremium.primary),
+                          color: ThemeCleanPremium.primary, size: 24),
                     ),
                     title: const Text('Tirar foto',
                         style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                      photosFull
+                          ? 'Limite de fotos atingido'
+                          : 'Câmara · recorte e confirmar em baixo',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: photosFull
+                            ? ThemeCleanPremium.error
+                            : Colors.grey.shade600,
+                      ),
+                    ),
                     enabled: !photosFull && !_mediaPicking && !_saving,
                     onTap: photosFull || _mediaPicking || _saving
                         ? null
@@ -4414,11 +4438,54 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   }
 
   Future<void> _waitForInFlightPhotoUploads() async {
-    const maxWait = Duration(seconds: 2);
+    const maxWait = Duration(seconds: 90);
     final deadline = DateTime.now().add(maxWait);
     while (_inFlightPhotoUploads > 0 && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 80));
+      await Future<void>.delayed(const Duration(milliseconds: 120));
     }
+    if (_inFlightPhotoUploads > 0) {
+      throw StateError(
+        'Ainda a enviar fotos. Aguarde o vínculo ao Storage e tente de novo.',
+      );
+    }
+  }
+
+  /// EcoFire — envia fotos pendentes ao Storage antes do publish linear.
+  Future<void> _flushPendingFeedPhotosBeforePublish(
+    String tenantId, {
+    required DocumentReference<Map<String, dynamic>> docRef,
+  }) async {
+    if (_newPhotoCount <= 0) return;
+    if (widget.doc == null && !_draftStubEnsured) {
+      await ImmediateFeedPhotoAttach.ensureDraftPost(
+        docRef: docRef,
+        isNewDoc: true,
+        tenantId: tenantId,
+        postType: widget.type,
+        title: _title.text,
+      );
+      _draftStubEnsured = true;
+    }
+    final start = _existingUrls.length;
+    final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
+      tenantId: tenantId,
+      postType: widget.type,
+      postId: docRef.id,
+      startSlotIndex: start,
+      bytesList: kIsWeb ? List<Uint8List>.from(_newImages) : null,
+      localPaths: kIsWeb
+          ? null
+          : FeedEditorMediaService.existingValidPaths(_newImagePaths),
+    );
+    if (!mounted) return;
+    setState(() {
+      _newImages.clear();
+      _newImagePaths.clear();
+      _newNames.clear();
+      for (final s in slots) {
+        _existingUrls.add(s.fullUrl);
+      }
+    });
   }
 
   Future<void> _retryPublishFirestoreFirst() async {
@@ -4440,46 +4507,32 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       publishTenantId = _editorTenantId;
     }
     final isNewDoc = widget.doc == null && !_draftStubEnsured;
+    if (isAviso || isEvento) {
+      await _waitForInFlightPhotoUploads();
+      await _flushPendingFeedPhotosBeforePublish(
+        publishTenantId,
+        docRef: docRef,
+      );
+    }
     final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
-    final hasNewImages = _newPhotoCount > 0;
     var aspectRatio = 1.0;
-    if (!hasNewImages && existingUrls.isNotEmpty) {
+    if (existingUrls.isNotEmpty) {
       final prev = widget.doc?.data()?['media_info'];
       if (prev is Map) {
         final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
         if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
       }
     }
-    if (hasNewImages) {
-      List<Uint8List>? bytes;
-      List<String>? paths;
-      if (kIsWeb) {
-        bytes = await _copyNewImagesForPublish();
-      } else {
-        paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
-      }
-      final n = bytes?.length ?? paths?.length ?? 0;
-      if (n == 0) {
-        throw StateError('Não foi possível ler as fotos para enviar.');
-      }
+    if (isAviso || isEvento) {
       final corePayload = _buildCorePayload(
         allUrls: existingUrls,
         aspectRatio: aspectRatio,
         isNewDoc: isNewDoc,
       );
-      if (isAviso) {
-        await AvisoStrictPublishService.publish(
-          docRef: docRef,
-          tenantId: publishTenantId,
-          corePayload: corePayload,
-          isNewDoc: isNewDoc,
-          existingUrls: existingUrls,
-          startSlotIndex: existingUrls.length,
-          newImagesBytes: bytes,
-          newImagePaths: paths,
-          publicSite: _publicSite,
-        );
-      } else if (isEvento) {
+      corePayload.remove('videoUrl');
+      if (isEvento) {
+        final videoPath =
+            _videoStoragePathForMuralEvento(publishTenantId, docRef.id);
         await EventoStrictPublishService.publish(
           docRef: docRef,
           tenantId: publishTenantId,
@@ -4487,77 +4540,43 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           isNewDoc: isNewDoc,
           existingUrls: existingUrls,
           startSlotIndex: existingUrls.length,
-          hasVideo: _videoUrl.text.trim().isNotEmpty,
-          newImagesBytes: bytes,
-          newImagePaths: paths,
+          hasVideo: videoPath != null || _videoUrl.text.trim().isNotEmpty,
+          newImagesBytes: null,
+          newImagePaths: null,
+          videoStoragePath: videoPath,
           publicSite: _publicSite,
+          eventStartAt: _eventStartAtForSave(),
+          location: _localSalvo(),
+          syncAgenda: _eventStartAtForSave() != null,
         );
       } else {
-        await FeedMediaPublishService.publish(
+        await AvisoStrictPublishService.publish(
           docRef: docRef,
           tenantId: publishTenantId,
-          postId: docRef.id,
-          postType: widget.type,
           corePayload: corePayload,
           isNewDoc: isNewDoc,
           existingUrls: existingUrls,
           startSlotIndex: existingUrls.length,
-          hasVideo: false,
-          newImagesBytes: bytes,
-          newImagePaths: paths,
+          newImagesBytes: null,
+          newImagePaths: null,
           publicSite: _publicSite,
+          calendarDate: _validUntil,
+          syncCalendar: _validUntil != null,
         );
       }
       return;
     }
-    final corePayload = _buildCorePayload(
-      allUrls: const [],
-      aspectRatio: aspectRatio,
+    await FeedMediaPublishService.publishNow(
+      docRef: docRef,
+      payload: _buildCorePayload(
+        allUrls: existingUrls,
+        aspectRatio: aspectRatio,
+        isNewDoc: isNewDoc,
+      ),
       isNewDoc: isNewDoc,
+      postType: widget.type,
+      publicSite: _publicSite,
     );
-    corePayload.remove('videoUrl');
-    if (isEvento) {
-      final videoPath =
-          _videoStoragePathForMuralEvento(publishTenantId, docRef.id);
-      await EventoStrictPublishService.publish(
-        docRef: docRef,
-        tenantId: publishTenantId,
-        corePayload: corePayload,
-        isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: existingUrls.length,
-        hasVideo: videoPath != null || _videoUrl.text.trim().isNotEmpty,
-        videoStoragePath: videoPath,
-        publicSite: _publicSite,
-        eventStartAt: _eventStartAtForSave(),
-        location: _localSalvo(),
-        syncAgenda: _eventStartAtForSave() != null,
-      );
-    } else if (isAviso) {
-      await AvisoStrictPublishService.publish(
-        docRef: docRef,
-        tenantId: publishTenantId,
-        corePayload: corePayload,
-        isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: existingUrls.length,
-        publicSite: _publicSite,
-        calendarDate: _validUntil,
-        syncCalendar: _validUntil != null,
-      );
-    } else {
-      await FeedMediaPublishService.publishNow(
-        docRef: docRef,
-        payload: _buildCorePayload(
-          allUrls: existingUrls,
-          aspectRatio: aspectRatio,
-          isNewDoc: isNewDoc,
-        ),
-        isNewDoc: isNewDoc,
-        postType: widget.type,
-        publicSite: _publicSite,
-      );
-    }
   }
 
   DateTime? _eventStartAtForSave() {
@@ -4598,7 +4617,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       await AppFinalizeBootstrap.ensureSessionForPublish(
         logLabel: 'mural_${widget.type}_save',
       );
-      final hasNewImages = _newPhotoCount > 0;
       if (widget.type == 'evento') {
         ChurchPublishFlowLog.eventoStart();
       } else {
@@ -4650,9 +4668,17 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           ),
         );
       }
+      if (isAviso || isEvento) {
+        await _waitForInFlightPhotoUploads();
+        await _flushPendingFeedPhotosBeforePublish(
+          publishTenantId,
+          docRef: docRef,
+        );
+      }
+
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
-      if (!hasNewImages && existingUrls.isNotEmpty) {
+      if (existingUrls.isNotEmpty) {
         final prev = widget.doc?.data()?['media_info'];
         if (prev is Map) {
           final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
@@ -4662,23 +4688,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
       if (isAviso || isEvento) {
         final startSlot = existingUrls.length;
-        List<Uint8List>? bytes;
-        List<String>? paths;
-        if (hasNewImages) {
-          if (kIsWeb) {
-            bytes = await _copyNewImagesForPublish();
-            if (bytes.isEmpty) {
-              throw StateError('Não foi possível ler as fotos para enviar.');
-            }
-          } else {
-            paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
-            if (paths.isEmpty) {
-              throw StateError('Não foi possível ler as fotos para enviar.');
-            }
-          }
-        }
         final corePayload = _buildCorePayload(
-          allUrls: const [],
+          allUrls: existingUrls,
           aspectRatio: aspectRatio,
           isNewDoc: isNewDoc,
         );
@@ -4706,8 +4717,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             existingUrls: existingUrls,
             startSlotIndex: startSlot,
             hasVideo: videoPath != null || _videoUrl.text.trim().isNotEmpty,
-            newImagesBytes: bytes,
-            newImagePaths: paths,
+            newImagesBytes: null,
+            newImagePaths: null,
             videoStoragePath: videoPath,
             publicSite: _publicSite,
             eventStartAt: _eventStartAtForSave(),
@@ -4732,8 +4743,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             isNewDoc: isNewDoc,
             existingUrls: existingUrls,
             startSlotIndex: startSlot,
-            newImagesBytes: bytes,
-            newImagePaths: paths,
+            newImagesBytes: null,
+            newImagePaths: null,
             publicSite: _publicSite,
             calendarDate: _validUntil,
             syncCalendar: _validUntil != null,

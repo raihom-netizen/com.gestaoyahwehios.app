@@ -1,11 +1,11 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
-import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 
 /// Anexa fotos de aviso/evento ao Storage **antes** de «Publicar» (padrão Controle Total).
@@ -48,39 +48,18 @@ abstract final class ImmediateFeedPhotoAttach {
     try {
       await ImmediateStorageUploadGuard.ensureReady(debugLabel: 'feed_photo_slot');
       await ImmediateMediaWarm.warmFeed();
-      if (kIsWeb) {
-        final b = bytes;
-        if (b == null || b.isEmpty) {
-          throw StateError('Sem dados da imagem para enviar.');
-        }
-        final urls = await MuralPostMediaPayload.uploadNewPhotosBeforePublish(
-          tenantId: tenantId,
-          postType: postType,
-          postId: postId,
-          newImages: [b],
-          startSlotIndex: slotIndex,
-        );
-        if (urls.isEmpty) {
-          throw StateError('Upload da foto não devolveu URL.');
-        }
-        return urls.first;
-      }
-      final path = localPath?.trim() ?? '';
-      if (path.isEmpty) {
-        throw StateError('Caminho da foto inválido.');
-      }
-      final urls =
-          await MuralPostMediaPayload.uploadNewPhotosBeforePublishFromPaths(
+      final slot = await EcoFireFeedPublishService.uploadPhotoSlot(
         tenantId: tenantId,
         postType: postType,
         postId: postId,
-        localPaths: [path],
-        startSlotIndex: slotIndex,
+        slotIndex: slotIndex,
+        bytes: bytes,
+        localPath: localPath,
       );
-      if (urls.isEmpty) {
+      if (slot.fullUrl.isEmpty) {
         throw StateError('Upload da foto não devolveu URL.');
       }
-      return urls.first;
+      return slot.fullUrl;
     } catch (e, st) {
       debugPrint('ImmediateFeedPhotoAttach.uploadSingleSlot: $e\n$st');
       ImmediateStorageUploadGuard.rethrowAsUserError(e, st);

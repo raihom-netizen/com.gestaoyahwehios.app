@@ -93,6 +93,9 @@ import 'package:gestao_yahweh/core/panel_scroll_bridge.dart';
 import 'package:gestao_yahweh/services/church_birthday_query_service.dart';
 import 'package:gestao_yahweh/ui/widgets/panel_dashboard_home_extras.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_engagement_controller.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
@@ -291,6 +294,13 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       unawaited(_paintPanelFromLocalCacheFirst(tidBoot));
       unawaited(MembersDirectorySnapshotService.warmFromCallableIfStale(tidBoot));
       unawaited(_hydrateMembersDirectory(tidBoot));
+      unawaited(() async {
+        final cluster = await _clusterDocIdsForPanel(tidBoot);
+        if (!mounted || cluster.isEmpty) return;
+        setState(() {
+          _deptStream ??= _createDepartmentsOneShotStream(cluster);
+        });
+      }());
     }
     _loadStreams();
     _financeMutationListener = () {
@@ -418,12 +428,20 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   /// churchId canónico — mesma API Membros/Android/iOS/Web.
   Future<String> _resolveEffectiveTenantId() async {
+    final bound = ChurchContext.currentChurchId?.trim() ?? '';
+    if (bound.isNotEmpty) return bound;
     final id = ChurchRepository.churchId(widget.tenantId);
     return id.isNotEmpty ? id : widget.tenantId.trim();
   }
 
-  Future<List<String>> _clusterDocIdsForPanel(String resolved) async =>
-      PanelDashboardSnapshotService.clusterDocIdsForPanel(resolved);
+  Future<List<String>> _clusterDocIdsForPanel(String resolved) async {
+    final ids = await PanelDashboardSnapshotService.clusterDocIdsForPanel(
+      resolved,
+    );
+    if (ids.isNotEmpty) return ids;
+    final seed = resolved.trim();
+    return seed.isEmpty ? const [] : [seed];
+  }
 
   static Stream<QuerySnapshot<Map<String, dynamic>>> _emptyQueryStream() =>
       Stream<QuerySnapshot<Map<String, dynamic>>>.value(
@@ -677,10 +695,20 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     DocumentSnapshot<Map<String, dynamic>>? igSnap;
     try {
       igSnap = await tenantRef.get();
-      allIds = [churchId.isNotEmpty ? churchId : resolved];
+      allIds = await _clusterDocIdsForPanel(
+        churchId.isNotEmpty ? churchId : resolved,
+      );
+      if (allIds.isEmpty) {
+        allIds = [churchId.isNotEmpty ? churchId : resolved];
+      }
       final id = igSnap.data() ?? {};
       churchSlug = _slugFromTenantData(id);
       churchNome = (id['name'] ?? id['nome'] ?? '').toString();
+      if (churchSlug.isEmpty) {
+        churchSlug = TenantResolverService.knownPublicSlugForChurchDocId(
+          churchId.isNotEmpty ? churchId : resolved,
+        );
+      }
       if (churchNome.trim().isEmpty || churchSlug.isEmpty) {
         try {
           final loaded = await ChurchRepository.loadByChurchId(
@@ -696,6 +724,13 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                   (loaded.data['name'] ?? loaded.data['nome'] ?? '').toString();
             }
           }
+        } catch (_) {}
+      }
+      if (churchSlug.isEmpty) {
+        try {
+          churchSlug = await TenantResolverService.resolveChurchPublicSlug(
+            churchId.isNotEmpty ? churchId : resolved,
+          );
         } catch (_) {}
       }
       _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
@@ -861,20 +896,32 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     return FirestoreStreamUtils.oneShotQueryFromFuture(() async {
       final merged = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
       final seen = <String>{};
-      for (final id in allIds) {
-        if (id.trim().isEmpty) continue;
+
+      Future<void> fetchTenantDepts(String rawId) async {
+        final id = rawId.trim();
+        if (id.isEmpty) return;
         try {
           final snap = await ChurchTenantResilientReads.departamentos(
             id,
             limit: _dashboardDepartmentsLimit,
           ).timeout(
-            const Duration(seconds: 10),
+            const Duration(seconds: 6),
             onTimeout: () => const MergedFirestoreQuerySnapshot([]),
           );
           for (final d in snap.docs) {
             if (seen.add(d.id)) merged.add(d);
           }
         } catch (_) {}
+      }
+
+      final ids = allIds.where((x) => x.trim().isNotEmpty).toList();
+      if (ids.isEmpty) return const MergedFirestoreQuerySnapshot([]);
+
+      await fetchTenantDepts(ids.first);
+      if (merged.isNotEmpty) return MergedFirestoreQuerySnapshot(merged);
+
+      if (ids.length > 1) {
+        await Future.wait(ids.skip(1).map(fetchTenantDepts));
       }
       return MergedFirestoreQuerySnapshot(merged);
     });
@@ -1027,7 +1074,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         _LinksPublicosStrip(
-                          tenantId: _effectiveTenantId,
+                          tenantId: _effectiveTenantId.isNotEmpty
+                              ? _effectiveTenantId
+                              : widget.tenantId,
                           role: widget.role,
                           initialSlug: _churchSlug.trim().isNotEmpty
                               ? _churchSlug.trim()
@@ -3061,16 +3110,39 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
         .trim();
   }
 
+  String _resolveTenantHint() {
+    final tid = widget.tenantId.trim();
+    if (tid.isNotEmpty) return tid;
+    final panel = ChurchContextService.panelChurchId('');
+    if (panel.isNotEmpty) return panel;
+    return ChurchContextService.currentChurchId ?? '';
+  }
+
+  String? _slugFromKnownMap([String? hint]) {
+    final tid = (hint ?? _resolveTenantHint()).trim();
+    if (tid.isEmpty) return null;
+    final readId = ChurchRepository.churchId(tid);
+    final known = TenantResolverService.knownPublicSlugForChurchDocId(
+      readId.isNotEmpty ? readId : tid,
+    );
+    return known.isEmpty ? null : known;
+  }
+
   @override
   void initState() {
     super.initState();
     final seed = widget.initialSlug?.trim();
     if (seed != null && seed.isNotEmpty) {
       _slug = seed;
-    } else {
-      _loading = true;
-      unawaited(_loadSlug());
+      return;
     }
+    final known = _slugFromKnownMap();
+    if (known != null) {
+      _slug = known;
+      return;
+    }
+    _loading = true;
+    unawaited(_loadSlug());
   }
 
   @override
@@ -3082,15 +3154,36 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
         _slug = seed;
         _loading = false;
       });
+      return;
+    }
+    if (_loading || _slug == null || _slug!.isEmpty) {
+      final known = _slugFromKnownMap();
+      if (known != null) {
+        setState(() {
+          _slug = known;
+          _loading = false;
+        });
+      }
     }
   }
 
   Future<void> _loadSlug() async {
     try {
-      await ChurchTenantResilientReads.preparePanelRead(refreshToken: kIsWeb);
-      final readId = ChurchRepository.churchId(widget.tenantId);
-      var slug = '';
-      if (readId.isNotEmpty) {
+      final tenantHint = _resolveTenantHint();
+      final readId = ChurchRepository.churchId(tenantHint);
+      var slug = TenantResolverService.knownPublicSlugForChurchDocId(
+        readId.isNotEmpty ? readId : tenantHint,
+      );
+      if (slug.isNotEmpty && mounted) {
+        setState(() {
+          _slug = slug;
+          _loading = false;
+        });
+        return;
+      }
+      await ChurchTenantResilientReads.preparePanelRead(refreshToken: kIsWeb)
+          .timeout(const Duration(seconds: 4), onTimeout: () {});
+      if (slug.isEmpty && readId.isNotEmpty) {
         try {
           final loaded = await ChurchRepository.loadByChurchId(
             readId,
@@ -3100,20 +3193,9 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
         } catch (_) {}
       }
       if (slug.isEmpty) {
-        final snap = await FirestoreWebGuard.runWithWebRecovery(() {
-          return ChurchRepository.churchDoc(readId.isNotEmpty ? readId : widget.tenantId)
-              .get(const GetOptions(source: Source.cache))
-              .timeout(const Duration(seconds: 4));
-        });
-        slug = _slugFromData(snap.data());
-      }
-      if (slug.isEmpty) {
-        final server = await FirestoreWebGuard.runWithWebRecovery(() {
-          return ChurchRepository.churchDoc(
-            readId.isNotEmpty ? readId : widget.tenantId,
-          ).get().timeout(const Duration(seconds: 8));
-        });
-        slug = _slugFromData(server.data());
+        slug = await TenantResolverService.resolveChurchPublicSlug(
+          readId.isNotEmpty ? readId : widget.tenantId,
+        );
       }
       if (mounted) {
         setState(() {
@@ -3126,7 +3208,13 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
         setState(() {
           _slug = widget.initialSlug?.trim().isNotEmpty == true
               ? widget.initialSlug!.trim()
-              : null;
+              : TenantResolverService.knownPublicSlugForChurchDocId(
+                  widget.tenantId,
+                ).isNotEmpty
+                  ? TenantResolverService.knownPublicSlugForChurchDocId(
+                      widget.tenantId,
+                    )
+                  : null;
           _loading = false;
         });
       }
@@ -3645,6 +3733,42 @@ class _PremiumLeaderGalleryTile extends StatelessWidget {
   }
 }
 
+void _scheduleLeaderGalleryWarmup(
+  BuildContext context, {
+  required String tenantId,
+  required Iterable<ChurchGalleryMemberPhotoRef> members,
+}) {
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!context.mounted) return;
+    unawaited(
+      ChurchGalleryPhotoWarmup.schedule(
+        context: context,
+        tenantId: tenantId,
+        members: members,
+      ),
+    );
+  });
+}
+
+Widget _dashboardGallerySafe({
+  required Widget Function() build,
+  required Future<void> Function() onRetry,
+  String message = 'Não foi possível carregar esta seção.',
+}) {
+  try {
+    return build();
+  } catch (e, st) {
+    debugPrint('Painel galeria: $e\n$st');
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: _DashboardPanelLoadError(
+        message: message,
+        onRetry: onRetry,
+      ),
+    );
+  }
+}
+
 /// Lista vertical (mobile) ou grelha [Wrap] (desktop) para galerias de liderança.
 Widget _layoutPremiumLeaderGallery({required bool narrow, required List<Widget> tiles}) {
   if (narrow) {
@@ -3703,8 +3827,8 @@ class _LideresGaleria extends StatelessWidget {
         ),
       );
     }
-    ChurchGalleryPhotoWarmup.schedule(
-      context: context,
+    _scheduleLeaderGalleryWarmup(
+      context,
       tenantId: tenantId,
       members: leaders.map((lite) {
         final data = lite.toMemberDataMap();
@@ -3787,7 +3911,7 @@ class _LideresGaleria extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (panelCache.hasHomeLeaders) {
+    if (panelCache.isFreshForInstantPanel || panelCache.hasHomeLeaders) {
       return _CleanCard(
         title: 'Líderes de departamento',
         icon: Icons.leaderboard_rounded,
@@ -3823,9 +3947,11 @@ class _LideresGaleria extends StatelessWidget {
       icon: Icons.leaderboard_rounded,
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: deptStream,
+        initialData: const MergedFirestoreQuerySnapshot([]),
         builder: (context, deptSnap) {
           if (deptSnap.connectionState == ConnectionState.waiting &&
-              !deptSnap.hasData) {
+              !deptSnap.hasData &&
+              !membersSnap.hasData) {
             if (panelCache.hasHomeLeaders) {
               return _buildFromCacheLeaders(context);
             }
@@ -3840,7 +3966,8 @@ class _LideresGaleria extends StatelessWidget {
               ),
             );
           }
-          if (deptSnap.hasError) {
+          if (deptSnap.hasError &&
+              (!membersSnap.hasData || membersSnap.data == null)) {
             return Padding(
               padding: const EdgeInsets.all(16),
               child: _DashboardPanelLoadError(
@@ -3936,8 +4063,8 @@ class _LideresGaleria extends StatelessWidget {
             );
           }
 
-          ChurchGalleryPhotoWarmup.schedule(
-            context: context,
+          _scheduleLeaderGalleryWarmup(
+            context,
             tenantId: tenantId,
             members: entries.map((e) {
               final cpf = e.key;
@@ -4115,8 +4242,8 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
         ),
       );
     }
-    ChurchGalleryPhotoWarmup.schedule(
-      context: context,
+    _scheduleLeaderGalleryWarmup(
+      context,
       tenantId: tenantId,
       members: list.map((lite) {
         final data = lite.toMemberDataMap();
@@ -4200,13 +4327,154 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
     );
   }
 
+  Widget _buildCorpoFromMemberDocs(
+    BuildContext context,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> members, {
+    Map<String, String> deptNamesById = const {},
+  }) {
+    final list = members
+        .where((m) => _memberHasFuncaoCorpo(m.data(), corpoAdminRoles))
+        .toList();
+    list.sort((a, b) {
+      final ra = _corpoSortRank(_memberFuncoes(a.data(), corpoAdminRoles));
+      final rb = _corpoSortRank(_memberFuncoes(b.data(), corpoAdminRoles));
+      if (ra != rb) return rb.compareTo(ra);
+      final na = _nomeMembroDoc(a);
+      final nb = _nomeMembroDoc(b);
+      return na.toLowerCase().compareTo(nb.toLowerCase());
+    });
+    if (list.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          'Nenhum membro com cargo de pastor, secretário ou tesoureiro.',
+          style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+        ),
+      );
+    }
+    _scheduleLeaderGalleryWarmup(
+      context,
+      tenantId: tenantId,
+      members: list.map((m) {
+        final cpf = (m.data()['CPF'] ?? m.data()['cpf'] ?? '')
+            .toString()
+            .replaceAll(RegExp(r'[^0-9]'), '');
+        return ChurchGalleryMemberPhotoRef(
+          memberDocId: m.id,
+          memberData: m.data(),
+          cpfDigits: cpf.length == 11 ? cpf : null,
+          authUid: _dashboardMemberAuthUid(m.data()),
+        );
+      }),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < ThemeCleanPremium.breakpointMobile;
+        final tiles = list.map((m) {
+          final data = m.data();
+          final nome = (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '')
+              .toString()
+              .trim();
+          final foto = imageUrlFromMap(data);
+          final hasFoto = isValidImageUrl(foto);
+          final avatarColor = avatarColorForMember(data, hasPhoto: hasFoto);
+          final funcoes = _memberFuncoes(data, corpoAdminRoles);
+          final cpfMembro = (data['CPF'] ?? data['cpf'] ?? '')
+              .toString()
+              .replaceAll(RegExp(r'[^0-9]'), '');
+          final rawDepts = data['DEPARTAMENTOS'] ?? data['departamentos'];
+          final deptIds = rawDepts is List
+              ? rawDepts.map((e) => e.toString()).toList()
+              : <String>[];
+          final deptNames = deptIds
+              .map((id) => deptNamesById[id] ?? id)
+              .where((s) => s.isNotEmpty)
+              .toList();
+          final avatarSize = narrow ? 52.0 : 72.0;
+          final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context))
+              .round()
+              .clamp(96, 280);
+          final subtitle =
+              funcoes.map((f) => churchRoleDisplayLabel(f)).join(', ');
+          final avatarWidget = FotoMembroWidget(
+            imageUrl: hasFoto ? foto : null,
+            memberData: data,
+            tenantId: tenantId,
+            memberId: m.id,
+            cpfDigits: cpfMembro.length == 11 ? cpfMembro : null,
+            authUid: _dashboardMemberAuthUid(data),
+            size: avatarSize,
+            memCacheWidth: memPx,
+            memCacheHeight: memPx,
+            preferListThumbnail: true,
+            backgroundColor:
+                avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
+          );
+          return _PremiumLeaderGalleryTile(
+            narrow: narrow,
+            nome: nome.isEmpty ? 'Membro' : nome,
+            subtitle: subtitle,
+            avatar: avatarWidget,
+            onTap: () => openChurchLeaderContactPage(
+              context,
+              memberData: data,
+              departmentNames: deptNames,
+              funcoes: funcoes,
+              tenantId: tenantId,
+              memberDocId: m.id,
+              memberRole: role,
+              viewerCpfDigits: viewerCpfDigits,
+            ),
+            onChat: () => _leaderGalleryOpenChat(
+              context,
+              memberData: data,
+              tenantId: tenantId,
+              memberRole: role,
+              viewerCpfDigits: viewerCpfDigits,
+              displayName: nome.isEmpty ? 'Membro' : nome,
+              memberDocId: m.id,
+            ),
+            onWhatsApp: () => _leaderGalleryOpenWhatsApp(
+              context,
+              data,
+              tenantId: tenantId,
+              memberDocId: m.id,
+            ),
+          );
+        }).toList();
+        return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (panelCache.hasHomeCorpo) {
+    if (panelCache.isFreshForInstantPanel || panelCache.hasHomeCorpo) {
       return _CleanCard(
         title: 'Corpo Administrativo',
         icon: Icons.badge_rounded,
         child: _buildFromCacheCorpo(context),
+      );
+    }
+    if (dashboardPreferPanelCacheMembers(panelCache.hasHomeCorpo, membersSnap)) {
+      return _CleanCard(
+        title: 'Corpo Administrativo',
+        icon: Icons.badge_rounded,
+        child: _buildFromCacheCorpo(context),
+      );
+    }
+    if (membersSnap.hasError) {
+      return _CleanCard(
+        title: 'Corpo Administrativo',
+        icon: Icons.badge_rounded,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: _DashboardPanelLoadError(
+            message:
+                'Não foi possível carregar o corpo administrativo. Verifique a conexão ou tente novamente.',
+            onRetry: onRetry,
+          ),
+        ),
       );
     }
     return _CleanCard(
@@ -4214,35 +4482,13 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
       icon: Icons.badge_rounded,
       child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: deptStream,
+        initialData: const MergedFirestoreQuerySnapshot([]),
         builder: (context, deptSnap) {
-          if (membersSnap.hasError) {
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: _DashboardPanelLoadError(
-                message:
-                    'Não foi possível carregar o corpo administrativo. Verifique a conexão ou tente novamente.',
-                onRetry: onRetry,
-              ),
-            );
-          }
-          if (deptSnap.hasError) {
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: _DashboardPanelLoadError(
-                message:
-                    'Não foi possível carregar departamentos (nomes nos cargos). Toque para recarregar.',
-                onRetry: onRetry,
-              ),
-            );
-          }
           if (!membersSnap.hasData || membersSnap.data == null) {
-            if (panelCache.hasHomeCorpo) {
+            if (panelCache.homeCorpoAdmin.isNotEmpty) {
               return _buildFromCacheCorpo(context);
             }
             if (membersSnap.connectionState == ConnectionState.waiting) {
-              if (panelCache.homeCorpoAdmin.isNotEmpty) {
-                return _buildFromCacheCorpo(context);
-              }
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
                 child: Center(
@@ -4262,114 +4508,25 @@ class _CorpoAdministrativoGaleria extends StatelessWidget {
               ),
             );
           }
-          final deptDocs = deptSnap.hasData ? deptSnap.data!.docs : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+          final deptDocs = deptSnap.data?.docs ??
+              const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
           final deptNamesById = <String, String>{};
           for (final d in deptDocs) {
             final data = d.data();
-            deptNamesById[d.id] = (data['name'] ?? data['nome'] ?? d.id).toString();
+            deptNamesById[d.id] =
+                (data['name'] ?? data['nome'] ?? d.id).toString();
           }
-          final members = membersSnap.data!.docs;
-          final list = members
-              .where((m) => _memberHasFuncaoCorpo(m.data(), corpoAdminRoles))
-              .toList();
-          list.sort((a, b) {
-            final ra = _corpoSortRank(_memberFuncoes(a.data(), corpoAdminRoles));
-            final rb = _corpoSortRank(_memberFuncoes(b.data(), corpoAdminRoles));
-            if (ra != rb) return rb.compareTo(ra);
-            final na = _nomeMembroDoc(a);
-            final nb = _nomeMembroDoc(b);
-            return na.toLowerCase().compareTo(nb.toLowerCase());
-          });
-          if (list.isEmpty) {
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Nenhum membro com cargo de pastor, secretário ou tesoureiro.',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-              ),
-            );
-          }
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final narrow = constraints.maxWidth < ThemeCleanPremium.breakpointMobile;
-              final tiles = list.map((m) {
-                final data = m.data();
-                final nome = (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '').toString();
-                final foto = imageUrlFromMap(data);
-                final hasFoto = isValidImageUrl(foto);
-                final avatarColor = avatarColorForMember(data, hasPhoto: hasFoto);
-                final funcoes = _memberFuncoes(data, corpoAdminRoles);
-                final cpfMembro = (data['CPF'] ?? data['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
-                final rawDepts = data['DEPARTAMENTOS'] ?? data['departamentos'];
-                final deptIds = rawDepts is List ? rawDepts.map((e) => e.toString()).toList() : <String>[];
-                final deptNames = deptIds.map((id) => deptNamesById[id] ?? id).where((s) => s.isNotEmpty).toList();
-                final avatarSize = narrow ? 52.0 : 72.0;
-                final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context)).round().clamp(96, 280);
-                final subtitle = funcoes
-                    .map((f) => churchRoleDisplayLabel(f))
-                    .join(', ');
-                final avatarWidget = FotoMembroWidget(
-                  imageUrl: hasFoto ? foto : null,
-                  memberData: data,
-                  tenantId: tenantId,
-                  memberId: m.id,
-                  cpfDigits: cpfMembro.length == 11 ? cpfMembro : null,
-                  authUid: _dashboardMemberAuthUid(data),
-                  size: avatarSize,
-                  memCacheWidth: memPx,
-                  memCacheHeight: memPx,
-                  preferListThumbnail: true,
-                  backgroundColor: avatarColor ?? ThemeCleanPremium.primary.withOpacity(0.1),
-                );
-                return _PremiumLeaderGalleryTile(
-                  narrow: narrow,
-                  nome: nome,
-                  subtitle: subtitle,
-                  avatar: avatarWidget,
-                  onTap: () => openChurchLeaderContactPage(
-                    context,
-                    memberData: data,
-                    departmentNames: deptNames,
-                    funcoes: funcoes,
-                    tenantId: tenantId,
-                    memberDocId: m.id,
-                    memberRole: role,
-                    viewerCpfDigits: viewerCpfDigits,
-                  ),
-                  onChat: () => _leaderGalleryOpenChat(
-                    context,
-                    memberData: data,
-                    tenantId: tenantId,
-                    memberRole: role,
-                    viewerCpfDigits: viewerCpfDigits,
-                    displayName: nome.trim().isEmpty ? 'Membro' : nome.trim(),
-                    memberDocId: m.id,
-                  ),
-                  onWhatsApp: () => _leaderGalleryOpenWhatsApp(
-                    context,
-                    data,
-                    tenantId: tenantId,
-                    memberDocId: m.id,
-                  ),
-                );
-              }).toList();
-              ChurchGalleryPhotoWarmup.schedule(
-                context: context,
-                tenantId: tenantId,
-                members: list.map((m) {
-                  final cpf = (m.data()['CPF'] ?? m.data()['cpf'] ?? '')
-                      .toString()
-                      .replaceAll(RegExp(r'[^0-9]'), '');
-                  return ChurchGalleryMemberPhotoRef(
-                    memberDocId: m.id,
-                    memberData: m.data(),
-                    cpfDigits: cpf.length == 11 ? cpf : null,
-                    authUid: _dashboardMemberAuthUid(m.data()),
-                  );
-                }),
-              );
-              return _layoutPremiumLeaderGallery(narrow: narrow, tiles: tiles);
-            },
+
+          return _dashboardGallerySafe(
+            onRetry: onRetry,
+            message:
+                'Não foi possível exibir o corpo administrativo. Toque para tentar de novo.',
+            build: () => _buildCorpoFromMemberDocs(
+              context,
+              membersSnap.data!.docs,
+              deptNamesById: deptNamesById,
+            ),
           );
         },
       ),

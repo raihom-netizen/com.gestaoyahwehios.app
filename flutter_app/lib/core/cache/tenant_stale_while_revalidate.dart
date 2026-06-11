@@ -131,11 +131,17 @@ abstract final class TenantStaleWhileRevalidate {
     if (tid.isNotEmpty) {
       await TenantModuleHiveCache.clearModule(tid, module);
     }
-    final snap = await networkFetch();
-    if (tid.isNotEmpty && snap.docs.isNotEmpty) {
-      await TenantModuleHiveCache.saveFromQuerySnapshot(tid, module, snap);
+    try {
+      final snap = await networkFetch().timeout(
+        kIsWeb ? const Duration(seconds: 22) : const Duration(seconds: 28),
+      );
+      if (tid.isNotEmpty && snap.docs.isNotEmpty) {
+        await TenantModuleHiveCache.saveFromQuerySnapshot(tid, module, snap);
+      }
+      return snap;
+    } catch (_) {
+      return const MergedFirestoreQuerySnapshot([]);
     }
-    return snap;
   }
 
   /// Pré-aquece módulo (login / dashboard) — grava Hive sem bloquear UI.

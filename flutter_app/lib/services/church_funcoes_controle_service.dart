@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -118,11 +119,10 @@ class ChurchFuncoesControleService {
     (key: 'gestor', label: 'Gestor'),
   ];
 
-  static Future<String> resolveEffectiveTenantId(String tenantId) =>
-      ChurchOperationalPaths.resolveCached(
-        tenantId,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      );
+  static Future<String> resolveEffectiveTenantId(String tenantId) async {
+    final direct = ChurchRepository.churchId(tenantId);
+    return direct.isNotEmpty ? direct : tenantId.trim();
+  }
 
   /// Remove toda a coleção e grava os padrões.
   static Future<void> restoreDefaults(String tenantId) async {

@@ -51,6 +51,7 @@ import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
 import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/panel_finance_accounts_snapshot_service.dart';
@@ -1133,7 +1134,10 @@ class _FinancePageState extends State<FinancePage>
   Future<void> _bootstrapFirestoreTenant() async {
     if (!mounted) return;
     final hint = widget.tenantId.trim();
-    final initial = ChurchContextService.panelChurchId(hint);
+    final bound = ChurchContext.currentChurchId?.trim() ?? '';
+    final initial = bound.isNotEmpty
+        ? bound
+        : ChurchContextService.panelChurchId(hint);
     setState(() {
       _firestoreTenantId = initial.isEmpty ? null : initial;
       _financeBootstrapDone = true;
@@ -2097,6 +2101,15 @@ class _FinanceContasResumoStrip extends StatelessWidget {
                           contaId: id,
                           title: '$nome · $mesLabel',
                         ),
+                        onTransfer: () async {
+                          final ok = await showFinanceLancamentoEditorForTenant(
+                            context,
+                            tenantId: tenantId,
+                            panelRole: role,
+                            presetNovoTipo: 'transferencia',
+                          );
+                          if (ok) onFinanceChanged();
+                        },
                       ),
                     );
                   },
@@ -2289,7 +2302,11 @@ class _ResumoTabState extends State<_ResumoTab> {
       _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
     }
     _futureSettings = FinanceTenantSettings.load(widget.tenantId);
-    _combinedFuture = Future.wait([_future, _futureContas, _futureSettings]);
+    _combinedFuture = Future.wait([
+      _future.catchError((_) => const MergedFirestoreQuerySnapshot([])),
+      _futureContas.catchError((_) => const MergedFirestoreQuerySnapshot([])),
+      _futureSettings.catchError((_) => const FinanceTenantSettings()),
+    ]);
   }
 
   @override
@@ -3289,7 +3306,7 @@ class _ContaSaldoCard extends StatelessWidget {
 // Movimentações da conta: receitas (conta destino), despesas (conta origem) e transferências.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Filtros do extrato — alto contraste e ícones (evita chips «invisíveis» em tema claro).
+/// Filtros do extrato — chips premium coloridos (mobile-first).
 Widget _financeExtratoPremiumChip({
   required String label,
   required IconData icon,
@@ -3297,49 +3314,12 @@ Widget _financeExtratoPremiumChip({
   required bool selected,
   required VoidCallback onTap,
 }) {
-  return Material(
-    color: Colors.transparent,
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 170),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? accent.withValues(alpha: 0.14) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected ? accent : const Color(0xFFCBD5E1),
-            width: selected ? 2 : 1.2,
-          ),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: accent.withValues(alpha: 0.26),
-                    blurRadius: 12,
-                    offset: const Offset(0, 5),
-                  ),
-                ]
-              : ThemeCleanPremium.softUiCardShadow,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 17, color: selected ? accent : const Color(0xFF64748B)),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 12.5,
-                color: selected ? accent : const Color(0xFF334155),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
+  return FinancePremiumFilterChip(
+    label: label,
+    icon: icon,
+    accent: accent,
+    selected: selected,
+    onTap: onTap,
   );
 }
 
@@ -4173,7 +4153,10 @@ class _LancamentosTabState extends State<_LancamentosTab> {
       );
       _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
     }
-    _combinedFuture = Future.wait([_future, _futureContas]);
+    _combinedFuture = Future.wait([
+      _future.catchError((_) => const MergedFirestoreQuerySnapshot([])),
+      _futureContas.catchError((_) => const MergedFirestoreQuerySnapshot([])),
+    ]);
   }
 
   void _loadMoreFinanceLancamentos() {
@@ -4547,133 +4530,96 @@ class _LancamentosTabState extends State<_LancamentosTab> {
                               ),
                             ),
                             const SizedBox(width: 10),
-                            Expanded(
-                              child: Container(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 12),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusSm),
-                                  border: Border.all(
-                                      color: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.12)),
-                                ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    value: _filtroTipo,
-                                    isExpanded: true,
-                                    icon: const Icon(Icons.filter_list_rounded,
-                                        size: 20),
-                                    items: const [
-                                      DropdownMenuItem(
-                                          value: 'todos', child: Text('Todos')),
-                                      DropdownMenuItem(
-                                          value: 'entrada',
-                                          child: Text('Receitas')),
-                                      DropdownMenuItem(
-                                          value: 'saida', child: Text('Despesas')),
-                                    ],
-                                    onChanged: (v) => setState(
-                                        () => _filtroTipo = v ?? 'todos'),
-                                  ),
-                                ),
-                              ),
-                            ),
                           ],
                         ),
                         const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Container(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 12),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusSm),
-                                  border: Border.all(
-                                      color: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.12)),
-                                ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    value: _filtroCategoria,
-                                    isExpanded: true,
-                                    icon:
-                                        const Icon(Icons.category_rounded, size: 20),
-                                    items: [
-                                      const DropdownMenuItem(
-                                          value: 'todas',
-                                          child: Text('Todas categorias')),
-                                      ...distinctCats.map(
-                                        (c) => DropdownMenuItem(
-                                            value: c,
-                                            child: Text(c,
-                                                overflow: TextOverflow.ellipsis)),
-                                      ),
-                                    ],
-                                    onChanged: (v) => setState(
-                                        () => _filtroCategoria = v ?? 'todas'),
-                                  ),
-                                ),
+                        Text(
+                          'Tipo de movimento',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              FinancePremiumFilterChip(
+                                label: 'Todos',
+                                icon: Icons.receipt_long_rounded,
+                                accent: ThemeCleanPremium.primary,
+                                selected: _filtroTipo == 'todos',
+                                onTap: () => setState(() => _filtroTipo = 'todos'),
+                                compact: true,
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Container(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 12),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusSm),
-                                  border: Border.all(
-                                      color: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.12)),
-                                ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    value: _filtroExtra,
-                                    isExpanded: true,
-                                    icon: const Icon(Icons.filter_alt_rounded,
-                                        size: 20),
-                                    items: const [
-                                      DropdownMenuItem(
-                                          value: 'todos',
-                                          child: Text('Todos (extra)')),
-                                      DropdownMenuItem(
-                                          value: 'pendente_aprovacao',
-                                          child: Text('Pendente aprovação')),
-                                      DropdownMenuItem(
-                                          value: 'nao_conciliados',
-                                          child: Text('Pend. conciliação')),
-                                      DropdownMenuItem(
-                                          value: 'a_pagar',
-                                          child: Text('A pagar')),
-                                      DropdownMenuItem(
-                                          value: 'pagos', child: Text('Pagos')),
-                                      DropdownMenuItem(
-                                          value: 'a_receber',
-                                          child: Text('A receber')),
-                                      DropdownMenuItem(
-                                          value: 'recebidos',
-                                          child: Text('Recebidos')),
-                                      DropdownMenuItem(
-                                          value: 'futuras_despesas',
-                                          child: Text('Despesas futuras pend.')),
-                                      DropdownMenuItem(
-                                          value: 'futuras_receitas',
-                                          child: Text('Receitas futuras pend.')),
-                                    ],
-                                    onChanged: (v) => setState(
-                                        () => _filtroExtra = v ?? 'todos'),
-                                  ),
-                                ),
+                              const SizedBox(width: 8),
+                              FinancePremiumFilterChip(
+                                label: 'Receitas',
+                                icon: Icons.trending_up_rounded,
+                                accent: const Color(0xFF16A34A),
+                                selected: _filtroTipo == 'entrada',
+                                onTap: () => setState(() => _filtroTipo = 'entrada'),
+                                compact: true,
                               ),
+                              const SizedBox(width: 8),
+                              FinancePremiumFilterChip(
+                                label: 'Despesas',
+                                icon: Icons.trending_down_rounded,
+                                accent: const Color(0xFFDC2626),
+                                selected: _filtroTipo == 'saida',
+                                onTap: () => setState(() => _filtroTipo = 'saida'),
+                                compact: true,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusSm),
+                            border: Border.all(
+                                color: ThemeCleanPremium.primary
+                                    .withValues(alpha: 0.12)),
+                          ),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: _filtroCategoria,
+                              isExpanded: true,
+                              icon: const Icon(Icons.category_rounded, size: 20),
+                              items: [
+                                const DropdownMenuItem(
+                                    value: 'todas',
+                                    child: Text('Todas categorias')),
+                                ...distinctCats.map(
+                                  (c) => DropdownMenuItem(
+                                      value: c,
+                                      child: Text(c,
+                                          overflow: TextOverflow.ellipsis)),
+                                ),
+                              ],
+                              onChanged: (v) => setState(
+                                  () => _filtroCategoria = v ?? 'todas'),
                             ),
-                          ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Situação',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        FinancePremiumExtraStatusFilters(
+                          selected: _filtroExtra,
+                          onChanged: (v) => setState(() => _filtroExtra = v),
                         ),
                       ],
                     ),
@@ -5143,31 +5089,10 @@ class _LancamentoCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis),
                       if (vinculoLinha != null && !isTransfer)
                         Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Row(
-                            children: [
-                              Icon(
-                                vinculoLinha.startsWith('Membro')
-                                    ? Icons.person_rounded
-                                    : Icons.handshake_rounded,
-                                size: 13,
-                                color: ThemeCleanPremium.primary,
-                              ),
-                              const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  vinculoLinha,
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: ThemeCleanPremium.primary,
-                                    height: 1.2,
-                                  ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
+                          padding: const EdgeInsets.only(top: 6),
+                          child: FinancePremiumVinculoPill(
+                            label: vinculoLinha,
+                            isMembro: vinculoLinha.startsWith('Membro'),
                           ),
                         ),
                       if (centroCusto.isNotEmpty)
@@ -5190,65 +5115,52 @@ class _LancamentoCard extends StatelessWidget {
                               style: TextStyle(
                                   fontSize: 11, color: Colors.grey.shade500)),
                           if (pendenteRecorrencia) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.shade100,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'Conciliar',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.amber.shade900,
-                                ),
-                              ),
+                            const SizedBox(width: 6),
+                            const FinancePremiumStatusPill(
+                              label: 'Conciliar',
+                              icon: Icons.sync_problem_rounded,
+                              colors: [Color(0xFFD97706), Color(0xFFFBBF24)],
                             ),
                           ],
                           if (comprovanteUrl.isNotEmpty) ...[
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             Icon(Icons.attach_file_rounded,
                                 size: 14, color: Colors.grey.shade500),
                           ],
                           if (pendenteAprovacao) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.deepOrange.shade50,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'Aprovar',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.deepOrange.shade900,
-                                ),
-                              ),
+                            const SizedBox(width: 6),
+                            const FinancePremiumStatusPill(
+                              label: 'Aprovar',
+                              icon: Icons.gavel_rounded,
+                              colors: [Color(0xFFEA580C), Color(0xFFFB923C)],
                             ),
                           ],
                           if (!isTransfer && !conciliadoOk) ...[
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                'Extrato',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.blue.shade900,
-                                ),
-                              ),
+                            const SizedBox(width: 6),
+                            const FinancePremiumStatusPill(
+                              label: 'Extrato',
+                              icon: Icons.receipt_long_rounded,
+                              colors: [Color(0xFF2563EB), Color(0xFF60A5FA)],
+                            ),
+                          ],
+                          if (!isTransfer &&
+                              isEntrada &&
+                              data['recebimentoConfirmado'] == false) ...[
+                            const SizedBox(width: 6),
+                            const FinancePremiumStatusPill(
+                              label: 'Pendente',
+                              icon: Icons.schedule_rounded,
+                              colors: [Color(0xFFD97706), Color(0xFFFBBF24)],
+                            ),
+                          ],
+                          if (!isTransfer &&
+                              !isEntrada &&
+                              data['pagamentoConfirmado'] == false) ...[
+                            const SizedBox(width: 6),
+                            const FinancePremiumStatusPill(
+                              label: 'A pagar',
+                              icon: Icons.schedule_rounded,
+                              colors: [Color(0xFFDC2626), Color(0xFFF87171)],
                             ),
                           ],
                         ],
@@ -5273,32 +5185,36 @@ class _LancamentoCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         if (podeAprovar)
-                          _MiniButton(
+                          FinancePremiumIconAction(
                             icon: Icons.verified_rounded,
                             color: const Color(0xFF059669),
                             onTap: onApprove,
-                            tooltip: 'Aprovar despesa'),
+                            tooltip: 'Aprovar despesa',
+                          ),
                         if (podeAprovar) const SizedBox(width: 6),
-                        _MiniButton(
-                            icon: Icons.edit_rounded,
-                            color: ThemeCleanPremium.primary,
-                            onTap: onEdit,
-                            tooltip: 'Editar'),
+                        FinancePremiumIconAction(
+                          icon: Icons.edit_rounded,
+                          color: ThemeCleanPremium.primary,
+                          onTap: onEdit,
+                          tooltip: 'Editar',
+                        ),
                         const SizedBox(width: 6),
-                        _MiniButton(
-                            icon: Icons.delete_outline_rounded,
-                            color: const Color(0xFFDC2626),
-                            onTap: onDelete,
-                            tooltip: 'Excluir'),
+                        FinancePremiumIconAction(
+                          icon: Icons.delete_outline_rounded,
+                          color: const Color(0xFFDC2626),
+                          onTap: onDelete,
+                          tooltip: 'Excluir',
+                        ),
                         const SizedBox(width: 6),
-                        _MiniButton(
+                        FinancePremiumIconAction(
                           icon: Icons.camera_alt_rounded,
                           color: const Color(0xFF7C3AED),
                           tooltip: 'Comprovante',
                           onTap: () => uploadFinanceComprovanteForLancamento(
-                              context,
-                              tenantId: tenantId,
-                              doc: doc),
+                            context,
+                            tenantId: tenantId,
+                            doc: doc,
+                          ),
                         ),
                       ],
                     ),
@@ -6967,25 +6883,9 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
                     const SizedBox(height: 12),
                     Text('Tipo', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.grey.shade800)),
                     const SizedBox(height: 8),
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(
-                            value: 'corrente',
-                            label: Text('Corrente'),
-                            icon: Icon(Icons.credit_card_rounded, size: 18)),
-                        ButtonSegment(
-                            value: 'poupanca',
-                            label: Text('Poupança'),
-                            icon: Icon(Icons.savings_rounded, size: 18)),
-                        ButtonSegment(
-                            value: 'caixa',
-                            label: Text('Caixa'),
-                            icon: Icon(Icons.payments_rounded, size: 18)),
-                      ],
-                      selected: {tipoConta},
-                      onSelectionChanged: (s) {
-                        if (s.isNotEmpty) setDlg(() => tipoConta = s.first);
-                      },
+                    FinancePremiumContaTipoToggle(
+                      selected: tipoConta,
+                      onChanged: (v) => setDlg(() => tipoConta = v),
                     ),
                     const SizedBox(height: 12),
                     Row(
@@ -7403,59 +7303,6 @@ class _LegendDot extends StatelessWidget {
         Text(label,
             style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
       ],
-    );
-  }
-}
-
-class _MiniButton extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-  final String tooltip;
-
-  const _MiniButton(
-      {required this.icon,
-      required this.color,
-      required this.onTap,
-      required this.tooltip});
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            constraints: const BoxConstraints(
-                minWidth: ThemeCleanPremium.minTouchTarget,
-                minHeight: ThemeCleanPremium.minTouchTarget),
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  color.withValues(alpha: 0.16),
-                  color.withValues(alpha: 0.06),
-                ],
-              ),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: color.withValues(alpha: 0.28)),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.12),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Icon(icon, size: 18, color: color),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -7987,27 +7834,10 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                         ),
                       ),
                       const SizedBox(height: 8),
-                      SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(
-                            value: 'nenhum',
-                            label: Text('Nenhum'),
-                            icon: Icon(Icons.close_rounded, size: 18),
-                          ),
-                          ButtonSegment(
-                            value: 'fornecedor',
-                            label: Text('Fornecedor'),
-                            icon: Icon(Icons.handshake_rounded, size: 18),
-                          ),
-                          ButtonSegment(
-                            value: 'membro',
-                            label: Text('Membro'),
-                            icon: Icon(Icons.person_rounded, size: 18),
-                          ),
-                        ],
-                        selected: {vinculoTipo},
-                        onSelectionChanged: (s) => setDlgState(() {
-                          vinculoTipo = s.first;
+                      FinancePremiumVinculoToggle(
+                        selected: vinculoTipo,
+                        onChanged: (v) => setDlgState(() {
+                          vinculoTipo = v;
                           if (vinculoTipo != 'fornecedor') {
                             fornecedorId = null;
                             fornecedorNome = '';
@@ -8017,16 +7847,6 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                             membroNome = '';
                           }
                         }),
-                        showSelectedIcon: false,
-                        style: SegmentedButton.styleFrom(
-                          foregroundColor: const Color(0xFF334155),
-                          backgroundColor: const Color(0xFFF8FAFC),
-                          selectedForegroundColor: ThemeCleanPremium.primary,
-                          selectedBackgroundColor: const Color(0xFFEFF6FF),
-                          side: const BorderSide(color: Color(0xFF94A3B8), width: 1.5),
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
-                          visualDensity: VisualDensity.compact,
-                        ),
                       ),
                       const SizedBox(height: 12),
                       if (vinculoTipo == 'fornecedor')
@@ -8203,22 +8023,11 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                       ),
                     ),
                     const SizedBox(height: 6),
-                    SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(
-                          value: true,
-                          label: Text('Recebido'),
-                          icon: Icon(Icons.check_circle_outline_rounded),
-                        ),
-                        ButtonSegment(
-                          value: false,
-                          label: Text('Pendente'),
-                          icon: Icon(Icons.schedule_rounded),
-                        ),
-                      ],
-                      selected: {recebimentoConfirmado},
-                      onSelectionChanged: (s) =>
-                          setDlgState(() => recebimentoConfirmado = s.first),
+                    FinancePremiumSituacaoToggle(
+                      confirmed: recebimentoConfirmado,
+                      isReceita: true,
+                      onChanged: (v) =>
+                          setDlgState(() => recebimentoConfirmado = v),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -8238,22 +8047,11 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                       ),
                     ),
                     const SizedBox(height: 6),
-                    SegmentedButton<bool>(
-                      segments: const [
-                        ButtonSegment(
-                          value: true,
-                          label: Text('Pago'),
-                          icon: Icon(Icons.check_circle_outline_rounded),
-                        ),
-                        ButtonSegment(
-                          value: false,
-                          label: Text('Pendente'),
-                          icon: Icon(Icons.schedule_rounded),
-                        ),
-                      ],
-                      selected: {pagamentoConfirmado},
-                      onSelectionChanged: (s) =>
-                          setDlgState(() => pagamentoConfirmado = s.first),
+                    FinancePremiumSituacaoToggle(
+                      confirmed: pagamentoConfirmado,
+                      isReceita: false,
+                      onChanged: (v) =>
+                          setDlgState(() => pagamentoConfirmado = v),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -8271,41 +8069,13 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                     title: 'Transferência entre contas',
                     icon: Icons.swap_horiz_rounded,
                     accent: pageAccent,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                  DropdownButtonFormField<String>(
-                    value: coId != null && contas.any((e) => e.id == coId)
-                        ? coId
-                        : null,
-                    decoration: financePremiumDropdownDecoration(
-                      label: 'Conta de origem',
-                      prefixIcon: Icons.account_balance_wallet_rounded,
+                    child: FinancePremiumTransferAccountsSection(
+                      contas: contas,
+                      origemId: coId,
+                      destinoId: cdId,
                       accent: pageAccent,
-                    ),
-                    items: contas
-                        .map((c) => DropdownMenuItem(
-                            value: c.id, child: Text(c.nome)))
-                        .toList(),
-                    onChanged: (v) => setDlgState(() => coId = v),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: cdId != null && contas.any((e) => e.id == cdId)
-                        ? cdId
-                        : null,
-                    decoration: financePremiumDropdownDecoration(
-                      label: 'Conta de destino',
-                      prefixIcon: Icons.account_balance_rounded,
-                      accent: pageAccent,
-                    ),
-                    items: contas
-                        .map((c) => DropdownMenuItem(
-                            value: c.id, child: Text(c.nome)))
-                        .toList(),
-                    onChanged: (v) => setDlgState(() => cdId = v),
-                  ),
-                      ],
+                      onOrigemChanged: (v) => setDlgState(() => coId = v),
+                      onDestinoChanged: (v) => setDlgState(() => cdId = v),
                     ),
                   ),
                 const SizedBox(height: 16),

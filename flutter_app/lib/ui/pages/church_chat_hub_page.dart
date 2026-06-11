@@ -218,28 +218,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded());
     });
-    final hint = widget.tenantId.trim();
-    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
-    if (hint.isNotEmpty) {
-      _resolvedTenantId = hint;
-      unawaited(_openGruposFast(hint));
-      unawaited(_primeDepartmentsFromHive(hint));
-      if (uid.isNotEmpty) {
-        _chatThreadsStream =
-            ChatHubThreads.watchForUser(churchId: hint, uid: uid);
-        unawaited(() async {
-          try {
-            final cached =
-                await ChurchChatThreadsListCache.loadSnapshot(hint, uid: uid)
-                    .timeout(const Duration(seconds: 3));
-            if (!mounted) return;
-            if (cached != null && cached.docs.isNotEmpty) {
-              setState(() => _lastGoodChatThreadsSnap = cached);
-            }
-          } catch (_) {}
-        }());
-      }
-    }
+    // Streams/grupos só após _bootstrap() resolver o doc canónico (evita legado vazio).
     _conversasSkeletonTimer = Timer(const Duration(seconds: 2), () {
       if (mounted) setState(() => _conversasSkeletonTimedOut = true);
     });
@@ -551,13 +530,36 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   ) async {
     final p = peekTenantRaw.trim();
     if (p.isEmpty || p == resolvedTid) return true;
-    return ChurchContextService.panelChurchId(p) == resolvedTid;
+    if (ChurchContextService.panelChurchId(p) == resolvedTid) return true;
+    if (ChurchRepository.churchId(p) == resolvedTid) return true;
+    try {
+      final related = await TenantResolverService.getAllRelatedIgrejaDocIds(
+        resolvedTid,
+      );
+      if (related.contains(p)) return true;
+      final relatedPeek =
+          await TenantResolverService.getAllRelatedIgrejaDocIds(p);
+      if (relatedPeek.contains(resolvedTid)) return true;
+    } catch (_) {}
+    return false;
   }
 
-  Future<void> _tryConsumePendingChatThread() async {
+  Future<void> _tryConsumePendingChatThread({int attempt = 0}) async {
     if (!mounted || !widget.embeddedInShell) return;
     final tid = _resolvedTenantId;
-    if (tid == null || tid.isEmpty) return;
+    if (tid == null || tid.isEmpty) {
+      final peek =
+          ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen();
+      if (peek != null && attempt < 10) {
+        await Future<void>.delayed(
+          Duration(milliseconds: 120 + attempt * 120),
+        );
+        if (mounted) {
+          return _tryConsumePendingChatThread(attempt: attempt + 1);
+        }
+      }
+      return;
+    }
     final peek =
         ChurchPanelNavigationBridge.instance.peekPendingChatThreadOpen();
     if (peek == null) return;
@@ -855,48 +857,32 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final hint = widget.tenantId.trim();
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
 
+    final tid = ChurchRepository.churchId(hint).isNotEmpty
+        ? ChurchRepository.churchId(hint)
+        : hint;
+    if (tid.isEmpty) return;
+
     QuerySnapshot<Map<String, dynamic>>? cachedList;
-    if (hint.isNotEmpty && uid.isNotEmpty) {
+    if (uid.isNotEmpty) {
       try {
-        cachedList = await ChurchChatThreadsListCache.loadSnapshot(hint, uid: uid)
+        cachedList = await ChurchChatThreadsListCache.loadSnapshot(tid, uid: uid)
             .timeout(const Duration(seconds: 4));
       } catch (_) {}
     }
     if (!mounted) return;
     setState(() {
-      if (hint.isNotEmpty) _resolvedTenantId = hint;
+      _resolvedTenantId = tid;
       if (cachedList != null && cachedList.docs.isNotEmpty) {
         _lastGoodChatThreadsSnap = cachedList;
       }
-      if (hint.isNotEmpty && uid.isNotEmpty) {
+      if (uid.isNotEmpty) {
         _chatThreadsStream =
-            ChatHubThreads.watchForUser(churchId: hint, uid: uid);
+            ChatHubThreads.watchForUser(churchId: tid, uid: uid);
       }
     });
 
-    final tid = ChurchContextService.panelChurchId(hint).isNotEmpty
-        ? ChurchContextService.panelChurchId(hint)
-        : hint;
-    if (!mounted) return;
-    if (tid != _resolvedTenantId) {
-      QuerySnapshot<Map<String, dynamic>>? tidCache;
-      if (uid.isNotEmpty) {
-        try {
-          tidCache = await ChurchChatThreadsListCache.loadSnapshot(tid, uid: uid)
-              .timeout(const Duration(seconds: 4));
-        } catch (_) {}
-      }
-      setState(() {
-        _lastGoodChatThreadsSnap = tidCache?.docs.isNotEmpty == true
-            ? tidCache
-            : _lastGoodChatThreadsSnap;
-        _resolvedTenantId = tid;
-        if (uid.isNotEmpty) {
-          _chatThreadsStream =
-              ChatHubThreads.watchForUser(churchId: tid, uid: uid);
-        }
-      });
-    }
+    unawaited(_openGruposFast(tid));
+    unawaited(_primeDepartmentsFromHive(tid));
 
     unawaited(ChurchFirestoreCollectionMigrationService.ensureTenantMigrated(tid));
     unawaited(_loadChatNotifPrefs());

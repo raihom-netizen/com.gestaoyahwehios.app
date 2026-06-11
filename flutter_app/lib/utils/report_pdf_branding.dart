@@ -7,7 +7,7 @@ import 'package:pdf/pdf.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
@@ -94,11 +94,9 @@ Future<ReportPdfBranding> loadReportPdfBranding(String tenantId) async {
 }
 
 Future<ReportPdfBranding> _loadReportPdfBrandingUncached(String seed) async {
-  var tid = seed;
-  try {
-    final r = (await TenantResolverService.resolveEffectiveTenantId(seed)).trim();
-    if (r.isNotEmpty) tid = r;
-  } catch (_) {}
+  final tid = ChurchRepository.churchId(seed).isNotEmpty
+      ? ChurchRepository.churchId(seed)
+      : seed.trim();
   if (kIsWeb) {
     await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
     try {
@@ -106,10 +104,12 @@ Future<ReportPdfBranding> _loadReportPdfBrandingUncached(String seed) async {
     } catch (_) {}
   }
 
-  final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+  final op = ChurchRepository.churchId(tid).isNotEmpty
+      ? ChurchRepository.churchId(tid)
+      : tid.trim();
   Map<String, dynamic> tenant = {};
   try {
-    final snap = await ChurchOperationalPaths.churchDoc(op).get();
+    final snap = await ChurchRepository.churchDoc(op).get();
     tenant = snap.data() ?? {};
   } catch (_) {}
 

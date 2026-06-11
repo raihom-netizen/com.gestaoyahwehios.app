@@ -6,9 +6,10 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_feed_media_storage_fields.dart';
-import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
+import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
+import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -120,43 +121,43 @@ abstract final class ChurchFeedLinearPublishService {
       ChurchPublishFlowLog.avisoStart();
     }
 
-    var existingPaths = _pathsFromRefs(existingPhotoRefs);
+    final existingPaths = _pathsFromRefs(existingPhotoRefs);
     final hasNewPhotos =
         (newImagesBytes?.isNotEmpty ?? false) ||
         (newImagePaths?.isNotEmpty ?? false);
 
-    var uploadedSlots = const <FeedPhotoSlotResult>[];
+    var existingUrls =
+        await EcoFireFeedPublishService.refsToPlayableUrls(existingPhotoRefs);
+    final uploadedPaths = <String>[];
+    final alignedThumbPaths = <String>[];
+    final alignedThumbUrls = <String>[];
+
     if (hasNewPhotos) {
       ChurchPublishFlowLog.uploadStart('$postType $docId');
-      uploadedSlots = await ChurchFeedMediaStorageFields.uploadPhotoSlots(
+      final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
         tenantId: churchId,
         postType: postType,
         postId: docId,
         startSlotIndex: startSlotIndex,
-        newImagesBytes: newImagesBytes,
-        newImagePaths: newImagePaths,
+        bytesList: newImagesBytes,
+        localPaths: newImagePaths,
       );
+      for (final slot in slots) {
+        uploadedPaths.add(slot.fullPath);
+        alignedThumbPaths.add(slot.thumbPath);
+        alignedThumbUrls.add(slot.thumbUrl);
+      }
+      existingUrls = dedupeImageRefsByStorageIdentity([
+        ...existingUrls,
+        ...slots.map((s) => s.fullUrl),
+      ]);
       ChurchPublishFlowLog.uploadOk('$postType $docId');
     }
-
-    final uploadedPaths = uploadedSlots.map((s) => s.fullPath).toList();
 
     final allPaths = <String>[
       ...existingPaths,
       ...uploadedPaths,
     ];
-
-    final alignedThumbs = <String>[];
-    Map<String, dynamic>? capaVariants;
-    for (var i = 0; i < uploadedSlots.length; i++) {
-      final slot = uploadedSlots[i];
-      alignedThumbs.add(slot.thumbPath);
-      if (existingPaths.isEmpty && i == 0) {
-        capaVariants = slot.imageVariants;
-      } else if (startSlotIndex == 0 && i == 0) {
-        capaVariants = slot.imageVariants;
-      }
-    }
 
     if (isEvento) {
       await EventosPublishVerificationService.verifyStorageMetadata(
@@ -174,8 +175,7 @@ abstract final class ChurchFeedLinearPublishService {
     payload.addAll(
       ChurchFeedMediaStorageFields.buildStoragePathOnlyFields(
         photoPaths: allPaths,
-        thumbPaths: alignedThumbs,
-        capaImageVariants: capaVariants,
+        thumbPaths: alignedThumbPaths,
         aspectRatio: aspectRatio,
         hasVideo: hasVideo,
         videoPath: videoStoragePath,
@@ -183,6 +183,21 @@ abstract final class ChurchFeedLinearPublishService {
         isEvento: isEvento,
       ),
     );
+    payload.addAll(
+      MuralPostMediaPayload.buildMediaFields(
+        allUrls: existingUrls,
+        aspectRatio: aspectRatio,
+        hasVideo: hasVideo,
+        allowDeleteSentinels: !isNewDoc,
+      ),
+    );
+    if (alignedThumbUrls.isNotEmpty) {
+      payload['thumbUrl'] = alignedThumbUrls.first;
+      payload['thumbUrls'] = alignedThumbUrls;
+    }
+    if (isEvento && existingUrls.isNotEmpty) {
+      payload['fotos'] = existingUrls;
+    }
     payload['ativo'] = true;
     payload['publicado'] = true;
     payload['status'] = 'publicado';

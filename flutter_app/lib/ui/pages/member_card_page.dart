@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
@@ -236,6 +237,9 @@ class MemberCardPage extends StatefulWidget {
   final String? memberId;
   final String? cpf;
 
+  /// Dados já carregados na lista de membros — fallback se o doc Firestore estiver noutro irmão do cluster.
+  final Map<String, dynamic>? memberSeedData;
+
   /// Chamado ao clicar em "Ir para Membros"; troca para a aba Membros no shell (evita pop que deslogava).
   final VoidCallback? onNavigateToMembers;
 
@@ -254,6 +258,7 @@ class MemberCardPage extends StatefulWidget {
     required this.role,
     this.memberId,
     this.cpf,
+    this.memberSeedData,
     this.onNavigateToMembers,
     this.embeddedInShell = false,
     this.cnhFullscreenOnly = false,
@@ -434,6 +439,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }
 
   Future<void> _resolveOperationalTenantOnce() async {
+    final bound = ChurchContext.currentChurchId?.trim() ?? '';
+    if (bound.isNotEmpty) {
+      _cachedIgrejaDocId = bound;
+      return;
+    }
     final hint = widget.tenantId.trim();
     final resolved = ChurchRepository.churchId(widget.tenantId).trim();
     _cachedIgrejaDocId = resolved.isNotEmpty ? resolved : hint;
@@ -863,10 +873,47 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return tenant;
   }
 
+  bool _canBuildCardFromSeed() {
+    if (!_canManage) return false;
+    final seed = widget.memberSeedData;
+    final mid = widget.memberId?.trim() ?? '';
+    if (seed == null || seed.isEmpty || mid.isEmpty) return false;
+    final nome = (seed['NOME_COMPLETO'] ?? seed['nome'] ?? '')
+        .toString()
+        .trim();
+    return nome.isNotEmpty;
+  }
+
+  List<String> _memberResolveHints() {
+    final out = <String>[];
+    final seen = <String>{};
+    void add(String? raw) {
+      final h = (raw ?? '').trim();
+      if (h.isEmpty || seen.contains(h)) return;
+      seen.add(h);
+      out.add(h);
+    }
+
+    add(widget.memberId);
+    final cpf = (widget.cpf ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    if (cpf.length >= 11) add(cpf);
+    final seed = widget.memberSeedData;
+    if (seed != null) {
+      add((seed['authUid'] ?? seed['firebaseUid'] ?? seed['uid'] ?? '')
+          .toString());
+      add((seed['EMAIL'] ?? seed['email'] ?? '').toString());
+      final seedCpf =
+          (seed['CPF'] ?? seed['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+      if (seedCpf.length >= 11) add(seedCpf);
+    }
+    return out;
+  }
+
   Future<DocumentSnapshot<Map<String, dynamic>>?> _resolveMemberDocForCard(
     String igrejaDocId,
   ) async {
     final cpf = (widget.cpf ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    final cpfArg = cpf.length >= 11 ? cpf : null;
     final user = FirebaseAuth.instance.currentUser;
 
     if (_isRestrictedMember) {
@@ -879,13 +926,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
       );
     }
 
-    final mid = widget.memberId?.trim() ?? '';
-    if (mid.isEmpty) return null;
-    return ChurchTenantResilientReads.membroByHint(
-      igrejaDocId,
-      mid,
-      cpfDigits: cpf.length >= 11 ? cpf : null,
-    );
+    for (final hint in _memberResolveHints()) {
+      final snap = await ChurchTenantResilientReads.membroByHint(
+        igrejaDocId,
+        hint,
+        cpfDigits: cpfArg,
+        userUid: user?.uid,
+      );
+      if (snap != null && snap.exists) return snap;
+    }
+    return null;
   }
 
   Future<_CardData?> _load() async {
@@ -894,13 +944,24 @@ class _MemberCardPageState extends State<MemberCardPage> {
     var tenant = await _loadTenantBundleForCard(igrejaDocId);
 
     final memberDoc = await _resolveMemberDocForCard(igrejaDocId);
-    if (memberDoc == null || !memberDoc.exists) return null;
 
-    final memberTenantId =
-        memberDoc.reference.parent.parent?.id.trim() ?? '';
-    if (memberTenantId.isNotEmpty && memberTenantId != igrejaDocId) {
-      igrejaDocId = memberTenantId;
-      tenant = await _loadTenantBundleForCard(igrejaDocId);
+    late final String resolvedMemberId;
+    late Map<String, dynamic> memberMap;
+
+    if (memberDoc != null && memberDoc.exists) {
+      final memberTenantId =
+          memberDoc.reference.parent.parent?.id.trim() ?? '';
+      if (memberTenantId.isNotEmpty && memberTenantId != igrejaDocId) {
+        igrejaDocId = memberTenantId;
+        tenant = await _loadTenantBundleForCard(igrejaDocId);
+      }
+      resolvedMemberId = memberDoc.id;
+      memberMap = Map<String, dynamic>.from(memberDoc.data() ?? {});
+    } else if (_canBuildCardFromSeed()) {
+      resolvedMemberId = widget.memberId!.trim();
+      memberMap = Map<String, dynamic>.from(widget.memberSeedData!);
+    } else {
+      return null;
     }
 
     final cardCfg = await _resolveAutomaticCardConfig(
@@ -908,7 +969,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
       igrejaDocId: igrejaDocId,
     );
 
-    var memberMap = Map<String, dynamic>.from(memberDoc.data() ?? {});
     memberMap = await _enrichMemberCarteirinhaSignatureFromSignatory(
       memberMap,
       igrejaDocId: igrejaDocId,
@@ -918,7 +978,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
       try {
         final code = await MemberCodigoService.ensureForMember(
           tenantId: igrejaDocId,
-          memberId: memberDoc.id,
+          memberId: resolvedMemberId,
           memberData: memberMap,
         );
         memberMap = Map<String, dynamic>.from(memberMap)
@@ -927,7 +987,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
 
     return _CardData(
-      memberId: memberDoc.id,
+      memberId: resolvedMemberId,
       member: memberMap,
       cardConfig: cardCfg,
       tenant: tenant,

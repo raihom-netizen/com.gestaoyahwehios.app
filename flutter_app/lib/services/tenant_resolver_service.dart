@@ -118,19 +118,31 @@ class TenantResolverService {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
 
+    // BPC consolidado: leituras no doc canónico; fallback de irmãos só em _queryWithSiblingFallback.
     var resolved = op;
-    // Fonte única: igrejas/{operationalId} — sem redirecionar para doc «mais rico» do cluster.
+    if (op == kBpcCanonicalIgrejaDocId || kBpcLegacyTenantIds.contains(op)) {
+      resolved = kBpcCanonicalIgrejaDocId;
+    }
     rememberModuleReadTenantId(seed, resolved, userUid: userUid);
     return resolved;
   }
 
-  /// SaaS directo — cada igreja isolada; sem fallback para docs irmãos.
+  /// Fallback de leitura — só cluster BPC (dados podem estar no doc legado).
   static List<String> orderedSiblingsForReadFallback(
     String primary,
     List<String> siblings, {
     int maxExtra = 8,
-  }) =>
-      const [];
+  }) {
+    final p = primary.trim();
+    if (p != kBpcCanonicalIgrejaDocId && !kBpcLegacyTenantIds.contains(p)) {
+      return const [];
+    }
+    return siblings
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty && s != p)
+        .take(maxExtra)
+        .toList();
+  }
 
   /// Doc canónico para **escritas** e Storage — cluster ancorado + doc com mais dados.
   static Future<String> _resolveCanonicalOperationalId(
@@ -167,11 +179,28 @@ class TenantResolverService {
   static final Map<String, _AliasCacheEntry> _directDocIdCache = {};
   static const Duration _directDocIdCacheTtl = Duration(hours: 6);
 
-  /// Resolve para o **doc ID** em `igrejas/{id}` — sem `church_aliases`.
-  /// 1) doc existe com esse id; 2) campo `churchId`/`igrejaId`/`tenantId` no doc raiz.
+  /// Legado BPC / slug público → doc canónico (sem `church_aliases`).
+  static String? mapLegacySeedToCanonical(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return null;
+    if (t == kBpcCanonicalIgrejaDocId) return kBpcCanonicalIgrejaDocId;
+    if (kBpcLegacyTenantIds.contains(t)) return kBpcCanonicalIgrejaDocId;
+    final slugHit = _publicSlugToCanonicalDocId[t];
+    if (slugHit != null && slugHit.isNotEmpty) return slugHit;
+    return _anchoredCanonicalOperationalId({t});
+  }
+
+  /// Resolve para o **doc ID** em `igrejas/{id}`.
+  /// 1) mapa BPC/slug; 2) doc existe; 3) campo `churchId`/`igrejaId`/`tenantId`.
   static Future<String?> resolveChurchAlias(String rawAlias) async {
     final alias = rawAlias.trim();
     if (alias.isEmpty) return null;
+
+    final mapped = mapLegacySeedToCanonical(alias);
+    if (mapped != null && mapped != alias) {
+      _directDocIdCache[alias] = _AliasCacheEntry(mapped, DateTime.now());
+      return mapped;
+    }
 
     final hit = _directDocIdCache[alias];
     if (hit != null &&
@@ -316,9 +345,16 @@ class TenantResolverService {
     final slugTrim = rawSlug.trim();
     if (slugTrim.isEmpty) return null;
 
+    final mapped = mapLegacySeedToCanonical(slugTrim);
+    if (mapped != null && mapped.isNotEmpty) return mapped;
+
     await _ensureFirestore();
     try {
-      final direct = await _firestore.collection('igrejas').doc(slugTrim).get();
+      final direct = await _firestore
+          .collection('igrejas')
+          .doc(slugTrim)
+          .get()
+          .timeout(const Duration(seconds: 6));
       if (direct.exists) return slugTrim;
     } catch (_) {}
 
@@ -365,18 +401,12 @@ class TenantResolverService {
     );
   }
 
-  /// Resolve o ID efetivo — directo `igrejas/{churchId}` (sem alias/cluster).
+  /// Resolve o ID efetivo — directo `igrejas/{churchId}` (contexto + mapa BPC/slug).
   static Future<String> resolveEffectiveTenantId(String id) async {
     final raw = id.trim();
     if (raw.isEmpty) return id;
-    final panel = ChurchContextService.panelChurchId(raw);
-    if (panel.isNotEmpty) return panel;
-    await _ensureFirestore();
-    try {
-      final doc = await _firestore.collection('igrejas').doc(raw).get();
-      if (doc.exists) return raw;
-    } catch (_) {}
-    return raw;
+    final direct = ChurchContextService.panelChurchId(raw);
+    return direct.isNotEmpty ? direct : raw;
   }
 
   /// Para queries em `igrejas/{id}/…`, prefere o ID que consta em `users/{uid}.igrejaId` /
@@ -388,25 +418,7 @@ class TenantResolverService {
     String seedId, {
     String? userUid,
   }) async {
-    final resolved = await resolveEffectiveTenantId(seedId.trim());
-    final uid = (userUid ?? '').trim();
-    if (uid.isEmpty) return resolved;
-
-    String claimId = '';
-    try {
-      final u = await _firestore.collection('users').doc(uid).get();
-      claimId =
-          (u.data()?['igrejaId'] ?? u.data()?['tenantId'] ?? '').toString().trim();
-    } catch (_) {}
-
-    if (claimId.isEmpty || claimId == resolved) return resolved;
-
-    try {
-      final siblings = await getAllRelatedIgrejaDocIds(resolved);
-      if (siblings.contains(claimId)) return claimId;
-    } catch (_) {}
-
-    return resolved;
+    return resolveEffectiveTenantId(seedId.trim());
   }
 
   static final Map<String, _OperationalTenantCacheEntry> _operationalByKey = {};
@@ -467,29 +479,31 @@ class TenantResolverService {
     }
 
     final sw = Stopwatch()..start();
-    final panel = ChurchContextService.panelChurchId(seed);
-    final operational = panel.isNotEmpty ? panel : seed;
+    final operational = ChurchContextService.panelChurchId(seed);
+    final op = operational.isNotEmpty
+        ? operational
+        : (mapLegacySeedToCanonical(seed) ?? seed);
     sw.stop();
     ChurchOperationalFirestoreTrace.record(
       origin: 'TenantResolverService.resolveOperationalChurchDocId',
-      firestorePath: 'igrejas/$operational',
-      churchId: operational,
+      firestorePath: 'igrejas/$op',
+      churchId: op,
       durationMs: sw.elapsedMilliseconds,
     );
 
     _operationalByKey[cacheKey] =
-        _OperationalTenantCacheEntry(operational, DateTime.now());
+        _OperationalTenantCacheEntry(op, DateTime.now());
     AgentDebugLog.log(
       location: 'tenant_resolver_service.dart:resolveOperational',
       message: 'operational_id_resolved',
       hypothesisId: 'A',
       data: {
         'seed': seed,
-        'operational': operational,
+        'operational': op,
         'forceRefresh': forceRefresh,
       },
     );
-    return operational;
+    return op;
   }
 
   static void invalidateOperationalChurchDocCache({
@@ -513,10 +527,26 @@ class TenantResolverService {
         .trim();
   }
 
+  /// Slug público conhecido (BPC) quando o doc canónico ainda não foi consolidado.
+  static String knownPublicSlugForChurchDocId(String churchDocId) {
+    final raw = churchDocId.trim();
+    if (raw.isEmpty) return '';
+    if (raw == kBpcCanonicalIgrejaDocId || kBpcLegacyTenantIds.contains(raw)) {
+      return 'o-brasil-cristo-jardim-goiano';
+    }
+    for (final entry in _publicSlugToCanonicalDocId.entries) {
+      if (entry.value == raw) return entry.key;
+    }
+    return '';
+  }
+
   /// Slug público — doc canónico + irmãos (evita banner «Configure o slug» falso).
   static Future<String> resolveChurchPublicSlug(String churchDocId) async {
     final raw = churchDocId.trim();
     if (raw.isEmpty) return '';
+
+    final known = knownPublicSlugForChurchDocId(raw);
+    if (known.isNotEmpty) return known;
 
     await _ensureFirestore();
 
@@ -609,9 +639,9 @@ class TenantResolverService {
           () => FirestoreReadResilience.getDocument(
             docRef,
             cacheKey: 'igreja_cadastro_$t',
-            maxAttempts: kIsWeb ? 3 : 2,
+            maxAttempts: kIsWeb ? 2 : 2,
             attemptTimeout: Duration(
-              seconds: preferServer || kIsWeb ? 18 : 10,
+              seconds: preferServer || kIsWeb ? 8 : 10,
             ),
           ),
         );
@@ -628,13 +658,12 @@ class TenantResolverService {
       return data;
     }
 
-    for (final sibling in anchoredClusterIdsFor(id)) {
-      if (sibling == id) continue;
-      final alt = await readDoc(sibling);
-      if (_churchProfileScore(alt) > _churchProfileScore(data)) {
-        data = alt;
-      }
-      if (_churchProfileScore(data) >= _richProfileEarlyExitScore) break;
+    final richest = await _richestProfileInCluster(
+      id,
+      preferServer: preferServer,
+    );
+    if (_churchProfileScore(richest) > _churchProfileScore(data)) {
+      data = richest;
     }
 
     if (data.isNotEmpty) return data;
@@ -707,15 +736,19 @@ class TenantResolverService {
     final opHit = _operationalByKey[cacheKey];
     final operational = (opHit?.id ?? seed).trim();
 
-    Future<Map<String, dynamic>?> readCacheDoc(String id) async {
+    Future<Map<String, dynamic>?> readDoc(
+      String id, {
+      required Source source,
+      required Duration timeout,
+    }) async {
       final t = id.trim();
       if (t.isEmpty) return null;
       try {
         final snap = await _firestore
             .collection('igrejas')
             .doc(t)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(milliseconds: 700));
+            .get(GetOptions(source: source))
+            .timeout(timeout);
         if (snap.exists && snap.data() != null) {
           return Map<String, dynamic>.from(snap.data()!);
         }
@@ -725,6 +758,7 @@ class TenantResolverService {
 
     Map<String, dynamic>? bestData;
     var bestScore = -1;
+    var bestId = operational;
 
     final cacheCandidates = <String>{
       operational,
@@ -734,16 +768,39 @@ class TenantResolverService {
       cacheCandidates.addAll(members);
     }
     for (final id in cacheCandidates) {
-      final data = await readCacheDoc(id);
+      final data = await readDoc(
+        id,
+        source: Source.cache,
+        timeout: const Duration(milliseconds: 700),
+      );
       if (data == null || data.isEmpty) continue;
       final sc = _churchProfileScore(data);
       if (sc > bestScore) {
         bestScore = sc;
         bestData = data;
+        bestId = id;
       }
     }
     if (bestData != null && bestScore >= 4) {
-      return (operationalId: operational, profile: bestData!);
+      return (operationalId: bestId, profile: bestData!);
+    }
+
+    for (final id in cacheCandidates) {
+      final data = await readDoc(
+        id,
+        source: Source.serverAndCache,
+        timeout: Duration(seconds: kIsWeb ? 6 : 8),
+      );
+      if (data == null || data.isEmpty) continue;
+      final sc = _churchProfileScore(data);
+      if (sc > bestScore) {
+        bestScore = sc;
+        bestData = data;
+        bestId = id;
+      }
+    }
+    if (bestData != null && bestScore >= 4) {
+      return (operationalId: bestId, profile: bestData!);
     }
     return (operationalId: operational, profile: <String, dynamic>{});
   }
@@ -897,11 +954,19 @@ class TenantResolverService {
     return best;
   }
 
-  /// SaaS directo — só `igrejas/{churchId}` (sem cluster, alias ou docs irmãos).
+  /// IDs relacionados — canónico + legados BPC (sync `users` e leitura de irmãos).
   static Future<List<String>> getAllRelatedIgrejaDocIds(String resolvedId) async {
     final raw = resolvedId.trim();
     if (raw.isEmpty) return const [];
-    return [raw];
+    final out = <String>{raw};
+    final mapped = mapLegacySeedToCanonical(raw);
+    if (mapped != null) out.add(mapped);
+    if (raw == kBpcCanonicalIgrejaDocId || kBpcLegacyTenantIds.contains(raw)) {
+      out.add(kBpcCanonicalIgrejaDocId);
+      out.addAll(kBpcLegacyTenantIds);
+    }
+    _addAnchoredClusterMembers(raw, out);
+    return out.where((x) => x.trim().isNotEmpty).toList();
   }
 
   /// Departamentos — directo `igrejas/{churchId}` (SaaS isolado).

@@ -7,6 +7,9 @@ class ChurchChatAttachmentUtils {
   /// Extensões bloqueadas no chat (pedido: não aceitar `.exe`).
   static const Set<String> blockedExtensions = {'.exe'};
 
+  /// Vídeo no chat desactivado — vídeos ficam só em eventos (menos carga no servidor).
+  static const bool chatVideoUploadEnabled = false;
+
   /// Sem ponto — [FilePicker] `allowedExtensions` (documentos / ficheiros).
   static const List<String> documentPickerExtensions = [
     'pdf',
@@ -14,20 +17,8 @@ class ChurchChatAttachmentUtils {
     'docx',
     'xls',
     'xlsx',
-    'xlsm',
-    'ppt',
-    'pptx',
-    'pptm',
     'txt',
     'csv',
-    'rtf',
-    'odt',
-    'ods',
-    'odp',
-    'zip',
-    'rar',
-    '7z',
-    'war',
   ];
 
   static String extensionOf(String name) {
@@ -52,6 +43,15 @@ class ChurchChatAttachmentUtils {
 
   static bool isBlockedFileName(String fileName) =>
       blockReasonForFileName(fileName) != null;
+
+  /// `null` se o tipo puder ser enviado; mensagem para o utilizador se bloqueado.
+  static String? blockReasonForChatKind(String kind) {
+    if (kind == 'video' && !chatVideoUploadEnabled) {
+      return 'Vídeo não é permitido no chat. Use fotos, áudio ou documentos '
+          '(PDF, Word, Excel). Vídeos ficam apenas nos eventos.';
+    }
+    return null;
+  }
 
   static String mimeFromFileName(String fileName) {
     switch (extensionOf(fileName)) {

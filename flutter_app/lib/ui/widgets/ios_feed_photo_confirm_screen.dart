@@ -17,21 +17,27 @@ class IosFeedPhotoConfirmScreen extends StatelessWidget {
     final file = File(imagePath);
     final previewW = (kEventoAvisoFeedMemCacheMaxPx * 2).clamp(640, 1200);
 
+    final topPad = MediaQuery.paddingOf(context).top;
+
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1E40AF),
-        foregroundColor: Colors.white,
-        automaticallyImplyLeading: false,
-        centerTitle: true,
-        title: const Text(
-          'Confirmar foto',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-      ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          SizedBox(height: topPad + 10),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
+              'Confirmar foto',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 17,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
           Expanded(
             child: Center(
               child: Padding(
