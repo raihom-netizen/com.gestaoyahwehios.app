@@ -14,7 +14,10 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/core/tenant/church_profile_loader.dart';
+import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
@@ -70,6 +73,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   late bool _notif1Dia, _notif60Min;
   late TextEditingController _notifMinutosCtrl;
   bool _loading = true;
+  Object? _churchLoadError;
   final _sugestaoCtrl = TextEditingController();
   bool _sugestaoEnviando = false;
   bool _sugestaoEnviada = false;
@@ -169,12 +173,13 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     final u = FirebaseAuth.instance.currentUser;
     if (u != null) {
       try {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(u.uid)
-            .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 8));
-        final d = doc.data();
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        }
+        final uDoc = await firestoreDocumentGetReliable(
+          FirebaseFirestore.instance.collection('users').doc(u.uid.trim()),
+        ).timeout(const Duration(seconds: 8));
+        final d = uDoc.data();
         if (d != null) {
           if (d['pushAvisos'] is bool) av = d['pushAvisos'] as bool;
           if (d['pushEventos'] is bool) ev = d['pushEventos'] as bool;
@@ -189,7 +194,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                 ChurchChatNotificationPrefs.normalizeAlertMode(rawAlertMode);
           }
         }
-      } catch (_) {}
+      } catch (_) {
+        /* mantém prefs locais */
+      }
     }
     await prefs.setBool(_keyNotifAvisos, av);
     await prefs.setBool(_keyNotifEventos, ev);
@@ -220,15 +227,21 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     }
     SubscriptionGuardState? guard;
     Map<String, dynamic>? churchData;
+    Object? churchErr;
     try {
       final tid = widget.tenantId.trim().isNotEmpty
           ? widget.tenantId.trim()
-          : _effectiveTenantId;
+          : _effectiveTenantId.trim();
       if (tid.isNotEmpty) {
-        final hit = await IgrejaDirectFirestoreReads.readIgrejaDoc(tid);
-        churchData = hit?.data;
-        if (hit != null && hit.docId.isNotEmpty) {
-          _operationalTenantId = hit.docId;
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        }
+        final loaded = await ChurchRepository.loadChurchData(
+          seedTenantId: tid,
+        );
+        churchData = loaded.data;
+        if (loaded.churchId.trim().isNotEmpty) {
+          _operationalTenantId = loaded.churchId.trim();
         }
         guard = SubscriptionGuard.evaluate(
           church: churchData,
@@ -240,7 +253,20 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           subscription: widget.subscription,
         );
       }
-    } catch (_) {
+    } on ChurchRepositoryException catch (e) {
+      churchErr = e;
+      guard = SubscriptionGuard.evaluate(
+        church: churchData,
+        subscription: widget.subscription,
+      );
+    } on TimeoutException catch (e) {
+      churchErr = e;
+      guard = SubscriptionGuard.evaluate(
+        church: churchData,
+        subscription: widget.subscription,
+      );
+    } catch (e) {
+      churchErr = e;
       guard = SubscriptionGuard.evaluate(
         church: churchData,
         subscription: widget.subscription,
@@ -249,17 +275,27 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     var userAtivo = authUser != null;
     if (authUser != null) {
       try {
-        final uDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(authUser.uid)
-            .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 6));
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        }
+        final uDoc = await firestoreDocumentGetReliable(
+          FirebaseFirestore.instance.collection('users').doc(authUser.uid.trim()),
+        ).timeout(const Duration(seconds: 8));
         userAtivo = uDoc.data()?['ativo'] == true;
-      } catch (_) {}
+      } catch (_) {
+        /* mantém estado auth */
+      }
     }
     _subscriptionGuard = guard;
     _userAtivoNoPainel = userAtivo;
+    _churchLoadError = churchErr;
     if (mounted) setState(() {});
+  }
+
+  Future<void> _retryChurchLoad() async {
+    if (!mounted) return;
+    setState(() => _churchLoadError = null);
+    await _loadAccountAndLicenseSnapshot();
   }
 
   Future<void> _trocarConta(BuildContext context) async {
@@ -408,6 +444,14 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             : ListView(
                 padding: padding,
                 children: [
+                  if (_churchLoadError != null) ...[
+                    ChurchPanelErrorBody(
+                      title: 'Não foi possível carregar os dados da igreja',
+                      error: _churchLoadError,
+                      onRetry: _retryChurchLoad,
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   if (_restrictedMemberSettings) ...[
                     _SectionTitle(
                       icon: Icons.notifications_active_rounded,

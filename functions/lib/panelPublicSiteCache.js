@@ -39,6 +39,7 @@ const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const churchPerformancePack_1 = require("./churchPerformancePack");
 const publicSiteMediaPrefetch_1 = require("./publicSiteMediaPrefetch");
+const publicChurchSlugIndex_1 = require("./publicChurchSlugIndex");
 function pickString(data, keys) {
     for (const k of keys) {
         const v = data[k];
@@ -96,6 +97,12 @@ async function mirrorPublicSitePanelCache(tenantId) {
     await churchRef.collection("_panel_cache").doc("public_site").set(payload, {
         merge: false,
     });
+    try {
+        await (0, publicChurchSlugIndex_1.syncPublicChurchSlugIndexForChurch)(tid, church);
+    }
+    catch (e) {
+        functions.logger.warn("mirrorPublicSitePanelCache: slug index", { tenantId: tid, e });
+    }
 }
 /** Atualiza feed público + mídia + espelho `_panel_cache/public_site`. */
 async function recomputePanelPublicSiteCache(tenantId) {

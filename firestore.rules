@@ -559,8 +559,15 @@ service cloud.firestore {
         .hasOnly(['likes', 'likesCount', 'rsvp', 'rsvpCount', 'commentsCount', 'likedBy']);
     }
 
-    // PadrÃ£o: tudo vinculado Ã  igreja e ao gestor â€” patrimÃ´nio, fotos, vÃ­deos, notÃ­cias, escalas, membros, financeiro, etc.
+    // Padrão: tudo vinculado à igreja e ao gestor — patrimônio, fotos, vídeos, notícias, escalas, membros, financeiro, etc.
     // igrejas/{id}/membros, noticias, eventos, patrimonio, finance, escalas, departamentos, cargos, visitantes, config, users...
+
+    // Índice global slug → churchId — leitura pública instantânea (site + cadastro membro).
+    match /public_church_slugs/{slugKey} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /igrejas/{id} {
       // Leitura pÃºblica para busca de igreja (CPF/e-mail) e perfil da igreja
       allow read: if true;
@@ -643,9 +650,12 @@ service cloud.firestore {
       match /private/{docId} {
         allow read, write: if false;
       }
-      // Resumo do painel (totais por mÃªs) â€” escrita sÃ³ Firebase Admin (Cloud Function); leitura gestÃ£o.
+      // Resumo do painel (totais por mÃªs) â€” escrita sÃ³ Firebase Admin (Cloud Function); leitura gestÃ£o + site pÃºblico.
       match /_panel_cache/{docId} {
-        allow read: if isMaster() || canAccessTenant(id) || memberLinkedToTenant(id);
+        allow read: if docId == 'public_site'
+          || isMaster()
+          || canAccessTenant(id)
+          || memberLinkedToTenant(id);
         allow write: if false;
       }
       // Cache agregado do dashboard — escrita só Cloud Functions; 1 leitura na abertura.

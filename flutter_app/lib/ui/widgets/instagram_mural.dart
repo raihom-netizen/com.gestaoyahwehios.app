@@ -70,6 +70,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         noticiaImageRefsPreferDisplayOrder,
         postFeedCarouselAspectRatioForIndex,
         youtubeThumbnailUrlForVideoUrl;
+import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show buildNoticiaInviteShareMessage;
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
@@ -966,12 +967,12 @@ class InstagramMuralState extends State<InstagramMural> {
               final lng = d['locationLng'];
               final texto =
                   churchPostPlainText(Map<String, dynamic>.from(d));
-              final slug = widget.churchSlug.trim();
-              final inviteCardUrl = slug.isNotEmpty
-                  ? AppConstants.shareNoticiaIgrejaEventoUrl(
-                      widget.churchSlug, doc.id)
-                  : AppConstants.shareNoticiaCardUrl(widget.tenantId, doc.id);
-              final publicSite = AppConstants.publicSiteShortUrl(slug);
+              final links = resolveNoticiaShareLinks(
+                tenantId: widget.tenantId.trim(),
+                noticiaId: doc.id,
+                churchSlug: widget.churchSlug,
+                churchData: _tenantData,
+              );
               final churchName = _nomeIgreja.trim().isNotEmpty
                   ? _nomeIgreja.trim()
                   : 'Nossa igreja';
@@ -988,13 +989,17 @@ class InstagramMuralState extends State<InstagramMural> {
                 locationLng: lng is num
                     ? lng.toDouble()
                     : (lng != null ? double.tryParse(lng.toString()) : null),
-                publicSiteUrl: publicSite,
-                inviteCardUrl: inviteCardUrl,
+                publicSiteUrl: links.publicSiteUrl,
+                inviteCardUrl: links.eventPageUrl,
+                tenantId: widget.tenantId.trim(),
+                noticiaId: doc.id,
+                churchSlug: links.resolvedSlug,
+                churchData: _tenantData,
               );
               if (!context.mounted) return;
               await showChurchNoticiaShareSheet(
                 context,
-                shareLink: inviteCardUrl,
+                shareLink: links.eventPageUrl,
                 shareMessage: msg,
                 shareSubject: churchName,
                 previewImageUrl: null,
@@ -1314,16 +1319,21 @@ class _MuralPostLinksRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final slug = churchSlug.trim();
-    final publicSite = AppConstants.publicSiteShortUrl(slug);
-
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future:
           ChurchUiCollections.churchDoc(tenantId).get(),
       builder: (context, snap) {
+        final church = snap.data?.data();
+        final resolvedSlug = resolveChurchPublicSlug(
+          churchSlug: churchSlug,
+          tenantId: tenantId,
+          churchData: church,
+        );
+        final publicSite = resolvedSlug.isNotEmpty
+            ? AppConstants.publicChurchHomeUrl(resolvedSlug)
+            : AppConstants.effectivePublicWebBaseUrl;
         double? lat = eventLat;
         double? lng = eventLng;
-        final church = snap.data?.data();
         if (church != null) {
           lat ??= _parseD(church['latitude']);
           lng ??= _parseD(church['longitude']);
@@ -1970,10 +1980,12 @@ class _PostCardState extends State<_PostCard>
     final commentsCount = (data['commentsCount'] is num)
         ? (data['commentsCount'] as num).toInt()
         : 0;
-    final shareInviteUrl = widget.churchSlug.trim().isNotEmpty
-        ? AppConstants.shareNoticiaIgrejaEventoUrl(
-            widget.churchSlug, widget.doc.id)
-        : AppConstants.shareNoticiaCardUrl(widget.tenantId, widget.doc.id);
+    final links = resolveNoticiaShareLinks(
+      tenantId: widget.tenantId.trim(),
+      noticiaId: widget.doc.id,
+      churchSlug: widget.churchSlug,
+    );
+    final shareInviteUrl = links.eventPageUrl;
     final rsvpUids = List<String>.from(
         ((data['rsvp'] as List?) ?? []).map((e) => e.toString()));
     final rsvpConfirmed = _uid.isNotEmpty && rsvpUids.contains(_uid);
@@ -4450,22 +4462,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
   }
 
-  /// EcoFire — envia fotos pendentes ao Storage antes do publish linear.
+  /// Envia fotos pendentes ao Storage antes do publish (sem rascunho Firestore).
   Future<void> _flushPendingFeedPhotosBeforePublish(
     String tenantId, {
     required DocumentReference<Map<String, dynamic>> docRef,
   }) async {
     if (_newPhotoCount <= 0) return;
-    if (widget.doc == null && !_draftStubEnsured) {
-      await ImmediateFeedPhotoAttach.ensureDraftPost(
-        docRef: docRef,
-        isNewDoc: true,
-        tenantId: tenantId,
-        postType: widget.type,
-        title: _title.text,
-      );
-      _draftStubEnsured = true;
-    }
     final start = _existingUrls.length;
     final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
       tenantId: tenantId,

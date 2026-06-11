@@ -9,13 +9,18 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart'
-    show appGoogleSignIn, appGoogleSignOutForAccountPicker;
+    show
+        appGoogleSignOutForAccountPicker,
+        appGoogleSignInInteractive,
+        firebaseCredentialFromGoogleAccount,
+        isGoogleSignInUserCancellationException;
 import 'package:gestao_yahweh/services/express_login_service.dart';
 import 'package:gestao_yahweh/services/login_preferences.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 /// Login social no onboarding: painel se já tem igreja; senão `/signup/completar-dados` (perfil + igreja).
 class GestorOAuthOnboardingService {
@@ -102,27 +107,25 @@ class GestorOAuthOnboardingService {
       await appGoogleSignOutForAccountPicker();
     }
 
-    final googleUser = await appGoogleSignIn().signIn();
+    GoogleSignInAccount? googleUser;
+    try {
+      googleUser = await appGoogleSignInInteractive();
+    } on GoogleSignInException catch (e) {
+      if (isGoogleSignInUserCancellationException(e)) {
+        throw FirebaseAuthException(
+          code: 'cancelled',
+          message: 'Login Google cancelado.',
+        );
+      }
+      rethrow;
+    }
     if (googleUser == null) {
       throw FirebaseAuthException(
         code: 'cancelled',
         message: 'Login Google cancelado.',
       );
     }
-    final ga = await googleUser.authentication;
-    final idTok = ga.idToken;
-    if (idTok == null || idTok.isEmpty) {
-      throw FirebaseAuthException(
-        code: 'invalid-credential',
-        message:
-            'Google não retornou token de identificação. Tente de novo ou use outro método de login.',
-      );
-    }
-    final credential = GoogleAuthProvider.credential(
-      accessToken: ga.accessToken,
-      idToken: idTok,
-    );
-    return FirebaseAuth.instance.signInWithCredential(credential);
+    return firebaseCredentialFromGoogleAccount(googleUser);
   }
 
   static String _randomNonce([int length = 32]) {

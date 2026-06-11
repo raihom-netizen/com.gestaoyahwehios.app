@@ -78,7 +78,9 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_lazy_module_policy.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/ui/widgets/church_shell_nav_icon.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
+import 'package:gestao_yahweh/services/auth_gate_panel_role.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/church_global_search_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/church_notification_bell.dart';
@@ -175,6 +177,30 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   /// Último snapshot válido — evita spinner ao voltar de outra aba (Controle Total).
   DocumentSnapshot<Map<String, dynamic>>? _lastGoodTenantDoc;
+
+  /// Papel efectivo no menu (upgrade se claims atrasados mas e-mail = gestor).
+  String? _roleOverride;
+
+  String get _panelRole {
+    final override = (_roleOverride ?? '').trim().toLowerCase();
+    if (override.isNotEmpty) return override;
+    return widget.role.trim().toLowerCase();
+  }
+
+  void _syncPanelRoleFromChurch(Map<String, dynamic>? churchData) {
+    final user = firebaseDefaultAuth.currentUser;
+    final resolved = AuthGatePanelRole.resolve(
+      roleFromClaims: widget.role,
+      roleFromUserDoc: widget.role,
+      roleFromCache: widget.role,
+      churchData: churchData,
+      userEmail: user?.email,
+    );
+    if (resolved == _panelRole) return;
+    if (!AppPermissions.isRestrictedMember(widget.role)) return;
+    if (_roleOverride == resolved) return;
+    if (mounted) setState(() => _roleOverride = resolved);
+  }
 
   /// Doc canónico (`departamentos`, chat, slug) — resolvido uma vez no arranque/resume.
   String? _operationalTenantId;
@@ -467,7 +493,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       unawaited(GestorWelcomeDialog.tryShowIfNeeded(
         context: context,
         tenantId: _moduleTenantId,
-        role: widget.role,
+        role: _panelRole,
       ));
     });
   }
@@ -538,7 +564,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         uid: u.uid,
         tenantId: operationalId,
         cpf: widget.cpf,
-        role: widget.role,
+        role: _panelRole,
         forceRefresh: true,
       ),
     );
@@ -547,6 +573,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   @override
   void didUpdateWidget(covariant IgrejaCleanShell oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.role != widget.role) {
+      _roleOverride = null;
+      _syncPanelRoleFromChurch(_lastGoodTenantDoc?.data());
+    }
     if (oldWidget.tenantId != widget.tenantId) {
       _operationalTenantId = null;
       _tenantResolveComplete = false;
@@ -631,7 +661,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     showChurchGlobalSearchDialog(
       context: context,
       tenantId: _moduleTenantId,
-      userRole: widget.role,
+      userRole: _panelRole,
       userCpfDigits: () {
         var d = widget.cpf.replaceAll(RegExp(r'\D'), '');
         if (d.length == 10) d = '0$d';
@@ -722,7 +752,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   /// Copia `members` → `membros` no Firestore (Cloud Function com Admin SDK). Gestor/master.
   Future<void> _runMembersToMembrosMigration() async {
-    final r = widget.role.toUpperCase().trim();
+    final r = _panelRole.toUpperCase().trim();
     final canTrigger = r == 'GESTOR' ||
         r == 'ADMIN' ||
         r == 'ADM' ||
@@ -790,7 +820,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   bool _canAccessItem(int index) {
     return ChurchRolePermissions.shellAllowsNavIndex(
-      widget.role,
+      _panelRole,
       index,
       memberCanViewFinance: widget.podeVerFinanceiro,
       memberCanViewPatrimonio: widget.podeVerPatrimonio,
@@ -1388,7 +1418,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
               ChurchNotificationBell(
                 tenantId: _moduleTenantId,
                 cpf: widget.cpf,
-                role: widget.role,
+                role: _panelRole,
                 onNavigateToShellModule: _navigateToShellModuleFromDashboard,
               ),
               Flexible(
@@ -1724,7 +1754,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   horizontal: compact ? 6 : ThemeCleanPremium.spaceMd,
                   vertical: 10),
               children: [
-                for (final section in _menuSectionsForRole(widget.role)) ...[
+                for (final section in _menuSectionsForRole(_panelRole)) ...[
                   if (section.indices.any(_shouldListNavIndex)) ...[
                     if (!compact) _sidebarSectionLabel(section.title),
                     for (final i in section.indices)
@@ -1896,7 +1926,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   padding: const EdgeInsets.symmetric(
                       horizontal: ThemeCleanPremium.spaceSm, vertical: 10),
                   children: [
-                    for (final section in _menuSectionsForRole(widget.role)) ...[
+                    for (final section in _menuSectionsForRole(_panelRole)) ...[
                       if (section.indices.any(_shouldListNavIndex))
                         Padding(
                           padding: const EdgeInsets.only(right: 8),
@@ -2034,7 +2064,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return IgrejaDashboardModerno(
           key: _shellPageKey(0),
           tenantId: _moduleTenantId,
-          role: widget.role,
+          role: _panelRole,
           cpf: widget.cpf,
           podeVerFinanceiro: widget.podeVerFinanceiro,
           podeVerPatrimonio: widget.podeVerPatrimonio,
@@ -2048,13 +2078,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return IgrejaCadastroPage(
             key: _shellPageKey(1),
             tenantId: _moduleTenantId,
-            role: widget.role,
+            role: _panelRole,
             embeddedInShell: true);
       case 2:
         return ConfiguracoesPage(
           key: _shellPageKey(2),
           tenantId: _moduleTenantId,
-          role: widget.role,
+          role: _panelRole,
           permissions: widget.permissions,
           subscription: widget.subscription,
         );
@@ -2078,7 +2108,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return MembersPage(
           key: _shellPageKey(3),
           tenantId: _moduleTenantId,
-          role: widget.role,
+          role: _panelRole,
           subscription: widget.subscription,
           linkedCpf: widget.cpf.trim().isEmpty ? null : widget.cpf,
           permissions: widget.permissions,
@@ -2090,20 +2120,20 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return DepartmentsPage(
             key: _shellPageKey(4),
             tenantId: _moduleTenantId,
-            role: widget.role,
+            role: _panelRole,
             permissions: widget.permissions,
             embeddedInShell: true);
       case 5:
         return VisitorsPage(
             key: _shellPageKey(5),
             tenantId: _moduleTenantId,
-            role: widget.role,
+            role: _panelRole,
             embeddedInShell: true);
       case 6:
         return CargosPage(
             key: _shellPageKey(6),
             tenantId: _moduleTenantId,
-            role: widget.role,
+            role: _panelRole,
             embeddedInShell: true,
             onOpenPanelCorpoAdministrativo: () {
               setState(() => _selectedIndex = 0);
@@ -2123,7 +2153,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return MuralPage(
             key: _shellPageKey(7),
             tenantId: _moduleTenantId,
-            role: widget.role,
+            role: _panelRole,
             permissions: widget.permissions,
             embeddedInShell: true,
             initialOpenAvisoDocId: bootAviso);
@@ -2143,7 +2173,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return EventsManagerPage(
             key: _shellPageKey(8),
             tenantId: _moduleTenantId,
-            role: widget.role,
+            role: _panelRole,
             permissions: widget.permissions,
             embeddedInShell: true,
             initialFeedSearchQuery: bootEvent,
@@ -2152,13 +2182,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return PrayerRequestsPage(
             key: _shellPageKey(9),
             tenantId: _moduleTenantId,
-            role: widget.role,
+            role: _panelRole,
             embeddedInShell: true);
       case 10:
         return CalendarPage(
             key: _shellPageKey(10),
             tenantId: _moduleTenantId,
-            role: widget.role,
+            role: _panelRole,
             permissions: widget.permissions,
             embeddedInShell: true);
       case 11:
@@ -2166,25 +2196,25 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
             key: _shellPageKey(11),
             tenantId: _moduleTenantId,
             cpf: widget.cpf,
-            role: widget.role,
+            role: _panelRole,
             embeddedInShell: true);
       case 12:
         return SchedulesPage(
             key: _shellPageKey(12),
             tenantId: _moduleTenantId,
-            role: widget.role,
+            role: _panelRole,
             cpf: widget.cpf,
             embeddedInShell: true);
       case 13:
         return MemberCardPage(
           key: _shellPageKey(13),
           tenantId: _moduleTenantId,
-          role: widget.role,
+          role: _panelRole,
           cpf: widget.cpf,
           embeddedInShell: true,
           cnhFullscreenOnly:
-              AppPermissions.isRestrictedMember(widget.role),
-          onNavigateToMembers: AppPermissions.isRestrictedMember(widget.role)
+              AppPermissions.isRestrictedMember(_panelRole),
+          onNavigateToMembers: AppPermissions.isRestrictedMember(_panelRole)
               ? null
               : () => setState(
                     () => _selectedIndex = ChurchShellIndices.membros,
@@ -2194,12 +2224,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return CertificadosPage(
             key: _shellPageKey(14),
             tenantId: _moduleTenantId,
-            role: widget.role);
+            role: _panelRole);
       case 15:
         return ChurchLettersPage(
           key: _shellPageKey(15),
           tenantId: _moduleTenantId,
-          role: widget.role,
+          role: _panelRole,
           cpf: widget.cpf,
           permissions: widget.permissions,
           embeddedInShell: true,
@@ -2208,7 +2238,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return RelatoriosPage(
           key: _shellPageKey(16),
           tenantId: _moduleTenantId,
-          role: widget.role,
+          role: _panelRole,
           podeVerFinanceiro: widget.podeVerFinanceiro,
           podeVerPatrimonio: widget.podeVerPatrimonio,
           podeEmitirRelatoriosCompletos: widget.podeEmitirRelatoriosCompletos,
@@ -2222,7 +2252,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return AprovarMembrosPendentesPage(
           key: _shellPageKey(18),
           tenantId: _moduleTenantId,
-          gestorRole: widget.role,
+          gestorRole: _panelRole,
           permissions: widget.permissions,
           embeddedInShell: true,
         );
@@ -2230,7 +2260,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return FinancePage(
           key: _shellPageKey(19),
           tenantId: _moduleTenantId,
-          role: widget.role,
+          role: _panelRole,
           cpf: widget.cpf,
           podeVerFinanceiro: widget.podeVerFinanceiro,
           permissions: widget.permissions,
@@ -2252,7 +2282,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return PatrimonioPage(
           key: _shellPageKey(20),
           tenantId: _moduleTenantId,
-          role: widget.role,
+          role: _panelRole,
           podeVerPatrimonio: widget.podeVerPatrimonio,
           permissions: widget.permissions,
           initialSearchQuery: bootPat,
@@ -2263,7 +2293,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return FornecedoresPage(
           key: _shellPageKey(21),
           tenantId: _moduleTenantId,
-          role: widget.role,
+          role: _panelRole,
           podeVerFinanceiro: widget.podeVerFinanceiro,
           podeVerFornecedores: widget.podeVerFornecedores,
           permissions: widget.permissions,
@@ -2280,7 +2310,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return ChurchDonationsPage(
           key: _shellPageKey(22),
           tenantId: _moduleTenantId,
-          role: widget.role,
+          role: _panelRole,
           cpf: widget.cpf,
           embeddedInShell: true,
         );
@@ -2289,7 +2319,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           key: _shellPageKey(23),
           tenantId: _moduleTenantId,
           cpf: widget.cpf,
-          role: widget.role,
+          role: _panelRole,
           embeddedInShell: true,
           permissions: widget.permissions,
         );
@@ -2297,7 +2327,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         return IgrejaDashboardModerno(
             key: ValueKey('page_$index'),
             tenantId: _moduleTenantId,
-            role: widget.role,
+            role: _panelRole,
             cpf: widget.cpf,
             podeVerFinanceiro: widget.podeVerFinanceiro,
             podeVerPatrimonio: widget.podeVerPatrimonio,
@@ -2444,7 +2474,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                               context,
                               ThemeCleanPremium.fadeSlideRoute(IgrejaCadastroPage(
                                   tenantId: _moduleTenantId,
-                                  role: widget.role,
+                                  role: _panelRole,
                                   embeddedInShell: false)),
                             );
                           },
@@ -2496,6 +2526,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         builder: (context, tenantSnap) {
           if (tenantSnap.hasData && tenantSnap.data != null) {
             _lastGoodTenantDoc = tenantSnap.data;
+            _syncPanelRoleFromChurch(tenantSnap.data?.data());
           }
           final tenantDoc =
               tenantSnap.hasData ? tenantSnap.data : _lastGoodTenantDoc;

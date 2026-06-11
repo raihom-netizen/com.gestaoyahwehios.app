@@ -30,10 +30,19 @@ const Duration kMediaChatVideoMaxDuration = Duration(seconds: 90);
 /// Uploads de mídia no chat em paralelo (fotos/vídeos do lote).
 const int kChatMaxConcurrentMediaUploads = 4;
 
-/// Timeout máximo para uploads de imagem/comprovante (~200 KB–2 MB).
+/// Timeout para fotos **já compactadas** (≤ ~1 MB) — upload virtualmente imediato em 4G.
+const int kStorageUploadCompressedImageMaxSeconds = 15;
+
+/// Tamanho máximo (bytes) para aplicar timeout curto de 15 s.
+const int kStorageUploadCompressedImageMaxBytes = 1024 * 1024;
+
+/// Timeout máximo para uploads de imagem/comprovante (~2–3 MB, ainda não compactadas).
 const int kStorageUploadImageMaxSeconds = 30;
 
-/// Cancela upload se bytes não avançarem neste intervalo (imagens).
+/// Cancela upload se bytes não avançarem neste intervalo (imagens compactadas).
+const int kStorageUploadCompressedImageStallSeconds = 15;
+
+/// Cancela upload se bytes não avançarem neste intervalo (imagens maiores).
 const int kStorageUploadImageStallSeconds = 30;
 
 /// Património — até 5 fotos por bem (móvel, equipamento, veículo, etc.).
@@ -98,7 +107,7 @@ int get mediaFeedUploadMaxConcurrent {
 /// Lado máximo e qualidade padrão para fotos antes do Firebase Storage
 /// (avisos, eventos, chat, património, membros).
 const int kStandardUploadImageMaxEdge = 1024;
-const int kStandardUploadImageQuality = 70;
+const int kStandardUploadImageQuality = 80;
 
 int get mediaPickerImageQuality => kStandardUploadImageQuality;
 

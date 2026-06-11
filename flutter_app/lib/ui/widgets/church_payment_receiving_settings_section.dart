@@ -1,6 +1,5 @@
 import 'dart:async' show unawaited;
 
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
@@ -8,7 +7,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/mercado_pago_church_settings_section.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 
-/// Configurações — Mercado Pago (credenciais) + links InitPay/outros (simples).
+/// Configurações — Mercado Pago (PIX/cartão + credenciais).
 class ChurchPaymentReceivingSettingsSection extends StatefulWidget {
   final String tenantId;
   final bool showMercadoPagoCredentials;
@@ -26,14 +25,9 @@ class ChurchPaymentReceivingSettingsSection extends StatefulWidget {
 
 class _ChurchPaymentReceivingSettingsSectionState
     extends State<ChurchPaymentReceivingSettingsSection> {
-  final _initPayCheckoutCtrl = TextEditingController();
-  final _initPayPixCtrl = TextEditingController();
-  final _otherNameCtrl = TextEditingController();
-  final _otherUrlCtrl = TextEditingController();
   bool _loading = true;
   bool _saving = false;
   bool _mpEnabled = true;
-  bool _initPayEnabled = false;
   String? _operationalTenantId;
 
   String get _effectiveTenantId {
@@ -74,11 +68,6 @@ class _ChurchPaymentReceivingSettingsSectionState
           .timeout(const Duration(seconds: 16));
       if (!mounted) return;
       _mpEnabled = cfg.mercadoPagoEnabled;
-      _initPayEnabled = cfg.initPayEnabled;
-      _initPayCheckoutCtrl.text = cfg.initPayCheckoutUrl;
-      _initPayPixCtrl.text = cfg.initPayPixLink;
-      _otherNameCtrl.text = cfg.otherProviderName;
-      _otherUrlCtrl.text = cfg.otherCheckoutUrl;
     } catch (e) {
       AgentDebugLog.log(
         location: 'church_payment_receiving_settings_section.dart:load_err',
@@ -105,32 +94,16 @@ class _ChurchPaymentReceivingSettingsSectionState
     }
   }
 
-  @override
-  void dispose() {
-    _initPayCheckoutCtrl.dispose();
-    _initPayPixCtrl.dispose();
-    _otherNameCtrl.dispose();
-    _otherUrlCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _salvarLinks() async {
+  Future<void> _salvar() async {
     setState(() => _saving = true);
     try {
       await ChurchPaymentReceivingService.save(
         _effectiveTenantId,
-        ChurchPaymentReceivingConfig(
-          mercadoPagoEnabled: _mpEnabled,
-          initPayEnabled: _initPayEnabled,
-          initPayCheckoutUrl: _initPayCheckoutCtrl.text,
-          initPayPixLink: _initPayPixCtrl.text,
-          otherCheckoutUrl: _otherUrlCtrl.text,
-          otherProviderName: _otherNameCtrl.text,
-        ),
+        ChurchPaymentReceivingConfig(mercadoPagoEnabled: _mpEnabled),
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Formas de recebimento salvas.')),
+          const SnackBar(content: Text('Mercado Pago salvo.')),
         );
       }
     } catch (e) {
@@ -157,15 +130,15 @@ class _ChurchPaymentReceivingSettingsSectionState
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const _SectionTitle(
-          icon: Icons.link_rounded,
-          title: 'Links de recebimento',
+          icon: Icons.payments_rounded,
+          title: 'Recebimentos',
         ),
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
-            'Configure como a igreja recebe dízimos e ofertas. '
-            'Android e web: PIX e cartão no módulo Doação (cartão abre no Chrome). '
-            'iPhone: apenas link para o site da igreja (App Store).',
+            'Dízimos e ofertas via Mercado Pago. '
+            'Android e web: PIX e cartão no módulo Doação. '
+            'iPhone: site da igreja (App Store).',
             style: TextStyle(
               fontSize: 12.5,
               color: Colors.grey.shade700,
@@ -184,67 +157,15 @@ class _ChurchPaymentReceivingSettingsSectionState
                   style: TextStyle(fontWeight: FontWeight.w700),
                 ),
                 subtitle: const Text(
-                  'Android/web: módulo Doação. iPhone: site da igreja.',
+                  'Única forma de recebimento integrada ao app.',
                   style: TextStyle(fontSize: 12),
                 ),
                 value: _mpEnabled,
                 onChanged: (v) => setState(() => _mpEnabled = v),
               ),
-              const Divider(height: 20),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text(
-                  'InitPay (link externo)',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                subtitle: const Text(
-                  'Cole o link de checkout ou PIX do InitPay — usado na web e no iPhone.',
-                  style: TextStyle(fontSize: 12),
-                ),
-                value: _initPayEnabled,
-                onChanged: (v) => setState(() => _initPayEnabled = v),
-              ),
-              if (_initPayEnabled) ...[
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _initPayCheckoutCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Link InitPay (checkout)',
-                    hintText: 'https://…',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.url,
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _initPayPixCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Link ou código PIX InitPay (opcional)',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-              const Divider(height: 20),
-              TextField(
-                controller: _otherNameCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Outro meio (nome)',
-                  hintText: 'Ex.: Infinity Pay, banco, link pastoral',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _otherUrlCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Link de pagamento (opcional)',
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.url,
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               FilledButton.icon(
-                onPressed: _saving ? null : _salvarLinks,
+                onPressed: _saving ? null : _salvar,
                 icon: _saving
                     ? const SizedBox(
                         width: 18,
@@ -255,7 +176,7 @@ class _ChurchPaymentReceivingSettingsSectionState
                         ),
                       )
                     : const Icon(Icons.save_rounded),
-                label: Text(_saving ? 'Salvando…' : 'Salvar links'),
+                label: Text(_saving ? 'Salvando…' : 'Salvar'),
                 style: FilledButton.styleFrom(
                   backgroundColor: ThemeCleanPremium.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14),

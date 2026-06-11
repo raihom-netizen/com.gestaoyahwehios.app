@@ -83,7 +83,7 @@ abstract final class MembroPublishVerificationService {
     try {
       await ChurchStorageMetadataVerify.assertExists(fullStoragePath);
       final thumb = thumbStoragePath?.trim() ?? '';
-      if (thumb.isNotEmpty) {
+      if (thumb.isNotEmpty && thumb != fullStoragePath.trim()) {
         await ChurchStorageMetadataVerify.assertExists(thumb);
       }
     } catch (e) {

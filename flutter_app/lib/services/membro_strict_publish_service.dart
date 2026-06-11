@@ -43,11 +43,21 @@ abstract final class MembroStrictPublishService {
       YahwehFlowLog.error('MEMBROS', e, st);
     }
 
+    final authUid = (memberData['authUid'] ??
+            memberData['firebaseUid'] ??
+            memberData['uid'] ??
+            '')
+        .toString()
+        .trim();
+    final storageFolderId = FirebaseStorageService.memberProfileStorageFolderId(
+      memberDocId,
+      authUid.isEmpty ? null : authUid,
+    );
+
     final tiers = await MemberProfileVariantsService.encodeProfileTiers(rawBytes);
     final uploaded = await MemberProfileVariantsService.uploadProfileVariants(
       tenantId: igrejaId,
-      memberDocId: memberDocId,
-      thumbBytes: tiers.thumb,
+      storageFolderId: storageFolderId,
       fullBytes: tiers.full,
       requireAuth: requireAuth,
     );

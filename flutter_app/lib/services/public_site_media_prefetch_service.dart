@@ -22,23 +22,23 @@ abstract final class PublicSiteMediaPrefetchService {
     if (tid.isEmpty) return null;
     try {
       final op = await ChurchOperationalPaths.resolveCached(tid);
+      final feedSnap = await ChurchOperationalPaths.churchDoc(op)
+          .collection('_performance_cache')
+          .doc('public_feed')
+          .get(const GetOptions(source: Source.serverAndCache));
+      if (feedSnap.exists && feedSnap.data() != null) {
+        return feedSnap.data();
+      }
+    } catch (_) {}
+    try {
+      final op = await ChurchOperationalPaths.resolveCached(tid);
       final panelSnap =
           await PanelPublicSiteSnapshotService.readOnce(op);
       if (panelSnap.hasData) {
         return panelSnap.toLegacyPublicFeedMap();
       }
     } catch (_) {}
-    try {
-      final op = await ChurchOperationalPaths.resolveCached(tid);
-      final snap = await ChurchOperationalPaths.churchDoc(op)
-          .collection('_performance_cache')
-          .doc('public_feed')
-          .get();
-      if (!snap.exists) return null;
-      return snap.data();
-    } catch (_) {
-      return null;
-    }
+    return null;
   }
 
   static bool _isStale(Timestamp? updatedAt) {

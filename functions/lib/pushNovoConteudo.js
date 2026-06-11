@@ -111,14 +111,24 @@ async function sendNovoAvisoMuralPush(tenantId, postId, d) {
         postId,
     });
 }
+function isPublishedFeedDoc(d) {
+    const state = String(d.publishState || "").trim().toLowerCase();
+    if (state === "uploading" || state === "draft")
+        return false;
+    if (state === "published" || state === "success")
+        return true;
+    if (d.publicado === true)
+        return true;
+    const status = String(d.status || "").trim().toLowerCase();
+    return status === "publicado";
+}
 exports.onNovoAvisoMuralPush = functions
     .region("us-central1")
     .firestore.document("igrejas/{tenantId}/avisos/{id}")
     .onCreate(async (snap, context) => {
     const tenantId = context.params.tenantId;
     const d = snap.data() || {};
-    const publishState = String(d.publishState || "").trim();
-    if (publishState === "uploading" || publishState === "draft")
+    if (!isPublishedFeedDoc(d))
         return null;
     try {
         await sendNovoAvisoMuralPush(tenantId, context.params.id, d);
@@ -134,13 +144,9 @@ exports.onNovoAvisoMuralPublishedPush = functions
     .onUpdate(async (change, context) => {
     const before = change.before.data() || {};
     const after = change.after.data() || {};
-    const beforeState = String(before.publishState || "").trim();
-    const afterState = String(after.publishState || "").trim();
-    if (beforeState === afterState)
+    if (isPublishedFeedDoc(before))
         return null;
-    if (afterState !== "published")
-        return null;
-    if (beforeState !== "uploading" && beforeState !== "draft")
+    if (!isPublishedFeedDoc(after))
         return null;
     const tenantId = context.params.tenantId;
     try {
@@ -188,8 +194,7 @@ exports.onNovoEventoNoticiaPush = functions
     const d = snap.data() || {};
     if (!isEventoDoc(d))
         return null;
-    const publishState = String(d.publishState || "").trim();
-    if (publishState === "uploading" || publishState === "draft")
+    if (!isPublishedFeedDoc(d))
         return null;
     const tenantId = context.params.tenantId;
     try {
@@ -208,13 +213,9 @@ exports.onNovoEventoNoticiaPublishedPush = functions
     const after = change.after.data() || {};
     if (!isEventoDoc(after))
         return null;
-    const beforeState = String(before.publishState || "").trim();
-    const afterState = String(after.publishState || "").trim();
-    if (beforeState === afterState)
+    if (isPublishedFeedDoc(before))
         return null;
-    if (afterState !== "published")
-        return null;
-    if (beforeState !== "uploading" && beforeState !== "draft")
+    if (!isPublishedFeedDoc(after))
         return null;
     const tenantId = context.params.tenantId;
     try {

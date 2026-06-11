@@ -50,8 +50,10 @@ class FirestoreReadResilience {
     DocumentReference<Map<String, dynamic>> ref, {
     required String cacheKey,
     int maxAttempts = 3,
-    Duration attemptTimeout = const Duration(seconds: 16),
+    Duration? attemptTimeout,
   }) async {
+    final perAttempt = attemptTimeout ??
+        (kIsWeb ? const Duration(seconds: 12) : const Duration(seconds: 16));
     final key = cacheKey.trim();
     DocumentSnapshot<Map<String, dynamic>>? localSnap;
     try {
@@ -84,7 +86,7 @@ class FirestoreReadResilience {
         }
         final snap = await ref
             .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(attemptTimeout);
+            .timeout(perAttempt);
         if (key.isNotEmpty) _lastDocByKey[key] = snap;
         return snap;
       } catch (e) {
@@ -106,8 +108,10 @@ class FirestoreReadResilience {
     Query<Map<String, dynamic>> query, {
     required String cacheKey,
     int maxAttempts = kIsWeb ? 3 : 5,
-    Duration attemptTimeout = const Duration(seconds: 22),
+    Duration? attemptTimeout,
   }) async {
+    final perAttempt = attemptTimeout ??
+        (kIsWeb ? const Duration(seconds: 12) : const Duration(seconds: 18));
     final key = cacheKey.trim();
     QuerySnapshot<Map<String, dynamic>>? localSnap;
     try {
@@ -140,7 +144,7 @@ class FirestoreReadResilience {
         }
         final snap = await query
             .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(attemptTimeout);
+            .timeout(perAttempt);
         if (key.isNotEmpty) _lastGoodByKey[key] = snap;
         return snap;
       } catch (e) {

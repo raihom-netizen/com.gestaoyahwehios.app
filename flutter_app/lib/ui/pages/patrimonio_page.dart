@@ -2454,9 +2454,10 @@ class _BensTabState extends State<_BensTab> {
     }
     final snap = await FirestoreWebGuard.runWithWebRecovery(
       () => ChurchTenantResilientReads.patrimonio(
-        tid,
+        tid.trim(),
         limit: _pageSize,
       ),
+      maxAttempts: 4,
     );
     final docs =
         snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
@@ -2509,19 +2510,14 @@ class _BensTabState extends State<_BensTab> {
     }
   }
 
-  /// Cache Hive/rede — primeira pintura rápida; refresh em background.
   Future<QuerySnapshot<Map<String, dynamic>>> _loadBensFirstPaint() async {
-    try {
-      final snap = await _loadPatrimonioResilient()
-          .timeout(const Duration(seconds: 12));
-      if (snap.docs.isNotEmpty) {
-        _PatrimonioRamCache.store(_tenantId, snap);
-        unawaited(_refreshBensFromServer());
-      }
-      return snap;
-    } catch (_) {
-      return const MergedFirestoreQuerySnapshot([]);
+    final snap = await _loadPatrimonioResilient()
+        .timeout(const Duration(seconds: 14));
+    if (snap.docs.isNotEmpty) {
+      _PatrimonioRamCache.store(_tenantId, snap);
+      unawaited(_refreshBensFromServer());
     }
+    return snap;
   }
 
   Future<void> _refreshBensFromServer() async {
@@ -4661,20 +4657,19 @@ class _DashboardTabState extends State<_DashboardTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() =>
-      ChurchTenantResilientReads.patrimonioAll(widget.tenantId);
+      FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchTenantResilientReads.patrimonioAll(widget.tenantId.trim()),
+        maxAttempts: 4,
+      );
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadDashboardFirstPaint() async {
-    try {
-      final snap = await _loadPatrimonioAllResilient()
-          .timeout(const Duration(seconds: 12));
-      if (snap.docs.isNotEmpty) {
-        _PatrimonioRamCache.store(widget.tenantId, snap);
-        unawaited(_refreshDashboardInBackground());
-      }
-      return snap;
-    } catch (_) {
-      return const MergedFirestoreQuerySnapshot([]);
+    final snap = await _loadPatrimonioAllResilient()
+        .timeout(const Duration(seconds: 14));
+    if (snap.docs.isNotEmpty) {
+      _PatrimonioRamCache.store(widget.tenantId.trim(), snap);
+      unawaited(_refreshDashboardInBackground());
     }
+    return snap;
   }
 
   Future<void> _refreshDashboardInBackground() async {
@@ -5554,21 +5549,20 @@ class _InventarioTabState extends State<_InventarioTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() =>
-      ChurchTenantResilientReads.patrimonioAll(widget.tenantId);
+      FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchTenantResilientReads.patrimonioAll(widget.tenantId.trim()),
+        maxAttempts: 4,
+      );
 
   Future<QuerySnapshot<Map<String, dynamic>>>
       _loadInventarioFirstPaint() async {
-    try {
-      final snap = await _loadPatrimonioAllResilient()
-          .timeout(const Duration(seconds: 12));
-      if (snap.docs.isNotEmpty) {
-        _PatrimonioRamCache.store(widget.tenantId, snap);
-        unawaited(_refreshInventarioInBackground());
-      }
-      return snap;
-    } catch (_) {
-      return const MergedFirestoreQuerySnapshot([]);
+    final snap = await _loadPatrimonioAllResilient()
+        .timeout(const Duration(seconds: 14));
+    if (snap.docs.isNotEmpty) {
+      _PatrimonioRamCache.store(widget.tenantId.trim(), snap);
+      unawaited(_refreshInventarioInBackground());
     }
+    return snap;
   }
 
   Future<void> _refreshInventarioInBackground() async {
@@ -7337,6 +7331,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         itemDocId: _itemRef.id,
         slotIndex: slot,
         rawBytes: bytes,
+        itemRef: _itemRef,
+        existingUrls: List<String>.from(_existingUrls),
+        existingPaths: _existingStoragePaths(),
       );
       if (!mounted) return;
       if (url != null && url.isNotEmpty) {
@@ -7376,12 +7373,67 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
   /// Alinha [fotoStoragePaths] por índice às fotos existentes (preview no formulário).
   String? _pathForExistingPreview(int idx) {
+    final paths = _existingStoragePaths();
+    if (idx >= paths.length) return null;
+    final t = paths[idx].trim();
+    return t.isNotEmpty ? t : null;
+  }
+
+  List<String> _existingStoragePaths() {
     final data = widget.doc?.data();
-    if (data == null) return null;
-    final raw = data['fotoStoragePaths'];
-    if (raw is! List || idx >= raw.length) return null;
-    final t = raw[idx]?.toString().trim();
-    return t != null && t.isNotEmpty ? t : null;
+    final out = <String>[];
+    if (data != null) {
+      final raw = data['fotoStoragePaths'];
+      if (raw is List) {
+        for (final e in raw) {
+          final t = e?.toString().trim() ?? '';
+          if (t.isNotEmpty) out.add(t);
+        }
+      }
+    }
+    final tenantId = widget.col.parent?.id ?? '';
+    final itemId = _itemRef.id;
+    for (var i = out.length; i < _existingUrls.length; i++) {
+      out.add(ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemId, i));
+    }
+    return out;
+  }
+
+  void _removeExistingPhotoAt(int idx) {
+    if (idx < 0 || idx >= _existingUrls.length) return;
+    final tenantId = widget.col.parent?.id ?? '';
+    if (tenantId.isNotEmpty) {
+      unawaited(
+        FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
+          tenantId: tenantId,
+          itemDocId: _itemRef.id,
+          slot: idx,
+        ),
+      );
+    }
+    setState(() => _existingUrls.removeAt(idx));
+  }
+
+  Future<void> _cleanupUnusedPatrimonioSlots(
+    String tenantId,
+    String itemDocId,
+    List<String> activePaths,
+  ) async {
+    final pathSet = activePaths
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    await Future.wait([
+      for (var s = 0; s < _maxFotosPorItem; s++)
+        if (!pathSet.contains(
+          ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemDocId, s),
+        ))
+          FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
+            tenantId: tenantId,
+            itemDocId: itemDocId,
+            slot: s,
+          ),
+    ]);
   }
 
   void _showLimiteFotosSnack() {
@@ -7660,6 +7712,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           newImages: imagesCopy,
           startSlot: startSlot,
           existingPaths: List<String>.from(allPaths),
+          existingUrls: List<String>.from(allUrls),
         );
         _itemStubEnsured = true;
         if (!mounted) return;
@@ -7700,7 +7753,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         }
       }
 
-      final occupiedSlots = allUrls.length;
 
       if (mounted) setState(() => _uploadProgress = 0.85);
       await PatrimonioStrictPublishService.publishMetadataOnly(
@@ -7709,6 +7761,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         corePayload: buildCorePayload(),
         isNewDoc: isNewItem,
         existingPaths: allPaths,
+        existingUrls: allUrls,
       );
       _itemStubEnsured = true;
       YahwehFlowLog.patrimonioFirestoreOk();
@@ -7716,18 +7769,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         tenantId: tenantId,
         itemDocId: itemId,
       );
-      unawaited(() async {
-        try {
-          await Future.wait([
-            for (var s = occupiedSlots; s < _maxFotosPorItem; s++)
-              FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-                tenantId: tenantId,
-                itemDocId: itemId,
-                slot: s,
-              ),
-          ]);
-        } catch (_) {}
-      }());
+      unawaited(_cleanupUnusedPatrimonioSlots(tenantId, itemId, allPaths));
       if (!mounted) return;
       YahwehFlowLog.patrimonioSuccess();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -7880,7 +7922,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           ),
           title: 'Foto ${i + 1}',
           subtitle: 'image/jpeg · inventário',
-          onRemove: () => setState(() => _existingUrls.removeAt(idx)),
+          onRemove: () => _removeExistingPhotoAt(idx),
         ),
       );
     }

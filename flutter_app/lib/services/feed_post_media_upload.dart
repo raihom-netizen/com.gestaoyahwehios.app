@@ -6,7 +6,9 @@ import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
+import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/services/transactional_media_publish_pipeline.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
@@ -99,7 +101,7 @@ abstract final class FeedPostMediaUpload {
     }
   }
 
-  /// WebP/JPEG preparado → `putData` directo (sem fila offline nem segunda compressão).
+  /// WebP/JPEG preparado → compactação (se bruto) → `putData` directo.
   static Future<String> uploadFeedPhotoBytes({
     required String storagePath,
     required Uint8List bytes,
@@ -107,7 +109,18 @@ abstract final class FeedPostMediaUpload {
     bool requireAuth = true,
   }) async {
     final webp = bytesLookLikeWebp(bytes);
-    final prepared = webp ? await prepareFeedWebpBytes(bytes) : bytes;
+    Uint8List prepared;
+    if (webp) {
+      prepared = await prepareFeedWebpBytes(bytes);
+    } else if (bytes.length >= kAutoCompressImageThresholdBytes) {
+      prepared = await TransactionalMediaPublishPipeline.compressForUpload(
+        rawBytes: bytes,
+        profile: MediaImageProfile.feed,
+        onProgress: onProgress,
+      );
+    } else {
+      prepared = bytes;
+    }
     if (prepared.isEmpty) {
       throw StateError('Falha ao preparar imagem para envio.');
     }
@@ -119,10 +132,11 @@ abstract final class FeedPostMediaUpload {
         FirebaseBootstrapService.refreshCachedApp();
       }
     }
+    final preparedWebp = bytesLookLikeWebp(prepared);
     final url = await YahwehMediaUploadPipeline.uploadPreparedBytes(
       storagePath: storagePath,
       bytes: prepared,
-      contentType: webp ? 'image/webp' : 'image/jpeg',
+      contentType: preparedWebp ? 'image/webp' : 'image/jpeg',
       maxAttempts: 3,
       onProgress: onProgress,
       requireAuth: requireAuth,
@@ -141,10 +155,11 @@ abstract final class FeedPostMediaUpload {
       onProgress: onProgress,
     );
     final webp = bytesLookLikeWebp(bytes);
+    final preparedHint = webp || bytes.length >= kAutoCompressImageThresholdBytes;
     return MediaUploadResult(
       downloadUrl: url,
       storagePath: storagePath,
-      contentType: webp ? 'image/webp' : 'image/jpeg',
+      contentType: preparedHint ? 'image/webp' : 'image/jpeg',
     );
   }
 }

@@ -33,21 +33,14 @@ abstract final class ChurchTenantResilientReads {
   static DocumentReference<Map<String, dynamic>> _church(String tenantId) =>
       ChurchRepository.churchDoc(tenantId);
 
-  /// Doc canónico em `igrejas/{churchId}` — leitura directa do painel (sem redireccionar para doc irmão sem permissão).
+  /// Doc canónico em `igrejas/{churchId}` — ID directo (sem resolver/alias no painel).
   static Future<String> _readTenantId(String tenantId, {String? userUid}) async {
     final bound = ChurchContext.currentChurchId?.trim() ?? '';
     if (bound.isNotEmpty) return bound;
-    final seed = ChurchContextService.panelChurchId(tenantId);
-    final hint = seed.isNotEmpty ? seed : tenantId.trim();
+    final hint = tenantId.trim();
     if (hint.isEmpty) return '';
-    try {
-      return await TenantResolverService.resolveModuleReadTenantId(
-        hint,
-        userUid: userUid,
-      ).timeout(const Duration(seconds: 6), onTimeout: () => hint);
-    } catch (_) {
-      return hint;
-    }
+    final panel = ChurchContextService.panelChurchId(hint);
+    return panel.isNotEmpty ? panel : hint;
   }
 
   /// Regra 8 — permission-denied / rede: re-resolve tenant e refaz leitura.
@@ -387,7 +380,7 @@ abstract final class ChurchTenantResilientReads {
         ),
       );
 
-  /// Leitura directa `igrejas/{churchId}/…` — SaaS isolado (sem docs irmãos).
+  /// Leitura directa `igrejas/{churchId}/…` — **sem** fallback para docs irmãos.
   static Future<QuerySnapshot<Map<String, dynamic>>> _queryWithSiblingFallback(
     String tenantId,
     Future<QuerySnapshot<Map<String, dynamic>>> Function(String tid) loadFor, {
@@ -400,37 +393,9 @@ abstract final class ChurchTenantResilientReads {
     if (!tenantAlreadyResolved) {
       primary = await _readTenantId(primary, userUid: userUid);
     }
+    if (primary.isEmpty) return const MergedFirestoreQuerySnapshot([]);
 
-    QuerySnapshot<Map<String, dynamic>>? primarySnap;
-    try {
-      primarySnap = await loadFor(primary);
-      if (primarySnap.docs.isNotEmpty) return primarySnap;
-    } catch (_) {}
-
-    final siblings = TenantResolverService.orderedSiblingsForReadFallback(
-      primary,
-      await TenantResolverService.getAllRelatedIgrejaDocIds(primary),
-    );
-    for (final sid in siblings) {
-      try {
-        final snap = await loadFor(sid);
-        if (snap.docs.isNotEmpty) {
-          TenantResolverService.rememberModuleReadTenantId(
-            tenantId,
-            sid,
-            userUid: userUid,
-          );
-          return snap;
-        }
-      } catch (_) {}
-    }
-
-    if (primarySnap != null) return primarySnap;
-    try {
-      return await loadFor(primary);
-    } catch (_) {
-      return const MergedFirestoreQuerySnapshot([]);
-    }
+    return loadFor(primary);
   }
 
   static Future<QuerySnapshot<Map<String, dynamic>>> pedidosOracao(

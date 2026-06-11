@@ -31,11 +31,19 @@ class AppRoles {
 
   /// Funções que têm acesso total (painel completo)
   static bool isFullAccess(String role) {
+    final n = ChurchRolePermissions.normalize(role);
+    if (const {
+      ChurchRoleKeys.adm,
+      ChurchRoleKeys.gestor,
+      ChurchRoleKeys.master,
+      ChurchRoleKeys.pastorPresidente,
+      ChurchRoleKeys.pastor,
+      ChurchRoleKeys.secretario,
+    }.contains(n)) {
+      return true;
+    }
     final r = role.toLowerCase();
-    return _isAdmLike(r) ||
-        r == gestor ||
-        r == master ||
-        r == 'pastor_presidente';
+    return _isAdmLike(r);
   }
 
   /// Alinhado a [ChurchRolePermissions.isFinanceCoreTeam] (admin, gestor, pastor, tesoureiro).
@@ -375,7 +383,7 @@ class AppPermissions {
     return adminLike || gestorLike;
   }
 
-  /// Links de recebimento (Mercado Pago + InitPay/outros) — gestor, pastor, tesoureiro.
+  /// Links de recebimento (Mercado Pago) — gestor, pastor, tesoureiro.
   static bool canManageChurchPaymentReceiving(
     String role, {
     List<String>? permissions,

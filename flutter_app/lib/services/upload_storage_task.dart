@@ -47,8 +47,11 @@ bool isRetryableUploadError(Object error) {
 }
 
 Duration uploadMaxDurationForPayloadBytes(int bytes) {
+  if (bytes <= kStorageUploadCompressedImageMaxBytes) {
+    return Duration(seconds: kStorageUploadCompressedImageMaxSeconds);
+  }
   if (bytes <= 3 * 1024 * 1024) {
-    return const Duration(seconds: kStorageUploadImageMaxSeconds);
+    return Duration(seconds: kStorageUploadImageMaxSeconds);
   }
   final mb = bytes <= 0 ? 1 : (bytes / (1024 * 1024)).ceil();
   final minutes = (5 + mb * 2).clamp(5, 20);
@@ -63,9 +66,11 @@ Future<TaskSnapshot> awaitStorageUploadTask(
   Duration stallAfter = const Duration(seconds: 90),
 }) async {
   final maxDuration = uploadMaxDurationForPayloadBytes(payloadBytes);
-  final effectiveStall = payloadBytes <= 3 * 1024 * 1024
-      ? const Duration(seconds: kStorageUploadImageStallSeconds)
-      : stallAfter;
+  final effectiveStall = payloadBytes <= kStorageUploadCompressedImageMaxBytes
+      ? Duration(seconds: kStorageUploadCompressedImageStallSeconds)
+      : payloadBytes <= 3 * 1024 * 1024
+          ? Duration(seconds: kStorageUploadImageStallSeconds)
+          : stallAfter;
   final completer = Completer<TaskSnapshot>();
   StreamSubscription<TaskSnapshot>? sub;
   Timer? stallTimer;

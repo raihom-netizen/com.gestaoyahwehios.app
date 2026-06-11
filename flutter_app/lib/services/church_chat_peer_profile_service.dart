@@ -4,8 +4,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show isValidImageUrl, sanitizeImageUrl;
+    show imageUrlFromMap, isValidImageUrl, sanitizeImageUrl;
 
 /// Perfis denormalizados para avatares no Chat Igreja (`chat_peer_profiles/{authUid}`).
 class ChurchChatPeerProfileService {
@@ -34,18 +35,34 @@ class ChurchChatPeerProfileService {
     if (authUid.isEmpty) return null;
     final memberId = (d['memberDocId'] ?? '').toString().trim();
     if (memberId.isEmpty) return null;
-    var url = sanitizeImageUrl((d['photoUrl'] ?? '').toString());
-    if (!isValidImageUrl(url)) {
-      url = '';
-    }
     final rev = d['fotoUrlCacheRevision'];
     final memberData = <String, dynamic>{
       'authUid': authUid,
       'firebaseUid': authUid,
-      if (url.isNotEmpty) 'fotoUrl': url,
       'NOME_COMPLETO': (d['displayName'] ?? '').toString(),
       if (rev != null) 'fotoUrlCacheRevision': rev,
     };
+    for (final key in const [
+      'photoStoragePath',
+      'photoThumbStoragePath',
+      'fotoPath',
+      'fotoThumbPath',
+      'photoUrl',
+      'fotoUrl',
+    ]) {
+      final v = d[key];
+      if (v != null && v.toString().trim().isNotEmpty) {
+        memberData[key] = v;
+      }
+    }
+    var url = sanitizeImageUrl((d['photoUrl'] ?? d['fotoUrl'] ?? '').toString());
+    if (!isValidImageUrl(url)) {
+      url = sanitizeImageUrl(
+        MemberProfileVariantsService.listPhotoUrl(memberData) ??
+            imageUrlFromMap(memberData),
+      );
+    }
+    if (!isValidImageUrl(url)) url = '';
     return ChurchChatMemberRef(
       memberId: memberId,
       data: memberData,

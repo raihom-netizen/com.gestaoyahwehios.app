@@ -2,6 +2,7 @@ import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import { refreshPublicFeedCacheForTenant } from "./churchPerformancePack";
 import { recomputePublicSiteMediaPrefetch } from "./publicSiteMediaPrefetch";
+import { syncPublicChurchSlugIndexForChurch } from "./publicChurchSlugIndex";
 
 function pickString(data: Record<string, unknown>, keys: string[]): string {
   for (const k of keys) {
@@ -63,6 +64,12 @@ export async function mirrorPublicSitePanelCache(tenantId: string): Promise<void
   await churchRef.collection("_panel_cache").doc("public_site").set(payload, {
     merge: false,
   });
+
+  try {
+    await syncPublicChurchSlugIndexForChurch(tid, church);
+  } catch (e) {
+    functions.logger.warn("mirrorPublicSitePanelCache: slug index", { tenantId: tid, e });
+  }
 }
 
 /** Atualiza feed público + mídia + espelho `_panel_cache/public_site`. */

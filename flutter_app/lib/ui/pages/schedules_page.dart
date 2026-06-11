@@ -3607,8 +3607,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         barTouchData: BarTouchData(
                           enabled: true,
                           touchTooltipData: BarTouchTooltipData(
-                            tooltipBgColor: Colors.white,
-                            tooltipRoundedRadius: 12,
+                            getTooltipColor: (_) => Colors.white,
+                            tooltipBorderRadius: BorderRadius.circular(12),
                             tooltipPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             tooltipMargin: 8,
                             getTooltipItem: (group, groupIndex, rod, rodIndex) {

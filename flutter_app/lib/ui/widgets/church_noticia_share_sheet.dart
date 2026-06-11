@@ -4,11 +4,15 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:gestao_yahweh/core/noticia_share_utils.dart'
+    show
+        fetchNoticiaShareMediaBundle,
+        noticiaGalleryRefsForShare,
+        resolveNoticiaShareSheetMedia;
+import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
-
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -20,8 +24,6 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show eventNoticiaPhotoStoragePathAt, looksLikeHostedVideoFileUrl;
-import 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show noticiaGalleryRefsForShare, resolveNoticiaShareSheetMedia;
 import 'package:gestao_yahweh/ui/widgets/noticia_photo_gallery_page.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
@@ -140,6 +142,44 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
   Rect? sharePositionOrigin,
   Map<String, dynamic>? noticiaDataForLazyMedia,
 }) async {
+  if (noticiaDataForLazyMedia != null && !kIsWeb) {
+    if (rootContext.mounted) {
+      showDialog<void>(
+        context: rootContext,
+        barrierDismissible: false,
+        builder: (c) => Center(
+          child: Card(
+            elevation: 8,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            ),
+            child: const Padding(
+              padding: EdgeInsets.all(28),
+              child: CircularProgressIndicator(),
+            ),
+          ),
+        ),
+      );
+    }
+    try {
+      final media = await fetchNoticiaShareMediaBundle(noticiaDataForLazyMedia);
+      if (media.isNotEmpty) {
+        await YahwehShareService.shareMediaBundle(
+          files: media,
+          message: shareMessage,
+          subject: shareSubject,
+          sharePositionOrigin: sharePositionOrigin,
+        );
+        return;
+      }
+    } catch (_) {
+    } finally {
+      if (rootContext.mounted) {
+        Navigator.of(rootContext, rootNavigator: true).pop();
+      }
+    }
+  }
+
   var img = previewImageUrl;
   var vid = videoPlayUrl;
   if (noticiaDataForLazyMedia != null &&
@@ -256,13 +296,23 @@ Future<void> showChurchNoticiaShareSheet(
                   child: InkWell(
                     onTap: () {
                       Navigator.pop(ctx);
-                      unawaited(
-                        noticiaOpenWhatsAppWithText(shareMessage).then((ok) {
+                      unawaited(() async {
+                        if (noticiaDataForLazyMedia != null && !kIsWeb) {
+                          final ok = await YahwehWhatsAppService.sendNoticiaWithMedia(
+                            message: shareMessage,
+                            postData: noticiaDataForLazyMedia,
+                            sharePositionOrigin: sharePositionOrigin,
+                          );
                           if (!ok && rootContext.mounted) {
                             YahwehWhatsAppService.showOpenFailedSnack(rootContext);
                           }
-                        }),
-                      );
+                          return;
+                        }
+                        final ok = await noticiaOpenWhatsAppWithText(shareMessage);
+                        if (!ok && rootContext.mounted) {
+                          YahwehWhatsAppService.showOpenFailedSnack(rootContext);
+                        }
+                      }());
                     },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
@@ -286,7 +336,7 @@ Future<void> showChurchNoticiaShareSheet(
                                   ),
                                 ),
                                 Text(
-                                  '1 toque — texto e link do convite',
+                                  'Texto completo + fotos e vídeos',
                                   style: TextStyle(
                                     color: Colors.white.withValues(alpha: 0.9),
                                     fontSize: 12,

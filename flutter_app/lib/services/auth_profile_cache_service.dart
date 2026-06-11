@@ -7,6 +7,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Persiste o perfil resolvido do [AuthGate] para abrir o painel **sem rede**
 /// (Android/iOS) com o mesmo utilizador já autenticado localmente.
+typedef AuthProfileCacheListener = void Function(
+  String uid,
+  Map<String, dynamic> profile,
+);
+
 class AuthProfileCacheService {
   AuthProfileCacheService._();
   static final AuthProfileCacheService instance = AuthProfileCacheService._();
@@ -14,6 +19,25 @@ class AuthProfileCacheService {
   static const _keyPrefix = 'auth_gate_profile_json_v1_';
 
   final Map<String, Map<String, dynamic>> _memory = {};
+  final List<AuthProfileCacheListener> _listeners = [];
+
+  void addListener(AuthProfileCacheListener listener) {
+    _listeners.add(listener);
+  }
+
+  void removeListener(AuthProfileCacheListener listener) {
+    _listeners.remove(listener);
+  }
+
+  void _notifyListeners(String uid, Map<String, dynamic> profile) {
+    if (_listeners.isEmpty) return;
+    final copy = Map<String, dynamic>.from(profile);
+    for (final l in List<AuthProfileCacheListener>.from(_listeners)) {
+      try {
+        l(uid, copy);
+      } catch (_) {}
+    }
+  }
 
   /// Pré-carrega perfil em RAM antes do AuthGate (web: evita spinner sem rede).
   static Future<void> warmUpForStartup() async {
@@ -47,6 +71,7 @@ class AuthProfileCacheService {
     final u = uid.trim();
     if (u.isEmpty) return;
     _memory[u] = Map<String, dynamic>.from(profile);
+    _notifyListeners(u, profile);
     try {
       final enc = firestoreToJsonSafe(profile);
       final prefs = await SharedPreferences.getInstance();

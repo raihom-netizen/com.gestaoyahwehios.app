@@ -127,7 +127,7 @@ abstract final class ChurchBrandService {
           return null;
         }
       } catch (_) {
-        return null;
+        // Metadata indisponível (rede/web) — tenta getDownloadURL mesmo assim.
       }
 
       final url = await StorageMediaService.downloadUrlFromPathOrUrl(path);

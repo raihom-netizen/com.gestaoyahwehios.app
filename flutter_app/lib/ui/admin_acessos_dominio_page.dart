@@ -737,7 +737,7 @@ class _DomainHitsChartCard extends StatelessWidget {
                         tooltipPadding: const EdgeInsets.symmetric(
                             horizontal: 12, vertical: 8),
                         tooltipMargin: 8,
-                        tooltipBgColor: const Color(0xFF1E293B),
+                        getTooltipColor: (_) => const Color(0xFF1E293B),
                         getTooltipItem: (group, groupIndex, rod, rodIndex) {
                           final i = group.x.toInt();
                           if (i < 0 || i >= data.length) return null;

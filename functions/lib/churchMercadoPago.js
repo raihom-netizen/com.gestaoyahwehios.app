@@ -284,6 +284,18 @@ function categoriaForDonationKind(kind) {
 function labelForDonationKind(kind) {
     return kind === "dizimo" ? "Dízimo" : "Oferta Missionária";
 }
+function buildDonationFinanceDescription(kind, donorName, memberFull, donationObs) {
+    const obs = String(donationObs || "").trim();
+    const nome = (memberFull || donorName || "Doador").trim();
+    if (kind === "dizimo") {
+        if (obs)
+            return `Dízimo: ${obs}`.slice(0, 240);
+        return `Dízimo — membro ${nome}`.slice(0, 240);
+    }
+    if (obs)
+        return `Oferta: ${obs}`.slice(0, 240);
+    return `Oferta — ${nome}`.slice(0, 240);
+}
 /** Nome completo do cadastro de membro (extrato / conciliação). */
 async function resolveMemberFullNameForDonation(tenantId, memberId) {
     const mid = String(memberId || "").trim();
@@ -501,6 +513,8 @@ async function tryHandleChurchDonationPayment(payment) {
                     meta.memberCpf = pd.memberCpf;
                 if (!meta.donationKind && pd.donationKind)
                     meta.donationKind = pd.donationKind;
+                if (!meta.donationObs && pd.donationObs)
+                    meta.donationObs = pd.donationObs;
             }
         }
     }
@@ -524,6 +538,8 @@ async function tryHandleChurchDonationPayment(payment) {
                 meta.memberCpf = pd.memberCpf;
             if (!meta.donationKind && pd.donationKind)
                 meta.donationKind = pd.donationKind;
+            if (!meta.donationObs && pd.donationObs)
+                meta.donationObs = pd.donationObs;
             if (!isChurch) {
                 isChurch = true;
             }
@@ -559,6 +575,7 @@ async function tryHandleChurchDonationPayment(payment) {
     const donationKind = normalizeDonationKind(meta.donationKind);
     const categoriaFinanceiro = categoriaForDonationKind(donationKind);
     const tipoLabel = labelForDonationKind(donationKind);
+    const donationObs = String(meta.donationObs || meta.obs || meta.observacao || "").trim();
     const memberCpfDigits = String(meta.memberCpf || meta.memberCpfDigits || "")
         .replace(/\D/g, "")
         .slice(0, 11);
@@ -599,7 +616,7 @@ async function tryHandleChurchDonationPayment(payment) {
         grossAmount: gross,
         mpFees: fee,
         netAmount: net,
-        descricao: `${tipoLabel} (Mercado Pago) — ${donorName}`,
+        descricao: buildDonationFinanceDescription(donationKind, donorName, memberFull, donationObs),
         categoria: categoriaFinanceiro,
         donationKind,
         donationKindLabel: tipoLabel,
@@ -883,6 +900,7 @@ exports.createChurchDonationPix = functions
     const contaDestinoId = String(data?.contaDestinoId || "").trim();
     const donationKind = normalizeDonationKind(data?.donationKind);
     const tipoLabel = labelForDonationKind(donationKind);
+    const donationObs = String(data?.donationObs || data?.obs || "").trim().slice(0, 240);
     if (!tenantId || amount < 1 || amount > 100000) {
         throw new functions.https.HttpsError("invalid-argument", "Valor invalido (min R$1, max R$100.000)");
     }
@@ -931,6 +949,7 @@ exports.createChurchDonationPix = functions
             donorName,
             memberId,
             donationKind,
+            donationObs,
             memberCpf: String(data?.memberCpf || "")
                 .replace(/\D/g, "")
                 .slice(0, 11),
@@ -952,6 +971,7 @@ exports.createChurchDonationPix = functions
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             amount: Number(amount.toFixed(2)),
             donationKind,
+            donationObs,
             donorName: donorName.slice(0, 120),
             memberId: memberId || "",
             memberCpf: String(data?.memberCpf || "")
@@ -988,6 +1008,7 @@ exports.createChurchDonationPreference = functions
     const maxInstallments = Math.min(12, Math.max(1, Math.floor(Number(data?.maxInstallments || 12))));
     const donationKind = normalizeDonationKind(data?.donationKind);
     const tipoLabel = labelForDonationKind(donationKind);
+    const donationObs = String(data?.donationObs || data?.obs || "").trim().slice(0, 240);
     if (!tenantId || amount < 1 || amount > 100000) {
         throw new functions.https.HttpsError("invalid-argument", "Valor invalido (min R$1, max R$100.000)");
     }
@@ -1041,6 +1062,7 @@ exports.createChurchDonationPreference = functions
             donorName,
             memberId,
             donationKind,
+            donationObs,
             memberCpf: String(data?.memberCpf || "")
                 .replace(/\D/g, "")
                 .slice(0, 11),
@@ -1072,6 +1094,7 @@ exports.createChurchDonationPreference = functions
             donorName,
             memberId,
             donationKind,
+            donationObs,
             memberCpf: String(data?.memberCpf || "")
                 .replace(/\D/g, "")
                 .slice(0, 11),

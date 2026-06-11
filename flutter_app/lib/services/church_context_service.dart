@@ -111,14 +111,11 @@ abstract final class ChurchContextService {
 
 
 
-  /// ID do painel — contexto bound → hint do shell.
-
+  /// ID do painel — contexto bound ou hint do shell (directo, sem alias).
   static String panelChurchId([String? shellTenantId]) {
     final ctx = currentChurchId;
-    if (ctx != null && ctx.isNotEmpty) return ctx;
-    final hint = shellTenantId?.trim() ?? '';
-    if (hint.isEmpty) return '';
-    return TenantResolverService.mapLegacySeedToCanonical(hint) ?? hint;
+    if (ctx != null && ctx.isNotEmpty) return ctx.trim();
+    return shellTenantId?.trim() ?? '';
   }
 
 
@@ -331,15 +328,15 @@ abstract final class ChurchContextService {
 
       String? boundId;
       for (final candidate in tryOrder) {
-        final mapped =
-            TenantResolverService.mapLegacySeedToCanonical(candidate) ??
-                candidate.trim();
-        var id = mapped.trim();
+        var id = candidate.trim();
         if (id.isEmpty) continue;
         if (!await _igrejaDocExists(id)) {
-          final raw = candidate.trim();
-          if (raw.isNotEmpty && raw != id && await _igrejaDocExists(raw)) {
-            id = raw;
+          final mapped = TenantResolverService.mapLegacySeedToCanonical(id);
+          if (mapped != null &&
+              mapped.trim().isNotEmpty &&
+              mapped.trim() != id &&
+              await _igrejaDocExists(mapped.trim())) {
+            id = mapped.trim();
           } else {
             continue;
           }

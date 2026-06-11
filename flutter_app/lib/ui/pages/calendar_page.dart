@@ -118,12 +118,6 @@ class _CalendarPageState extends State<CalendarPage>
   Map<String, List<_CalendarEvent>> _legacyEventsByDay = {};
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _agendaDocs = [];
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _agendaSub;
-  /// `null` = todas as categorias.
-  String? _filterCategoryKey;
-  /// `null` = todas as origens; senão `agenda`, `noticias` ou `cultos`.
-  String? _filterSourceKey;
-  /// Só posts do feed com [publicSite] (visíveis no site público).
-  bool _filterPublicSiteOnly = false;
   /// Dias (yyyy-MM-dd) com pelo menos uma escala de ministério — alerta no calendário.
   Set<String> _escalaDayKeys = {};
   bool _loading = false;
@@ -865,13 +859,6 @@ class _CalendarPageState extends State<CalendarPage>
                 ChurchUiCollections.eventos(_tid);
 
   CollectionReference<Map<String, dynamic>> get _cultos =>
-                ChurchUiCollections.churchDoc(_tid)
-          .collection('cultos');
-
-  /// Fallback para igrejas que usam collection igrejas (ex.: O Brasil para Cristo)
-  CollectionReference<Map<String, dynamic>> get _noticiasIgrejas =>
-                ChurchUiCollections.eventos(_tid);
-  CollectionReference<Map<String, dynamic>> get _cultosIgrejas =>
                 ChurchUiCollections.churchDoc(_tid)
           .collection('cultos');
 
@@ -1733,19 +1720,6 @@ class _CalendarPageState extends State<CalendarPage>
     return out;
   }
 
-  Map<String, List<_CalendarEvent>> _applyCategoryFilter(
-      Map<String, List<_CalendarEvent>> input) {
-    final key = _filterCategoryKey;
-    if (key == null) return input;
-    final out = <String, List<_CalendarEvent>>{};
-    for (final e in input.entries) {
-      final filtered =
-          e.value.where((ev) => (ev.categoryKey ?? '') == key).toList();
-      if (filtered.isNotEmpty) out[e.key] = filtered;
-    }
-    return out;
-  }
-
   Map<String, List<_CalendarEvent>> _markConflicts(
       Map<String, List<_CalendarEvent>> input) {
     DateTime endOf(_CalendarEvent ev) =>
@@ -1802,27 +1776,6 @@ class _CalendarPageState extends State<CalendarPage>
     return out;
   }
 
-  Map<String, List<_CalendarEvent>> _applySourceAndPublicFilter(
-    Map<String, List<_CalendarEvent>> input,
-  ) {
-    final out = <String, List<_CalendarEvent>>{};
-    for (final e in input.entries) {
-      final filtered = e.value.where((ev) {
-        if (_filterSourceKey != null && ev.source != _filterSourceKey) {
-          return false;
-        }
-        if (_filterPublicSiteOnly) {
-          if (ev.source != 'noticias' || ev.publicSite != true) {
-            return false;
-          }
-        }
-        return true;
-      }).toList();
-      if (filtered.isNotEmpty) out[e.key] = filtered;
-    }
-    return out;
-  }
-
   Map<String, List<_CalendarEvent>> _markScheduleOverlaps(
     Map<String, List<_CalendarEvent>> input,
   ) {
@@ -1845,9 +1798,8 @@ class _CalendarPageState extends State<CalendarPage>
     var merged =
         _mergeDayMaps(_legacyEventsByDay, _agendaEventsFromDocs(_agendaDocs));
     merged = _dedupeLinkedNoticias(merged);
-    var filtered = _applyCategoryFilter(merged);
-    filtered = _applySourceAndPublicFilter(filtered);
-    var     marked = _markConflicts(filtered);
+    // Sem filtros — mostra tudo (agenda interna, feed, cultos, escalas).
+    var marked = _markConflicts(merged);
     marked = _markScheduleOverlaps(marked);
     for (final list in marked.values) {
       list.sort((a, b) => a.dateTime.compareTo(b.dateTime));
@@ -2134,8 +2086,6 @@ class _CalendarPageState extends State<CalendarPage>
     final pad = ThemeCleanPremium.pagePadding(context);
     final useSplitCalendar =
         _agendaView != _AgendaViewKind.list && (isMobile || wide);
-    final showBottomBar =
-        isMobile && _agendaView != _AgendaViewKind.list && !_embeddedMobile;
     final fullBleedAgenda = _embeddedMobile && useSplitCalendar && !wide;
     final bodyPad = fullBleedAgenda
         ? EdgeInsets.fromLTRB(
@@ -2208,7 +2158,6 @@ class _CalendarPageState extends State<CalendarPage>
               ],
             ),
       floatingActionButton: _canWrite &&
-              !showBottomBar &&
               !useSplitCalendar &&
               !_embeddedMobile
           ? FloatingActionButton.extended(
@@ -2223,59 +2172,7 @@ class _CalendarPageState extends State<CalendarPage>
               _agendaView == _AgendaViewKind.list &&
               _canWrite
           ? _buildAgendaBulkSelectBar()
-          : (showBottomBar
-              ? SafeArea(
-                  child: Material(
-                    elevation: 8,
-                    color: ThemeCleanPremium.cardBackground,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: _exportAgendaPdf,
-                              icon: const Icon(Icons.picture_as_pdf_rounded,
-                                  size: 22),
-                              label: Text('PDF',
-                                  style: GoogleFonts.poppins(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w700)),
-                              style: OutlinedButton.styleFrom(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
-                                minimumSize: const Size(
-                                    0, ThemeCleanPremium.minTouchTarget),
-                              ),
-                            ),
-                          ),
-                          if (_canWrite) ...[
-                            const SizedBox(width: 10),
-                            Expanded(
-                              flex: 2,
-                              child: FilledButton.icon(
-                                onPressed: () => _showAddEvent(),
-                                icon: const Icon(Icons.add_rounded, size: 22),
-                                label: Text('Novo evento',
-                                    style: GoogleFonts.poppins(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700)),
-                                style: FilledButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                      vertical: 14),
-                                  minimumSize: const Size(
-                                      0, ThemeCleanPremium.minTouchTarget),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                )
-              : null),
+          : null,
       body: SafeArea(
         child: useSplitCalendar
             ? Padding(
@@ -2316,10 +2213,6 @@ class _CalendarPageState extends State<CalendarPage>
                       ),
                     ],
                     _buildViewToggleRow(),
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    AgendaColorLegend(compact: isMobile),
-                    const SizedBox(height: ThemeCleanPremium.spaceSm),
-                    _buildSourceFilterRow(),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     AnimatedSwitcher(
                       duration: const Duration(milliseconds: 350),
@@ -2377,16 +2270,6 @@ class _CalendarPageState extends State<CalendarPage>
                 ),
               SliverToBoxAdapter(
                 child: _buildViewToggleRow(),
-              ),
-              const SliverToBoxAdapter(
-                  child: SizedBox(height: ThemeCleanPremium.spaceSm)),
-              SliverToBoxAdapter(
-                child: AgendaColorLegend(compact: isMobile),
-              ),
-              const SliverToBoxAdapter(
-                  child: SizedBox(height: ThemeCleanPremium.spaceSm)),
-              SliverToBoxAdapter(
-                child: _buildSourceFilterRow(),
               ),
               const SliverToBoxAdapter(
                   child: SizedBox(height: ThemeCleanPremium.spaceMd)),
@@ -2588,23 +2471,14 @@ class _CalendarPageState extends State<CalendarPage>
               child: _toggleBtn(
                   'Mês',
                   Icons.calendar_month_rounded,
-                  _agendaView == _AgendaViewKind.month,
+                  _agendaView != _AgendaViewKind.list,
                   () => setState(() {
                     _clearAgendaBulkUi();
                     _agendaView = _AgendaViewKind.month;
                   }))),
           Expanded(
               child: _toggleBtn(
-                  'Semana',
-                  Icons.view_week_rounded,
-                  _agendaView == _AgendaViewKind.week,
-                  () => setState(() {
-                    _clearAgendaBulkUi();
-                    _agendaView = _AgendaViewKind.week;
-                  }))),
-          Expanded(
-              child: _toggleBtn(
-                  'Agenda',
+                  'Lista',
                   Icons.view_agenda_rounded,
                   _agendaView == _AgendaViewKind.list,
                   () {
@@ -2711,190 +2585,6 @@ class _CalendarPageState extends State<CalendarPage>
         ),
       ),
     );
-  }
-
-  Widget _buildCategoryFilterRow() {
-    final primary = ThemeCleanPremium.primary;
-    return SizedBox(
-      height: 54,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: _buildPremiumCategoryFilterChip(
-              label: 'Todas',
-              icon: Icons.dashboard_customize_rounded,
-              accent: primary,
-              selected: _filterCategoryKey == null,
-              onTap: () {
-                _filterCategoryKey = null;
-                _rebuildMerged();
-              },
-            ),
-          ),
-          for (final e in _categoryLabels.entries)
-            Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: _buildPremiumCategoryFilterChip(
-                label: e.value,
-                icon: _iconForCategoryKey(e.key),
-                accent: _categoryColors[e.key] ?? primary,
-                selected: _filterCategoryKey == e.key,
-                onTap: () {
-                  _filterCategoryKey =
-                      _filterCategoryKey == e.key ? null : e.key;
-                  _rebuildMerged();
-                },
-              ),
-            ),
-          for (final c in _eventCategoryDocs)
-            Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: Builder(
-                builder: (context) {
-                  final key = _categoryKeyForEventCategoryId(c.id);
-                  final nome = (c.data()['nome'] ?? 'Categoria').toString();
-                  final cor = c.data()['cor'];
-                  final accent = cor is int
-                      ? Color(cor)
-                      : ThemeCleanPremium.primary;
-                  return _buildPremiumCategoryFilterChip(
-                    label: nome,
-                    icon: Icons.label_outline_rounded,
-                    accent: accent,
-                    selected: _filterCategoryKey == key,
-                    onTap: () {
-                      _filterCategoryKey =
-                          _filterCategoryKey == key ? null : key;
-                      _rebuildMerged();
-                    },
-                  );
-                },
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSourceFilterRow() {
-    final primary = ThemeCleanPremium.primary;
-    void setSource(String key) {
-      setState(() {
-        _filterPublicSiteOnly = false;
-        _filterSourceKey = _filterSourceKey == key ? null : key;
-      });
-      _rebuildMerged();
-    }
-
-    void togglePublicOnly() {
-      setState(() {
-        _filterPublicSiteOnly = !_filterPublicSiteOnly;
-        if (_filterPublicSiteOnly) {
-          _filterSourceKey = null;
-        }
-      });
-      _rebuildMerged();
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Origem',
-          style: GoogleFonts.poppins(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: ThemeCleanPremium.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 6),
-        SizedBox(
-          height: 48,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: _buildPremiumCategoryFilterChip(
-                  label: 'Todas',
-                  icon: Icons.layers_rounded,
-                  accent: primary,
-                  selected: _filterSourceKey == null && !_filterPublicSiteOnly,
-                  onTap: () {
-                    setState(() {
-                      _filterSourceKey = null;
-                      _filterPublicSiteOnly = false;
-                    });
-                    _rebuildMerged();
-                  },
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: _buildPremiumCategoryFilterChip(
-                  label: 'Agenda interna',
-                  icon: Icons.edit_calendar_rounded,
-                  accent: const Color(0xFF2563EB),
-                  selected: _filterSourceKey == 'agenda',
-                  onTap: () => setSource('agenda'),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: _buildPremiumCategoryFilterChip(
-                  label: 'Feed / eventos',
-                  icon: Icons.dynamic_feed_rounded,
-                  accent: const Color(0xFFDB2777),
-                  selected: _filterSourceKey == 'noticias',
-                  onTap: () => setSource('noticias'),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: _buildPremiumCategoryFilterChip(
-                  label: 'Cultos',
-                  icon: Icons.church_rounded,
-                  accent: const Color(0xFF16A34A),
-                  selected: _filterSourceKey == 'cultos',
-                  onTap: () => setSource('cultos'),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: _buildPremiumCategoryFilterChip(
-                  label: 'Só site público',
-                  icon: Icons.public_rounded,
-                  accent: const Color(0xFF0D9488),
-                  selected: _filterPublicSiteOnly,
-                  onTap: togglePublicOnly,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  IconData _iconForCategoryKey(String key) {
-    switch (key) {
-      case 'culto':
-        return Icons.church_rounded;
-      case 'evento_social':
-        return Icons.celebration_rounded;
-      case 'lideranca':
-        return Icons.groups_rounded;
-      case 'ensino_ebd':
-        return Icons.menu_book_rounded;
-      default:
-        return Icons.event_rounded;
-    }
   }
 
   Widget _toggleBtn(String label, IconData icon, bool active, VoidCallback onTap) {
@@ -3017,9 +2707,7 @@ class _CalendarPageState extends State<CalendarPage>
 
   Widget _buildTableCalendarCard() {
     final isMobile = ThemeCleanPremium.isMobile(context);
-    final calFormat = _agendaView == _AgendaViewKind.week
-        ? CalendarFormat.week
-        : CalendarFormat.month;
+    final calFormat = CalendarFormat.month;
     // Células altas + margem mínima (alinhado ao calendário de Escalas / Controle Total).
     final rowH = isMobile ? 76.0 : 64.0;
     final dowH = isMobile ? 34.0 : 30.0;
@@ -4100,13 +3788,10 @@ class _CalendarPageState extends State<CalendarPage>
     final showTopAppBar =
         !ThemeCleanPremium.isMobile(context) || Navigator.canPop(context);
     const chipData = <(String, String, IconData)>[
-      ('Mês anterior', 'mes_anterior', Icons.navigate_before_rounded),
       ('Mês atual', 'mes_atual', Icons.today_rounded),
-      ('Outro mês', 'mes_livre', Icons.event_note_rounded),
-      ('Semanal', 'semanal', Icons.view_week_rounded),
-      ('Diário', 'diario', Icons.view_day_rounded),
+      ('Mês anterior', 'mes_anterior', Icons.navigate_before_rounded),
       ('Anual', 'anual', Icons.calendar_view_month_rounded),
-      ('Por período', 'periodo', Icons.date_range_rounded),
+      ('Período', 'periodo', Icons.date_range_rounded),
     ];
 
     return RepaintBoundary(
@@ -4200,32 +3885,109 @@ class _CalendarPageState extends State<CalendarPage>
     );
   }
 
+  String _pdfExportPeriodLabel() {
+    if (_agendaView != _AgendaViewKind.list) {
+      return toBeginningOfSentenceCase(
+        DateFormat('MMMM yyyy', 'pt_BR').format(_focusedMonth),
+      );
+    }
+    const labels = <String, String>{
+      'mes_atual': 'Mês atual',
+      'mes_anterior': 'Mês anterior',
+      'anual': 'Anual',
+      'periodo': 'Período',
+    };
+    return _listFilterChipLabel(
+      _listFilter,
+      labels[_listFilter] ?? _listFilter,
+    );
+  }
+
+  /// Mapa completo (sem filtros) para exportação PDF — respeita o período visível.
+  Map<String, List<_CalendarEvent>> _eventsForPdfExport() {
+    var merged =
+        _mergeDayMaps(_legacyEventsByDay, _agendaEventsFromDocs(_agendaDocs));
+    merged = _dedupeLinkedNoticias(merged);
+    final (rangeStart, rangeEnd) = _computeLoadRange();
+    final startDay = DateTime(rangeStart.year, rangeStart.month, rangeStart.day);
+    final endDay = DateTime(rangeEnd.year, rangeEnd.month, rangeEnd.day);
+
+    final out = <String, List<_CalendarEvent>>{};
+    for (final e in merged.entries) {
+      try {
+        final day = DateTime.parse(e.key);
+        final d = DateTime(day.year, day.month, day.day);
+        if (d.isBefore(startDay) || d.isAfter(endDay)) continue;
+      } catch (_) {
+        continue;
+      }
+      if (e.value.isEmpty) continue;
+      out[e.key] = List<_CalendarEvent>.from(e.value)
+        ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
+    }
+    return out;
+  }
+
   Future<void> _exportAgendaPdf() async {
     try {
-      final sortedKeys = _eventsByDay.keys.toList()
+      final exportMap = _eventsForPdfExport();
+      final sortedKeys = exportMap.keys.toList()
         ..sort(_compareAgendaDayKeysAscending);
       if (sortedKeys.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Nenhum evento para exportar.')),
+            const SnackBar(
+              content: Text('Nenhum evento no período para exportar.'),
+            ),
           );
         }
         return;
       }
       if (!mounted) return;
-      final branding = await loadReportPdfBranding(widget.tenantId);
-      if (!mounted) return;
-
-      final refMonth = toBeginningOfSentenceCase(
-        DateFormat('MMMM yyyy', 'pt_BR').format(_focusedMonth),
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 14),
+                  Text('Gerando PDF…'),
+                ],
+              ),
+            ),
+          ),
+        ),
       );
+
+      ReportPdfBranding branding;
+      try {
+        branding = await loadReportPdfBranding(widget.tenantId).timeout(
+          const Duration(seconds: 15),
+          onTimeout: () => ReportPdfBranding(
+            churchName: 'Agenda',
+            accent: ReportPdfBranding.defaultAccent,
+          ),
+        );
+      } catch (_) {
+        branding = ReportPdfBranding(
+          churchName: 'Agenda',
+          accent: ReportPdfBranding.defaultAccent,
+        );
+      }
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+
+      final refLabel = _pdfExportPeriodLabel();
 
       final data = <List<String>>[];
       for (final key in sortedKeys) {
-        final events = _eventsByDay[key]!;
-        for (final ev in events) {
-          final titulo =
-              ev.title.isNotEmpty ? ev.title : ev.type;
+        for (final ev in exportMap[key]!) {
+          final titulo = ev.title.isNotEmpty ? ev.title : ev.type;
           data.add([
             DateFormat('dd/MM/yyyy').format(ev.dateTime),
             DateFormat('HH:mm').format(ev.dateTime),
@@ -4243,10 +4005,10 @@ class _CalendarPageState extends State<CalendarPage>
           header: (ctx) => pw.Padding(
             padding: const pw.EdgeInsets.only(bottom: 12),
             child: PdfSuperPremiumTheme.header(
-              'Agenda de eventos',
+              'Agenda da igreja',
               branding: branding,
               extraLines: [
-                'Referência: $refMonth',
+                'Período: $refLabel',
               ],
             ),
           ),
@@ -4276,7 +4038,12 @@ class _CalendarPageState extends State<CalendarPage>
         await showPdfActions(context, bytes: bytes, filename: fn);
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao exportar: $e')));
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).maybePop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao exportar PDF: $e')),
+        );
+      }
     }
   }
 

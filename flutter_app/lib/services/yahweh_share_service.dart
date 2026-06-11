@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' show Rect;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:gestao_yahweh/core/noticia_share_utils.dart';
 
 /// Partilha nativa (WhatsApp, Telegram, etc.) — ponto único §19 prompt mestre.
 abstract final class YahwehShareService {
@@ -84,6 +85,49 @@ abstract final class YahwehShareService {
     await Share.shareXFiles(
       [XFile(path, mimeType: mimeType)],
       text: message ?? whatsAppHint,
+      subject: subject,
+      sharePositionOrigin: sharePositionOrigin,
+    );
+  }
+
+  /// Vários ficheiros + legenda (WhatsApp aceita mídia + texto na folha nativa).
+  static Future<void> shareMediaBundle({
+    required List<NoticiaShareMediaFile> files,
+    required String message,
+    String? subject,
+    Rect? sharePositionOrigin,
+  }) async {
+    if (files.isEmpty) {
+      await shareText(message, subject: subject, sharePositionOrigin: sharePositionOrigin);
+      return;
+    }
+    final xFiles = <XFile>[];
+    if (kIsWeb) {
+      for (final f in files) {
+        xFiles.add(XFile.fromData(
+          f.bytes,
+          name: f.fileName,
+          mimeType: f.mimeType,
+        ));
+      }
+      await Share.shareXFiles(
+        xFiles,
+        text: message,
+        subject: subject,
+        sharePositionOrigin: sharePositionOrigin,
+      );
+      return;
+    }
+    final dir = await getTemporaryDirectory();
+    for (final f in files) {
+      final path = '${dir.path}/${f.fileName}';
+      final file = File(path);
+      await file.writeAsBytes(f.bytes, flush: true);
+      xFiles.add(XFile(path, name: f.fileName, mimeType: f.mimeType));
+    }
+    await Share.shareXFiles(
+      xFiles,
+      text: message,
       subject: subject,
       sharePositionOrigin: sharePositionOrigin,
     );

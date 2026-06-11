@@ -20,11 +20,10 @@ import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart'
     show YahwehUploadModule;
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
-import 'package:gestao_yahweh/services/upload_storage_task.dart'
-    show awaitStorageUploadTask;
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'church_chat_album_utils.dart';
 import 'church_chat_attachment_utils.dart';
+import 'church_chat_media_storage.dart';
 import 'church_chat_local_conversations.dart';
 import 'church_chat_member_prefs.dart';
 import 'church_chat_message_fields.dart';
@@ -2849,7 +2848,15 @@ class ChurchChatService {
         bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
     final ct = contentType.toLowerCase();
     final String url;
-    if (ct.startsWith('image/')) {
+    if (skipClientPrepare) {
+      await ChurchChatMediaStorage.putBytes(
+        storagePath: path,
+        bytes: ubytes,
+        contentType: contentType,
+        onProgress: onProgress,
+      );
+      url = await firebaseStorageRef(path).getDownloadURL();
+    } else if (ct.startsWith('image/')) {
       final chatJpegFast =
           ct.contains('jpeg') || ct == 'image/jpg' || ct == 'image/pjpeg';
       url = await UnifiedUploadService.uploadImage(
@@ -2863,18 +2870,13 @@ class ChurchChatService {
         onUploadTaskCreated: onUploadTaskCreated,
       );
     } else {
-      final ref = firebaseStorageRef(path);
-      final task = ref.putData(
-        ubytes,
-        SettableMetadata(contentType: contentType),
-      );
-      onUploadTaskCreated?.call(task);
-      final snap = await awaitStorageUploadTask(
-        task,
-        payloadBytes: ubytes.length,
+      await ChurchChatMediaStorage.putBytes(
+        storagePath: path,
+        bytes: ubytes,
+        contentType: contentType,
         onProgress: onProgress,
       );
-      url = await snap.ref.getDownloadURL();
+      url = await firebaseStorageRef(path).getDownloadURL();
     }
     await assertChatMediaUploaded(path);
     return (url: url, path: path);
@@ -2903,13 +2905,13 @@ class ChurchChatService {
           kind: _kindFromContentType(contentType),
           fileName: fileName,
         );
-    final url = await UnifiedUploadService.uploadFile(
+    await ChurchChatMediaStorage.putFile(
       storagePath: path,
       localPath: localPath,
       contentType: contentType,
-      module: YahwehUploadModule.chat,
       onProgress: onProgress,
     );
+    final url = await firebaseStorageRef(path).getDownloadURL();
     await assertChatMediaUploaded(path);
     return (url: url, path: path);
   }

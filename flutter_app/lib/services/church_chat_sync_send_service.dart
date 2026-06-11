@@ -1,15 +1,12 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
-import 'package:gestao_yahweh/services/chat_publish_verification_service.dart';
+import 'package:gestao_yahweh/services/church_chat_linear_media_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
-import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
 
-/// Chat mídia — web: stub Firestore → Storage → `sent`; mobile: Storage → Firestore.
+/// Chat mídia — pipeline linear (Storage → Firestore no mobile; stub → Storage na web).
 abstract final class ChurchChatSyncSendService {
   ChurchChatSyncSendService._();
 
-  /// Upload → confirma Storage → grava mensagem `sent` (falha = não grava).
   static Future<void> sendMedia({
     required String tenantId,
     required String threadId,
@@ -23,25 +20,18 @@ abstract final class ChurchChatSyncSendService {
   }) async {
     pending.firestoreMessageId = null;
     pending.storagePath = null;
-    final resolvedTenant =
-        await ChatPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: tenantId,
-    );
     try {
-      await OptimisticChatMediaUpload.flush(
-        pending: pending,
-        tenantId: resolvedTenant,
+      await ChurchChatLinearMediaSendService.send(
+        tenantId: tenantId,
         threadId: threadId,
+        pending: pending,
         bytes: bytes,
         localPath: localPath,
         replyTo: replyTo,
-        // Web: stub primeiro — evita INTERNAL ASSERTION do Firestore com listeners activos.
-        storageBeforeFirestore: !kIsWeb,
-        onProgress: onProgress ?? (_) {},
-        onFailed: (msg) => throw StateError(msg),
-        onSuccess: () => onSuccess?.call(),
+        onProgress: onProgress,
+        onError: (msg) => throw StateError(msg),
+        onSuccess: onSuccess,
         onReplyCleared: null,
-        onWaitingForNetwork: null,
       );
     } catch (e, st) {
       YahwehFlowLog.error('CHAT_SYNC', e, st);

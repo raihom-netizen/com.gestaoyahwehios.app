@@ -93,38 +93,19 @@ class TenantResolverService {
     return const [];
   }
 
-  /// Doc com subcoleções/perfil reais — canónico de escrita + irmão com dados (BPC).
+  /// Subcoleções do painel — path directo `igrejas/{churchId}/…` (sem alias/cluster).
   static Future<String> resolveModuleReadTenantId(
     String seedId, {
     String? userUid,
   }) async {
     final seed = seedId.trim();
     if (seed.isEmpty) return seed;
-
-    final cached = peekModuleReadTenantId(seed, userUid: userUid);
-    if (cached != null && cached.isNotEmpty) return cached;
-
-    final operational = await resolveOperationalChurchDocId(
-      seed,
-      userUid: userUid,
-    );
-    final op = operational.trim();
-    if (op.isEmpty) return op;
-
-    final cachedOp = peekModuleReadTenantId(op, userUid: userUid);
-    if (cachedOp != null && cachedOp.isNotEmpty) return cachedOp;
-
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
-
-    // BPC consolidado: leituras no doc canónico; fallback de irmãos só em _queryWithSiblingFallback.
-    var resolved = op;
-    if (op == kBpcCanonicalIgrejaDocId || kBpcLegacyTenantIds.contains(op)) {
-      resolved = kBpcCanonicalIgrejaDocId;
-    }
-    rememberModuleReadTenantId(seed, resolved, userUid: userUid);
-    return resolved;
+    final bound = ChurchContextService.currentChurchId?.trim() ?? '';
+    if (bound.isNotEmpty) return bound;
+    final panel = ChurchContextService.panelChurchId(seed);
+    final op = panel.isNotEmpty ? panel : seed;
+    rememberModuleReadTenantId(seed, op, userUid: userUid);
+    return op;
   }
 
   /// Fallback de leitura — só cluster BPC (dados podem estar no doc legado).
@@ -448,8 +429,7 @@ class TenantResolverService {
     return _moduleReadByKey[_operationalCacheKey(s, userUid)];
   }
 
-  /// ID canónico para subcoleções (`membros`, `escalas`, `agenda`, `event_templates`, …):
-  /// vínculo em `users` + doc irmão com mais dados no cluster (slug / `_sistema`).
+  /// ID operacional da sessão — directo `igrejas/{churchId}` (sem scan de cluster).
   static Future<String> resolveOperationalChurchDocId(
     String seedId, {
     String? userUid,
@@ -469,41 +449,11 @@ class TenantResolverService {
       }
     }
 
-    final cacheKey = _operationalCacheKey(seed, userUid);
-    if (!forceRefresh) {
-      final hit = _operationalByKey[cacheKey];
-      if (hit != null &&
-          DateTime.now().difference(hit.resolvedAt) < _operationalCacheTtl) {
-        return hit.id;
-      }
-    }
-
-    final sw = Stopwatch()..start();
-    final operational = ChurchContextService.panelChurchId(seed);
-    final op = operational.isNotEmpty
-        ? operational
-        : (mapLegacySeedToCanonical(seed) ?? seed);
-    sw.stop();
-    ChurchOperationalFirestoreTrace.record(
-      origin: 'TenantResolverService.resolveOperationalChurchDocId',
-      firestorePath: 'igrejas/$op',
-      churchId: op,
-      durationMs: sw.elapsedMilliseconds,
-    );
-
-    _operationalByKey[cacheKey] =
-        _OperationalTenantCacheEntry(op, DateTime.now());
-    AgentDebugLog.log(
-      location: 'tenant_resolver_service.dart:resolveOperational',
-      message: 'operational_id_resolved',
-      hypothesisId: 'A',
-      data: {
-        'seed': seed,
-        'operational': op,
-        'forceRefresh': forceRefresh,
-      },
-    );
-    return op;
+    final op = ChurchContextService.panelChurchId(seed);
+    final resolved = op.isNotEmpty ? op : seed;
+    _operationalByKey[_operationalCacheKey(seed, userUid)] =
+        _OperationalTenantCacheEntry(resolved, DateTime.now());
+    return resolved;
   }
 
   static void invalidateOperationalChurchDocCache({

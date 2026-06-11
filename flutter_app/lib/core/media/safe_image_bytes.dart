@@ -76,11 +76,28 @@ abstract final class SafeImageBytes {
     return _compressFromPath(path, maxEdge: maxEdge, quality: quality);
   }
 
-  static Future<Uint8List> patrimonioFromPicker(XFile file) =>
-      fromPickerFile(
-        file,
-        extraPass: ImageHelper.compressPatrimonioPhotoForUpload,
+  static Future<Uint8List> patrimonioFromPicker(XFile file) async {
+    final path = file.path.trim();
+    if (!kIsWeb && path.isNotEmpty) {
+      final f = File(path);
+      if (await f.exists()) {
+        final len = await f.length();
+        if (len > maxRawReadBytes) {
+          throw StateError(
+            'Imagem demasiado grande (${len ~/ (1024 * 1024)} MB). '
+            'Use outra foto ou reduza a resolução.',
+          );
+        }
+      }
+    }
+    final raw = await file.readAsBytes();
+    if (raw.length > maxRawReadBytes) {
+      throw StateError(
+        'Imagem demasiado grande (${raw.length ~/ (1024 * 1024)} MB).',
       );
+    }
+    return ImageHelper.compressPatrimonioPhotoForUpload(raw);
+  }
 
   /// Foto de perfil (membros / chat) — compressão no disco, sem OOM.
   static Future<Uint8List> memberProfileFromPicker(XFile file) =>

@@ -115,55 +115,20 @@ class _ChurchChatProfilePhotoSheet extends StatefulWidget {
 class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoSheet> {
   Uint8List? _previewBytes;
   bool _uploading = false;
-  MemberProfilePhotoUpdateResult? _uploadedResult;
+  String? _operationalTenantId;
 
   @override
   void initState() {
     super.initState();
     unawaited(ImmediateMediaWarm.warmFeed());
+    unawaited(_resolveOperationalTenant());
   }
 
-  Future<void> _uploadInBackground(Uint8List bytes) async {
-    if (_uploading) return;
-    setState(() => _uploading = true);
-    try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final snap = await           ChurchUiCollections.membros(op)
-          .doc(widget.memberId)
-          .get();
-      final data = snap.data() ?? widget.initialData;
-      await           ChurchUiCollections.membros(op)
-          .doc(widget.memberId)
-          .set(
-        MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
-        SetOptions(merge: true),
-      );
-      if (!mounted) return;
-      setState(() => _uploading = false);
-      ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
-      MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
-        tenantId: widget.tenantId,
-        memberDocId: widget.memberId,
-        memberData: data,
-        rawBytes: bytes,
-        onSuccess: (result) {
-          if (!mounted) return;
-          setState(() => _uploadedResult = result);
-        },
-        onError: (e) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar('Erro ao enviar foto: $e'),
-          );
-        },
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _uploading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar('Erro ao enviar foto: $e'),
-      );
-    }
+  Future<void> _resolveOperationalTenant() async {
+    final op =
+        await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    if (!mounted) return;
+    setState(() => _operationalTenantId = op);
   }
 
   Future<void> _pick(ImageSource source) async {
@@ -184,7 +149,6 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
         context,
         file.name.isNotEmpty ? file.name : 'foto_perfil.jpg',
       );
-      unawaited(_uploadInBackground(bytes));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -194,23 +158,13 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
   }
 
   Future<void> _save() async {
-    final done = _uploadedResult;
-    if (done != null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-          'Foto actualizada no chat e no cadastro de membro.',
-        ),
-      );
-      Navigator.pop(context, done);
-      return;
-    }
     final bytes = _previewBytes;
     if (bytes == null || bytes.isEmpty || _uploading) return;
     setState(() => _uploading = true);
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final snap = await           ChurchUiCollections.membros(op)
+      final op = _operationalTenantId ??
+          await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final snap = await ChurchUiCollections.membros(op)
           .doc(widget.memberId)
           .get();
       final data = snap.data() ?? widget.initialData;
@@ -256,7 +210,9 @@ class _ChurchChatProfilePhotoSheetState extends State<_ChurchChatProfilePhotoShe
             boxShadow: ThemeCleanPremium.softUiCardShadow,
           ),
           child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream:                 ChurchUiCollections.membros(widget.tenantId)
+            stream: ChurchUiCollections.membros(
+              _operationalTenantId ?? widget.tenantId,
+            )
                 .doc(widget.memberId)
                 .watchSafe(),
             builder: (context, snap) {

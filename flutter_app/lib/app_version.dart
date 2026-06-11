@@ -1,5 +1,28 @@
-﻿/// Single source of app version used everywhere.
+/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+1900: Flutter 3.44.1 + Dart 3.12 — Firebase BoM 4.x, google_sign_in 7, file_picker 11, fl_chart 1.2, local_auth 3.
+/// 11.2.305+1899: Mídia multiplataforma — CrossPlatformMediaPipeline (XFile), compactação Web/mobile unificada, publish transacional.
+/// 11.2.305+1898: Site público + cadastro membro — índice `public_church_slugs`, resolver rápido, loader premium, cache `_panel_cache/public_site`.
+/// 11.2.305+1897: Painel — leituras directas igrejas/{id} (sem fallback irmãos); Cargos/Dept listSubcollection.
+/// 11.2.305+1896: Partilha avisos/eventos — texto completo, mídia, site igreja + evento público.
+/// 11.2.305+1895: Web — compressão Dart pura (WebImageCompressService), progresso UploadTask, doc CORS.
+/// 11.2.305+1894: Audit painel — Patrimônio/Avisos/Config erros explícitos; sem catch→null/[].
+/// 11.2.305+1893: Mídia — pipeline transacional (compactação 1024/80 %, timeout 15 s, strict publish).
+/// 11.2.305+1892: Painel — leitura directa igrejas/{id} em todos os módulos (sem alias).
+/// 11.2.305+1891: Cargos + Departamentos — leitura web resiliente (retry).
+/// 11.2.305+1890: Departamentos — leitura web resiliente (retry + cache-first).
+/// 11.2.305+1889: Cadastro Igreja — leitura resiliente web (ChurchProfileLoader + retry).
+/// 11.2.305+1888: Agenda — estilo Controle Total (tudo visível, PDF, UI limpa).
+/// 11.2.305+1887: Configurações — remove InitPay/Infinity Pay; só Mercado Pago.
+/// 11.2.305+1886: Chat Igreja — foto perfil = mesmo campo Membros (sync bidireccional).
+/// 11.2.305+1885: Financeiro — saldo ao vivo, picker membro/fornecedor, comprovante Storage directo, MP obs.
+/// 11.2.305+1884: Patrimônio — 5 fotos em patrimonio/{id}/galeria_01..05.webp (substitui slot).
+/// 11.2.305+1883: Foto perfil membro — único ficheiro membros/{authUid}/foto_perfil.jpg (sobrescreve).
+/// 11.2.305+1882: Avisos/eventos — Storage directo eventos/{id}/banner_evento.jpg + push automático.
+/// 11.2.305+1881: Cadastro Igreja — leitura directa igrejas/{id}, sem alias/consolidação; logo Storage canónica.
+/// 11.2.305+1880: Painel — reconhecimento imediato de gestor/pastor/secretário/admin (menu completo).
+/// 11.2.305+1879: Chat Igreja — mídia linear (Storage com timeout → Firestore), fotos e ficheiros.
+/// 11.2.305+1878: Cadastro público Android — cache sessão + leitura directa (sem skeleton prolongado).
 /// 11.2.305+1877: Avisos — publish linear EcoFire (fotos Storage → Firestore, sem spinner/sync).
 /// 11.2.305+1876: atalhos Chat Igreja — Atenção pastoral, galeria líderes e corpo admin (bridge + overlay).
 /// 11.2.305+1856: unificação ChurchRepository, chat engine (hub/thread/presence), cache-first módulos, deploy completo.
@@ -341,7 +364,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1873: Carteirinha membro — cluster BPC + fallback dados da lista.
 /// 11.2.305+1874: Painel — líderes/corpo admin rápidos (cache + cluster departamentos).
 /// 11.2.305+1875: Eventos — publicação EcoFire (Storage+URL+thumb, linear, ampliar foto).
-const String appBuildNumber = '1877';
+const String appBuildNumber = '1900';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

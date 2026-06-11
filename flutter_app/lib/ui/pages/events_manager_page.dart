@@ -124,6 +124,7 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
+import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show buildNoticiaInviteShareMessage;
 import 'package:image/image.dart' as img;
@@ -2748,6 +2749,7 @@ class _FeedTabState extends State<_FeedTab> {
   bool _isInitialLoading = true;
   QuerySnapshot<Map<String, dynamic>>? _lastGoodEventsSnap;
   bool _showingOfflineEvents = false;
+  Object? _feedLoadError;
   String _filterPeriod = 'all';
   int _filterWeekday = 0;
   final _searchCtrl = TextEditingController();
@@ -2870,17 +2872,22 @@ class _FeedTabState extends State<_FeedTab> {
     setState(() {
       _isInitialLoading = _loadedDocs.isEmpty;
       _showingOfflineEvents = false;
+      _feedLoadError = null;
       _hasMoreFeedPages = true;
       _feedLastCursor = null;
       _loadedDocs.clear();
     });
     try {
-      final snap = await FirestoreWebGuard.runWithWebRecovery(() {
-        return ChurchTenantResilientReads.noticiasByStartAt(
-          widget.tenantId,
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final snap = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchTenantResilientReads.noticiasByStartAt(
+          widget.tenantId.trim(),
           limit: _feedPageSize,
-        ).timeout(const Duration(seconds: 10));
-      });
+        ).timeout(const Duration(seconds: 14)),
+        maxAttempts: 4,
+      );
       final docs =
           snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
       if (!mounted) return;
@@ -2892,11 +2899,12 @@ class _FeedTabState extends State<_FeedTab> {
         _hasMoreFeedPages = docs.length >= _feedPageSize;
         _isInitialLoading = false;
         _lastGoodEventsSnap = snap;
+        _feedLoadError = null;
       });
       if (docs.isNotEmpty) {
-        _EventosNoticiasRamCache.put(widget.tenantId, docs);
+        _EventosNoticiasRamCache.put(widget.tenantId.trim(), docs);
       }
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       if (_loadedDocs.isNotEmpty) {
         setState(() => _showingOfflineEvents = true);
@@ -2919,9 +2927,15 @@ class _FeedTabState extends State<_FeedTab> {
           _isInitialLoading = false;
           _showingOfflineEvents = docs.isNotEmpty;
           _lastGoodEventsSnap = cacheSnap;
+          _feedLoadError = docs.isEmpty ? e : null;
         });
       } catch (_) {
-        if (mounted) setState(() => _isInitialLoading = false);
+        if (mounted) {
+          setState(() {
+            _isInitialLoading = false;
+            _feedLoadError = e;
+          });
+        }
       }
     }
   }
@@ -3112,6 +3126,13 @@ class _FeedTabState extends State<_FeedTab> {
 
   @override
   Widget build(BuildContext context) {
+    if (_feedLoadError != null && _loadedDocs.isEmpty) {
+      return ChurchPanelErrorBody(
+        title: 'Não foi possível carregar avisos e eventos',
+        error: _feedLoadError,
+        onRetry: _refresh,
+      );
+    }
     if (_isInitialLoading && _loadedDocs.isEmpty) {
       return const _FeedSkeleton();
     }
@@ -4234,11 +4255,11 @@ class _EventoPostState extends State<_EventoPost>
     final churchName = widget.nomeIgreja.trim().isNotEmpty
         ? widget.nomeIgreja.trim()
         : 'Nossa igreja';
-    final slug = widget.churchSlug.trim();
-    final inviteUrl = slug.isNotEmpty
-        ? AppConstants.shareNoticiaIgrejaEventoUrl(slug, widget.doc.id)
-        : AppConstants.shareNoticiaCardUrl(widget.tenantId, widget.doc.id);
-    final publicSite = AppConstants.publicSiteShortUrl(slug);
+    final links = resolveNoticiaShareLinks(
+      tenantId: widget.tenantId.trim(),
+      noticiaId: widget.doc.id,
+      churchSlug: widget.churchSlug,
+    );
     final elat = _eventPostParseDouble(data['locationLat']);
     final elng = _eventPostParseDouble(data['locationLng']);
     final msg = buildNoticiaInviteShareMessage(
@@ -4250,13 +4271,16 @@ class _EventoPostState extends State<_EventoPost>
       location: loc.isNotEmpty ? loc : null,
       locationLat: elat,
       locationLng: elng,
-      publicSiteUrl: publicSite,
-      inviteCardUrl: inviteUrl,
+      publicSiteUrl: links.publicSiteUrl,
+      inviteCardUrl: links.eventPageUrl,
+      tenantId: widget.tenantId.trim(),
+      noticiaId: widget.doc.id,
+      churchSlug: links.resolvedSlug,
     );
     if (!mounted) return;
     await showChurchNoticiaShareSheet(
       context,
-      shareLink: inviteUrl,
+      shareLink: links.eventPageUrl,
       shareMessage: msg,
       shareSubject: churchName,
       previewImageUrl: null,
@@ -5006,11 +5030,12 @@ class _EventoPostState extends State<_EventoPost>
           tenantId: widget.tenantId,
           churchSlug: widget.churchSlug,
           churchData: widget.churchData,
-          shareInviteUrl: widget.churchSlug.trim().isNotEmpty
-              ? AppConstants.shareNoticiaIgrejaEventoUrl(
-                  widget.churchSlug, widget.doc.id)
-              : AppConstants.shareNoticiaCardUrl(
-                  widget.tenantId, widget.doc.id),
+          shareInviteUrl: resolveNoticiaShareLinks(
+            tenantId: widget.tenantId.trim(),
+            noticiaId: widget.doc.id,
+            churchSlug: widget.churchSlug,
+            churchData: widget.churchData,
+          ).eventPageUrl,
           eventLocation: location,
           eventLat: _eventPostParseDouble(data['locationLat']),
           eventLng: _eventPostParseDouble(data['locationLng']),
@@ -5650,8 +5675,14 @@ class _EventPostLinksRow extends StatelessWidget {
   });
 
   Widget _buildLinks(BuildContext context, Map<String, dynamic>? church) {
-    final slug = churchSlug.trim();
-    final publicSite = AppConstants.publicSiteShortUrl(slug);
+    final resolvedSlug = resolveChurchPublicSlug(
+      churchSlug: churchSlug,
+      tenantId: tenantId,
+      churchData: church ?? churchData,
+    );
+    final publicSite = resolvedSlug.isNotEmpty
+        ? AppConstants.publicChurchHomeUrl(resolvedSlug)
+        : AppConstants.effectivePublicWebBaseUrl;
         double? lat = eventLat;
         double? lng = eventLng;
         if (church != null) {
@@ -7541,16 +7572,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _flushPendingEventPhotosBeforePublish(String tenantId) async {
     if (_newPhotoCount <= 0) return;
     final postId = _eventDocRef.id;
-    if (widget.doc == null && !_eventDraftEnsured) {
-      await ImmediateFeedPhotoAttach.ensureDraftPost(
-        docRef: _eventDocRef,
-        isNewDoc: true,
-        tenantId: tenantId,
-        postType: 'evento',
-        title: _title.text,
-      );
-      _eventDraftEnsured = true;
-    }
     final start = _existingUrls.length;
     final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
       tenantId: tenantId,

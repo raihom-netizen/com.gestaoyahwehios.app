@@ -10,17 +10,19 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 
-/// Variantes WebP de foto de perfil — listas usam thumb; carteirinha/perfil usam full.
+/// Foto de perfil do membro — um único ficheiro em
+/// `igrejas/{tenant}/membros/{authUid|docId}/foto_perfil.jpg`.
 abstract final class MemberProfileVariantsService {
   MemberProfileVariantsService._();
 
-  /// Thumb 200 @ 70% + full 1024 @ 80% (quadrado).
+  /// Full 1024 @ 80% (quadrado) — usado como único upload.
   static Future<({
     Uint8List thumb,
     Uint8List full,
   })> encodeProfileTiers(Uint8List raw) =>
       YahwehUnifiedImagePipeline.encodeMemberProfileTiers(raw);
 
+  /// Grava **só** `foto_perfil.jpg` na pasta do membro (sobrescreve ao trocar).
   static Future<({
     String photoThumb,
     String photoFull,
@@ -28,24 +30,16 @@ abstract final class MemberProfileVariantsService {
     String thumbStoragePath,
   })> uploadProfileVariants({
     required String tenantId,
-    required String memberDocId,
-    required Uint8List thumbBytes,
+    required String storageFolderId,
     required Uint8List fullBytes,
+    Uint8List? thumbBytes,
     void Function(double progress)? onProgress,
     bool requireAuth = true,
   }) async {
-    final thumbPath = ChurchStorageLayout.memberProfileThumbPath(
+    final path = ChurchStorageLayout.memberProfilePhotoPath(
       tenantId,
-      memberDocId,
+      storageFolderId,
     );
-    final fullPath = ChurchStorageLayout.memberProfilePhotoPath(
-      tenantId,
-      memberDocId,
-    );
-
-    void report(int i, double p) {
-      onProgress?.call(((i + p) / 2).clamp(0.0, 1.0));
-    }
 
     if (requireAuth) {
       await FastMediaPublishBootstrap.warmForFeedPublish();
@@ -53,37 +47,33 @@ abstract final class MemberProfileVariantsService {
       await FirebaseBootstrap.ensureInitialized();
       FirebaseBootstrapService.refreshCachedApp();
     }
-    final urls = await Future.wait([
-      FeedPostMediaUpload.uploadFeedPhotoBytes(
-        storagePath: thumbPath,
-        bytes: thumbBytes,
-        onProgress: (p) => report(0, p),
-        requireAuth: requireAuth,
-      ),
-      FeedPostMediaUpload.uploadFeedPhotoBytes(
-        storagePath: fullPath,
-        bytes: fullBytes,
-        onProgress: (p) => report(1, p),
-        requireAuth: requireAuth,
-      ),
-    ]);
+
+    final url = await FeedPostMediaUpload.uploadFeedPhotoBytes(
+      storagePath: path,
+      bytes: fullBytes,
+      onProgress: onProgress,
+      requireAuth: requireAuth,
+    );
 
     return (
-      photoThumb: urls[0],
-      photoFull: urls[1],
-      fullStoragePath: fullPath,
-      thumbStoragePath: thumbPath,
+      photoThumb: url,
+      photoFull: url,
+      fullStoragePath: path,
+      thumbStoragePath: path,
     );
   }
 
-  /// URL para listas / chat / escalas / aniversariantes — **só** miniatura.
+  /// URL para listas / chat / escalas / aniversariantes.
   static String? listPhotoUrl(Map<String, dynamic>? data) {
     if (data == null) return null;
     for (final k in [
       'photoThumbStoragePath',
       'fotoThumbPath',
+      'photoStoragePath',
+      'fotoPath',
       YahwehPerformanceV4.profileThumbField,
       YahwehPerformanceV4.profileThumbFieldLegacy,
+      YahwehPerformanceV4.profileFullField,
     ]) {
       final thumb = (data[k] ?? '').toString().trim();
       if (thumb.isEmpty) continue;

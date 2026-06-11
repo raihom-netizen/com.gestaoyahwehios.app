@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart';
 
 /// Upload directo Storage → URL — port 1:1 do EcoFire `StorageUploadService`,
 /// com paths canónicos `igrejas/{churchId}/…` do Gestão YAHWEH.
@@ -46,16 +47,12 @@ abstract final class EcoFireStorageUpload {
             cacheControl: StorageUploadMetadata.cacheControl,
           ),
         );
-        if (onProgress != null) {
-          task.snapshotEvents.listen((snap) {
-            final total = snap.totalBytes;
-            if (total > 0) {
-              onProgress(snap.bytesTransferred / total);
-            }
-          });
-        }
-        await task;
-        final url = await ref.getDownloadURL();
+        final snap = await awaitStorageUploadTask(
+          task,
+          payloadBytes: bytes.length,
+          onProgress: onProgress,
+        );
+        final url = await storageDownloadUrlWithRetry(snap.ref);
         EcoFireFlow.log('STORAGE OK $storagePath');
         return url;
       } catch (e) {
@@ -83,7 +80,7 @@ abstract final class EcoFireStorageUpload {
     return (url: url, storagePath: path);
   }
 
-  /// Foto perfil membro — `membros/fotos/{id}.webp` (+ thumb opcional).
+  /// Foto perfil membro — único ficheiro `membros/{id}/foto_perfil.jpg`.
   static Future<({String url, String storagePath, String? thumbUrl})>
       uploadMemberProfile({
     required String churchId,
@@ -100,17 +97,7 @@ abstract final class EcoFireStorageUpload {
       mimeType: mimeType,
       onProgress: onProgress,
     );
-    String? thumbUrl;
-    if (thumbBytes != null && thumbBytes.isNotEmpty) {
-      final thumbPath =
-          ChurchStorageLayout.memberProfileThumbPath(churchId, memberId);
-      thumbUrl = await putData(
-        storagePath: thumbPath,
-        bytes: thumbBytes,
-        mimeType: 'image/webp',
-      );
-    }
-    return (url: url, storagePath: path, thumbUrl: thumbUrl);
+    return (url: url, storagePath: path, thumbUrl: url);
   }
 
   static Future<({String url, String storagePath})> uploadAvisoPhoto({

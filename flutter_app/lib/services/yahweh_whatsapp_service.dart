@@ -1,9 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:flutter/material.dart' show BuildContext, Rect, ScaffoldMessenger;
+import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
+import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -96,10 +97,17 @@ abstract final class YahwehWhatsAppService {
 
     final lat = postData['locationLat'];
     final lng = postData['locationLng'];
-    final slug = churchSlug.trim();
-    final inviteUrl = slug.isNotEmpty
-        ? AppConstants.shareNoticiaIgrejaEventoUrl(slug, noticiaId)
-        : AppConstants.shareNoticiaCardUrl(tenantId, noticiaId);
+    final slug = resolveChurchPublicSlug(
+      churchSlug: churchSlug,
+      tenantId: tenantId,
+      churchData: postData,
+    );
+    final links = resolveNoticiaShareLinks(
+      tenantId: tenantId,
+      noticiaId: noticiaId,
+      churchSlug: slug,
+      churchData: postData,
+    );
 
     return buildNoticiaInviteShareMessage(
       churchName: churchName.trim().isNotEmpty ? churchName.trim() : 'Nossa igreja',
@@ -114,12 +122,39 @@ abstract final class YahwehWhatsAppService {
       locationLng: lng is num
           ? lng.toDouble()
           : (lng != null ? double.tryParse(lng.toString()) : null),
-      publicSiteUrl: AppConstants.publicSiteShortUrl(slug),
-      inviteCardUrl: inviteUrl,
+      publicSiteUrl: links.publicSiteUrl,
+      inviteCardUrl: links.eventPageUrl,
+      tenantId: tenantId,
+      noticiaId: noticiaId,
+      churchSlug: slug,
+      churchData: postData,
     );
   }
 
-  /// 1 clique: monta convite + abre WhatsApp.
+  /// WhatsApp / folha nativa com fotos e vídeo + texto completo.
+  static Future<bool> sendNoticiaWithMedia({
+    required String message,
+    required Map<String, dynamic> postData,
+    Rect? sharePositionOrigin,
+  }) async {
+    if (!kIsWeb) {
+      try {
+        final media = await fetchNoticiaShareMediaBundle(postData);
+        if (media.isNotEmpty) {
+          await YahwehShareService.shareMediaBundle(
+            files: media,
+            message: message,
+            subject: 'Convite',
+            sharePositionOrigin: sharePositionOrigin,
+          );
+          return true;
+        }
+      } catch (_) {}
+    }
+    return openNoticiaBroadcast(message);
+  }
+
+  /// 1 clique: convite premium + mídia (mobile) ou texto (web).
   static Future<bool> sendNoticiaOneTap({
     required String churchName,
     required String churchSlug,
@@ -136,7 +171,7 @@ abstract final class YahwehWhatsAppService {
       postData: postData,
       noticiaKindOverride: noticiaKindOverride,
     );
-    return openNoticiaBroadcast(msg);
+    return sendNoticiaWithMedia(message: msg, postData: postData);
   }
 
   /// Parabéns de aniversário — 1 clique para o membro.

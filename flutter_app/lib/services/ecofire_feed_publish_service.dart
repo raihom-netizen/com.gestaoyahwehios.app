@@ -8,14 +8,13 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
-import 'package:gestao_yahweh/services/media_image_variants_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         dedupeImageRefsByStorageIdentity,
         isValidImageUrl,
         sanitizeImageUrl;
 
-/// Resultado de um slot — URLs + paths (EcoFire: Firestore guarda só links).
+/// Resultado de um slot — URL + path directo em `igrejas/{id}/eventos|avisos/{postId}/`.
 class EcoFireFeedPhotoSlot {
   const EcoFireFeedPhotoSlot({
     required this.fullUrl,
@@ -30,8 +29,9 @@ class EcoFireFeedPhotoSlot {
   final String thumbPath;
 }
 
-/// Publicação de fotos aviso/evento — padrão EcoFire Smart:
-/// comprimir → Storage → [getDownloadURL] → Firestore só com links + miniatura.
+/// Publicação de fotos aviso/evento — upload **directo** no Storage (pasta do post).
+///
+/// Ex.: `igrejas/{churchId}/eventos/{postId}/banner_evento.jpg`
 abstract final class EcoFireFeedPublishService {
   EcoFireFeedPublishService._();
 
@@ -40,51 +40,19 @@ abstract final class EcoFireFeedPublishService {
     return t == 'evento' || t == 'noticia' || t == 'noticias';
   }
 
-  static String _fullPath({
+  static String _mainStoragePath({
     required String churchId,
     required String postType,
     required String postId,
     required int slotIndex,
   }) {
     if (_isEventoPostType(postType)) {
-      return ChurchStorageLayout.eventPostPhotoVariantPath(
-        churchId,
-        postId,
-        slotIndex,
-        MediaImageVariantsService.tierFull,
-      );
+      return ChurchStorageLayout.eventPostPhotoPath(churchId, postId, slotIndex);
     }
-    return ChurchStorageLayout.avisoPostPhotoVariantPath(
-      churchId,
-      postId,
-      slotIndex,
-      MediaImageVariantsService.tierFull,
-    );
+    return ChurchStorageLayout.avisoPostPhotoPath(churchId, postId, slotIndex);
   }
 
-  static String _thumbPath({
-    required String churchId,
-    required String postType,
-    required String postId,
-    required int slotIndex,
-  }) {
-    if (_isEventoPostType(postType)) {
-      return ChurchStorageLayout.eventPostPhotoVariantPath(
-        churchId,
-        postId,
-        slotIndex,
-        MediaImageVariantsService.tierThumb,
-      );
-    }
-    return ChurchStorageLayout.avisoPostPhotoVariantPath(
-      churchId,
-      postId,
-      slotIndex,
-      MediaImageVariantsService.tierThumb,
-    );
-  }
-
-  /// Um slot — full + thumb no Storage; devolve URLs HTTPS (token Firebase).
+  /// Um slot — comprime, envia **um** ficheiro, devolve URL HTTPS.
   static Future<EcoFireFeedPhotoSlot> uploadPhotoSlot({
     required String tenantId,
     required String postType,
@@ -108,39 +76,27 @@ abstract final class EcoFireFeedPublishService {
       throw StateError('Sem imagem para enviar.');
     }
 
-    final full = await EcoFireImageProcess.processForFeedPhoto(raw);
-    final thumb = await EcoFireImageProcess.processForMemberThumb(raw);
+    final processed = await EcoFireImageProcess.processForFeedPhoto(raw);
     final churchId = tenantId.trim();
-    final fullPath = _fullPath(
-      churchId: churchId,
-      postType: postType,
-      postId: postId,
-      slotIndex: slotIndex,
-    );
-    final thumbPath = _thumbPath(
+    final storagePath = _mainStoragePath(
       churchId: churchId,
       postType: postType,
       postId: postId,
       slotIndex: slotIndex,
     );
 
-    final fullUrl = await EcoFireStorageUpload.putData(
-      storagePath: fullPath,
-      bytes: full.bytes,
-      mimeType: full.mime,
+    final url = await EcoFireStorageUpload.putData(
+      storagePath: storagePath,
+      bytes: processed.bytes,
+      mimeType: processed.mime,
       onProgress: onProgress,
-    );
-    final thumbUrl = await EcoFireStorageUpload.putData(
-      storagePath: thumbPath,
-      bytes: thumb.bytes,
-      mimeType: thumb.mime,
     );
 
     return EcoFireFeedPhotoSlot(
-      fullUrl: fullUrl,
-      thumbUrl: thumbUrl,
-      fullPath: fullPath,
-      thumbPath: thumbPath,
+      fullUrl: url,
+      thumbUrl: url,
+      fullPath: storagePath,
+      thumbPath: storagePath,
     );
   }
 

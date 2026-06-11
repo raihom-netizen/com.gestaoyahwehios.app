@@ -26,6 +26,9 @@ import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
@@ -149,12 +152,45 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   @override
   void initState() {
     super.initState();
-    _bootstrap();
+    if (_tryApplySessionChurchInstant()) {
+      unawaited(_bootstrap(backgroundOnly: true));
+    } else {
+      unawaited(_bootstrap());
+    }
+  }
+
+  /// Painel Android/iOS — dados da igreja já na sessão (sem skeleton prolongado).
+  bool _tryApplySessionChurchInstant() {
+    final ctxData = ChurchContextService.currentChurchData;
+    final ctxId = ChurchContextService.currentChurchId;
+    if (ctxData == null ||
+        ctxData.isEmpty ||
+        ctxId == null ||
+        ctxId.isEmpty) {
+      return false;
+    }
+    final hint = (widget.tenantId ?? widget.slug ?? '').trim();
+    if (hint.isNotEmpty) {
+      final panel = ChurchContextService.panelChurchId(hint);
+      final mapped = TenantResolverService.mapLegacySeedToCanonical(hint);
+      final ok = hint == ctxId ||
+          panel == ctxId ||
+          mapped == ctxId ||
+          TenantResolverService.anchoredClusterIdsFor(ctxId).contains(hint);
+      if (!ok) return false;
+    }
+    _applyTenantFromChurchDataSync(ctxId, ctxData);
+    return true;
   }
 
   /// Auth de visitante + carga da igreja (web, Android e iOS — mesmas regras).
-  Future<void> _bootstrap() async {
-    await PublicSiteMediaAuth.ensurePublicVisitorMediaAccess();
+  Future<void> _bootstrap({bool backgroundOnly = false}) async {
+    await PublicSiteMediaAuth.ensurePublicVisitorMediaAccess()
+        .timeout(const Duration(seconds: 4), onTimeout: () {});
+    if (backgroundOnly) {
+      await _loadTenant(refreshInBackground: true);
+      return;
+    }
     await _loadTenant();
   }
 
@@ -401,22 +437,10 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     await _applyTenantFromChurchData(d.id, d.data() ?? {});
   }
 
-  Future<void> _applyTenantFromChurchData(
-    String docId,
-    Map<String, dynamic> data,
-  ) async {
-    final churchWithId = Map<String, dynamic>.from(data)..['id'] = docId;
-    String operational = docId;
-    try {
-      operational = await TenantResolverService.resolveOperationalChurchDocId(
-        docId,
-      ).timeout(const Duration(seconds: 8), onTimeout: () => docId);
-    } catch (_) {}
-    final resolvedLogo = await _prefetchChurchLogoUrl(
-      tenantDocId: operational,
-      churchWithId: churchWithId,
-    );
-    if (!mounted) return;
+  void _applyTenantFromChurchDataSync(String docId, Map<String, dynamic> data) {
+    final operational = ChurchContextService.panelChurchId(docId);
+    final op = operational.isNotEmpty ? operational : docId;
+    final churchWithId = Map<String, dynamic>.from(data)..['id'] = op;
     final endereco = (data['endereco'] ?? '').toString().trim();
     final rua = (data['rua'] ?? '').toString().trim();
     final bairro = (data['bairro'] ?? '').toString().trim();
@@ -432,119 +456,92 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
             estado: estado,
             cep: cep,
           );
-    setState(() {
-      _tenantId = operational;
-      _tenantChurchData = churchWithId;
-      _tenantName = (data['name'] ?? data['nome'] ?? 'Igreja').toString();
-      _tenantBlocked = SubscriptionGuard.evaluate(church: data).blocked;
-      _tenantLogoUrl = _logoUrlFromChurchDoc(data);
-      _resolvedChurchLogoUrl = resolvedLogo;
-      _tenantEndereco = enderecoCompleto;
-      _tenantAlias =
-          (data['alias'] ?? data['slug'] ?? operational).toString().trim();
-      _tenantSlug =
-          (data['slug'] ?? data['alias'] ?? operational).toString().trim();
-      if (_tenantAlias.isEmpty) _tenantAlias = operational;
-      if (_tenantSlug.isEmpty) _tenantSlug = operational;
-      _loading = false;
-    });
+    final logoFromDoc = _logoUrlFromChurchDoc(data);
+    _tenantId = op;
+    _tenantChurchData = churchWithId;
+    _tenantName = (data['name'] ?? data['nome'] ?? 'Igreja').toString();
+    _tenantBlocked = SubscriptionGuard.evaluate(church: data).blocked;
+    _tenantLogoUrl = logoFromDoc;
+    _resolvedChurchLogoUrl = logoFromDoc;
+    _tenantEndereco = enderecoCompleto;
+    _tenantAlias =
+        (data['alias'] ?? data['slug'] ?? op).toString().trim();
+    _tenantSlug = (data['slug'] ?? data['alias'] ?? op).toString().trim();
+    if (_tenantAlias.isEmpty) _tenantAlias = op;
+    if (_tenantSlug.isEmpty) _tenantSlug = op;
+    _loading = false;
   }
 
-  Future<void> _loadTenant() async {
-    try {
-      await ensureFirebaseReadyForPanelRead()
-          .timeout(const Duration(seconds: 3), onTimeout: () {});
+  void _refreshTenantLogoInBackground(String operational, Map<String, dynamic> data) {
+    final churchWithId = Map<String, dynamic>.from(data)..['id'] = operational;
+    unawaited(() async {
+      final resolved = await _prefetchChurchLogoUrl(
+        tenantDocId: operational,
+        churchWithId: churchWithId,
+      );
+      if (!mounted || resolved == null || resolved.isEmpty) return;
+      if (_resolvedChurchLogoUrl == resolved) return;
+      setState(() => _resolvedChurchLogoUrl = resolved);
+    }());
+  }
 
+  Future<void> _applyTenantFromChurchData(
+    String docId,
+    Map<String, dynamic> data,
+  ) async {
+    if (!mounted) return;
+    setState(() {
+      _applyTenantFromChurchDataSync(docId, data);
+    });
+    final op = (_tenantId ?? docId).trim();
+    _refreshTenantLogoInBackground(op, data);
+  }
+
+  Future<void> _loadTenant({bool refreshInBackground = false}) async {
+    if (refreshInBackground && !_loading) {
+      final tid = (_tenantId ?? widget.tenantId ?? '').trim();
+      if (tid.isEmpty) return;
+      try {
+        final hit = await IgrejaDirectFirestoreReads.readIgrejaPublicProfile(tid);
+        if (hit != null && hit.data.isNotEmpty && mounted) {
+          await _applyTenantFromChurchData(hit.docId, hit.data);
+        }
+      } catch (_) {}
+      return;
+    }
+    try {
       final slugTrim = widget.slug?.trim() ?? '';
       final tenantHint = widget.tenantId?.trim() ?? '';
 
-      String? resolvedId;
+      for (final seed in [tenantHint, slugTrim]) {
+        if (seed.isEmpty) continue;
+        final peek = TenantResolverService.peekRegistrationContext(seed);
+        if (peek != null && peek.profile.isNotEmpty) {
+          await _applyTenantFromChurchData(peek.operationalId, peek.profile);
+          return;
+        }
+      }
+
       if (slugTrim.isNotEmpty) {
-        resolvedId = TenantResolverService.mapLegacySeedToCanonical(slugTrim) ??
-            slugTrim;
-      }
-      if ((resolvedId == null || resolvedId.isEmpty) && tenantHint.isNotEmpty) {
-        resolvedId = TenantResolverService.mapLegacySeedToCanonical(tenantHint) ??
-            tenantHint;
-      }
-      if (resolvedId != null && resolvedId.isNotEmpty) {
-        var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
-          resolvedId,
-          preferServer: kIsWeb,
-        ).timeout(const Duration(seconds: 10));
-        if (profile.isNotEmpty) {
-          await _applyTenantFromChurchData(resolvedId, profile);
+        final resolved = await PublicChurchSlugResolver.resolve(slugTrim);
+        if (resolved != null) {
+          await _applyTenantFromChurchData(
+            resolved.churchId,
+            resolved.profile,
+          );
           return;
         }
       }
 
       if (tenantHint.isNotEmpty) {
-        resolvedId =
-            await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(
-                  tenantHint,
-                )
-                .timeout(const Duration(seconds: 8), onTimeout: () => tenantHint) ??
-            tenantHint;
-      }
-      if ((resolvedId == null || resolvedId.isEmpty) && slugTrim.isNotEmpty) {
-        resolvedId =
-            await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(slugTrim)
-                .timeout(const Duration(seconds: 8));
-      }
-
-      if (resolvedId != null && resolvedId.isNotEmpty) {
-        AgentDebugLog.log(
-          location: 'public_member_signup_page.dart:load',
-          message: 'signup_slug_resolved',
-          hypothesisId: 'PUB-B',
-          data: {'slug': slugTrim, 'resolvedId': resolvedId},
-        );
-        var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
-          resolvedId,
-          preferServer: kIsWeb,
-        );
-        if (profile.isEmpty) {
-          profile = await TenantResolverService.richestChurchProfileForCadastro(
-            resolvedId,
-            preferServer: kIsWeb,
-          );
-        }
-        if (profile.isNotEmpty) {
-          await _applyTenantFromChurchData(resolvedId, profile);
-          return;
-        }
-        final d = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .doc(resolvedId)
-            .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 12));
-        if (d.exists) {
-          await _applyTenantFromChurchDoc(d);
+        final hit =
+            await IgrejaDirectFirestoreReads.readIgrejaPublicProfile(tenantHint);
+        if (hit != null && hit.data.isNotEmpty) {
+          await _applyTenantFromChurchData(hit.docId, hit.data);
           return;
         }
       }
 
-      if (slugTrim.isNotEmpty) {
-        // Fallback: query directa slug/alias (igrejas sem cluster conhecido).
-        var q = await FirebaseFirestore.instance
-            .collection('igrejas')
-            .where('slug', isEqualTo: slugTrim)
-            .limit(1)
-            .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 10));
-        if (q.docs.isEmpty) {
-          q = await FirebaseFirestore.instance
-              .collection('igrejas')
-              .where('alias', isEqualTo: slugTrim)
-              .limit(1)
-              .get(const GetOptions(source: Source.serverAndCache))
-              .timeout(const Duration(seconds: 10));
-        }
-        if (q.docs.isNotEmpty) {
-          await _applyTenantFromChurchDoc(q.docs.first);
-          return;
-        }
-      }
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -1370,65 +1367,14 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
+      final label = (widget.slug ?? widget.tenantId ?? 'Igreja').trim();
       return Scaffold(
         backgroundColor: Colors.transparent,
         body: ChurchPublicSiteScaffoldBackground(
-          child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildPublicChurchHeader(loading: true),
-            Expanded(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 500),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Skeletonizer(
-                      enabled: true,
-                      child: Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                          boxShadow: ThemeCleanPremium.softUiCardShadow,
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              height: 14,
-                              width: 180,
-                              color: const Color(0xFFE2E8F0),
-                            ),
-                            const SizedBox(height: 16),
-                            Container(
-                              height: 48,
-                              width: double.infinity,
-                              color: const Color(0xFFE2E8F0),
-                            ),
-                            const SizedBox(height: 10),
-                            Container(
-                              height: 48,
-                              width: double.infinity,
-                              color: const Color(0xFFE2E8F0),
-                            ),
-                            const SizedBox(height: 10),
-                            Container(
-                              height: 48,
-                              width: double.infinity,
-                              color: const Color(0xFFE2E8F0),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+          child: ChurchPublicSitePremiumLoader(
+            churchLabel: label.isNotEmpty ? label : 'Igreja',
+            subtitle: 'A preparar cadastro de membro…',
+          ),
         ),
       );
     }

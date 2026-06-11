@@ -7560,6 +7560,12 @@ export {
   recomputePanelPublicSiteCache,
 } from "./panelPublicSiteCache";
 
+export {
+  onIgrejaWritePublicSlugIndex,
+  backfillPublicChurchSlugIndex,
+  syncPublicChurchSlugIndexForChurch,
+} from "./publicChurchSlugIndex";
+
 export { resolveStorageDisplayUrls } from "./storageDisplayUrls";
 
 export { backfillMemberCodigos } from "./memberCodigo";

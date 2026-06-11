@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:gestao_yahweh/core/firebase_apps_diagnostic.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -12,6 +13,7 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
+import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
@@ -49,6 +51,39 @@ abstract final class UnifiedUploadService {
       await FirebaseBootstrapService.ensureReadyForStorageUpload();
     }
     logFirebaseAppsBeforeOperation('ensure_ready', module: module);
+  }
+
+  /// Entrada canónica multiplataforma — [XFile.readAsBytes] + pipeline unificado.
+  static Future<String> uploadFromXFile({
+    required XFile file,
+    required String storagePath,
+    YahwehUploadModule module = YahwehUploadModule.generic,
+    bool chatJpegFast = false,
+    bool skipClientPrepare = false,
+    void Function(double progress)? onProgress,
+    void Function(UploadTask task)? onUploadTaskCreated,
+    int maxAttempts = 3,
+    bool useOfflineQueue = false,
+  }) async {
+    final bytes = await MediaService.readXFileBytes(file);
+    return uploadImage(
+      storagePath: storagePath,
+      bytes: bytes,
+      localPath: localPathIfAvailable(file),
+      module: module,
+      chatJpegFast: chatJpegFast,
+      skipClientPrepare: skipClientPrepare,
+      onProgress: onProgress,
+      onUploadTaskCreated: onUploadTaskCreated,
+      maxAttempts: maxAttempts,
+      useOfflineQueue: useOfflineQueue,
+    );
+  }
+
+  static String? localPathIfAvailable(XFile file) {
+    if (kIsWeb) return null;
+    final p = file.path.trim();
+    return p.isNotEmpty ? p : null;
   }
 
   static Future<String> uploadImage({

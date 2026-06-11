@@ -1,13 +1,28 @@
-Para as fotos carregarem na web (Firebase Storage), o bucket precisa ter CORS configurado.
+Firebase Storage — CORS para painel Web (Gestão YAHWEH)
+========================================================
 
-1. Instale Google Cloud SDK (gsutil) se ainda não tiver.
-2. Aplique o CORS no bucket do Firebase Storage:
+Sintomas sem CORS correcto:
+- Upload falha só na Web (F12: erro CORS / network)
+- Imagens em branco ou downloadURL não carrega no browser
+- PUT/POST bloqueado mesmo com regras Storage OK
 
-   gsutil cors set storage_cors.json gs://SEU_PROJECT_ID.appspot.com
+Arquivo canónico (PUT/POST/GET + domínios produção):
+  cors.json (raiz do repo)
+  flutter_app/storage_cors.json (cópia alinhada)
 
-   (Substitua SEU_PROJECT_ID pelo ID do projeto Firebase, ex: gestaoyahweh-21e23)
+Aplicar no bucket (requer gcloud + gsutil):
+  gcloud auth login
+  gcloud config set project gestaoyahweh-21e23
+  .\scripts\apply_firebase_storage_cors.ps1
 
-3. Ou pelo Console Firebase: Storage > ... (menu) > Configurações do bucket (se disponível).
+Ou manualmente:
+  gsutil cors set cors.json gs://gestaoyahweh-21e23.firebasestorage.app
+  gsutil cors get gs://gestaoyahweh-21e23.firebasestorage.app
 
-O arquivo storage_cors.json já permite origem "*" (qualquer domínio) para GET/HEAD,
-necessário para o app web carregar imagens do Storage.
+Domínios incluídos:
+- https://gestaoyahweh.com.br
+- https://www.gestaoyahweh.com.br
+- Firebase Hosting (*.web.app / *.firebaseapp.com)
+- localhost (dev Flutter web)
+
+Nota: CORS é configuração Google Cloud — não é corrigível só no código Flutter.

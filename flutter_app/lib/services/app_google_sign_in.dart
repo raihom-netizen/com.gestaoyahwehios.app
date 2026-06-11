@@ -1,5 +1,4 @@
-import 'package:firebase_auth/firebase_auth.dart'
-    show FirebaseAuthException, GoogleAuthProvider;
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart' show PlatformException;
@@ -35,35 +34,72 @@ GoogleAuthProvider firebaseWebGoogleAuthProvider({
   return p;
 }
 
-GoogleSignIn? _cached;
+bool _googleSignInInitialized = false;
 
-/// Instância única com [GoogleSignIn.serverClientId] em mobile (Firebase Auth + idToken).
-GoogleSignIn appGoogleSignIn() {
-  if (_cached != null) return _cached!;
+/// Instância única — google_sign_in 7.x (singleton + initialize obrigatório).
+GoogleSignIn appGoogleSignIn() => GoogleSignIn.instance;
+
+/// Deve ser chamado uma vez antes de qualquer login Google nativo.
+Future<void> ensureAppGoogleSignInInitialized() async {
+  if (_googleSignInInitialized) return;
   if (kIsWeb) {
-    _cached = GoogleSignIn();
+    await GoogleSignIn.instance.initialize();
   } else {
     final isIos = defaultTargetPlatform == TargetPlatform.iOS;
-    _cached = GoogleSignIn(
-      scopes: const <String>['email', 'profile'],
+    await GoogleSignIn.instance.initialize(
       serverClientId: kFirebaseGoogleOAuthWebClientId,
       clientId: isIos ? kFirebaseIosGoogleClientId : null,
-      // Android: ajuda a obter código de auth/idToken estável para o Firebase.
-      forceCodeForRefreshToken: true,
     );
   }
-  return _cached!;
+  _googleSignInInitialized = true;
 }
 
-/// Limpa a sessão local do Google no aparelho para o próximo [GoogleSignIn.signIn] abrir
-/// o seletor de contas (e "Usar outra conta"), sem a demora de [GoogleSignIn.disconnect].
-///
-/// Use antes de cada login no painel/signup quando quiser sempre escolher o e-mail.
+/// Silencioso / leve — substitui `signInSilently` (v6).
+Future<GoogleSignInAccount?> appGoogleSignInSilently() async {
+  await ensureAppGoogleSignInInitialized();
+  final attempt = GoogleSignIn.instance.attemptLightweightAuthentication();
+  if (attempt == null) return null;
+  return attempt;
+}
+
+/// Seletor Google nativo — substitui `signIn` (v6).
+Future<GoogleSignInAccount?> appGoogleSignInInteractive() async {
+  await ensureAppGoogleSignInInitialized();
+  if (!GoogleSignIn.instance.supportsAuthenticate()) {
+    throw UnsupportedError(
+      'Login Google interactivo não suportado nesta plataforma.',
+    );
+  }
+  return GoogleSignIn.instance.authenticate(
+    scopeHint: const <String>['email', 'profile'],
+  );
+}
+
+/// Credencial Firebase a partir da conta Google (v7 — só idToken).
+Future<UserCredential> firebaseCredentialFromGoogleAccount(
+  GoogleSignInAccount account,
+) async {
+  final auth = account.authentication;
+  final idTok = auth.idToken;
+  if (idTok == null || idTok.isEmpty) {
+    throw FirebaseAuthException(
+      code: 'invalid-credential',
+      message: 'Google não retornou token de identificação.',
+    );
+  }
+  return FirebaseAuth.instance.signInWithCredential(
+    GoogleAuthProvider.credential(idToken: idTok),
+  );
+}
+
+/// Limpa a sessão local do Google no aparelho para o próximo login abrir
+/// o seletor de contas (e "Usar outra conta").
 Future<void> appGoogleSignOutForAccountPicker() async {
   if (kIsWeb) return;
   try {
-    await appGoogleSignIn().signOut();
-    await appGoogleSignIn().disconnect();
+    await ensureAppGoogleSignInInitialized();
+    await GoogleSignIn.instance.signOut();
+    await GoogleSignIn.instance.disconnect();
   } catch (_) {}
 }
 
@@ -91,6 +127,14 @@ bool isGoogleSignInUserCancellation(PlatformException e) {
     return true;
   }
   if (m.contains('canceled') && m.contains('12501')) return true;
+  return false;
+}
+
+bool isGoogleSignInUserCancellationException(Object e) {
+  if (e is GoogleSignInException) {
+    return e.code == GoogleSignInExceptionCode.canceled ||
+        e.code == GoogleSignInExceptionCode.interrupted;
+  }
   return false;
 }
 

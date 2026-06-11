@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/yahweh_heavy_work.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/services/media_service.dart';
 
 import 'package:gestao_yahweh/core/yahweh_cache_managers.dart';
 import 'package:gestao_yahweh/services/member_profile_image_isolate.dart';
@@ -40,10 +41,9 @@ class ImageHelper {
       if (current.length <= targetMaxBytes) return current;
       try {
         final next = kIsWeb
-            ? await FlutterImageCompress.compressWithList(
+            ? await MediaService.compressImageBytes(
                 current,
-                quality: quality,
-                format: CompressFormat.webp,
+                profile: MediaImageProfile.patrimonio,
               )
             : await YahwehHeavyWork.run(
                 _compressWebpPassIsolate,
@@ -90,12 +90,9 @@ class ImageHelper {
       if (current.length <= targetMaxBytes) return current;
       try {
         final next = kIsWeb
-            ? await FlutterImageCompress.compressWithList(
+            ? await MediaService.compressImageBytes(
                 current,
-                minWidth: minSide,
-                minHeight: minSide,
-                quality: quality,
-                format: CompressFormat.jpeg,
+                profile: MediaImageProfile.feed,
               )
             : await YahwehHeavyWork.run(
                 _compressJpegPassIsolate,
@@ -120,19 +117,15 @@ class ImageHelper {
 
   static Future<Uint8List> compressPatrimonioPhotoForUpload(Uint8List list) async {
     if (list.isEmpty) return list;
+    // FlutterImageCompress usa platform channel — não pode correr em isolate (UnimplementedError).
     Future<Uint8List> runPass(int minSide) async {
-      final result = kIsWeb
-          ? await FlutterImageCompress.compressWithList(
-              list,
-              minWidth: minSide,
-              minHeight: minSide,
-              quality: kPatrimonioWebpQuality,
-              format: CompressFormat.webp,
-            )
-          : await YahwehHeavyWork.run(
-              _compressPatrimonioPassIsolate,
-              _PatrimonioCompressPass(list, minSide, kPatrimonioWebpQuality),
-            );
+      final result = await FlutterImageCompress.compressWithList(
+        list,
+        minWidth: minSide > 0 ? minSide : 1920,
+        minHeight: minSide > 0 ? minSide : 1920,
+        quality: kPatrimonioWebpQuality,
+        format: CompressFormat.webp,
+      );
       if (result.isNotEmpty) return Uint8List.fromList(result);
       return list;
     }
@@ -156,12 +149,9 @@ class ImageHelper {
     if (list.isEmpty) return list;
     try {
       final result = kIsWeb
-          ? await FlutterImageCompress.compressWithList(
+          ? await MediaService.compressImageBytes(
               list,
-              minWidth: minWidth,
-              minHeight: minHeight,
-              quality: quality,
-              format: CompressFormat.jpeg,
+              profile: MediaImageProfile.chat,
             )
           : await YahwehHeavyWork.run(
               _compressGenericJpegIsolate,

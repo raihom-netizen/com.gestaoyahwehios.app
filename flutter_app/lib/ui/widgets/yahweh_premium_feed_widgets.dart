@@ -9,10 +9,12 @@ import 'package:photo_view/photo_view.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shimmer/shimmer.dart';
 
-import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show
+        buildNoticiaInviteShareMessage,
         fetchNoticiaCoverImageBytes,
+        fetchNoticiaShareMediaBundle,
         noticiaShareImageDescriptorFromBytes;
 export 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show
@@ -28,6 +30,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaPhotoUrls,
         looksLikeHostedVideoFileUrl;
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
+import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/firebase_storage_video_playback.dart';
@@ -362,45 +365,74 @@ class YahwehPremiumFeedShimmer {
   }
 }
 
-/// Partilha link `…/igreja/…/evento/…` (OG na Cloud Function) +, quando possível, **imagem anexa** (estilo WhatsApp/Instagram).
+/// Partilha premium — site da igreja + evento + mídia (fotos/vídeo) quando possível.
 Future<void> shareChurchNoticiaForOgPreview({
   required String tenantId,
   required String noticiaId,
   required String title,
   String body = '',
   String churchSlug = '',
+  String churchName = '',
   Map<String, dynamic>? postFirestore,
 }) async {
-  final slug = churchSlug.trim();
-  final link = slug.isNotEmpty
-      ? AppConstants.shareNoticiaIgrejaEventoUrl(slug, noticiaId)
-      : AppConstants.shareNoticiaCardUrl(tenantId, noticiaId);
-  final snippet = body.replaceAll(RegExp(r'\s+'), ' ').trim();
-  final short =
-      snippet.length > 220 ? '${snippet.substring(0, 217)}…' : snippet;
-  final buf = StringBuffer();
-  buf.writeln(title);
-  if (short.isNotEmpty) {
-    buf.writeln();
-    buf.writeln(short);
-  }
-  buf.writeln();
-  buf.writeln(link);
-  final text = buf.toString().trim();
+  final data = postFirestore ?? <String, dynamic>{};
+  final links = resolveNoticiaShareLinks(
+    tenantId: tenantId.trim(),
+    noticiaId: noticiaId.trim(),
+    churchSlug: churchSlug,
+    churchData: data.isNotEmpty ? data : null,
+  );
+  final kindRaw =
+      (data['type'] ?? data['kind'] ?? 'aviso').toString().trim().toLowerCase();
+  final kind = kindRaw == 'evento' ? 'evento' : 'aviso';
+  DateTime? startAt;
+  try {
+    startAt = (data['startAt'] as dynamic)?.toDate();
+  } catch (_) {}
+  final lat = data['locationLat'];
+  final lng = data['locationLng'];
+  final text = buildNoticiaInviteShareMessage(
+    churchName: churchName.trim().isNotEmpty ? churchName.trim() : 'Nossa igreja',
+    noticiaKind: kind,
+    title: title,
+    bodyText: body.trim().isNotEmpty
+        ? body
+        : (data['text'] ?? data['body'] ?? '').toString(),
+    startAt: startAt,
+    location: (data['location'] ?? '').toString(),
+    locationLat: lat is num
+        ? lat.toDouble()
+        : (lat != null ? double.tryParse(lat.toString()) : null),
+    locationLng: lng is num
+        ? lng.toDouble()
+        : (lng != null ? double.tryParse(lng.toString()) : null),
+    publicSiteUrl: links.publicSiteUrl,
+    inviteCardUrl: links.eventPageUrl,
+    tenantId: tenantId.trim(),
+    noticiaId: noticiaId.trim(),
+    churchSlug: links.resolvedSlug,
+    churchData: data.isNotEmpty ? data : null,
+  );
 
-  // Android/iOS: anexa bytes da capa quando possível. Na web, [Share.shareXFiles]
-  // não envia mídia ao WhatsApp como no app — o preview vem do link OG (/igreja/.../evento/...).
   if (postFirestore != null && !kIsWeb) {
     try {
+      final media = await fetchNoticiaShareMediaBundle(postFirestore);
+      if (media.isNotEmpty) {
+        await YahwehShareService.shareMediaBundle(
+          files: media,
+          message: text,
+          subject: title,
+        );
+        return;
+      }
       final bytes = await fetchNoticiaCoverImageBytes(postFirestore);
       if (bytes != null) {
         final d = noticiaShareImageDescriptorFromBytes(bytes);
-        final xFile = XFile.fromData(
-          bytes,
-          name: d.filename,
-          mimeType: d.mime,
+        await Share.shareXFiles(
+          [XFile.fromData(bytes, name: d.filename, mimeType: d.mime)],
+          text: text,
+          subject: title,
         );
-        await Share.shareXFiles([xFile], text: text, subject: title);
         return;
       }
     } catch (_) {}

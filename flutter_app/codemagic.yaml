@@ -19,7 +19,7 @@ workflows:
         APP_STORE_APPLE_ID: 6761656626
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:81977b3cd1ba58614ac0e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
-      flutter: 3.44.0
+      flutter: 3.44.1
       xcode: latest
       cocoapods: default
     scripts:

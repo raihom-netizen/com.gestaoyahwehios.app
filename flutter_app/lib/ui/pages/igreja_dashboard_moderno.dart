@@ -73,10 +73,13 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
         YahwehPremiumFeedShimmer;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
+import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show buildNoticiaInviteShareMessage;
 import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
+import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart'
+    show churchPostPlainText;
 import 'package:gestao_yahweh/ui/widgets/noticia_photo_gallery_page.dart';
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -6010,8 +6013,8 @@ class _GraficoFinanceiroState extends State<_GraficoFinanceiro> {
                   }).toList();
                 },
                 touchTooltipData: LineTouchTooltipData(
-                  tooltipBgColor: const Color(0xFF0F172A),
-                  tooltipRoundedRadius: 12,
+                  getTooltipColor: (_) => const Color(0xFF0F172A),
+                  tooltipBorderRadius: BorderRadius.circular(12),
                   tooltipPadding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
                   tooltipMargin: 10,
@@ -9709,7 +9712,7 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
     Map<String, dynamic> data,
   ) async {
     final title = (data['title'] ?? '').toString();
-    final text = (data['text'] ?? data['body'] ?? '').toString();
+    final text = churchPostPlainText(Map<String, dynamic>.from(data));
     final loc = (data['location'] ?? '').toString();
     DateTime? dt;
     try {
@@ -9718,11 +9721,11 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
     final churchName = widget.nomeIgreja.trim().isNotEmpty
         ? widget.nomeIgreja.trim()
         : 'Nossa igreja';
-    final slug = widget.churchSlug.trim();
-    final inviteUrl = slug.isNotEmpty
-        ? AppConstants.shareNoticiaIgrejaEventoUrl(slug, widget.doc.id)
-        : AppConstants.shareNoticiaCardUrl(widget.tenantId, widget.doc.id);
-    final publicSite = AppConstants.publicSiteShortUrl(slug);
+    final links = resolveNoticiaShareLinks(
+      tenantId: widget.tenantId.trim(),
+      noticiaId: widget.doc.id,
+      churchSlug: widget.churchSlug,
+    );
     final lat = data['locationLat'];
     final lng = data['locationLng'];
     final msg = buildNoticiaInviteShareMessage(
@@ -9738,13 +9741,16 @@ class _PainelDestaqueSocialBarState extends State<_PainelDestaqueSocialBar> {
       locationLng: lng is num
           ? lng.toDouble()
           : (lng != null ? double.tryParse(lng.toString()) : null),
-      publicSiteUrl: publicSite,
-      inviteCardUrl: inviteUrl,
+      publicSiteUrl: links.publicSiteUrl,
+      inviteCardUrl: links.eventPageUrl,
+      tenantId: widget.tenantId.trim(),
+      noticiaId: widget.doc.id,
+      churchSlug: links.resolvedSlug,
     );
     if (!context.mounted) return;
     await showChurchNoticiaShareSheet(
       context,
-      shareLink: inviteUrl,
+      shareLink: links.eventPageUrl,
       shareMessage: msg,
       shareSubject: churchName,
       previewImageUrl: null,

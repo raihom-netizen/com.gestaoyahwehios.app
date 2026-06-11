@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/church_publish_state.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
@@ -263,10 +264,11 @@ abstract final class PublicationEngine {
     patch['ativo'] = true;
     patch['publicado'] = true;
     patch['status'] = 'publicado';
+    patch['publishState'] = ChurchPublishState.published;
+    patch['publishedAt'] = FieldValue.serverTimestamp();
     patch['updatedAt'] = FieldValue.serverTimestamp();
     if (!isNewDoc) {
       patch['pendingImageCount'] = FieldValue.delete();
-      patch['publishState'] = FieldValue.delete();
       patch['publishError'] = FieldValue.delete();
       patch['photoUploadState'] = FieldValue.delete();
     }

@@ -499,6 +499,26 @@ function parseIgrejaEventoPath(pathname: string): { slug: string; eventId: strin
  * Com rewrite do Hosting para Cloud Function, `req.path` costuma vir vazio ou `/`;
  * o caminho real está em `req.url` (path + query) ou em cabeçalhos de proxy.
  */
+function isSocialPreviewBot(userAgent: string): boolean {
+  const ua = userAgent.toLowerCase();
+  return (
+    ua.includes("facebookexternalhit") ||
+    ua.includes("facebot") ||
+    ua.includes("twitterbot") ||
+    ua.includes("linkedinbot") ||
+    ua.includes("telegrambot") ||
+    ua.includes("slackbot") ||
+    ua.includes("discordbot") ||
+    ua.includes("whatsapp") ||
+    ua.includes("googlebot") ||
+    ua.includes("bingbot") ||
+    ua.includes("applebot") ||
+    ua.includes("embedly") ||
+    ua.includes("pinterest") ||
+    ua.includes("vkshare")
+  );
+}
+
 function requestPathname(req: functions.https.Request): string {
   const rawUrl = String((req as { originalUrl?: string }).originalUrl || req.url || "").trim();
   const rawPath = String(req.path || "").trim();
@@ -601,6 +621,13 @@ export const shareEvento = functions
     const slug = String(church?.slug || church?.slugId || tenantId).trim();
     const redirectPublic = `${BASE}/${encodeURIComponent(slug)}/${encodeURIComponent(e)}`;
     const redirectApp = `${BASE}/igreja/login`;
+
+    const ua = String(req.headers["user-agent"] || "");
+    if (!isSocialPreviewBot(ua)) {
+      res.status(302).set("Location", redirectPublic);
+      res.end();
+      return;
+    }
 
     const isEvento = String(d.type || "") === "evento";
     const ogTitle = `${titleRaw} — ${churchName}`;

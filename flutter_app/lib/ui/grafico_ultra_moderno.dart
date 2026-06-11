@@ -49,7 +49,7 @@ class GraficoUltraModerno extends StatelessWidget {
                   borderData: FlBorderData(show: false),
                   lineTouchData: LineTouchData(
                     touchTooltipData: LineTouchTooltipData(
-                      tooltipBgColor: Colors.blueGrey[900]!,
+                      getTooltipColor: (_) => Colors.blueGrey[900]!,
                       getTooltipItems: (touchedSpots) => touchedSpots
                           .map((spot) => LineTooltipItem(
                                 '${labels[spot.x.toInt()]}\n${spot.y.toStringAsFixed(1)}',

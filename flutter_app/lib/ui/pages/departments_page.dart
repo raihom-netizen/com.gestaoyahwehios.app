@@ -16,7 +16,10 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show
         churchDepartmentDocHasExplicitNameField,
@@ -141,7 +144,24 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
 
   String get _churchId => ChurchRepository.resolveChurchId(_tid);
 
+  String get _loadChurchId {
+    final fromShell = widget.tenantId.trim();
+    if (fromShell.isNotEmpty) return fromShell;
+    return _churchId.trim();
+  }
+
+  Future<void> _prepareDeptRead() async {
+    if (!kIsWeb) return;
+    await ensureFirebaseReadyForPanelRead().catchError((_) {});
+    await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+  }
+
   void _bindPanelChurchId() {
+    final fromShell = widget.tenantId.trim();
+    if (fromShell.isNotEmpty) {
+      _effectiveTenantId = fromShell;
+      return;
+    }
     final id = ChurchRepository.churchId(widget.tenantId);
     if (id.isNotEmpty) _effectiveTenantId = id;
   }
@@ -165,9 +185,14 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   void initState() {
     super.initState();
     _bindPanelChurchId();
-    if (_effectiveTenantId.isEmpty) _effectiveTenantId = widget.tenantId;
+    if (_effectiveTenantId.isEmpty) _effectiveTenantId = widget.tenantId.trim();
     _startWebLoadingCap();
-    unawaited(_openDepartmentsFast());
+    unawaited(_bootstrapDepartmentsPage());
+  }
+
+  Future<void> _bootstrapDepartmentsPage() async {
+    await _prepareDeptRead();
+    await _openDepartmentsFast();
   }
 
   @override
@@ -181,7 +206,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   /// 1.º frame: leitura directa igrejas/{churchId}/departamentos (igual Android).
   Future<void> _openDepartmentsFast() async {
     _ensureReadTenantResolved();
-    final seed = _churchId;
+    final seed = _loadChurchId;
     if (seed.isEmpty) {
       if (mounted) setState(() => _deptLoading = false);
       return;
@@ -196,8 +221,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     }
 
     try {
+      await _prepareDeptRead();
       final snap = await _loadDepartments().timeout(
-        kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 24),
+        kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 24),
       );
       if (!mounted) return;
       _DepartmentsRamCache.put(seed, snap.docs);
@@ -412,26 +438,48 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         refreshToken: false);
   }
 
-  /// API única — [ChurchRepository.departamentos] (`.get()` — sem `snapshots()`).
+  static String _deptMemKey(String tenantId) =>
+      '${tenantId.trim()}_departamentos_120';
+
+  /// API única — leitura directa `igrejas/{id}/departamentos` + retry web.
   Future<QuerySnapshot<Map<String, dynamic>>> _loadDepartments(
       {bool forceServer = false}) async {
-    final churchId = _churchId;
+    final churchId = _loadChurchId;
     final path = 'igrejas/$churchId/departamentos';
-    try {
-      final result = await ChurchRepository.departamentos.list(
-        churchIdHint: churchId,
+    if (churchId.isEmpty) {
+      return const MergedFirestoreQuerySnapshot([]);
+    }
+
+    await _prepareDeptRead();
+
+    Future<QuerySnapshot<Map<String, dynamic>>> run() async {
+      if (forceServer) {
+        final col = ChurchRepository.collection(
+          'departamentos',
+          churchIdHint: churchId,
+        ).limit(120);
+        return firestoreQueryGetReliable(col);
+      }
+      return IgrejaDirectFirestoreReads.listSubcollection(
+        churchId,
+        'departamentos',
+        moduleLabel: 'Departamentos',
         limit: 120,
+        cacheKey: _deptMemKey(churchId),
       );
+    }
+
+    try {
+      final result = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(run, maxAttempts: 4)
+          : await run();
       ChurchModuleQueryProbe.logSuccess(
         module: 'Departamentos',
         churchId: churchId,
         path: path,
-        totalDocs: result.count,
+        totalDocs: result.docs.length,
       );
-      if (result.error != null && result.items.isEmpty) {
-        throw Exception(result.error);
-      }
-      return MergedFirestoreQuerySnapshot(result.items);
+      return result;
     } catch (e, st) {
       ChurchModuleQueryProbe.logError(
         module: 'Departamentos',
@@ -570,23 +618,34 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   Future<void> _fetchDepartmentsFromServerOnce() async {
-    if (_tid.trim().isEmpty) return;
+    final tid = _loadChurchId;
+    if (tid.isEmpty) return;
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
     } catch (_) {}
     try {
-      final s = await _col
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 28));
+      await _prepareDeptRead();
+      final s = await firestoreQueryGetReliable(_col.limit(120))
+          .timeout(const Duration(seconds: 18));
       if (!mounted) return;
       if (s.docs.isNotEmpty) {
+        _DepartmentsRamCache.put(tid, s.docs);
         setState(() {
+          _deptLoading = false;
+          _deptError = null;
           _hydratedDeptDocs =
               List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(s.docs);
         });
       }
     } catch (e) {
       debugPrint('DepartmentsPage._fetchDepartmentsFromServerOnce: $e');
+      if (!mounted) return;
+      setState(() {
+        _deptLoading = false;
+        if (_hydratedDeptDocs == null || _hydratedDeptDocs!.isEmpty) {
+          _deptError = e;
+        }
+      });
     }
   }
 

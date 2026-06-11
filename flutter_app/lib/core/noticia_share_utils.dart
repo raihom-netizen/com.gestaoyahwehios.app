@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaDisplayVideoThumbnailUrl,
@@ -81,19 +82,7 @@ Future<Uint8List?> fetchNoticiaCoverImageBytes(Map<String, dynamic> post) async 
   return bytes;
 }
 
-/// Dias da semana (Dart: weekday 1 = segunda … 7 = domingo).
-const _kWeekdayPtShort = <String>[
-  'Seg',
-  'Ter',
-  'Qua',
-  'Qui',
-  'Sex',
-  'Sáb',
-  'Dom',
-];
-
-/// Texto único para convite (WhatsApp, partilha nativa, cópia de link).
-/// Padrão enxuto: sem endereço por extenso — só link de mapa como «Localização».
+/// Dias da semana (Dart: weekday 1 = segunda … 7 = domingo) — formato longo na mensagem premium.
 String buildNoticiaInviteShareMessage({
   required String churchName,
   required String noticiaKind,
@@ -103,67 +92,222 @@ String buildNoticiaInviteShareMessage({
   String? location,
   double? locationLat,
   double? locationLng,
-  required String publicSiteUrl,
-  required String inviteCardUrl,
+  String? publicSiteUrl,
+  String? inviteCardUrl,
+  String? tenantId,
+  String? noticiaId,
+  String? churchSlug,
+  Map<String, dynamic>? churchData,
 }) {
   final cn = churchName.trim().isNotEmpty ? churchName.trim() : 'Nossa igreja';
   final defaultTitle = noticiaKind == 'evento' ? 'Evento' : 'Aviso';
   final t = title.trim().isEmpty ? defaultTitle : title.trim();
   final cleanText = bodyText.trim();
-  final textSnippet = cleanText.isEmpty
-      ? ''
-      : (cleanText.length > 300
-          ? '${cleanText.substring(0, 297)}…'
-          : cleanText);
 
-  final loc = location?.trim() ?? '';
-  final mapsUrl = AppConstants.mapsShortUrl(
-    lat: locationLat,
-    lng: locationLng,
-    address: loc.isNotEmpty ? loc : null,
-  );
+  NoticiaShareLinks? links;
+  if ((tenantId ?? '').trim().isNotEmpty && (noticiaId ?? '').trim().isNotEmpty) {
+    links = resolveNoticiaShareLinks(
+      tenantId: tenantId!.trim(),
+      noticiaId: noticiaId!.trim(),
+      churchSlug: churchSlug,
+      churchData: churchData,
+    );
+  }
+
+  final site = (publicSiteUrl ?? links?.publicSiteUrl ?? '').trim();
+  final eventUrl = (inviteCardUrl ?? links?.eventPageUrl ?? '').trim();
 
   final buf = StringBuffer();
-  buf.writeln('*$cn*');
+  buf.writeln('✨ *${cn.toUpperCase()}*');
+  buf.writeln('━━━━━━━━━━━━━━━━━━');
   buf.writeln();
 
   if (startAt != null) {
     final d = startAt;
-    final wd = _kWeekdayPtShort[d.weekday - 1];
+    final wd = _kWeekdayPtLong[d.weekday - 1];
     final dd = d.day.toString().padLeft(2, '0');
     final mm = d.month.toString().padLeft(2, '0');
+    final yyyy = d.year;
     final hm =
         '${d.hour.toString().padLeft(2, '0')}h${d.minute.toString().padLeft(2, '0')}';
-    buf.writeln('📌 $wd $dd/$mm às $hm | *$t*');
+    buf.writeln('🗓 *$wd, $dd/$mm/$yyyy · $hm*');
+    buf.writeln('🎯 *${t.toUpperCase()}*');
   } else {
     buf.writeln('📌 *$t*');
   }
 
-  if (textSnippet.isNotEmpty) {
+  if (cleanText.isNotEmpty) {
     buf.writeln();
-    buf.writeln(textSnippet);
+    buf.writeln(cleanText);
   }
 
-  final site = publicSiteUrl.trim();
-  if (site.isNotEmpty) {
+  final locBlock = _formatShareLocationBlock(
+    location: location,
+    lat: locationLat,
+    lng: locationLng,
+  );
+  if (locBlock.isNotEmpty) {
     buf.writeln();
-    buf.writeln('Antes visite o site da igreja:');
+    buf.writeln(locBlock);
+  }
+
+  if (site.isNotEmpty || eventUrl.isNotEmpty) {
+    buf.writeln();
+    buf.writeln('━━━━━━━━━━━━━━━━━━');
+  }
+
+  if (site.isNotEmpty) {
+    buf.writeln('🌐 *Site da igreja*');
     buf.writeln(site);
   }
 
-  if (mapsUrl.isNotEmpty) {
+  if (eventUrl.isNotEmpty) {
     buf.writeln();
-    buf.writeln('📍 Localização:');
-    buf.writeln(mapsUrl);
-  }
-
-  final invite = inviteCardUrl.trim();
-  if (invite.isNotEmpty) {
-    buf.writeln();
-    buf.writeln('👉 $invite');
+    final cta = noticiaKind == 'evento'
+        ? '🎟 *Ver evento completo* (fotos e vídeos)'
+        : '📢 *Ver aviso completo*';
+    buf.writeln(cta);
+    buf.writeln(eventUrl);
   }
 
   return buf.toString().trimRight();
+}
+
+const _kWeekdayPtLong = <String>[
+  'Segunda-feira',
+  'Terça-feira',
+  'Quarta-feira',
+  'Quinta-feira',
+  'Sexta-feira',
+  'Sábado',
+  'Domingo',
+];
+
+String _formatShareLocationBlock({
+  String? location,
+  double? lat,
+  double? lng,
+}) {
+  final mapsUrl = AppConstants.mapsShortUrl(
+    lat: lat,
+    lng: lng,
+    address: (lat != null && lng != null) ? null : location,
+  );
+  if (mapsUrl.isEmpty) return '';
+
+  final label = _shortLocationLabel(location, lat, lng);
+  return '📍 *$label*\n$mapsUrl';
+}
+
+String _shortLocationLabel(String? location, double? lat, double? lng) {
+  final loc = location?.trim() ?? '';
+  if (loc.isNotEmpty) {
+    var s = loc.replaceAll(RegExp(r'\s+'), ' ');
+    if (s.contains(',')) {
+      final parts = s
+          .split(',')
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      if (parts.length >= 2) {
+        final city = parts[parts.length - 2];
+        final uf = parts.last.replaceAll(RegExp(r'\d.*'), '').trim();
+        if (city.isNotEmpty && uf.isNotEmpty && uf.length <= 3) {
+          return '$city · $uf';
+        }
+        return '${parts[parts.length - 2]}, ${parts.last}';
+      }
+    }
+    if (s.length > 56) s = '${s.substring(0, 53)}…';
+    return s;
+  }
+  if (lat != null && lng != null) return 'Abrir no mapa';
+  return 'Local do evento';
+}
+
+/// Item de mídia pronto para partilha nativa (WhatsApp, Telegram…).
+class NoticiaShareMediaFile {
+  const NoticiaShareMediaFile({
+    required this.bytes,
+    required this.fileName,
+    required this.mimeType,
+  });
+
+  final Uint8List bytes;
+  final String fileName;
+  final String mimeType;
+}
+
+/// Capa + galeria (até 5 fotos) + 1 vídeo hospedado — para anexar na partilha.
+Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
+  Map<String, dynamic> data, {
+  int maxPhotos = 5,
+}) async {
+  final out = <NoticiaShareMediaFile>[];
+  final gallery = noticiaGalleryRefsForShare(data);
+  var photoCount = 0;
+
+  for (final ref in gallery) {
+    if (photoCount >= maxPhotos) break;
+    try {
+      final u = sanitizeImageUrl(ref);
+      if (!isValidImageUrl(u)) continue;
+      Uint8List? bytes;
+      if (isFirebaseStorageHttpUrl(u)) {
+        bytes = await firebaseStorageBytesFromDownloadUrl(
+          u,
+          maxBytes: 4 * 1024 * 1024,
+        );
+      }
+      bytes ??= await http
+          .get(Uri.parse(u), headers: const {'Accept': 'image/*'})
+          .timeout(const Duration(seconds: 18))
+          .then((r) => r.statusCode == 200 && r.bodyBytes.isNotEmpty
+              ? r.bodyBytes
+              : null);
+      if (bytes == null || bytes.length <= 32) continue;
+      final desc = noticiaShareImageDescriptorFromBytes(bytes);
+      out.add(NoticiaShareMediaFile(
+        bytes: bytes,
+        fileName: photoCount == 0
+            ? desc.filename
+            : 'foto_${photoCount + 1}.${desc.filename.split('.').last}',
+        mimeType: desc.mime,
+      ));
+      photoCount++;
+    } catch (_) {}
+  }
+
+  if (out.isEmpty) {
+    final cover = await fetchNoticiaCoverImageBytes(data);
+    if (cover != null && cover.length > 32) {
+      final desc = noticiaShareImageDescriptorFromBytes(cover);
+      out.add(NoticiaShareMediaFile(
+        bytes: cover,
+        fileName: desc.filename,
+        mimeType: desc.mime,
+      ));
+    }
+  }
+
+  try {
+    final videoUrl = await resolveNoticiaHostedVideoShareUrl(data);
+    if (videoUrl != null && videoUrl.isNotEmpty) {
+      final vBytes = await firebaseStorageBytesFromDownloadUrl(
+        videoUrl,
+        maxBytes: 16 * 1024 * 1024,
+      );
+      if (vBytes != null && vBytes.length > 512) {
+        out.add(NoticiaShareMediaFile(
+          bytes: vBytes,
+          fileName: 'video_evento.mp4',
+          mimeType: 'video/mp4',
+        ));
+      }
+    }
+  } catch (_) {}
+
+  return out;
 }
 
 /// Resolve URL https da capa/miniatura para anexar na partilha (foto ou poster de vídeo).

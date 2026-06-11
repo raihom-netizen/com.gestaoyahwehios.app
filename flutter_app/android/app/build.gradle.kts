@@ -1,3 +1,4 @@
+import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
 import java.io.FileInputStream
 import java.util.Properties
 
@@ -79,6 +80,10 @@ android {
                     "Na raiz do repo: .\\scripts\\build_android_play_store_aab.ps1"
             }
             signingConfig = signingConfigs.getByName("release")
+            // Não bloquear AAB se firebasecrashlyticssymbols.googleapis.com estiver inacessível (DNS/rede).
+            configure<CrashlyticsExtension> {
+                mappingFileUploadEnabled = false
+            }
         }
     }
 

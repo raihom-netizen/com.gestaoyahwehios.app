@@ -4,9 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
-import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/app_shell.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -31,36 +29,26 @@ class IosDonationReaderView extends StatefulWidget {
 
 class _IosDonationReaderViewState extends State<IosDonationReaderView> {
   bool _openingSafari = false;
-  bool _openingExternalLink = false;
   String? _churchSlug;
   Map<String, dynamic>? _churchData;
   String _churchName = 'sua igreja';
-  ChurchPaymentReceivingConfig _paymentCfg =
-      const ChurchPaymentReceivingConfig();
 
   @override
   void initState() {
     super.initState();
     _churchSlug = widget.tenantId.trim().isEmpty ? null : widget.tenantId.trim();
     unawaited(_loadChurchMeta());
-    unawaited(_loadPaymentReceiving());
-  }
-
-  Future<void> _loadPaymentReceiving() async {
-    final cfg = await ChurchPaymentReceivingService.read(widget.tenantId);
-    if (mounted) setState(() => _paymentCfg = cfg);
   }
 
   Future<void> _loadChurchMeta() async {
     try {
       final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
-      final snap = await           ChurchUiCollections.churchDoc(op)
+      final snap = await ChurchUiCollections.churchDoc(op)
           .get(const GetOptions(source: Source.cache));
       var d = snap.data() ?? {};
       var slug = (d['slug'] ?? d['slugId'] ?? '').toString().trim();
       if (slug.isEmpty) {
-        final server = await             ChurchUiCollections.churchDoc(op)
-            .get();
+        final server = await ChurchUiCollections.churchDoc(op).get();
         d = server.data() ?? {};
         slug = (d['slug'] ?? d['slugId'] ?? '').toString().trim();
       }
@@ -83,17 +71,6 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
     final slug = _effectiveSlug;
     if (slug.isEmpty || !mounted) return;
     PublicMemberSignupNavigation.openChurchPublicSite(context, slug: slug);
-  }
-
-  Future<void> _openConfiguredCheckoutLink() async {
-    final url = _paymentCfg.primaryExternalCheckoutUrl;
-    if (url == null || _openingExternalLink) return;
-    setState(() => _openingExternalLink = true);
-    try {
-      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    } finally {
-      if (mounted) setState(() => _openingExternalLink = false);
-    }
   }
 
   Future<void> _openSafariCheckout() async {
@@ -124,7 +101,7 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
               Icon(
                 Icons.volunteer_activism_rounded,
                 size: 56,
-                color: cs.primary,
+                color: cs.primary.withValues(alpha: 0.85),
               ),
               const SizedBox(height: 16),
               Text(
@@ -132,14 +109,13 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 22,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w800,
                   color: ThemeCleanPremium.onSurface,
-                  letterSpacing: -0.3,
                 ),
               ),
               const SizedBox(height: 12),
               Text(
-                'Abra o site de $_churchName no app e use o botão de doação (PIX ou cartão). '
+                'Abra o site de $_churchName no app e use o botão de doação (PIX ou cartão Mercado Pago). '
                 'No iPhone o pagamento final pode abrir no Safari, conforme a App Store.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
@@ -149,43 +125,6 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
                 ),
               ),
               const SizedBox(height: 24),
-              if (_paymentCfg.primaryExternalCheckoutUrl != null) ...[
-                SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: FilledButton.icon(
-                    onPressed:
-                        _openingExternalLink ? null : _openConfiguredCheckoutLink,
-                    icon: _openingExternalLink
-                        ? SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: cs.onPrimary,
-                            ),
-                          )
-                        : const Icon(Icons.link_rounded),
-                    label: Text(
-                      _openingExternalLink
-                          ? 'Abrindo…'
-                          : _paymentCfg.externalCheckoutButtonLabel,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15,
-                      ),
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: cs.primary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -200,12 +139,8 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
                     ),
                   ),
                   style: FilledButton.styleFrom(
-                    backgroundColor: _paymentCfg.primaryExternalCheckoutUrl != null
-                        ? cs.surfaceContainerHighest
-                        : cs.primary,
-                    foregroundColor: _paymentCfg.primaryExternalCheckoutUrl != null
-                        ? cs.onSurface
-                        : Colors.white,
+                    backgroundColor: cs.primary,
+                    foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),

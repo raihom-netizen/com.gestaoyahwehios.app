@@ -7,6 +7,8 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/media_video_compress_quality.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp, kEffectiveFeedEncodeMaxEdgePx, kEffectiveMuralFeedWebpQuality;
+import 'package:gestao_yahweh/services/web_image_compress_service.dart';
+import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:video_compress/video_compress.dart';
@@ -50,12 +52,12 @@ abstract final class MediaService {
   static const int feedImageMaxHeight = 1024;
   static const int thumbMaxEdge = 480;
 
-  static const int chatJpegQuality = 70;
-  static const int feedWebpQuality = 70;
+  static const int chatJpegQuality = kStandardUploadImageQuality;
+  static const int feedWebpQuality = kStandardUploadImageQuality;
   static const int thumbJpegQuality = 78;
 
-  static const int patrimonioImageMaxEdge = 1920;
-  static const int patrimonioWebpQuality = 78;
+  static const int patrimonioImageMaxEdge = kStandardUploadImageMaxEdge;
+  static const int patrimonioWebpQuality = kStandardUploadImageQuality;
 
   static int _edgeFor(MediaImageProfile profile) => switch (profile) {
         MediaImageProfile.chat => chatImageMaxEdge,
@@ -87,6 +89,38 @@ abstract final class MediaService {
             profile == MediaImageProfile.thumb
         ? 'webp'
         : 'jpg';
+  }
+
+  /// MIME de saída após compactação — Web tende a JPEG; mobile feed/património WebP.
+  static String contentTypeForProfile(
+    MediaImageProfile profile,
+    Uint8List bytes,
+  ) {
+    if (bytesLookLikeWebp(bytes)) return 'image/webp';
+    if (kIsWeb) return 'image/jpeg';
+    return _formatFor(profile) == CompressFormat.webp ? 'image/webp' : 'image/jpeg';
+  }
+
+  /// Leitura multiplataforma — preferir isto em vez de `File(path).readAsBytes()`.
+  static Future<Uint8List> readXFileBytes(XFile file) async {
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) {
+      throw StateError('Ficheiro vazio — selecione outro.');
+    }
+    return bytes;
+  }
+
+  /// Compacta [XFile] — Web (Dart puro) ou mobile (nativo).
+  static Future<({Uint8List bytes, String contentType})> compressXFile(
+    XFile file, {
+    MediaImageProfile profile = MediaImageProfile.feed,
+  }) async {
+    final raw = await readXFileBytes(file);
+    final bytes = await compressImageBytes(raw, profile: profile);
+    return (
+      bytes: bytes,
+      contentType: contentTypeForProfile(profile, bytes),
+    );
   }
 
   /// Comprime [File] de imagem — reduz ~6 MB para <400 KB mantendo nitidez em smartphones.
@@ -137,12 +171,21 @@ abstract final class MediaService {
   }
 
   /// Comprime bytes de imagem conforme [profile].
+  ///
+  /// **Web:** [WebImageCompressService] (pacote `image`, Dart puro).
+  /// **Mobile:** `flutter_image_compress` (nativo, mais rápido).
   static Future<Uint8List> compressImageBytes(
     Uint8List input, {
     MediaImageProfile profile = MediaImageProfile.chat,
   }) async {
     if (input.isEmpty) return input;
-    if (kIsWeb && profile == MediaImageProfile.feed && bytesLookLikeWebp(input)) {
+    if (kIsWeb) {
+      return WebImageCompressService.compressBytes(
+        input: input,
+        profile: profile,
+      );
+    }
+    if (profile == MediaImageProfile.feed && bytesLookLikeWebp(input)) {
       return input;
     }
 
@@ -185,6 +228,9 @@ abstract final class MediaService {
   }
 
   /// Comprime vídeo (H.264/AAC) — 720p ou 480p conforme tamanho do ficheiro.
+  ///
+  /// **Web:** não transcodifica (`video_compress` é nativo) — envia ficheiro original
+  /// ou bloqueia no picker conforme o módulo.
   static Future<MediaInfo?> compressVideo(File file) async {
     if (kIsWeb || !file.existsSync()) return null;
     try {

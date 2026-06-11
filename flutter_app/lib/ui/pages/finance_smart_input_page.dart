@@ -2,6 +2,7 @@ import 'dart:convert' show utf8;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -537,7 +538,7 @@ class _FinanceSmartInputPageState extends State<FinanceSmartInputPage> {
   Future<void> _pickCsv() async {
     setState(() => _importing = true);
     try {
-      final r = await FilePicker.platform.pickFiles(
+      final r = await YahwehFilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: const ['csv'],
         withData: true,

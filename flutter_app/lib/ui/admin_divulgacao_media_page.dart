@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
@@ -343,7 +344,7 @@ class _AdminDivulgacaoMediaPageState extends State<AdminDivulgacaoMediaPage>
 
   Future<void> _pickAndUpload() async {
     if (_uploading) return;
-    final result = await FilePicker.platform.pickFiles(
+    final result = await YahwehFilePicker.pickFiles(
       withData: true,
       type: FileType.custom,
       allowedExtensions: const [

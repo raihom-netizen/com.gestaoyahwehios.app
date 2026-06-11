@@ -1657,3 +1657,91 @@ class ChurchPublicSiteScaffoldBackground extends StatelessWidget {
     );
   }
 }
+
+/// Loader Super Premium — site público e cadastro membro (shimmer + marca).
+class ChurchPublicSitePremiumLoader extends StatelessWidget {
+  const ChurchPublicSitePremiumLoader({
+    super.key,
+    required this.churchLabel,
+    this.subtitle = 'A carregar…',
+  });
+
+  final String churchLabel;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 88,
+                  height: 88,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: ThemeCleanPremium.softUiCardShadow,
+                    border: Border.all(color: const Color(0xFFE8EDF3)),
+                  ),
+                  child: Icon(
+                    Icons.church_rounded,
+                    size: 40,
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.85),
+                  ),
+                ),
+                const SizedBox(height: 28),
+                SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Text(
+                  subtitle,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.grey.shade800,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  churchLabel,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  'Padrão Super Premium — Gestão YAHWEH',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
@@ -1522,82 +1523,12 @@ Stream<_ChurchPublicTenantResolved?> _churchPublicTenantBySlugStream(
 Future<_ChurchPublicTenantResolved?> _resolveChurchPublicTenantBySlug(
   String slugClean,
 ) async {
-  final slug = slugClean.trim();
-  if (slug.isEmpty) return null;
-
-  try {
-    await ensureFirebaseReadyForPanelRead()
-        .timeout(const Duration(seconds: 3), onTimeout: () {});
-  } catch (_) {}
-
-  Future<_ChurchPublicTenantResolved?> fromDocId(String id) async {
-    final t = id.trim();
-    if (t.isEmpty) return null;
-    try {
-      var profile = await TenantResolverService.loadIgrejaCadastroDocDirect(
-        t,
-        preferServer: kIsWeb,
-      ).timeout(const Duration(seconds: 10));
-      if (profile.isEmpty) {
-        final snap = await firebaseDefaultFirestore
-            .collection('igrejas')
-            .doc(t)
-            .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 6));
-        if (snap.exists && snap.data() != null) {
-          profile = Map<String, dynamic>.from(snap.data()!);
-        }
-      }
-      if (profile.isNotEmpty) {
-        return _ChurchPublicTenantResolved(id: t, data: profile);
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  final syncId =
-      TenantResolverService.mapLegacySeedToCanonical(slug) ?? slug;
-  final syncHit = await fromDocId(syncId);
-  if (syncHit != null) return syncHit;
-
-  try {
-    final resolved = await TenantResolverService.resolveIgrejaDocIdFromPublicSlug(
-      slug,
-    ).timeout(const Duration(seconds: 8));
-    if (resolved != null && resolved.isNotEmpty && resolved != syncId) {
-      final hit = await fromDocId(resolved);
-      if (hit != null) return hit;
-    }
-  } catch (_) {}
-
-  try {
-    final siblings = await TenantResolverService.getAllRelatedIgrejaDocIds(syncId)
-        .timeout(const Duration(seconds: 6));
-    for (final sid in TenantResolverService.orderedSiblingsForReadFallback(
-      syncId,
-      siblings,
-    )) {
-      final hit = await fromDocId(sid);
-      if (hit != null) return hit;
-    }
-  } catch (_) {}
-
-  for (final field in const ['slug', 'alias', 'slugId']) {
-    try {
-      final q = await firebaseDefaultFirestore
-          .collection('igrejas')
-          .where(field, isEqualTo: slug)
-          .limit(1)
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 6));
-      if (q.docs.isNotEmpty) {
-        final d = q.docs.first;
-        return _ChurchPublicTenantResolved(id: d.id, data: d.data());
-      }
-    } catch (_) {}
-  }
-
-  return null;
+  final resolved = await PublicChurchSlugResolver.resolve(slugClean);
+  if (resolved == null) return null;
+  return _ChurchPublicTenantResolved(
+    id: resolved.churchId,
+    data: resolved.profile,
+  );
 }
 
 /// Pré-resolve a URL da logo (memoizada em [AppStorageImageService]) para o badge aparecer mais cedo.
@@ -1812,48 +1743,9 @@ class _ChurchPublicPageInner extends StatelessWidget {
             }
             if (!snap.hasData) {
               return ChurchPublicSiteScaffoldBackground(
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 420),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SizedBox(
-                            width: 52,
-                            height: 52,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 3,
-                              color: ThemeCleanPremium.primary,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          Text(
-                            'A carregar o site da igreja…',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.grey.shade800,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            _prettyName(slugClean),
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                child: ChurchPublicSitePremiumLoader(
+                  churchLabel: _prettyName(slugClean),
+                  subtitle: 'A carregar o site da igreja…',
                 ),
               );
             }

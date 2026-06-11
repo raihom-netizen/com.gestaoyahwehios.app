@@ -21,7 +21,6 @@ import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/widgets/donation_kind_selector_grid.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
-import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
@@ -125,6 +124,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   final _valorCtrl = TextEditingController(text: formatBrCurrencyInitial(50));
   final _nomeCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
+  final _obsCtrl = TextEditingController();
   String? _contaId;
   bool _loadingContas = true;
   List<({String id, String nome})> _contas = [];
@@ -139,8 +139,6 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   String? _paymentId;
   String? _checkoutEmbedUrl;
   String? _erro;
-  ChurchPaymentReceivingConfig _paymentCfg =
-      const ChurchPaymentReceivingConfig();
   static final Set<String> _mpClusterSyncAttempted = <String>{};
 
   String get _effectiveTenantId =>
@@ -194,7 +192,6 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     await _syncMercadoPagoFromClusterIfNeeded();
     await _loadContas(refreshNetwork: true);
     unawaited(_bindMemberForDonation());
-    unawaited(_loadPaymentReceiving());
   }
 
   /// Copia credenciais/conta MP do doc irmão (ex.: legado) → tenant operacional.
@@ -210,11 +207,6 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       );
       await fn.call(<String, dynamic>{'tenantId': tid});
     } catch (_) {}
-  }
-
-  Future<void> _loadPaymentReceiving() async {
-    final cfg = await ChurchPaymentReceivingService.read(_effectiveTenantId);
-    if (mounted) setState(() => _paymentCfg = cfg);
   }
 
   Future<void> _bindMemberForDonation() async {
@@ -306,6 +298,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     _valorCtrl.dispose();
     _nomeCtrl.dispose();
     _emailCtrl.dispose();
+    _obsCtrl.dispose();
     super.dispose();
   }
 
@@ -378,6 +371,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
         'memberId': _memberDocIdForDonation ?? '',
         'memberCpf': _onlyDigits(widget.cpf),
         'donationKind': _donationKind,
+        'donationObs': _obsCtrl.text.trim(),
       })
           .timeout(
         const Duration(seconds: 50),
@@ -455,6 +449,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
         'returnUrl': _churchPanelDonationReturnUrl(),
         'maxInstallments': _parcelas,
         'donationKind': _donationKind,
+        'donationObs': _obsCtrl.text.trim(),
       })
           .timeout(
         const Duration(seconds: 50),
@@ -886,28 +881,6 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
                 ],
               ),
             ),
-            if (kIsWeb && _paymentCfg.primaryExternalCheckoutUrl != null) ...[
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final url = _paymentCfg.primaryExternalCheckoutUrl!;
-                  await launchUrl(
-                    Uri.parse(url),
-                    mode: LaunchMode.externalApplication,
-                  );
-                },
-                icon: const Icon(Icons.open_in_new_rounded),
-                label: Text(_paymentCfg.externalCheckoutButtonLabel),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Na web, use o link configurado em Configurações. No Android, PIX e cartão Mercado Pago abaixo.',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              ),
-            ],
             const SizedBox(height: 16),
             Builder(
               builder: (ctx) {
@@ -956,6 +929,18 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
               decoration: _inputDec(
                 label: 'Nome do doador ou membro',
                 icon: Icons.person_outline_rounded,
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _obsCtrl,
+              maxLines: 2,
+              maxLength: 240,
+              decoration: _inputDec(
+                label: _donationKind == 'dizimo'
+                    ? 'Observação (opcional — aparece no histórico)'
+                    : 'Observação da oferta (opcional)',
+                icon: Icons.notes_rounded,
               ),
             ),
             const SizedBox(height: 14),

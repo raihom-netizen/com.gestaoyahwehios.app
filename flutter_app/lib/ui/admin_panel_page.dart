@@ -967,7 +967,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                 const _MasterSearchIntent(),
           },
           child: Actions(
-            actions: <Type, Action<Intent>>{
+            actions: {
               _MasterSearchIntent: CallbackAction<_MasterSearchIntent>(
                 onInvoke: (_) {
                   _openGlobalSearch(context);

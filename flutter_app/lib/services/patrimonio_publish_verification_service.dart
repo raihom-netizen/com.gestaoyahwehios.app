@@ -79,7 +79,13 @@ abstract final class PatrimonioPublishVerificationService {
   }) async {
     try {
       await ChurchStorageMetadataVerify.assertAllExist(photoPaths);
-      await ChurchStorageMetadataVerify.assertAllExist(thumbPaths);
+      final thumbs = thumbPaths
+          .map((e) => e.trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      if (thumbs.isNotEmpty) {
+        await ChurchStorageMetadataVerify.assertAllExist(thumbs);
+      }
     } catch (e) {
       rememberLastError(kStorageVerifyFailedMessage);
       rethrow;

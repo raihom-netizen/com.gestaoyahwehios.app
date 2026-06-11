@@ -43,7 +43,7 @@ import '../core/roles_permissions.dart';
 import '../core/app_constants.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/services/auth_gate_panel_role.dart';
 
 /// Gestor/liderança: acesso ao painel mesmo se `users.ativo` estiver ausente ou membro desalinhado.
 bool authGateResolvePanelActive({
@@ -105,16 +105,27 @@ Map<String, dynamic> authGateNormalizeProfile(
   final church = profile['church'] is Map
       ? Map<String, dynamic>.from(profile['church'] as Map)
       : null;
-  final active = authGateResolvePanelActive(
-    activeFromMemberOrUser: profile['active'] == true,
-    role: (profile['role'] ?? '').toString(),
+  final roleRaw = (profile['role'] ?? '').toString();
+  final resolvedRole = AuthGatePanelRole.resolve(
+    roleFromClaims: roleRaw,
+    roleFromUserDoc: roleRaw,
+    roleFromCache: roleRaw,
     churchData: church,
     userEmail: userEmail,
     cpfDigitsOrRaw: (profile['cpf'] ?? '').toString(),
   );
-  if (active == (profile['active'] == true)) return profile;
+  final active = authGateResolvePanelActive(
+    activeFromMemberOrUser: profile['active'] == true,
+    role: resolvedRole,
+    churchData: church,
+    userEmail: userEmail,
+    cpfDigitsOrRaw: (profile['cpf'] ?? '').toString(),
+  );
+  final roleChanged = resolvedRole != roleRaw.trim().toLowerCase();
+  if (!roleChanged && active == (profile['active'] == true)) return profile;
   return {
     ...profile,
+    'role': resolvedRole,
     'active': active,
     if (active) 'memberStatusPending': false,
   };
@@ -1074,8 +1085,8 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
           final userDoc = await FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
-              .get(const GetOptions(source: Source.cache))
-              .timeout(const Duration(seconds: 2));
+              .get()
+              .timeout(const Duration(seconds: 3));
           final userData = userDoc.data() ?? {};
           igrejaId = (userData['igrejaId'] ?? userData['tenantId'] ?? '')
               .toString()
@@ -1083,7 +1094,22 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
           if (role.isEmpty) {
             role = (userData['role'] ?? '').toString().trim();
           }
-        } catch (_) {}
+        } catch (_) {
+          try {
+            final userDoc = await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .get(const GetOptions(source: Source.cache))
+                .timeout(const Duration(seconds: 2));
+            final userData = userDoc.data() ?? {};
+            igrejaId = (userData['igrejaId'] ?? userData['tenantId'] ?? '')
+                .toString()
+                .trim();
+            if (role.isEmpty) {
+              role = (userData['role'] ?? '').toString().trim();
+            }
+          } catch (_) {}
+        }
       }
       if (igrejaId.isEmpty) return null;
 
@@ -1135,29 +1161,42 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         }
       }
 
-      return {
-        'igrejaId': igrejaId,
-        'role': role.isNotEmpty ? role : 'membro',
-        'cpf': (cached?['cpf'] ?? '').toString(),
-        'active': authGateResolvePanelActive(
-          activeFromMemberOrUser: cached?['active'] != false ||
-              claims['active'] == true,
-          role: role.isNotEmpty ? role : 'membro',
-          churchData: churchData,
-          userEmail: user.email,
-          cpfDigitsOrRaw: (cached?['cpf'] ?? '').toString(),
-        ),
-        'memberStatusPending': cached?['memberStatusPending'] == true,
-        'mustChangePass': cached?['mustChangePass'] == true,
-        'mustCompleteRegistration':
-            cached?['mustCompleteRegistration'] == true,
-        'church': churchData,
-        if (cached?['subscription'] is Map)
-          'subscription': Map<String, dynamic>.from(cached!['subscription'] as Map),
-        'permissions': AppPermissions.normalizePermissions(
-          cached?['permissions'],
-        ),
-      };
+      final resolvedRole = AuthGatePanelRole.resolve(
+        roleFromClaims: role,
+        roleFromUserDoc: role,
+        roleFromCache: (cached?['role'] ?? '').toString(),
+        churchData: churchData,
+        userEmail: user.email,
+        cpfDigitsOrRaw: (cached?['cpf'] ?? '').toString(),
+      );
+
+      return authGateNormalizeProfile(
+        {
+          'igrejaId': igrejaId,
+          'role': resolvedRole,
+          'cpf': (cached?['cpf'] ?? '').toString(),
+          'active': authGateResolvePanelActive(
+            activeFromMemberOrUser: cached?['active'] != false ||
+                claims['active'] == true,
+            role: resolvedRole,
+            churchData: churchData,
+            userEmail: user.email,
+            cpfDigitsOrRaw: (cached?['cpf'] ?? '').toString(),
+          ),
+          'memberStatusPending': cached?['memberStatusPending'] == true,
+          'mustChangePass': cached?['mustChangePass'] == true,
+          'mustCompleteRegistration':
+              cached?['mustCompleteRegistration'] == true,
+          'church': churchData,
+          if (cached?['subscription'] is Map)
+            'subscription':
+                Map<String, dynamic>.from(cached!['subscription'] as Map),
+          'permissions': AppPermissions.normalizePermissions(
+            cached?['permissions'],
+          ),
+        },
+        userEmail: user.email,
+      );
     } catch (e) {
       if (FirebaseAuthTokenGuard.isQuotaExceeded(e)) {
         FirebaseAuthTokenGuard.recordQuotaExceeded(e);
@@ -1433,6 +1472,25 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _userDocRoleSub;
   Timer? _userRoleSigDebounce;
   String? _userRoleSig;
+  String _lastCachedPanelRole = '';
+
+  void _onAuthProfileCacheUpdated(String uid, Map<String, dynamic> profile) {
+    if (uid != widget.user.uid || !mounted) return;
+    final normalized = authGateNormalizeProfile(
+      profile,
+      userEmail: widget.user.email,
+    );
+    final role = (normalized['role'] ?? '').toString();
+    if (role == _lastCachedPanelRole && _panelEverShown) return;
+    _lastCachedPanelRole = role;
+    setState(() {
+      _bootstrapProfile = normalized;
+      _profileFuture = Future.value(normalized);
+      _readyFuture = Future.wait([_profileFuture, _biometricFuture]).then(
+        (list) => (list[0] as Map<String, dynamic>?, list[1] as bool),
+      );
+    });
+  }
 
   /// Evita tela de erro quando há perfil gravado localmente (sessão já abriu com rede antes).
   Future<Map<String, dynamic>?> _profileFutureWithOfflineFallback() async {
@@ -1512,25 +1570,28 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
           churchData = Map<String, dynamic>.from(chData);
         }
       } catch (_) {}
-      final stub = <String, dynamic>{
-        'igrejaId': igrejaId,
-        'role': (userData['role'] ?? '').toString(),
-        'cpf': (userData['cpf'] ?? '').toString(),
-        'active': authGateResolvePanelActive(
-          activeFromMemberOrUser: userData['ativo'] == true,
-          role: (userData['role'] ?? '').toString(),
-          churchData: churchData,
-          userEmail: widget.user.email,
-        ),
-        'memberStatusPending': false,
-        'mustChangePass': userData['mustChangePass'] == true,
-        'mustCompleteRegistration':
-            userData['mustCompleteRegistration'] == true,
-        'church': churchData,
-        'permissions': AppPermissions.normalizePermissions(
-          userData['permissions'] ?? userData['permissoes'],
-        ),
-      };
+      final stub = authGateNormalizeProfile(
+        {
+          'igrejaId': igrejaId,
+          'role': (userData['role'] ?? '').toString(),
+          'cpf': (userData['cpf'] ?? '').toString(),
+          'active': authGateResolvePanelActive(
+            activeFromMemberOrUser: userData['ativo'] == true,
+            role: (userData['role'] ?? '').toString(),
+            churchData: churchData,
+            userEmail: widget.user.email,
+          ),
+          'memberStatusPending': false,
+          'mustChangePass': userData['mustChangePass'] == true,
+          'mustCompleteRegistration':
+              userData['mustCompleteRegistration'] == true,
+          'church': churchData,
+          'permissions': AppPermissions.normalizePermissions(
+            userData['permissions'] ?? userData['permissoes'],
+          ),
+        },
+        userEmail: widget.user.email,
+      );
       await AuthProfileCacheService.instance.save(widget.user.uid, stub);
       if (mounted) setState(() => _bootstrapProfile = stub);
       unawaited(
@@ -1544,6 +1605,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
   @override
   void initState() {
     super.initState();
+    AuthProfileCacheService.instance.addListener(_onAuthProfileCacheUpdated);
     WidgetsBinding.instance.addObserver(this);
     unawaited(PersistentAuthSessionService.currentPersistedUser());
     final peek = AuthProfileCacheService.instance.peek(widget.user.uid);
@@ -1634,6 +1696,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
 
   @override
   void dispose() {
+    AuthProfileCacheService.instance.removeListener(_onAuthProfileCacheUpdated);
     WidgetsBinding.instance.removeObserver(this);
     _emergencyBootstrapTimer?.cancel();
     _userRoleSigDebounce?.cancel();

@@ -105,14 +105,22 @@ async function sendNovoAvisoMuralPush(
   });
 }
 
+function isPublishedFeedDoc(d: Record<string, unknown>): boolean {
+  const state = String(d.publishState || "").trim().toLowerCase();
+  if (state === "uploading" || state === "draft") return false;
+  if (state === "published" || state === "success") return true;
+  if (d.publicado === true) return true;
+  const status = String(d.status || "").trim().toLowerCase();
+  return status === "publicado";
+}
+
 export const onNovoAvisoMuralPush = functions
   .region("us-central1")
   .firestore.document("igrejas/{tenantId}/avisos/{id}")
   .onCreate(async (snap, context) => {
     const tenantId = context.params.tenantId as string;
     const d = snap.data() || {};
-    const publishState = String(d.publishState || "").trim();
-    if (publishState === "uploading" || publishState === "draft") return null;
+    if (!isPublishedFeedDoc(d as Record<string, unknown>)) return null;
     try {
       await sendNovoAvisoMuralPush(
         tenantId,
@@ -131,11 +139,8 @@ export const onNovoAvisoMuralPublishedPush = functions
   .onUpdate(async (change, context) => {
     const before = change.before.data() || {};
     const after = change.after.data() || {};
-    const beforeState = String(before.publishState || "").trim();
-    const afterState = String(after.publishState || "").trim();
-    if (beforeState === afterState) return null;
-    if (afterState !== "published") return null;
-    if (beforeState !== "uploading" && beforeState !== "draft") return null;
+    if (isPublishedFeedDoc(before as Record<string, unknown>)) return null;
+    if (!isPublishedFeedDoc(after as Record<string, unknown>)) return null;
     const tenantId = context.params.tenantId as string;
     try {
       await sendNovoAvisoMuralPush(
@@ -191,8 +196,7 @@ export const onNovoEventoNoticiaPush = functions
   .onCreate(async (snap, context) => {
     const d = snap.data() || {};
     if (!isEventoDoc(d)) return null;
-    const publishState = String(d.publishState || "").trim();
-    if (publishState === "uploading" || publishState === "draft") return null;
+    if (!isPublishedFeedDoc(d as Record<string, unknown>)) return null;
 
     const tenantId = context.params.tenantId as string;
     try {
@@ -214,11 +218,8 @@ export const onNovoEventoNoticiaPublishedPush = functions
     const before = change.before.data() || {};
     const after = change.after.data() || {};
     if (!isEventoDoc(after)) return null;
-    const beforeState = String(before.publishState || "").trim();
-    const afterState = String(after.publishState || "").trim();
-    if (beforeState === afterState) return null;
-    if (afterState !== "published") return null;
-    if (beforeState !== "uploading" && beforeState !== "draft") return null;
+    if (isPublishedFeedDoc(before as Record<string, unknown>)) return null;
+    if (!isPublishedFeedDoc(after as Record<string, unknown>)) return null;
     const tenantId = context.params.tenantId as string;
     try {
       await sendNovoEventoNoticiaPush(

@@ -106,11 +106,8 @@ class BiometricService {
       }
       return await _auth.authenticate(
         localizedReason: 'Confirme sua identidade para acessar o app',
-        options: const AuthenticationOptions(
-          biometricOnly: true,
-          stickyAuth: true,
-          useErrorDialogs: true,
-        ),
+        biometricOnly: true,
+        persistAcrossBackgrounding: true,
       );
     } on PlatformException catch (e, st) {
       if (kDebugMode) {

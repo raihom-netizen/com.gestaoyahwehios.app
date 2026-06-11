@@ -10,10 +10,9 @@ import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
-import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
+import 'package:gestao_yahweh/services/church_chat_sync_send_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Reenvio de mídia do chat interrompida (app fechado, rede, etc.) + `chat_uploads` Firestore.
@@ -538,54 +537,52 @@ abstract final class ChurchChatMediaOutboxService {
 
     await _bumpAttempt(tenantId, threadId, localId);
 
-    await OptimisticChatMediaUpload.flush(
-      pending: pending,
-      tenantId: tenantId,
-      threadId: threadId,
-      bytes: bytes?.toList(),
-      localPath: pathOk ? localPath : null,
-      replyTo: null,
-      uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
-      onProgress: (_) {},
-      onSuccess: () => unawaited(clearJob(
+    try {
+      await ChurchChatSyncSendService.sendMedia(
         tenantId: tenantId,
         threadId: threadId,
-        localId: localId,
-        uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
-      )),
-      onFailed: (msg) {
+        pending: pending,
+        bytes: bytes?.toList(),
+        localPath: pathOk ? localPath : null,
+        onProgress: (_) {},
+        onSuccess: () => unawaited(clearJob(
+          tenantId: tenantId,
+          threadId: threadId,
+          localId: localId,
+          uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
+        )),
+        onError: (msg) => throw StateError(msg),
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        // ignore: avoid_print
+        print('[chat_outbox] falha $localId: $e');
+      }
+      unawaited(
+        clearJob(
+          tenantId: tenantId,
+          threadId: threadId,
+          localId: localId,
+          uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
+        ),
+      );
+      final sp = pending.storagePath?.trim() ?? '';
+      if (sp.isNotEmpty) {
         unawaited(
-          clearJob(
+          PendingUploadsFirestoreService.recordFailedBytesUpload(
             tenantId: tenantId,
-            threadId: threadId,
-            localId: localId,
-            uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
+            module: 'chat',
+            storagePath: sp,
+            error: e,
+            localPath: pathOk ? localPath : null,
+            meta: {
+              'threadId': threadId,
+              'localId': localId,
+              'source': 'chat_outbox_retry',
+            },
           ),
         );
-        final sp = pending.storagePath?.trim() ?? '';
-        if (sp.isNotEmpty) {
-          unawaited(
-            PendingUploadsFirestoreService.recordFailedBytesUpload(
-              tenantId: tenantId,
-              module: 'chat',
-              storagePath: sp,
-              error: StateError(msg),
-              localPath: pathOk ? localPath : null,
-              meta: {
-                'threadId': threadId,
-                'localId': localId,
-                'source': 'chat_outbox_retry',
-              },
-            ),
-          );
-        }
-      },
-      onWaitingForNetwork: () {
-        if (kDebugMode) {
-          // ignore: avoid_print
-          print('[chat_outbox] aguardando rede: $localId');
-        }
-      },
-    );
+      }
+    }
   }
 }

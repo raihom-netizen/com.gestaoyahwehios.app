@@ -3,7 +3,12 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
 
-import 'app_google_sign_in.dart' show appGoogleSignIn;
+import 'app_google_sign_in.dart'
+    show
+        appGoogleSignInInteractive,
+        appGoogleSignInSilently,
+        firebaseCredentialFromGoogleAccount,
+        isGoogleSignInUserCancellationException;
 import 'gestor_oauth_onboarding_service.dart';
 import 'login_preferences.dart';
 
@@ -116,17 +121,12 @@ class ExpressLoginService {
   static Future<UserCredential?> _signInWithGoogleSilently() async {
     if (FirebaseAuth.instance.currentUser != null) return null;
     try {
-      final GoogleSignInAccount? account =
-          await appGoogleSignIn().signInSilently();
+      final GoogleSignInAccount? account = await appGoogleSignInSilently();
       if (account == null) return null;
-      final auth = await account.authentication;
-      final idTok = auth.idToken;
-      if (idTok == null || idTok.isEmpty) return null;
-      final credential = GoogleAuthProvider.credential(
-        accessToken: auth.accessToken,
-        idToken: idTok,
-      );
-      return FirebaseAuth.instance.signInWithCredential(credential);
+      return firebaseCredentialFromGoogleAccount(account);
+    } on GoogleSignInException catch (e) {
+      if (isGoogleSignInUserCancellationException(e)) return null;
+      return null;
     } catch (_) {
       return null;
     }

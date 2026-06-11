@@ -17,6 +17,7 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:gestao_yahweh/core/app_startup_preheat.dart';
 import 'package:gestao_yahweh/core/app_startup_route.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/auth_session_service.dart';
 import 'package:gestao_yahweh/services/auth_service.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
@@ -814,6 +815,13 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
           debugPrint('FCM chat channels boot: $e\n$st');
         }
       }),
+    );
+  }
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS)) {
+    unawaited(
+      ensureAppGoogleSignInInitialized().catchError((_) {}),
     );
   }
   ensureBrasiliaTimeZoneInitialized();

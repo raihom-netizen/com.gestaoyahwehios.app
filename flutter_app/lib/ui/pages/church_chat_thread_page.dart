@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, ValueNotifier;
@@ -54,7 +55,6 @@ import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_sync_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/optimistic_chat_media_upload.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_delivery_status.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_media_preview_sheet.dart';
@@ -2002,87 +2002,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
   }
 
-  /// Stub Firestore imediato (padrão Controle Total: BD primeiro, ficheiro depois).
-  Future<void> _startPendingFirestoreStub(ChurchChatOutboundPending pending) async {
-    if ((pending.firestoreMessageId ?? '').trim().isNotEmpty) return;
-    await ensureFirebaseReadyForChatSend();
-    final begun = await ChatThreadOperations.beginMediaUploadMessage(
-      tenantId: _tid,
-      threadId: widget.threadId,
-      kind: pending.kind,
-      fileName: ChurchChatMessageFields.isDocumentType(pending.kind)
-          ? pending.fileName
-          : null,
-      replyTo: pending.albumIndex == 0 ? _replyDraft?.toReplyPayload() : null,
-      senderDisplayName: ChatThreadOperations.senderDisplayNameForNewMessage(),
-      albumGroupId: pending.albumGroupId,
-      albumIndex: pending.albumIndex,
-      albumCount: pending.albumCount,
-    ).timeout(const Duration(seconds: 20));
-    pending.firestoreMessageId = begun.messageId;
-    pending.storagePath = begun.storagePath;
-    _setPendingProgress(pending.localId, 0);
-    unawaited(
-      ChatThreadOperations.patchMediaUploadProgress(
-        tenantId: _tid,
-        threadId: widget.threadId,
-        messageId: begun.messageId,
-        progress: 0,
-        force: true,
-      ),
-    );
-    unawaited(ChurchChatMediaOutboxService.updateStub(
-      tenantId: _tid,
-      threadId: widget.threadId,
-      localId: pending.localId,
-      firestoreMessageId: begun.messageId,
-      storagePath: begun.storagePath,
-    ));
-    if (mounted) setState(() => _replyDraft = null);
-  }
-
-  Future<void> _flushPendingUpload({
-    required ChurchChatOutboundPending pending,
-    required List<int>? bytes,
-    required String? localPath,
-  }) async {
-    await OptimisticChatMediaUpload.flush(
-      pending: pending,
-      tenantId: _tid,
-      threadId: widget.threadId,
-      bytes: bytes,
-      localPath: localPath,
-      replyTo: null,
-      onProgress: (p) => _setPendingProgress(pending.localId, p),
-      onSuccess: () {
-        unawaited(ChurchChatMediaOutboxService.clearJob(
-          tenantId: _tid,
-          threadId: widget.threadId,
-          localId: pending.localId,
-        ));
-        _removePending(pending.localId);
-      },
-      onFailed: (msg) {
-        final i =
-            _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
-        if (i >= 0) {
-          _pendingOutbound[i].failed = true;
-          _pendingOutbound[i].errorMessage = msg;
-          if (mounted) setState(() {});
-        }
-      },
-      onWaitingForNetwork: () {
-        final i =
-            _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
-        if (i >= 0) {
-          _pendingOutbound[i].failed = false;
-          _pendingOutbound[i].errorMessage = 'Aguardando conexão…';
-          if (mounted) setState(() {});
-        }
-      },
-    );
-  }
-
   Future<List<int>?> _bytesForPendingUpload({
     required ChurchChatOutboundPending pending,
     required List<int>? bytes,
@@ -2288,7 +2207,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _pickDocument() async {
     _warmChatFirebaseForPicker();
-    final r = await FilePicker.platform.pickFiles(
+    final r = await YahwehFilePicker.pickFiles(
       type: FileType.custom,
       allowMultiple: true,
       allowedExtensions: ChurchChatAttachmentUtils.documentPickerExtensions,
@@ -2329,7 +2248,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
   Future<void> _pickAudioFile() async {
     _warmChatFirebaseForPicker();
-    final r = await FilePicker.platform.pickFiles(
+    final r = await YahwehFilePicker.pickFiles(
       type: FileType.custom,
       allowMultiple: true,
       allowedExtensions: const [

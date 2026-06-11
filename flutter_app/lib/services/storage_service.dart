@@ -21,7 +21,7 @@ abstract final class StorageService {
   static const int kMaxImageEdge = kStandardUploadImageMaxEdge;
   static const int kImageQuality = kStandardUploadImageQuality;
 
-  /// Comprime imagem agressivamente: 1024×1024 @ 70%.
+  /// Comprime imagem agressivamente: 1024×1024 @ 80 %.
   static Future<Uint8List> compressImageBytes(
     Uint8List input, {
     MediaImageProfile profile = MediaImageProfile.feed,

@@ -1,28 +1,22 @@
 import 'dart:typed_data';
 
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/media_upload_service.dart';
-import 'package:gestao_yahweh/services/storage_service.dart';
-import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
+import 'package:gestao_yahweh/services/transactional_media_publish_pipeline.dart';
 
-/// Resultado de upload de galeria — imagem full + miniatura opcional.
+/// Resultado de upload de galeria — um ficheiro por slot na pasta do bem.
 class PatrimonioGalleryUploadResult {
   const PatrimonioGalleryUploadResult({
     required this.full,
-    this.thumbDownloadUrl,
-    this.thumbStoragePath,
   });
 
   final MediaUploadResult full;
-  final String? thumbDownloadUrl;
-  final String? thumbStoragePath;
 
   String get downloadUrl => full.downloadUrl;
   String get storagePath => full.storagePath;
 }
 
-/// Upload de fotos do patrimônio — WebP 1920px + thumb em `patrimonio/thumbs/`.
+/// Upload de fotos do patrimônio — compactação 1024/80 % → Storage → URL.
 abstract final class PatrimonioMediaUpload {
   PatrimonioMediaUpload._();
 
@@ -32,60 +26,33 @@ abstract final class PatrimonioMediaUpload {
     String? thumbStoragePath,
     void Function(double progress)? onProgress,
   }) async {
-    final bytes = await StorageService.compressImageBytes(
-      rawBytes,
-      profile: MediaImageProfile.patrimonio,
-    );
-    if (bytes.isEmpty) {
-      throw StateError(
-        'Não foi possível processar a imagem. Tente outra foto ou formato.',
-      );
-    }
-    final url = await StorageService.uploadBytes(
+    final contentType = kIsWeb ? 'image/jpeg' : 'image/webp';
+    final upload = await TransactionalMediaPublishPipeline.compressAndUpload(
+      rawBytes: rawBytes,
       storagePath: storagePath,
-      bytes: bytes,
-      contentType: 'image/webp',
-      module: YahwehUploadModule.generic,
-      onProgress: onProgress,
+      contentType: contentType,
+      module: TransactionalMediaModule.strict,
+      onProgress: (phase, p) {
+        if (onProgress == null) return;
+        onProgress(TransactionalMediaPublishPipeline.combinedProgress(phase, p));
+      },
+      useOfflineQueue: false,
     );
-
-    String? thumbUrl;
-    String? thumbPathOut;
-    final thumbPath = thumbStoragePath?.trim() ?? '';
-    if (thumbPath.isNotEmpty) {
-      try {
-        final thumbBytes = await StorageService.compressImageBytes(
-          bytes,
-          profile: MediaImageProfile.thumb,
-        );
-        if (thumbBytes.isNotEmpty) {
-          thumbUrl = await StorageService.uploadBytes(
-            storagePath: thumbPath,
-            bytes: thumbBytes,
-            contentType: 'image/webp',
-            module: YahwehUploadModule.generic,
-          );
-          thumbPathOut = thumbPath;
-        }
-      } catch (_) {}
-    }
 
     return PatrimonioGalleryUploadResult(
       full: MediaUploadResult(
-        downloadUrl: url,
-        storagePath: storagePath,
-        contentType: 'image/webp',
+        downloadUrl: upload.downloadUrl,
+        storagePath: upload.storagePath,
+        contentType: upload.contentType,
       ),
-      thumbDownloadUrl: thumbUrl,
-      thumbStoragePath: thumbPathOut,
     );
   }
 
-  /// Deriva path de thumb a partir do path full e metadados do item.
+  /// Sem thumb separada — um ficheiro por slot.
   static String thumbPathForSlot({
     required String tenantId,
     required String itemDocId,
     required int slotIndex,
   }) =>
-      ChurchStorageLayout.patrimonioThumbPath(tenantId, itemDocId, slotIndex);
+      '';
 }

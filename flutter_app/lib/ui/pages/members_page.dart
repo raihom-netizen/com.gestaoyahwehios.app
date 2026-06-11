@@ -59,7 +59,6 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
-import 'package:gestao_yahweh/services/membro_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/membro_strict_update_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
@@ -212,19 +211,18 @@ class _MembersPageState extends State<MembersPage> {
     return id.isNotEmpty ? id : widget.tenantId.trim();
   }
 
-  /// Upload validado (Storage + Firestore) — sucesso só após confirmação completa.
+  /// Mesmo pipeline do Chat Igreja — Storage `membros/{authUid}/foto_perfil.jpg` + sync chat.
   Future<void> _publishMemberProfilePhotoStrict({
     required String tenantId,
     required String memberDocId,
     required Map<String, dynamic> memberData,
     required Uint8List bytes,
   }) async {
-    final result = await MembroStrictPublishService.publishPhoto(
-      seedTenantId: tenantId,
+    final result = await MemberProfilePhotoUpdateService.uploadAndPatchMember(
+      tenantId: tenantId,
       memberDocId: memberDocId,
       memberData: memberData,
       rawBytes: bytes,
-      userUid: FirebaseAuth.instance.currentUser?.uid,
     );
     if (!mounted) return;
     final displayUrl = sanitizeImageUrl(result.downloadUrl);
@@ -243,18 +241,6 @@ class _MembersPageState extends State<MembersPage> {
       _optimisticProfilePhotoBytes.remove(memberDocId);
     });
     _invalidateMemberPhotoCaches(tenantId, memberDocId, merged);
-    unawaited(
-      MemberProfilePhotoUpdateService.syncChatPeerProfilesAfterPhotoUpdate(
-        primaryTenantId: tenantId,
-        memberDocId: memberDocId,
-        memberData: merged,
-        photoUrl: displayUrl,
-        photoThumbUrl: result.thumbDownloadUrl,
-        cacheRevision: result.cacheRevision,
-        photoStoragePath: result.storagePath,
-        photoThumbStoragePath: result.thumbStoragePath,
-      ),
-    );
     if (displayUrl.isNotEmpty) {
       unawaited(FirebaseStorageCleanupService.evictImageCaches(displayUrl));
     }

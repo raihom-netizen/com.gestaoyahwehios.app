@@ -174,7 +174,8 @@ class FirebaseStorageCleanupService {
 
     Iterable<String> membrosFixedPaths(String stem) => <String>[
       ChurchStorageLayout.memberProfilePhotoPath(tid, stem),
-      ChurchStorageLayout.memberProfileThumbPath(tid, stem),
+      ChurchStorageLayout.memberProfileThumbPathFlatWebpLegacy(tid, stem),
+      ChurchStorageLayout.memberProfilePhotoPathFlatWebpLegacy(tid, stem),
       'igrejas/$tid/membros/fotos/$stem.webp',
       'igrejas/$tid/membros/thumbs/$stem.webp',
       'igrejas/$tid/membros/$stem/foto_perfil.jpg',

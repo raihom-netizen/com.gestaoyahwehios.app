@@ -7,6 +7,8 @@ import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_verification_service.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Patrimônio — upload validado → Firestore → confirmação (sem falso sucesso).
@@ -26,6 +28,7 @@ abstract final class PatrimonioStrictPublishService {
     required List<Uint8List> newImages,
     required int startSlot,
     List<String> existingPaths = const [],
+    List<String> existingUrls = const [],
     String? userUid,
   }) async {
     final igrejaId = await PatrimonioPublishVerificationService
@@ -47,7 +50,10 @@ abstract final class PatrimonioStrictPublishService {
     );
 
     final allPaths = List<String>.from(existingPaths);
-    final thumbPaths = <String>[];
+    final allUrls = existingUrls
+        .map((e) => sanitizeImageUrl(e))
+        .where((e) => e.isNotEmpty)
+        .toList();
 
     if (newImages.isNotEmpty) {
       await Future.wait(
@@ -79,44 +85,22 @@ abstract final class PatrimonioStrictPublishService {
             return PatrimonioMediaUpload.uploadGalleryPhoto(
               storagePath: path,
               rawBytes: newImages[j],
-              thumbStoragePath: PatrimonioMediaUpload.thumbPathForSlot(
-                tenantId: igrejaId,
-                itemDocId: itemId,
-                slotIndex: slot,
-              ),
             );
           }),
         );
         for (final r in chunk) {
           allPaths.add(r.storagePath);
-          final tp = r.thumbStoragePath?.trim() ?? '';
-          if (tp.isNotEmpty) thumbPaths.add(tp);
+          allUrls.add(sanitizeImageUrl(r.downloadUrl));
         }
       }
 
       await PatrimonioPublishVerificationService.verifyStorageMetadata(
         photoPaths: allPaths.skip(existingPaths.length),
-        thumbPaths: thumbPaths,
       );
     }
 
     final payload = Map<String, dynamic>.from(corePayload);
-    payload['fotos'] = allPaths;
-    payload['fotoStoragePaths'] = allPaths;
-    if (allPaths.isNotEmpty) {
-      payload['imageStoragePath'] = allPaths.first;
-      payload['fotoPath'] = allPaths.first;
-      payload['fotoPrincipalPath'] = allPaths.first;
-      if (thumbPaths.isNotEmpty) {
-        payload['fotoPrincipalThumbPath'] = thumbPaths.first;
-        payload['thumbStoragePath'] = thumbPaths.first;
-      }
-      if (allPaths.length > 1) {
-        payload['gallery'] = allPaths.sublist(1);
-      } else {
-        payload['gallery'] = FieldValue.delete();
-      }
-    }
+    _applyPhotoFields(payload, allPaths, allUrls);
     payload['ativo'] = true;
     payload[photoUploadStateField] = statePublished;
     payload['photoUploadError'] = FieldValue.delete();
@@ -153,6 +137,7 @@ abstract final class PatrimonioStrictPublishService {
     required Map<String, dynamic> corePayload,
     required bool isNewDoc,
     List<String> existingPaths = const [],
+    List<String> existingUrls = const [],
     String? userUid,
   }) async {
     final igrejaId = await PatrimonioPublishVerificationService
@@ -165,23 +150,16 @@ abstract final class PatrimonioStrictPublishService {
       itemId: itemId,
     );
     final payload = Map<String, dynamic>.from(corePayload);
-    if (existingPaths.isNotEmpty) {
-      payload['fotos'] = existingPaths;
-      payload['fotoStoragePaths'] = existingPaths;
-      payload['imageStoragePath'] = existingPaths.first;
-      payload['fotoPath'] = existingPaths.first;
-      payload['fotoPrincipalPath'] = existingPaths.first;
-      payload['fotoPrincipalThumbPath'] =
-          PatrimonioMediaUpload.thumbPathForSlot(
-        tenantId: igrejaId,
-        itemDocId: itemId,
-        slotIndex: 0,
-      );
-      if (existingPaths.length > 1) {
-        payload['gallery'] = existingPaths.sublist(1);
-      }
+    final urls = existingUrls
+        .map((e) => sanitizeImageUrl(e))
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (existingPaths.isNotEmpty || urls.isNotEmpty) {
+      _applyPhotoFields(payload, existingPaths, urls);
     }
     payload['ativo'] = true;
+    payload[photoUploadStateField] = statePublished;
+    payload['photoUploadError'] = FieldValue.delete();
     payload['atualizadoEm'] = FieldValue.serverTimestamp();
     if (isNewDoc) payload['criadoEm'] = FieldValue.serverTimestamp();
 
@@ -189,5 +167,32 @@ abstract final class PatrimonioStrictPublishService {
       () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
     );
     await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
+  }
+
+  static void _applyPhotoFields(
+    Map<String, dynamic> payload,
+    List<String> paths,
+    List<String> urls,
+  ) {
+    if (paths.isNotEmpty) {
+      payload['fotos'] = paths;
+      payload['fotoStoragePaths'] = paths;
+      payload['imageStoragePath'] = paths.first;
+      payload['fotoPath'] = paths.first;
+      payload['fotoPrincipalPath'] = paths.first;
+      if (paths.length > 1) {
+        payload['gallery'] = paths.sublist(1);
+      } else {
+        payload['gallery'] = FieldValue.delete();
+      }
+    }
+    if (urls.isNotEmpty) {
+      payload['fotoUrls'] = urls;
+      payload['imageUrl'] = urls.first;
+      payload['fotoUrl'] = urls.first;
+      payload['thumbnail'] = urls.first;
+      payload['fotoPrincipalThumbPath'] = FieldValue.delete();
+      payload['thumbStoragePath'] = FieldValue.delete();
+    }
   }
 }

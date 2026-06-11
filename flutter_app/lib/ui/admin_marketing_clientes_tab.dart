@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -344,7 +345,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                       onPressed: uploading
                           ? null
                           : () async {
-                              final pick = await FilePicker.platform.pickFiles(
+                              final pick = await YahwehFilePicker.pickFiles(
                                 type: FileType.custom,
                                 allowedExtensions: const [
                                   'jpg',

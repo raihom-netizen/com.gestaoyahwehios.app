@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_funcoes_controle_service.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -17,9 +16,12 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/pages/members_page.dart' show MembersPage;
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
+import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 
 /// Mesma faixa dourada dos cards em [DepartmentsPage] — identidade visual alinhada.
 const Color _kCargoListGoldAccent = Color(0xFFF5C518);
@@ -638,11 +640,40 @@ class _CargosPageState extends State<CargosPage> {
   ];
 
   CollectionReference<Map<String, dynamic>> get _col =>
-      ChurchUiCollections.cargos(_tid);
+      ChurchUiCollections.cargos(_loadChurchId);
+
+  String get _loadChurchId {
+    final fromShell = widget.tenantId.trim();
+    if (fromShell.isNotEmpty) return fromShell;
+    return (_resolvedTenantId ?? '').trim();
+  }
 
   String get _tid {
-    final r = (_resolvedTenantId ?? widget.tenantId).trim();
-    return r.isEmpty ? widget.tenantId : r;
+    final id = _loadChurchId;
+    return id.isNotEmpty ? id : widget.tenantId.trim();
+  }
+
+  Timer? _webLoadCap;
+
+  void _startWebLoadingCap() {
+    if (!kIsWeb) return;
+    _webLoadCap?.cancel();
+    _webLoadCap = Timer(const Duration(seconds: 14), () {
+      if (!mounted) return;
+      setState(() {
+        _cargosFuture = Future.error(
+          TimeoutException(
+            'Tempo esgotado ao carregar cargos. Toque em atualizar.',
+          ),
+        );
+      });
+    });
+  }
+
+  Future<void> _prepareCargosRead() async {
+    if (!kIsWeb) return;
+    await ensureFirebaseReadyForPanelRead().catchError((_) {});
+    await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
   }
 
   static String _cargosMemKey(String tenantId) =>
@@ -655,35 +686,49 @@ class _CargosPageState extends State<CargosPage> {
   Future<QuerySnapshot<Map<String, dynamic>>> _loadCargos({
     bool forceServer = false,
   }) async {
-    final tid = _tid.trim();
-    if (tid.isEmpty) {
-      return _col.limit(1).get();
+    final churchId = _loadChurchId;
+    if (churchId.isEmpty) {
+      return const MergedFirestoreQuerySnapshot([]);
     }
-    final churchId = ChurchRepository.churchId(tid);
-    final path = 'igrejas/${churchId.isNotEmpty ? churchId : tid}/cargos';
-    try {
-      final result = await ChurchRepository.cargos.list(
-        churchIdHint: churchId.isNotEmpty ? churchId : tid,
+    final path = 'igrejas/$churchId/cargos';
+
+    await _prepareCargosRead();
+
+    Future<QuerySnapshot<Map<String, dynamic>>> run() async {
+      if (forceServer) {
+        final col = ChurchRepository.collection(
+          'cargos',
+          churchIdHint: churchId,
+        ).limit(120);
+        return firestoreQueryGetReliable(col);
+      }
+      return IgrejaDirectFirestoreReads.listSubcollection(
+        churchId,
+        'cargos',
+        moduleLabel: 'Cargos',
         limit: 120,
+        cacheKey: _cargosMemKey(churchId),
       );
+    }
+
+    try {
+      final snap = kIsWeb
+          ? await FirestoreWebGuard.runWithWebRecovery(run, maxAttempts: 4)
+          : await run();
       ChurchModuleQueryProbe.logSuccess(
         module: 'Cargos',
-        churchId: churchId.isNotEmpty ? churchId : tid,
+        churchId: churchId,
         path: path,
-        totalDocs: result.count,
+        totalDocs: snap.docs.length,
       );
-      if (result.error != null && result.items.isEmpty) {
-        throw Exception(result.error);
-      }
-      final snap = MergedFirestoreQuerySnapshot(result.items);
       if (snap.docs.isNotEmpty) {
-        _CargosRamCache.put(tid, snap.docs);
+        _CargosRamCache.put(churchId, snap.docs);
       }
       return snap;
     } catch (e, st) {
       ChurchModuleQueryProbe.logError(
         module: 'Cargos',
-        churchId: churchId.isNotEmpty ? churchId : tid,
+        churchId: churchId,
         path: path,
         error: e,
         stackTrace: st,
@@ -692,9 +737,25 @@ class _CargosPageState extends State<CargosPage> {
     }
   }
 
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadCargosWithTimeout({
+    bool forceServer = false,
+  }) {
+    return _loadCargos(forceServer: forceServer).timeout(
+      Duration(seconds: kIsWeb ? 14 : 24),
+      onTimeout: () {
+        final mem =
+            FirestoreReadResilience.peekLastGoodQuery(_cargosMemKey(_loadChurchId));
+        if (mem != null && mem.docs.isNotEmpty) return mem;
+        throw TimeoutException(
+          'Tempo esgotado ao carregar cargos. Toque em atualizar.',
+        );
+      },
+    );
+  }
+
   Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadCargos() {
-    final seed = widget.tenantId.trim();
-    if (seed.isEmpty) return _loadCargos();
+    final seed = _loadChurchId;
+    if (seed.isEmpty) return _loadCargosWithTimeout();
 
     final ram = _CargosRamCache.peek(seed);
     if (ram != null && ram.isNotEmpty) {
@@ -706,59 +767,36 @@ class _CargosPageState extends State<CargosPage> {
       return Future.value(mem);
     }
 
-    return _loadCargos();
+    return _loadCargosWithTimeout();
   }
 
-  /// 1.º frame: RAM / memória; tenant operacional + rede em background.
+  /// 1.º frame: RAM / memória; rede resiliente em background.
   Future<void> _openCargosFast() async {
-    final seed = widget.tenantId.trim();
+    final seed = _loadChurchId;
     if (seed.isEmpty) return;
 
+    await _prepareCargosRead();
+
     try {
-      final snap = await ChurchTenantResilientReads.cargos(seed).timeout(
-        const Duration(milliseconds: 1800),
-      );
+      final snap = await _loadCargosWithTimeout();
       if (mounted && snap.docs.isNotEmpty) {
         _CargosRamCache.put(seed, snap.docs);
         setState(() {
           _cargosFuture = Future.value(snap);
         });
       }
-    } catch (_) {}
-
-    try {
-      final op = ChurchRepository.churchId(
-        _resolvedTenantId?.isNotEmpty == true ? _resolvedTenantId! : seed,
-      );
-      if (!mounted) return;
-      if (op.isNotEmpty && op != (_resolvedTenantId ?? seed)) {
-        setState(() => _resolvedTenantId = op);
-      }
-      final tid = _tid.trim();
-      if (tid.isEmpty || tid == seed) {
-        unawaited(_refreshCargosBackground());
-        return;
-      }
-      final alt = await ChurchTenantResilientReads.cargos(tid).timeout(
-        const Duration(seconds: 12),
-      );
-      if (!mounted) return;
-      if (alt.docs.isNotEmpty) {
-        _CargosRamCache.put(tid, alt.docs);
-        setState(() {
-          _cargosFuture = Future.value(alt);
-        });
-      }
-    } catch (_) {}
+    } catch (_) {} finally {
+      _webLoadCap?.cancel();
+    }
 
     unawaited(_refreshCargosBackground());
   }
 
   Future<void> _refreshCargosBackground() async {
     try {
-      final snap = await _loadCargos();
+      final snap = await _loadCargosWithTimeout();
       if (!mounted || snap.docs.isEmpty) return;
-      _CargosRamCache.put(_tid, snap.docs);
+      _CargosRamCache.put(_loadChurchId, snap.docs);
       setState(() {
         _cargosFuture = Future.value(snap);
       });
@@ -768,9 +806,16 @@ class _CargosPageState extends State<CargosPage> {
   @override
   void initState() {
     super.initState();
-    _resolvedTenantId = widget.tenantId;
+    _resolvedTenantId = widget.tenantId.trim();
     _cargosFuture = _seedOrLoadCargos();
+    _startWebLoadingCap();
     unawaited(_openCargosFast());
+  }
+
+  @override
+  void dispose() {
+    _webLoadCap?.cancel();
+    super.dispose();
   }
 
   @override
@@ -780,6 +825,7 @@ class _CargosPageState extends State<CargosPage> {
       _resolvedTenantId = widget.tenantId;
       _triedAutoSeed = false;
       _cargosFuture = _seedOrLoadCargos();
+      _startWebLoadingCap();
       unawaited(_openCargosFast());
     }
   }
@@ -815,7 +861,7 @@ class _CargosPageState extends State<CargosPage> {
       debugPrint('CargosPage _seedPadroes: $e');
     }
     if (mounted) {
-      setState(() => _cargosFuture = _loadCargos());
+      setState(() => _cargosFuture = _loadCargosWithTimeout());
     }
   }
 
@@ -861,11 +907,12 @@ class _CargosPageState extends State<CargosPage> {
   Future<void> _refresh({bool forceServer = false}) async {
     if (!mounted) return;
     setState(() {
-      _cargosFuture = _loadCargos(forceServer: forceServer);
+      _cargosFuture = _loadCargosWithTimeout(forceServer: forceServer);
     });
     try {
       await _cargosFuture;
     } catch (_) {}
+    _webLoadCap?.cancel();
   }
 
   Widget _buildCargosHubCard(EdgeInsets padding) {
@@ -2389,7 +2436,12 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
 
   Future<void> _changeCargo(_MemberWithRef m) async {
     if (!_canWrite) return;
-    final cargosSnap = await ChurchTenantResilientReads.cargos(widget.tenantId);
+    final cargosSnap = await IgrejaDirectFirestoreReads.listSubcollection(
+      widget.tenantId.trim(),
+      'cargos',
+      moduleLabel: 'Cargos',
+      limit: 120,
+    );
     final cargos = cargosSnap.docs
         .map((d) => (key: (d.data()['key'] ?? d.id).toString(), name: (d.data()['name'] ?? d.id).toString()))
         .where((c) => c.key != widget.cargoKey)

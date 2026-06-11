@@ -60,6 +60,7 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
   final _valorCtrl = TextEditingController(text: '50');
   final _nomeCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
+  final _obsCtrl = TextEditingController();
 
   bool _pixMode = true;
   int _parcelas = 1;
@@ -75,6 +76,7 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
     _valorCtrl.dispose();
     _nomeCtrl.dispose();
     _emailCtrl.dispose();
+    _obsCtrl.dispose();
     super.dispose();
   }
 
@@ -118,6 +120,7 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
         'contaDestinoId': '',
         'memberId': '',
         'donationKind': _donationKind,
+        'donationObs': _obsCtrl.text.trim(),
       });
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
       final qr = (data['qr_code'] ?? '').toString();
@@ -177,6 +180,7 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
         'returnUrl': churchPublicDonationReturnUrl(widget.slugClean),
         'maxInstallments': _parcelas,
         'donationKind': _donationKind,
+        'donationObs': _obsCtrl.text.trim(),
       });
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
       final url = (data['init_point'] ?? '').toString().trim();
@@ -563,6 +567,23 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
                       controller: _nomeCtrl,
                       decoration: InputDecoration(
                         labelText: 'Seu nome',
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _obsCtrl,
+                      maxLines: 2,
+                      maxLength: 240,
+                      decoration: InputDecoration(
+                        labelText: _donationKind == 'dizimo'
+                            ? 'Observação (opcional — ex.: mês, intenção)'
+                            : 'Observação (opcional — ex.: campanha, destino)',
                         filled: true,
                         fillColor: Colors.white,
                         border: OutlineInputBorder(

@@ -2533,9 +2533,11 @@ class _ResumoTabState extends State<_ResumoTab> {
           lancamentos: allDocs.map((d) => d.data()),
           ateInclusive: periodEndSaldo,
         );
-        final saldoAtualPorConta = accountsCache.hasData
-            ? accountsCache.saldoPorConta
-            : saldoPorConta;
+        final saldoAtualPorConta = allDocs.isNotEmpty
+            ? saldoPorConta
+            : (accountsCache.hasData
+                ? accountsCache.saldoPorConta
+                : saldoPorConta);
 
         final saldoTotalContas = saldoAtualPorConta.values
             .fold(0.0, (a, b) => a + b);
@@ -4966,7 +4968,13 @@ class _LancamentoCard extends StatelessWidget {
     final dt = _parseDate(data['createdAt'] ?? data['date']);
     final dataStr =
         '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-    final comprovanteUrl = (data['comprovanteUrl'] ?? '').toString();
+    final comprovanteUrlRaw = (data['comprovanteUrl'] ?? '').toString();
+    final comprovantePathRaw =
+        (data['comprovanteStoragePath'] ?? '').toString().trim();
+    final hasComprovanteAnexo = comprovanteUrlRaw.isNotEmpty ||
+        comprovantePathRaw.isNotEmpty ||
+        (data['comprovanteUploadState'] ?? '').toString() ==
+            EntityPublishStatus.published;
     final pendenteRecorrencia = data['pendenteConciliacaoRecorrencia'] == true;
     final pendenteAprovacao = data['aprovacaoPendente'] == true;
     final conciliadoOk = data['conciliado'] == true;
@@ -5023,16 +5031,22 @@ class _LancamentoCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-          onTap: () => showFinanceLancamentoDetailsBottomSheet(context,
-              data: data,
-              comprovanteUrl: comprovanteUrl,
-              dataStr: dataStr,
-              isEntrada: isEntrada,
-              isTransfer: isTransfer,
-              color: color,
-              valor: valor,
-              titulo: titulo,
-              subtitulo: subtitulo),
+          onTap: () async {
+            final compUrl =
+                await FinanceComprovantePublishService.resolveComprovanteUrl(
+                    data);
+            if (!context.mounted) return;
+            showFinanceLancamentoDetailsBottomSheet(context,
+                data: data,
+                comprovanteUrl: compUrl,
+                dataStr: dataStr,
+                isEntrada: isEntrada,
+                isTransfer: isTransfer,
+                color: color,
+                valor: valor,
+                titulo: titulo,
+                subtitulo: subtitulo);
+          },
           child: Padding(
             padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
             child: Row(
@@ -5122,7 +5136,7 @@ class _LancamentoCard extends StatelessWidget {
                               colors: [Color(0xFFD97706), Color(0xFFFBBF24)],
                             ),
                           ],
-                          if (comprovanteUrl.isNotEmpty) ...[
+                          if (hasComprovanteAnexo) ...[
                             const SizedBox(width: 6),
                             Icon(Icons.attach_file_rounded,
                                 size: 14, color: Colors.grey.shade500),
@@ -7314,7 +7328,7 @@ Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
     final op = ChurchRepository.churchId(tenantId);
     final snap = await ChurchUiCollections.fornecedores(op)
         .orderBy('nome')
-        .limit(YahwehPerformanceV4.defaultPageSize)
+        .limit(500)
         .get();
     final out = <({String id, String nome})>[];
     for (final d in snap.docs) {
@@ -7329,14 +7343,12 @@ Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
   }
 }
 
-/// Membros ativos para vincular receita/despesa (nome denormalizado no lançamento).
+/// Membros ativos — lista completa (picker premium com busca).
 Future<List<({String id, String nome})>> _membrosParaFinanceDropdown(
     String tenantId) async {
   try {
     final op = ChurchRepository.churchId(tenantId);
-    final snap = await ChurchUiCollections.membros(op)
-        .limit(YahwehPerformanceV4.defaultPageSize)
-        .get();
+    final snap = await ChurchUiCollections.membros(op).limit(3000).get();
     final out = <({String id, String nome})>[];
     for (final d in snap.docs) {
       final m = d.data();
@@ -7850,106 +7862,38 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                       ),
                       const SizedBox(height: 12),
                       if (vinculoTipo == 'fornecedor')
-                        DropdownButtonFormField<String>(
-                          value: fornecedorId != null &&
-                                  fornecedoresOpts.any((e) => e.id == fornecedorId)
-                              ? fornecedorId
-                              : null,
-                          decoration: InputDecoration(
-                            labelText: 'Fornecedor / prestador',
-                            filled: true,
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusSm)),
-                            prefixIcon: const Icon(Icons.handshake_rounded),
-                          ),
-                          isExpanded: true,
-                          items: [
-                            const DropdownMenuItem<String>(
-                              value: null,
-                              child: Text('Selecione…'),
-                            ),
-                            ...fornecedoresOpts.map(
-                              (e) => DropdownMenuItem(
-                                value: e.id,
-                                child: Text(
-                                  e.nome,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                          ],
-                          onChanged: (v) => setDlgState(() {
-                            fornecedorId = v;
-                            fornecedorNome = '';
-                            if (v != null) {
-                              for (final f in fornecedoresOpts) {
-                                if (f.id == v) {
-                                  fornecedorNome = f.nome;
-                                  break;
-                                }
-                              }
-                            }
-                          }),
-                        ),
-                      if (vinculoTipo == 'fornecedor' && fornecedoresOpts.isEmpty)
-                        Text(
-                          'Cadastre fornecedores em Financeiro → Fornecedores.',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                              height: 1.35),
+                        FinanceFixoTitularCard(
+                          vinculoTipo: 'fornecedor',
+                          tituloPlaceholder: 'Fornecedor / prestador',
+                          nomeExibicao: fornecedorNome,
+                          onTap: () async {
+                            final picked = await showFinancePremiumFornecedorPicker(
+                              ctx,
+                              tenantId: effectiveTenantId,
+                            );
+                            if (picked == null) return;
+                            setDlgState(() {
+                              fornecedorId = picked.$1;
+                              fornecedorNome = picked.$2;
+                            });
+                          },
                         ),
                       if (vinculoTipo == 'membro')
-                        DropdownButtonFormField<String>(
-                          value: membroId != null &&
-                                  membrosOpts.any((e) => e.id == membroId)
-                              ? membroId
-                              : null,
-                          decoration: InputDecoration(
-                            labelText: 'Membro',
-                            filled: true,
-                            border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusSm)),
-                            prefixIcon: const Icon(Icons.person_rounded),
-                          ),
-                          isExpanded: true,
-                          items: [
-                            const DropdownMenuItem<String>(
-                              value: null,
-                              child: Text('Selecione…'),
-                            ),
-                            ...membrosOpts.map(
-                              (e) => DropdownMenuItem(
-                                value: e.id,
-                                child: Text(
-                                  e.nome,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ),
-                          ],
-                          onChanged: (v) => setDlgState(() {
-                            membroId = v;
-                            membroNome = '';
-                            if (v != null) {
-                              for (final x in membrosOpts) {
-                                if (x.id == v) {
-                                  membroNome = x.nome;
-                                  break;
-                                }
-                              }
-                            }
-                          }),
-                        ),
-                      if (vinculoTipo == 'membro' && membrosOpts.isEmpty)
-                        Text(
-                          'Nenhum membro ativo. Cadastre em Membros.',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                              height: 1.35),
+                        FinanceFixoTitularCard(
+                          vinculoTipo: 'membro',
+                          tituloPlaceholder: 'Membro',
+                          nomeExibicao: membroNome,
+                          onTap: () async {
+                            final picked = await showFinancePremiumMemberPicker(
+                              ctx,
+                              tenantId: effectiveTenantId,
+                            );
+                            if (picked == null) return;
+                            setDlgState(() {
+                              membroId = picked.$1;
+                              membroNome = picked.$2;
+                            });
+                          },
                         ),
                     ],
                   if (contas.isNotEmpty)
@@ -8319,10 +8263,18 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         hasNewComprovante: pendingComprovanteBytes != null,
       );
       if (pendingComprovanteBytes != null) {
-        FinanceComprovantePublishService.scheduleComprovanteUpload(
+        final refDate = patch['createdAt'] is Timestamp
+            ? (patch['createdAt'] as Timestamp).toDate()
+            : (data?['createdAt'] is Timestamp
+                ? (data!['createdAt'] as Timestamp).toDate()
+                : null);
+        await FinanceComprovantePublishService.uploadComprovanteNow(
           tenantId: tenantId,
           docRef: existingDoc.reference,
           rawBytes: pendingComprovanteBytes,
+          referenceDate: refDate,
+          previousStoragePath: (data?['comprovanteStoragePath'] ?? '').toString(),
+          previousDownloadUrl: (data?['comprovanteUrl'] ?? '').toString(),
         );
       }
       if (context.mounted) {
@@ -8348,10 +8300,14 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         hasNewComprovante: pendingAddBytes != null,
       );
       if (pendingAddBytes != null) {
-        FinanceComprovantePublishService.scheduleComprovanteUpload(
+        final refDate = result['createdAt'] is Timestamp
+            ? (result['createdAt'] as Timestamp).toDate()
+            : null;
+        await FinanceComprovantePublishService.uploadComprovanteNow(
           tenantId: tenantId,
           docRef: docRef,
           rawBytes: pendingAddBytes,
+          referenceDate: refDate,
         );
       }
       if (context.mounted) {
@@ -8385,11 +8341,12 @@ Future<void> uploadFinanceComprovanteForLancamento(
   required DocumentSnapshot<Map<String, dynamic>> doc,
 }) async {
   final picker = ImagePicker();
-  final jaTem = ((doc.data()?['comprovanteUrl'] ?? '') as Object?)
-          ?.toString()
-          .trim()
-          .isNotEmpty ==
-      true;
+  final docData = doc.data() ?? {};
+  final jaTemUrl =
+      (docData['comprovanteUrl'] ?? '').toString().trim().isNotEmpty;
+  final jaTemPath =
+      (docData['comprovanteStoragePath'] ?? '').toString().trim().isNotEmpty;
+  final jaTem = jaTemUrl || jaTemPath;
   final source = await showDialog<ImageSource>(
     context: context,
     builder: (ctx) => SimpleDialog(
@@ -8432,36 +8389,28 @@ Future<void> uploadFinanceComprovanteForLancamento(
       minHeight: 600,
       quality: 80,
     );
-    await doc.reference.set(
-      {
-        FinanceComprovantePublishService.comprovanteUploadStateField:
-            EntityPublishStatus.uploading,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Comprovante a enviar em segundo plano…')));
-    }
-    FinanceComprovantePublishService.scheduleComprovanteUpload(
+    final data = doc.data() ?? {};
+    final ts = data['createdAt'] ?? data['date'];
+    DateTime? refDate;
+    if (ts is Timestamp) refDate = ts.toDate();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Enviando comprovante…')));
+    await FinanceComprovantePublishService.uploadComprovanteNow(
       tenantId: tenantId,
       docRef: doc.reference,
       rawBytes: compressed,
-      onSuccess: (_) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                jaTem ? 'Comprovante atualizado!' : 'Comprovante anexado!',
-                style: const TextStyle(color: Colors.white)),
-            backgroundColor: Colors.green));
-      },
-      onError: (e) {
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Erro ao enviar: $e')));
-      },
+      referenceDate: refDate,
+      previousStoragePath: (data['comprovanteStoragePath'] ?? '').toString(),
+      previousDownloadUrl: (data['comprovanteUrl'] ?? '').toString(),
     );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            jaTem ? 'Comprovante atualizado!' : 'Comprovante anexado!',
+            style: const TextStyle(color: Colors.white)),
+        backgroundColor: Colors.green));
+    unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
   } catch (e) {
     if (context.mounted) {
       ScaffoldMessenger.of(context)

@@ -150,7 +150,7 @@ abstract final class YahwehMediaUploadPipeline {
           bytes: bytes,
           contentType: contentType,
           profile: profile,
-          onProgress: onProgress,
+          onProgress: progressBridge(onProgress),
         );
       } finally {
         hideProgress();
@@ -204,7 +204,7 @@ abstract final class YahwehMediaUploadPipeline {
           bytes: prepared,
           contentType: contentType,
           maxAttempts: maxAttempts,
-          onProgress: onProgress,
+          onProgress: progressBridge(onProgress),
           onTaskStarted: onUploadTaskCreated,
           skipBootstrap: true,
         );
@@ -293,6 +293,19 @@ abstract final class YahwehMediaUploadPipeline {
 
   static void hideProgress() => GlobalUploadProgress.instance.end();
 
+  /// Repassa progresso do [UploadTask.snapshotEvents] para UI global + callback local.
+  static void Function(double progress) progressBridge([
+    void Function(double progress)? onProgress,
+  ]) {
+    return (double p) {
+      final clamped = p.clamp(0.0, 1.0);
+      if (GlobalUploadProgress.instance.state.value != null) {
+        GlobalUploadProgress.instance.update(clamped);
+      }
+      onProgress?.call(clamped);
+    };
+  }
+
   /// Bytes já comprimidos (ex. patrimônio WebP) — `putData` directo, sem fila offline.
   /// [requireAuth] false: cadastro público de membro (Storage permite write sem login).
   static Future<String> uploadPreparedBytes({
@@ -325,7 +338,7 @@ abstract final class YahwehMediaUploadPipeline {
       bytes: bytes,
       contentType: contentType,
       maxAttempts: maxAttempts,
-      onProgress: onProgress,
+      onProgress: progressBridge(onProgress),
       onTaskStarted: onUploadTaskCreated,
       skipBootstrap: true,
       requireAuth: requireAuth,

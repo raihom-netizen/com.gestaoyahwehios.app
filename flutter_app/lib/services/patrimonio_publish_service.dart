@@ -131,11 +131,6 @@ abstract final class PatrimonioPublishService {
           return PatrimonioMediaUpload.uploadGalleryPhoto(
             storagePath: path,
             rawBytes: newImages[j],
-            thumbStoragePath: PatrimonioMediaUpload.thumbPathForSlot(
-              tenantId: tenantId,
-              itemDocId: itemId,
-              slotIndex: slot,
-            ),
           );
         }),
       );
@@ -147,12 +142,8 @@ abstract final class PatrimonioPublishService {
     }
     if (results.isNotEmpty) {
       await Future.wait([
-        for (final r in results) ...[
+        for (final r in results)
           CachedNetworkImage.evictFromCache(r.downloadUrl),
-          if (r.thumbDownloadUrl != null &&
-              r.thumbDownloadUrl!.trim().isNotEmpty)
-            CachedNetworkImage.evictFromCache(r.thumbDownloadUrl!),
-        ],
       ]);
     }
 
@@ -161,20 +152,9 @@ abstract final class PatrimonioPublishService {
     }
 
     final payload = buildPayload(allUrls, allPaths);
-    if (results.isNotEmpty) {
-      String? firstThumb;
-      for (final r in results) {
-        final t = (r.thumbDownloadUrl ?? '').trim();
-        if (t.isNotEmpty) {
-          firstThumb = t;
-          break;
-        }
-      }
-      if (firstThumb != null) {
-        payload['thumbnail'] = firstThumb;
-      } else if (allUrls.isNotEmpty) {
-        payload['thumbnail'] = sanitizeImageUrl(allUrls.first);
-      }
+    if (allUrls.isNotEmpty) {
+      payload['thumbnail'] = sanitizeImageUrl(allUrls.first);
+      payload['fotoUrls'] = allUrls;
     }
     payload[photoUploadStateField] = stateUploaded;
     payload['photoUploadError'] = FieldValue.delete();

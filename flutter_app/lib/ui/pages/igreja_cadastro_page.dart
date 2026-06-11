@@ -32,8 +32,6 @@ import 'package:gestao_yahweh/services/church_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/church_tenant_provisioning_service.dart';
-import 'package:gestao_yahweh/services/church_tenant_consolidation_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -333,16 +331,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
       return;
     }
-    if (result.data.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _cadastroBootstrapDone = true;
-          _cadastroBootstrapError =
-              'Documento igrejas/$resolved existe mas está vazio.';
-        });
-      }
-      return;
-    }
+    // Doc pode existir só com subcoleções — ainda assim exibe o formulário.
     _operationalTenantId = resolved;
     _hydrateFormFromFirestoreDoc(resolved, result.data);
     _bindIgrejaLiveWatch(resolved);
@@ -395,7 +384,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   }
 
   Future<void> _bootstrapCadastro({bool forceRefresh = false}) async {
-    if (mounted) {
+    final hasSessionContext = !forceRefresh &&
+        ChurchContextService.currentChurchData != null &&
+        ChurchContextService.currentChurchData!.isNotEmpty &&
+        ChurchContextService.currentChurchId != null &&
+        ChurchContextService.currentChurchId!.isNotEmpty;
+    if (mounted && !hasSessionContext && !_formHydrated) {
       setState(() {
         _cadastroBootstrapDone = false;
         _cadastroBootstrapError = null;
@@ -403,26 +397,31 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
     try {
       await _bootstrapCadastroInner(forceRefresh: forceRefresh).timeout(
-        const Duration(seconds: 14),
+        Duration(seconds: kIsWeb ? 22 : 16),
       );
     } on TimeoutException {
       if (!mounted) return;
       setState(() {
         _cadastroBootstrapDone = true;
         _cadastroBootstrapError =
-            'Tempo esgotado (${ChurchRepository.panelQueryTimeout.inSeconds}s) ao carregar o cadastro.';
+            'Tempo esgotado ao carregar o cadastro. Toque em «Tentar novamente».';
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _cadastroBootstrapDone = true;
-        _cadastroBootstrapError = e.toString();
+        _cadastroBootstrapError = e is ChurchRepositoryException
+            ? e.message
+            : e.toString();
       });
     }
   }
 
   Future<void> _bootstrapCadastroInner({bool forceRefresh = false}) async {
     final seed = widget.tenantId.trim();
+    final churchId = ChurchContextService.panelChurchId(seed).isNotEmpty
+        ? ChurchContextService.panelChurchId(seed)
+        : seed;
 
     if (!forceRefresh) {
       final ctxData = ChurchContextService.currentChurchData;
@@ -447,34 +446,37 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
     }
 
-    final direct = await IgrejaDirectFirestoreReads.readIgrejaDoc(seed);
-    if (direct != null) {
-      _applyChurchDataResult(
-        ChurchDataLoadResult(
-          seedTenantId: seed.isNotEmpty ? seed : direct.docId,
-          churchId: direct.docId,
-          firestorePath: 'igrejas/${direct.docId}',
-          data: direct.data,
-          fieldCount: direct.data.length,
-          loadedAt: DateTime.now(),
-          readSource: 'igreja_direct',
-          logoStoragePath:
-              ChurchStorageLayout.churchIdentityLogoPath(direct.docId),
-        ),
-      );
-      ChurchContextService.bindChurchData(
-        churchId: direct.docId,
-        data: direct.data,
-      );
+    if (churchId.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _cadastroBootstrapDone = true;
+        _cadastroBootstrapError = 'ID da igreja não informado.';
+      });
       return;
     }
 
-    if (!mounted) return;
-    setState(() {
-      _cadastroBootstrapDone = true;
-      _cadastroBootstrapError =
-          'Não foi possível carregar o cadastro da igreja.';
-    });
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final load = () => ChurchRepository.loadChurchData(
+          seedTenantId: seed.isNotEmpty ? seed : churchId,
+          userUid: uid,
+          forceRefresh: forceRefresh,
+        );
+
+    final result = kIsWeb
+        ? await FirestoreWebGuard.runWithWebRecovery(load, maxAttempts: 4)
+        : await load();
+
+    _applyChurchDataResult(result);
+    if (result.data.isNotEmpty) {
+      ChurchContextService.bindChurchData(
+        churchId: result.churchId,
+        data: result.data,
+      );
+    }
   }
 
   Future<void> _reloadChurchDataInBackground() async {
@@ -511,9 +513,13 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final tid = resolvedId.trim().isNotEmpty ? resolvedId.trim() : widget.tenantId.trim();
     if (tid.isEmpty) return;
     try {
-      final hit = await IgrejaDirectFirestoreReads.readIgrejaDoc(tid);
-      if (!mounted || hit == null) return;
-      _hydrateFormFromFirestoreDoc(hit.docId, hit.data);
+      final result = await ChurchRepository.loadByChurchId(
+        tid,
+        seedTenantId: widget.tenantId,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
+      );
+      if (!mounted || result.data.isEmpty) return;
+      _hydrateFormFromFirestoreDoc(result.churchId, result.data);
     } catch (_) {}
   }
 
@@ -584,21 +590,18 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         ctxData.isNotEmpty &&
         ctxId != null &&
         ctxId.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _applyChurchDataResult(
-          ChurchDataLoadResult(
-            seedTenantId: widget.tenantId.trim(),
-            churchId: ctxId,
-            firestorePath: 'igrejas/$ctxId',
-            data: Map<String, dynamic>.from(ctxData),
-            fieldCount: ctxData.length,
-            loadedAt: DateTime.now(),
-            readSource: 'session_context_sync',
-            logoStoragePath: ChurchStorageLayout.churchIdentityLogoPath(ctxId),
-          ),
-        );
-      });
+      _applyChurchDataResult(
+        ChurchDataLoadResult(
+          seedTenantId: widget.tenantId.trim(),
+          churchId: ctxId,
+          firestorePath: 'igrejas/$ctxId',
+          data: Map<String, dynamic>.from(ctxData),
+          fieldCount: ctxData.length,
+          loadedAt: DateTime.now(),
+          readSource: 'session_context_sync',
+          logoStoragePath: ChurchStorageLayout.churchIdentityLogoPath(ctxId),
+        ),
+      );
     }
     unawaited(_bootstrapCadastro());
   }
@@ -793,10 +796,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _cnpjIgrejaCtrl.text =
         (data['cnpj'] ?? data['CNPJ'] ?? data['cnpjCpf'] ?? data['cpf'] ?? '')
             .toString();
-    // Logo: URL do Storage (vários campos) ou, se vazio, Base64 gravado no doc (legado / export).
+    // Logo: path canónico Storage ou campo logoPath no doc; URL https só em memória.
+    final docId = (docIdFallback ?? '').trim();
+    _logoStoragePath = ChurchImageFields.logoStoragePath(data) ??
+        (docId.isNotEmpty
+            ? ChurchStorageLayout.churchIdentityLogoPath(docId)
+            : null);
     final url = churchTenantLogoUrl(data);
     _logoUrl = url.isEmpty ? null : url;
-    _logoStoragePath = ChurchImageFields.logoStoragePath(data);
     if (_logoUrl != null && _logoUrl!.isNotEmpty) {
       _logoBytes = null;
       _logoStagedNotUploaded = false;
@@ -2112,14 +2119,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         () =>             ChurchRepository.churchDoc(resolvedId)
             .set(data, SetOptions(merge: true)),
         maxAttempts: 5,
-      );
-      unawaited(
-        ChurchTenantProvisioningService.provisionAfterCadastroSave(resolvedId),
-      );
-      ChurchTenantConsolidationService.ensureConsolidated(
-        resolvedId,
-        force: true,
-        source: 'igreja_cadastro_save',
       );
       TenantResolverService.invalidateRegistrationContextCache(
         seedId: widget.tenantId,

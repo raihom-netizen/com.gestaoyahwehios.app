@@ -138,38 +138,52 @@ abstract final class ChurchStorageLayout {
     return s.isEmpty ? 'doc' : s;
   }
 
-  /// Foto principal canónica: `membros/fotos/{memberId}.webp` (1024×1024 @ 80%).
+  /// Foto de perfil — **único ficheiro** por membro:
+  /// `igrejas/{tenant}/membros/{storageFolderId}/foto_perfil.jpg`
+  /// ([storageFolderId] = authUid Firebase quando existir; senão id do doc).
   static String memberProfilePhotoPath(
+      String tenantId, String storageFolderId) {
+    return memberCanonicalProfilePhotoPathLegacy(tenantId, storageFolderId);
+  }
+
+  /// Mesmo ficheiro que [memberProfilePhotoPath] — política de um arquivo por pasta.
+  static String memberProfileThumbPath(
+      String tenantId, String storageFolderId) {
+    return memberProfilePhotoPath(tenantId, storageFolderId);
+  }
+
+  /// Alias — use [memberProfilePhotoPath].
+  static String memberCanonicalProfilePhotoPath(
+          String tenantId, String storageFolderId) =>
+      memberProfilePhotoPath(tenantId, storageFolderId);
+
+  /// Alias — use [memberProfilePhotoPath].
+  static String memberProfileThumbWebpPath(
+          String tenantId, String storageFolderId) =>
+      memberProfilePhotoPath(tenantId, storageFolderId);
+
+  /// `membros/{storageFolderId}/foto_perfil.jpg` (sobrescreve ao trocar).
+  static String memberCanonicalProfilePhotoPathLegacy(
+      String tenantId, String storageFolderId) {
+    final tid = tenantId.trim();
+    final mid = _safeDocId(storageFolderId);
+    return '${churchRoot(tid)}/$kSegMembros/$mid/foto_perfil.jpg';
+  }
+
+  /// Layout antigo (flat) — só limpeza/migração: `membros/fotos/{id}.webp`.
+  static String memberProfilePhotoPathFlatWebpLegacy(
       String tenantId, String memberDocId) {
     final tid = tenantId.trim();
     final mid = _safeDocId(memberDocId);
     return '${churchRoot(tid)}/$kSegMembros/fotos/$mid.webp';
   }
 
-  /// Miniatura canónica: `membros/thumbs/{memberId}.webp` (200×200 @ 70%).
-  static String memberProfileThumbPath(
+  /// Layout antigo (flat) — só limpeza/migração: `membros/thumbs/{id}.webp`.
+  static String memberProfileThumbPathFlatWebpLegacy(
       String tenantId, String memberDocId) {
     final tid = tenantId.trim();
     final mid = _safeDocId(memberDocId);
     return '${churchRoot(tid)}/$kSegMembros/thumbs/$mid.webp';
-  }
-
-  /// Alias — use [memberProfilePhotoPath].
-  static String memberCanonicalProfilePhotoPath(
-          String tenantId, String memberDocId) =>
-      memberProfilePhotoPath(tenantId, memberDocId);
-
-  /// Alias — use [memberProfileThumbPath].
-  static String memberProfileThumbWebpPath(
-          String tenantId, String memberDocId) =>
-      memberProfileThumbPath(tenantId, memberDocId);
-
-  /// Legado: `membros/{memberDocId}/foto_perfil.jpg`.
-  static String memberCanonicalProfilePhotoPathLegacy(
-      String tenantId, String memberDocId) {
-    final tid = tenantId.trim();
-    final mid = _safeDocId(memberDocId);
-    return '${churchRoot(tid)}/$kSegMembros/$mid/foto_perfil.jpg';
   }
 
   /// Miniatura típica da extensão **Resize Images** (legado).
@@ -196,16 +210,10 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegMembros/$mid/${YahwehPerformanceV4.profileMediumFile}';
   }
 
-  /// Post **evento** — canónico: `eventos/imagens/{postId}_banner.webp` (+ `galeria_XX`).
+  /// Post **evento** — directo: `eventos/{postId}/banner_evento.jpg` (+ galeria).
   static String eventPostPhotoPath(
-      String tenantId, String postDocId, int slotIndex) {
-    final tid = tenantId.trim();
-    final pid = _safeDocId(postDocId);
-    final root = '${churchRoot(tid)}/$kSegEventos/$kSegImagens';
-    if (slotIndex <= 0) return '$root/${pid}_banner.webp';
-    final n = slotIndex.toString().padLeft(2, '0');
-    return '$root/${pid}_galeria_$n.webp';
-  }
+          String tenantId, String postDocId, int slotIndex) =>
+      eventPostPhotoPathLegacy(tenantId, postDocId, slotIndex);
 
   /// Legado: `eventos/{postId}/banner_evento.jpg` …
   static String eventPostPhotoPathLegacy(
@@ -245,16 +253,10 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegEventos/$kSegVideos/${pid}_v${s}_thumb.jpg';
   }
 
-  /// Post **aviso** — canónico: `avisos/imagens/{postId}_capa.webp` (+ galeria).
+  /// Post **aviso** — directo: `avisos/{postId}/capa_aviso.jpg` (+ galeria).
   static String avisoPostPhotoPath(
-      String tenantId, String postDocId, int slotIndex) {
-    final tid = tenantId.trim();
-    final pid = _safeDocId(postDocId);
-    final root = '${churchRoot(tid)}/$kSegAvisos/$kSegImagens';
-    if (slotIndex <= 0) return '$root/${pid}_capa.webp';
-    final n = slotIndex.toString().padLeft(2, '0');
-    return '$root/${pid}_galeria_$n.webp';
-  }
+          String tenantId, String postDocId, int slotIndex) =>
+      avisoPostPhotoPathLegacy(tenantId, postDocId, slotIndex);
 
   /// Legado: `avisos/{postId}/capa_aviso.jpg` …
   static String avisoPostPhotoPathLegacy(
@@ -267,39 +269,42 @@ abstract final class ChurchStorageLayout {
     return '$root/galeria_$n.jpg';
   }
 
-  static String _avisoPostPhotoBase(
+  static String _eventPostLegacyStem(
       String tenantId, String postDocId, int slotIndex) {
     final tid = tenantId.trim();
     final pid = _safeDocId(postDocId);
-    final root = '${churchRoot(tid)}/$kSegAvisos/$kSegImagens';
-    if (slotIndex <= 0) return '$root/${pid}_capa';
+    final root = '${churchRoot(tid)}/$kSegEventos/$pid';
+    if (slotIndex <= 0) return '$root/banner_evento';
     final n = slotIndex.toString().padLeft(2, '0');
-    return '$root/${pid}_galeria_$n';
+    return '$root/galeria_$n';
   }
 
-  /// Variante WebP do mural aviso (`thumb_300`, `medium_800`, `full_1920`).
+  static String _avisoPostLegacyStem(
+      String tenantId, String postDocId, int slotIndex) {
+    final tid = tenantId.trim();
+    final pid = _safeDocId(postDocId);
+    final root = '${churchRoot(tid)}/$kSegAvisos/$pid';
+    if (slotIndex <= 0) return '$root/capa_aviso';
+    final n = slotIndex.toString().padLeft(2, '0');
+    return '$root/galeria_$n';
+  }
+
+  /// Variante WebP na pasta do post — ex.: `eventos/{id}/banner_evento_full_1920.webp`.
   static String avisoPostPhotoVariantPath(
     String tenantId,
     String postDocId,
     int slotIndex,
     String tier,
   ) =>
-      '${_avisoPostPhotoBase(tenantId, postDocId, slotIndex)}_${tier.trim()}.webp';
+      '${_avisoPostLegacyStem(tenantId, postDocId, slotIndex)}_${tier.trim()}.webp';
 
   static String eventPostPhotoVariantPath(
     String tenantId,
     String postDocId,
     int slotIndex,
     String tier,
-  ) {
-    final tid = tenantId.trim();
-    final pid = _safeDocId(postDocId);
-    final root = '${churchRoot(tid)}/$kSegEventos/$kSegImagens';
-    final base = slotIndex <= 0
-        ? '$root/${pid}_banner'
-        : '$root/${pid}_galeria_${slotIndex.toString().padLeft(2, '0')}';
-    return '${base}_${tier.trim()}.webp';
-  }
+  ) =>
+      '${_eventPostLegacyStem(tenantId, postDocId, slotIndex)}_${tier.trim()}.webp';
 
   /// Chat: `…/chat_media/{threadId}/{uid}_{ts}_thumb_200.webp` (lista) + `_full_1920.webp`.
   static String chatMediaVariantPath(
@@ -482,58 +487,70 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
   }
 
-  /// Foto full: `patrimonio/imagens/{safeId}_01.webp` … `_05.webp`.
+  /// Foto canónica — **uma pasta por bem**, até 5 ficheiros:
+  /// `patrimonio/{itemDocId}/galeria_01.webp` … `galeria_05.webp` (sobrescreve ao trocar slot).
   static String patrimonioPhotoPath(String tenantId, String itemDocId, int slot) {
+    final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
+    final safeId = _safeDocId(itemDocId);
+    final n = (s + 1).toString().padLeft(2, '0');
+    return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/galeria_$n.webp';
+  }
+
+  /// Alias legado — mesmo path canónico por pasta do bem.
+  static String patrimonioPhotoPathLegacy(
+      String tenantId, String itemDocId, int slot) =>
+      patrimonioPhotoPath(tenantId, itemDocId, slot);
+
+  /// Mesmo ficheiro do slot (política: 5 fotos na pasta, sem thumb separada).
+  static String patrimonioThumbPath(String tenantId, String itemDocId, int slot) =>
+      patrimonioPhotoPath(tenantId, itemDocId, slot);
+
+  /// Layout antigo (flat) — só limpeza: `patrimonio/imagens/{id}_01.webp`.
+  static String patrimonioPhotoPathFlatLegacy(
+      String tenantId, String itemDocId, int slot) {
     final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
     final safeId = _safeDocId(itemDocId);
     final n = (s + 1).toString().padLeft(2, '0');
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$kSegImagens/${safeId}_$n.webp';
   }
 
-  /// Legado: `patrimonio/{itemId}/galeria_01.webp`.
-  static String patrimonioPhotoPathLegacy(
+  /// Layout antigo (flat) — só limpeza: `patrimonio/thumbs/{id}_01.webp`.
+  static String patrimonioThumbPathFlatLegacy(
       String tenantId, String itemDocId, int slot) {
-    final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
-    final safeId = _safeDocId(itemDocId);
-    final root = '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
-    final n = (s + 1).toString().padLeft(2, '0');
-    return '$root/galeria_$n.webp';
-  }
-
-  /// Miniatura: `patrimonio/thumbs/{safeId}_01.webp`.
-  static String patrimonioThumbPath(String tenantId, String itemDocId, int slot) {
     final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
     final safeId = _safeDocId(itemDocId);
     final n = (s + 1).toString().padLeft(2, '0');
     return '${churchRoot(tenantId)}/$kSegPatrimonio/thumbs/${safeId}_$n.webp';
   }
 
-  /// Base sem extensão (limpeza) — path canónico em `patrimonio/imagens/`.
+  /// Base sem extensão (limpeza) — path canónico na pasta do bem.
   static String patrimonioPhotoBaseWithoutExt(
       String tenantId, String itemDocId, int slot) {
     final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
     final safeId = _safeDocId(itemDocId);
     final n = (s + 1).toString().padLeft(2, '0');
-    return '${churchRoot(tenantId)}/$kSegPatrimonio/$kSegImagens/${safeId}_$n';
+    return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/galeria_$n';
   }
 
-  /// Paths a apagar ao substituir slot (canónico + legado).
+  /// Paths a apagar ao substituir slot (canónico + layouts antigos).
   static List<String> patrimonioSlotDeletionPaths(
     String tenantId,
     String itemDocId,
     int slot,
   ) {
     final canonical = patrimonioPhotoPath(tenantId, itemDocId, slot);
-    final thumb = patrimonioThumbPath(tenantId, itemDocId, slot);
-    final legacy = patrimonioPhotoPathLegacy(tenantId, itemDocId, slot);
     final legacyBase =
         patrimonioPhotoBaseWithoutExtLegacy(tenantId, itemDocId, slot);
+    final flat = patrimonioPhotoPathFlatLegacy(tenantId, itemDocId, slot);
+    final flatThumb = patrimonioThumbPathFlatLegacy(tenantId, itemDocId, slot);
     return [
       canonical,
-      thumb,
-      legacy,
+      flat,
+      flatThumb,
       '$legacyBase.jpg',
       '$legacyBase.webp',
+      '$legacyBase.jpeg',
+      '$legacyBase.png',
       '${legacyBase}_thumb.jpg',
       '${legacyBase}_thumb.webp',
     ];
