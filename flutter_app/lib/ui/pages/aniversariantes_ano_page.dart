@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/tenant/church_context.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_birthday_query_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
@@ -45,12 +45,8 @@ class _AniversariantesAnoPageState extends State<AniversariantesAnoPage> {
     }
   }
 
-  String get _effectiveTenantId {
-    final bound = ChurchContext.currentChurchId?.trim() ?? '';
-    if (bound.isNotEmpty) return bound;
-    final panel = ChurchContextService.panelChurchId(widget.tenantId);
-    return panel.isNotEmpty ? panel : widget.tenantId.trim();
-  }
+  String get _effectiveTenantId =>
+      ChurchPanelTenant.resolve(widget.tenantId);
 
   Future<void> _load() async {
     final tid = _effectiveTenantId;

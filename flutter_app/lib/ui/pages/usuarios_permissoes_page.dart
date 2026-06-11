@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -42,8 +43,11 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
   List<_UserOrMemberRow> _membersFromCollections = [];
   String _busca = '';
 
-  String get _effectiveTenantId =>
-      (_operationalTenantId ?? widget.tenantId).trim();
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   @override
   void initState() {

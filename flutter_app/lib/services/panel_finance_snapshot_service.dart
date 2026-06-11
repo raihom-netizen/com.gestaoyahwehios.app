@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Resumo mensal em `igrejas/{tid}/_panel_cache/finance_summary` (Cloud Function).
@@ -72,7 +73,7 @@ class PanelFinanceSnapshotService {
   }
 
   static Stream<PanelFinanceSnapshot> watch(String tenantId) {
-    final tid = tenantId.trim();
+    final tid = ChurchPanelTenant.resolve(tenantId);
     if (tid.isEmpty) return Stream.value(const PanelFinanceSnapshot());
     return _watchCacheFirst(tid);
   }

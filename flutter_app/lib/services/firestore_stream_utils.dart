@@ -160,19 +160,15 @@ class FirestoreStreamUtils {
   static Stream<DocumentSnapshot<Map<String, dynamic>>> documentOneShot(
     DocumentReference<Map<String, dynamic>> ref,
   ) async* {
-    try {
-      yield await FirestoreWebGuard.runWithWebRecovery(() async {
-        try {
-          return await ref
-              .get(const GetOptions(source: Source.cache))
-              .timeout(const Duration(seconds: 4));
-        } catch (_) {
-          return await ref.get().timeout(const Duration(seconds: 16));
-        }
-      });
-    } catch (_) {
-      yield _emptyDocumentSnapshot;
-    }
+    yield await FirestoreWebGuard.runWithWebRecovery(() async {
+      try {
+        return await ref
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 4));
+      } catch (_) {
+        return await ref.get().timeout(const Duration(seconds: 16));
+      }
+    }, maxAttempts: 4);
   }
 
   /// Web / painel master: só `.get()` em queries.

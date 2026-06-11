@@ -17,6 +17,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -788,11 +789,11 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   String? _operationalTenantId;
   bool _patrimonioBootstrapDone = false;
 
-  String get _effectiveTenantId {
-    final op = _operationalTenantId?.trim() ?? '';
-    if (op.isNotEmpty) return op;
-    return widget.tenantId.trim();
-  }
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   bool get _canWrite => ChurchRolePermissions.isFinanceCoreTeam(widget.role);
 

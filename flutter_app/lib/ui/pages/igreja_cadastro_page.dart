@@ -32,6 +32,7 @@ import 'package:gestao_yahweh/services/church_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -419,9 +420,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   Future<void> _bootstrapCadastroInner({bool forceRefresh = false}) async {
     final seed = widget.tenantId.trim();
-    final churchId = ChurchContextService.panelChurchId(seed).isNotEmpty
-        ? ChurchContextService.panelChurchId(seed)
-        : seed;
+    final churchId = ChurchPanelTenant.resolve(seed);
 
     if (!forceRefresh) {
       final ctxData = ChurchContextService.currentChurchData;

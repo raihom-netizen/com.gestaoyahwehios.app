@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
@@ -59,8 +60,11 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
   bool _changePassword = false;
   String? _operationalTenantId;
 
-  String get _effectiveTenantId =>
-      (_operationalTenantId ?? widget.tenantId).trim();
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   @override
   void initState() {

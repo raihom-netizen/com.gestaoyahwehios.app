@@ -129,7 +129,10 @@ Future<XFile?> _flutterFeedCropAndEncode(
         builder: (_) => PremiumFeedImageCropScreen(imageBytes: previewBytes),
       ),
     );
-    if (croppedBytes == null || croppedBytes.isEmpty) return null;
+    if (croppedBytes == null || croppedBytes.isEmpty) {
+      if (kIsWeb) return _encodeFeedImageFromXFile(working);
+      return null;
+    }
     final edge = kEffectiveFeedEncodeMaxEdgePx;
     return _bytesToWebpXFile(
       croppedBytes,
@@ -437,6 +440,14 @@ Future<List<XFile>> pickMultiCropEncodeFeedWebpSequential(
     if (encoded != null) {
       out.add(encoded);
       onEachReady?.call(encoded, i, picked.length);
+    } else if (kIsWeb) {
+      final fallback = await _encodeFeedImageFromXFile(working);
+      if (fallback != null) {
+        out.add(fallback);
+        onEachReady?.call(fallback, i, picked.length);
+      } else {
+        onEncodeSkipped?.call(i, picked.length);
+      }
     } else {
       onEncodeSkipped?.call(i, picked.length);
     }

@@ -1,5 +1,6 @@
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
 /// Contexto de tenant — **único** `churchId` da sessão.
 ///
@@ -39,11 +40,22 @@ abstract final class ChurchContext {
     return id.isEmpty ? '' : ChurchStorageLayout.churchRoot(id);
   }
 
-  /// Resolve churchId: sessão bound → hint do shell (ID directo, sem alias).
+  /// Resolve churchId: sessão bound → mapa BPC/slug → hint do shell (ID directo).
+  ///
+  /// **Sempre** aplica [TenantResolverService.mapLegacySeedToCanonical] — mesmo quando
+  /// a sessão ficou bound a um slug legado (`o-brasil-cristo-jardim-goiano`).
   static String resolveChurchId([String? shellHint]) {
     final ctx = currentChurchId;
-    if (ctx != null && ctx.isNotEmpty) return ctx.trim();
-    return shellHint?.trim() ?? '';
+    if (ctx != null && ctx.isNotEmpty) return _canonicalize(ctx);
+    return _canonicalize(shellHint ?? '');
+  }
+
+  static String _canonicalize(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return '';
+    final mapped = TenantResolverService.mapLegacySeedToCanonical(t);
+    if (mapped != null && mapped.isNotEmpty) return mapped;
+    return t;
   }
 
   static String requireChurchId([String? shellHint]) {

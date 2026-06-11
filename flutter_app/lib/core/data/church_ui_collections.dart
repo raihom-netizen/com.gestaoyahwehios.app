@@ -1,13 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
-import 'package:gestao_yahweh/core/tenant/church_context.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 
 /// Atalhos tipados para subcoleções — substitui `.collection()` nas telas.
 abstract final class ChurchUiCollections {
   ChurchUiCollections._();
 
-  static String _id([String? hint]) => ChurchContext.resolveChurchId(hint);
+  static String _id([String? hint]) => ChurchPanelTenant.resolve(hint);
 
   static DocumentReference<Map<String, dynamic>> churchDoc([String? hint]) =>
       ChurchFirestoreAccess.churchDoc(_id(hint));

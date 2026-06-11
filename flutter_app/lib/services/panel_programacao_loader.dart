@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
@@ -35,7 +36,7 @@ abstract final class PanelProgramacaoLoader {
   static const Duration _diskMaxAge = Duration(days: 7);
 
   static String _ramKey(String tenantId, int rangeDays) =>
-      '${tenantId.trim()}|$rangeDays';
+      '${ChurchPanelTenant.resolve(tenantId)}|$rangeDays';
 
   static String _diskBucket(int rangeDays) => 'panel_programacao_$rangeDays';
 
@@ -123,7 +124,7 @@ abstract final class PanelProgramacaoLoader {
     required int rangeDays,
     required Future<List<Map<String, dynamic>>> Function() loader,
   }) async {
-    final tid = tenantId.trim();
+    final tid = ChurchPanelTenant.resolve(tenantId);
     final staleRam = peekRam(tid, rangeDays);
     final staleDisk = staleRam == null ? await readDisk(tid, rangeDays) : null;
 

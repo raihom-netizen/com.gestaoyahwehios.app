@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 
 /// Dízimos, ofertas e contribuições via PIX ou cartão (Checkout Pro Mercado Pago da igreja).
 /// Só contas tesouraria **Mercado Pago** (323) entram na conciliação desta tela.
@@ -141,8 +142,11 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   String? _erro;
   static final Set<String> _mpClusterSyncAttempted = <String>{};
 
-  String get _effectiveTenantId =>
-      (_operationalTenantId ?? widget.tenantId).trim();
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   @override
   void initState() {

@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_payment_receiving_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/mercado_pago_church_settings_section.dart';
@@ -30,10 +31,11 @@ class _ChurchPaymentReceivingSettingsSectionState
   bool _mpEnabled = true;
   String? _operationalTenantId;
 
-  String get _effectiveTenantId {
-    final op = (_operationalTenantId ?? widget.tenantId).trim();
-    return op.isEmpty ? widget.tenantId.trim() : op;
-  }
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   @override
   void initState() {

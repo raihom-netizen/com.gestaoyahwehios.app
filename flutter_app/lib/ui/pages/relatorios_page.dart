@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
@@ -561,8 +562,11 @@ class _RelatorioMembrosPage extends StatefulWidget {
 class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
   String? _operationalTenantId;
 
-  String get _effectiveTenantId =>
-      (_operationalTenantId ?? widget.tenantId).trim();
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   @override
   void initState() {
@@ -947,8 +951,11 @@ class _RelatorioAniversariantesPage extends StatefulWidget {
 class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantesPage> {
   String? _operationalTenantId;
 
-  String get _effectiveTenantId =>
-      (_operationalTenantId ?? widget.tenantId).trim();
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   /// 0=hoje, 1=semana, 2=mês, 3=personalizado, 4=anual (lista completa)
   int _filtro = 2;
@@ -1827,8 +1834,11 @@ class RelatorioFinanceiroPage extends StatefulWidget {
 class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
   String? _operationalTenantId;
 
-  String get _effectiveTenantId =>
-      (_operationalTenantId ?? widget.tenantId).trim();
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   late int _mes;
   late int _ano;
@@ -4083,8 +4093,11 @@ class _RelatorioPatrimonioPage extends StatefulWidget {
 class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
   String? _operationalTenantId;
 
-  String get _effectiveTenantId =>
-      (_operationalTenantId ?? widget.tenantId).trim();
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   static const _statusOptions = [
     ('', 'Todos'),
@@ -4485,8 +4498,11 @@ class _RelatorioEventosPage extends StatefulWidget {
 class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
   String? _operationalTenantId;
 
-  String get _effectiveTenantId =>
-      (_operationalTenantId ?? widget.tenantId).trim();
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   String _tipo = 'mes'; // dia, mes, anual, periodo
   DateTime? _dataInicio;

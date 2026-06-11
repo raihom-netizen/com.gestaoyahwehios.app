@@ -186,14 +186,15 @@ abstract final class ChurchProfileLoader {
       } catch (_) {}
     }
 
-    if (data.isEmpty ||
-        TenantResolverService.churchProfileRichnessScore(data) < 6) {
+    if (!kIsWeb &&
+        (data.isEmpty ||
+            TenantResolverService.churchProfileRichnessScore(data) < 6)) {
       try {
         final richest =
             await TenantResolverService.richestChurchProfileForCadastro(
           id,
-          preferServer: kIsWeb,
-        ).timeout(Duration(seconds: kIsWeb ? 8 : 10));
+          preferServer: false,
+        ).timeout(const Duration(seconds: 10));
         if (richest.isNotEmpty &&
             TenantResolverService.churchProfileRichnessScore(richest) >
                 TenantResolverService.churchProfileRichnessScore(data)) {

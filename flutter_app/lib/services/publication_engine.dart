@@ -125,7 +125,7 @@ abstract final class PublicationEngine {
   static Future<String> saveFirestore(PublicationSaveRequest request) async {
     await ensureFirebaseCore(requireAuth: true);
     if (kIsWeb) {
-      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
     }
     final patch = _buildFirestorePatch(request);
     final merge = request.merge ?? !request.isNewDoc;
@@ -223,7 +223,7 @@ abstract final class PublicationEngine {
   }) async {
     await ensureFirebaseCore(requireAuth: true);
     if (kIsWeb) {
-      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
     }
     final patch = _buildStrictFirestorePatch(payload, isNewDoc: isNewDoc);
     final request = PublicationSaveRequest(

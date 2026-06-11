@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
@@ -6213,8 +6214,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   bool _loadingChurchAddress = false;
   String? _operationalTenantId;
 
-  String get _editorTenantId =>
-      (_operationalTenantId ?? widget.resolvedTenantId).trim();
+  String get _editorTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.resolvedTenantId,
+      );
 
   /// Novo evento: mesmo id desde o init, para vídeos ficarem em paths estáveis `…/eventos/videos/{id}_v0.mp4`.
   late final DocumentReference<Map<String, dynamic>> _eventDocRef;

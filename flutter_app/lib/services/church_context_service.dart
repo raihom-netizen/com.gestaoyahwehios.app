@@ -53,11 +53,11 @@ abstract final class ChurchContextService {
 
 
 
-  static String? get currentChurchId => _currentChurchId?.trim().isNotEmpty == true
-
-      ? _currentChurchId!.trim()
-
-      : null;
+  static String? get currentChurchId {
+    final raw = _currentChurchId?.trim();
+    if (raw == null || raw.isEmpty) return null;
+    return _canonicalizePanelId(raw);
+  }
 
 
 
@@ -111,11 +111,21 @@ abstract final class ChurchContextService {
 
 
 
-  /// ID do painel — contexto bound ou hint do shell (directo, sem alias).
+  /// ID do painel — contexto bound ou hint do shell (com mapa BPC/slug síncrono).
   static String panelChurchId([String? shellTenantId]) {
     final ctx = currentChurchId;
-    if (ctx != null && ctx.isNotEmpty) return ctx.trim();
-    return shellTenantId?.trim() ?? '';
+    if (ctx != null && ctx.isNotEmpty) {
+      return _canonicalizePanelId(ctx);
+    }
+    return _canonicalizePanelId(shellTenantId ?? '');
+  }
+
+  static String _canonicalizePanelId(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return '';
+    final mapped = TenantResolverService.mapLegacySeedToCanonical(t);
+    if (mapped != null && mapped.isNotEmpty) return mapped;
+    return t;
   }
 
 
@@ -242,7 +252,7 @@ abstract final class ChurchContextService {
 
   static void _applyBind(String churchId, String seed, String? uid) {
 
-    final id = churchId.trim();
+    final id = _canonicalizePanelId(churchId);
 
     _currentChurchId = id;
 
@@ -330,17 +340,10 @@ abstract final class ChurchContextService {
       for (final candidate in tryOrder) {
         var id = candidate.trim();
         if (id.isEmpty) continue;
-        if (!await _igrejaDocExists(id)) {
-          final mapped = TenantResolverService.mapLegacySeedToCanonical(id);
-          if (mapped != null &&
-              mapped.trim().isNotEmpty &&
-              mapped.trim() != id &&
-              await _igrejaDocExists(mapped.trim())) {
-            id = mapped.trim();
-          } else {
-            continue;
-          }
-        }
+        // Sempre preferir doc canónico (BPC/slug legado → igreja_…).
+        final mapped = TenantResolverService.mapLegacySeedToCanonical(id);
+        if (mapped != null && mapped.isNotEmpty) id = mapped;
+        if (!await _igrejaDocExists(id)) continue;
         boundId = id;
         break;
       }
@@ -397,7 +400,7 @@ abstract final class ChurchContextService {
 
   }) {
 
-    final id = churchId.trim();
+    final id = _canonicalizePanelId(churchId);
 
     if (id.isEmpty || data.isEmpty) return;
 

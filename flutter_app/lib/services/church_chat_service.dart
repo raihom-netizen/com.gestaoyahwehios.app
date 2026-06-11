@@ -34,6 +34,7 @@ import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'analytics_service.dart';
 import 'media_upload_service.dart';
@@ -1762,21 +1763,22 @@ class ChurchChatService {
     List<String>? mentionedUids,
   }) async {
     ChurchPublishFlowLog.chatStart();
+    final tid = ChurchPanelTenant.resolve(tenantId);
     await ensureFirebaseReadyForChatSend();
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
-      tenantId: tenantId,
+      tenantId: tid,
       threadId: threadId,
     )) {
       return (messageId: '', allowed: false);
     }
     await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
-      tenantId: tenantId,
+      tenantId: tid,
       threadId: threadId,
     );
     final uid = firebaseDefaultAuth.currentUser!.uid;
     final expiresAt =
         Timestamp.fromDate(DateTime.now().add(textRetention));
-    final msgRef = messagesCol(tenantId, threadId).doc();
+    final msgRef = messagesCol(tid, threadId).doc();
     final nr = normalizeReplyTo(replyTo);
     final nf = normalizeForwardedFrom(forwardedFrom);
     final label = (senderDisplayName ?? '').trim();
@@ -1794,7 +1796,7 @@ class ChurchChatService {
         : deliveryLocal;
 
     Future<void> commitOnce() => _commitMessageAndThreadIndex(
-          tenantId: tenantId,
+          tenantId: tid,
           threadId: threadId,
           msgRef: msgRef,
           messageData: {
@@ -1822,10 +1824,13 @@ class ChurchChatService {
         );
 
     try {
-      await _ensureDmThreadDocBeforeSend(tenantId, threadId);
-      await commitOnce();
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+      }
+      await _ensureDmThreadDocBeforeSend(tid, threadId);
+      await FirestoreWebGuard.runChatWriteWithRecovery(() => commitOnce());
       unawaited(
-        markThreadLastSeen(tenantId: tenantId, threadId: threadId),
+        markThreadLastSeen(tenantId: tid, threadId: threadId),
       );
       ChurchPublishFlowLog.chatMessageCreated();
       ChurchPublishFlowLog.chatSuccess();

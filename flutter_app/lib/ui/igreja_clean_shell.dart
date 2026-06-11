@@ -28,6 +28,7 @@ import 'package:gestao_yahweh/services/church_tenant_consolidation_service.dart'
 import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:gestao_yahweh/core/tenant/tenant_migration_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
@@ -211,11 +212,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   ValueKey _shellPageKey(int index) =>
       ValueKey('page_${index}_$_moduleTenantId');
 
-  String get _moduleTenantId {
-    final op = _operationalTenantId?.trim() ?? '';
-    if (op.isNotEmpty) return op;
-    return widget.tenantId.trim();
-  }
+  /// Sempre doc canónico — nunca slug legado nos módulos do shell.
+  String get _moduleTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   /// Evita enfileirar [addPostFrameCallback] a cada frame do StreamBuilder (estresse no UI thread).
   String _lastSubscriptionGuardSignature = '';
@@ -422,9 +424,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     super.initState();
     final hint = widget.tenantId.trim();
     if (hint.isNotEmpty) {
-      final mapped = ChurchRepository.churchId(hint);
-      _operationalTenantId = mapped.isNotEmpty ? mapped : hint;
-      _tenantResolveComplete = true;
+      _operationalTenantId = ChurchPanelTenant.resolve(hint);
     }
     WidgetsBinding.instance.addObserver(this);
     AppSessionStability.registerResumeListener(_onGlobalSessionResume);
@@ -522,33 +522,35 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       ).timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
-      final changed = effective != (_operationalTenantId ?? '').trim();
+      final canonical = ChurchPanelTenant.resolve(effective);
+      final changed = canonical != (_operationalTenantId ?? '').trim();
       if (changed || _operationalTenantId == null) {
         setState(() {
-          _operationalTenantId = effective;
+          _operationalTenantId = canonical;
           for (var i = 0; i < _pageCache.length; i++) {
             _pageCache[i] = null;
           }
         });
-        _reconfigureFcmForOperationalTenant(effective);
+        _reconfigureFcmForOperationalTenant(canonical);
       }
-      ChurchClusterSyncService.syncForOperationalTenant(effective);
+      ChurchClusterSyncService.syncForOperationalTenant(canonical);
       ChurchTenantConsolidationService.ensureConsolidated(
-        effective,
+        canonical,
         force: forceRefresh,
         source: 'shell_resolve_tenant',
       );
       unawaited(
         TenantMigrationService.runAfterBind(
-          churchIdHint: effective,
+          churchIdHint: canonical,
           seedHint: raw,
         ),
       );
     } catch (_) {
       if (!mounted) return;
       if (_operationalTenantId == null || _operationalTenantId!.trim().isEmpty) {
-        final fallback = ChurchContextService.currentChurchId ??
-            ChurchRepository.churchId(raw);
+        final fallback = ChurchPanelTenant.resolve(
+          ChurchContextService.currentChurchId ?? raw,
+        );
         ChurchOperationalPaths.rememberResolved(raw, fallback, userUid: uid);
         setState(() => _operationalTenantId = fallback);
       }
@@ -2520,9 +2522,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         }
       },
       child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        key: ValueKey('tenant_stream_$_tenantStreamRetry'),
-        stream:               ChurchUiCollections.churchDoc(widget.tenantId)
-              .watchSafe(),
+        key: ValueKey('tenant_stream_${_moduleTenantId}_$_tenantStreamRetry'),
+        stream: ChurchUiCollections.churchDoc(_moduleTenantId).watchSafe(),
         builder: (context, tenantSnap) {
           if (tenantSnap.hasData && tenantSnap.data != null) {
             _lastGoodTenantDoc = tenantSnap.data;
@@ -2560,6 +2561,26 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 child: const SafeArea(
                   child: Center(
                     child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
+            );
+          }
+          if (tenantDoc == null &&
+              tenantSnap.connectionState == ConnectionState.done) {
+            return Scaffold(
+              backgroundColor: ThemeCleanPremium.surfaceVariant,
+              body: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: ThemeCleanPremium.churchPanelBodyGradient,
+                ),
+                child: SafeArea(
+                  child: ChurchPanelErrorBody(
+                    title: 'Igreja não encontrada no painel',
+                    error:
+                        'Não foi possível carregar igrejas/$_moduleTenantId. '
+                        'Verifique o ID da igreja no seu usuário ou entre novamente.',
+                    onRetry: () => setState(() => _tenantStreamRetry++),
                   ),
                 ),
               ),

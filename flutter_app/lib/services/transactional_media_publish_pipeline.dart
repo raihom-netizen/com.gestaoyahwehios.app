@@ -201,7 +201,7 @@ abstract final class TransactionalMediaPublishPipeline {
 
       onProgress?.call(TransactionalMediaPhase.savingFirestore, 0);
       if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
       }
       final result = await FirestoreWebGuard.runWithWebRecovery(
         () => saveFirestore(upload!),
@@ -221,7 +221,7 @@ abstract final class TransactionalMediaPublishPipeline {
     int maxAttempts = 4,
   }) async {
     if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
     }
     await FirestoreWebGuard.runWithWebRecovery(write, maxAttempts: maxAttempts);
   }

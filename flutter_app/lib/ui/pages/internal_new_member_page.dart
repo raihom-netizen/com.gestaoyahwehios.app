@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart'
     show FirebaseFunctions, FirebaseFunctionsException;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
@@ -60,8 +61,11 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   String _tenantSlug = '';
   String? _operationalTenantId;
 
-  String get _effectiveTenantId =>
-      (_operationalTenantId ?? widget.tenantId).trim();
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   DateTime? _birthDate;
   final _birthDateCtrl = TextEditingController();
@@ -477,7 +481,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         memberId: ref.id,
       );
       AppStorageImageService.instance.invalidateStoragePrefix(
-          'igrejas/${widget.tenantId}/membros/${ref.id}');
+          'igrejas/${ChurchPanelTenant.resolve(widget.tenantId)}/membros/${ref.id}');
 
       try {
         await functions.httpsCallable('createMemberLoginFromPublic').call({

@@ -1,4 +1,4 @@
-import 'dart:async' show Timer, unawaited;
+import 'dart:async' show Timer, TimeoutException, unawaited;
 import 'dart:convert';
 import 'dart:math' show min;
 
@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
@@ -445,14 +446,21 @@ class _MemberCardPageState extends State<MemberCardPage> {
       return;
     }
     final hint = widget.tenantId.trim();
-    final resolved = ChurchRepository.churchId(widget.tenantId).trim();
-    _cachedIgrejaDocId = resolved.isNotEmpty ? resolved : hint;
+    _cachedIgrejaDocId = ChurchPanelTenant.resolve(widget.tenantId);
   }
 
   Future<_CardData?> _bootstrapAndLoadCard() async {
     await _resolveOperationalTenantOnce();
     try {
-      return await FirestoreWebGuard.runWithWebRecovery(_load);
+      return await FirestoreWebGuard.runWithWebRecovery(
+        () => _load().timeout(
+          Duration(seconds: kIsWeb ? 22 : 16),
+          onTimeout: () => throw TimeoutException(
+            'Tempo esgotado ao carregar a carteirinha.',
+          ),
+        ),
+        maxAttempts: 4,
+      );
     } catch (_) {
       return null;
     }

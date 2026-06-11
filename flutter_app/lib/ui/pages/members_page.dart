@@ -91,6 +91,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/app_permissions.dart';
 import '../../services/church_funcoes_controle_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'igreja_cadastro_page.dart';
@@ -203,7 +204,11 @@ class _MembersPageState extends State<MembersPage> {
   /// Cache da ligação igreja (alias/slug) para incluir em toda escrita de membro.
   Map<String, String>? _tenantLinkageCache;
 
-  String get _effectiveTenantId => _resolvedTenantId ?? widget.tenantId;
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_resolvedTenantId ?? '').isNotEmpty
+            ? _resolvedTenantId
+            : widget.tenantId,
+      );
 
   /// Doc operacional — `igrejas/{churchId}` directo (contexto + mapa BPC).
   Future<String> _resolveEffectiveTenantId() async {

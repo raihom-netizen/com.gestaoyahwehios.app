@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
@@ -43,10 +44,12 @@ abstract final class ChurchOperationalPaths {
     if (!forceRefresh) {
       final ctx = ChurchContextService.currentChurchId;
       if (ctx != null && ctx.isNotEmpty) {
-        if (s == ctx ||
+        final canon = ChurchPanelTenant.resolve(ctx);
+        if (s == canon ||
+            s == ctx ||
             s == ChurchContextService.seedId ||
-            _resolvedMemory[_cacheKey(s, userUid)] == ctx) {
-          return ctx;
+            _resolvedMemory[_cacheKey(s, userUid)] == canon) {
+          return canon;
         }
       }
     }
@@ -108,15 +111,17 @@ abstract final class ChurchOperationalPaths {
   }
 
   static String syncEffectiveChurchId(String seedOrOperational) {
-    final panel = ChurchContextService.panelChurchId(seedOrOperational);
-    if (panel.isNotEmpty) return panel;
+    final mapped = ChurchPanelTenant.resolve(seedOrOperational);
+    if (mapped.isNotEmpty) return mapped;
     final mem = _resolvedMemory[_cacheKey(seedOrOperational.trim(), _currentUid)];
-    if (mem != null && mem.isNotEmpty) return mem;
-    return seedOrOperational.trim();
+    if (mem != null && mem.isNotEmpty) {
+      return ChurchPanelTenant.resolve(mem);
+    }
+    return mapped;
   }
 
   static DocumentReference<Map<String, dynamic>> churchDoc(String operationalId) =>
-      ChurchRepository.churchDoc(operationalId);
+      ChurchRepository.churchDoc(syncEffectiveChurchId(operationalId));
 
   static Future<DocumentReference<Map<String, dynamic>>> churchDocResolved(
     String seed, {
@@ -164,7 +169,7 @@ abstract final class ChurchOperationalPaths {
   }) {
     final ctx = ChurchContextService.currentChurchId;
     if (ctx != null && ctx.isNotEmpty) {
-      return Future.value(ctx);
+      return Future.value(ChurchPanelTenant.resolve(ctx));
     }
     final id = ChurchRepository.churchId(seed);
     return Future.value(id.isNotEmpty ? id : seed.trim());

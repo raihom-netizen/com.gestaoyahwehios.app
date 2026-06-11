@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
@@ -268,7 +269,11 @@ class InstagramMuralState extends State<InstagramMural> {
   final _feedSearchCtrl = TextEditingController();
   String _lastFeedMediaWarmupKey = '';
   String? _firestoreTenantId;
-  String get _tid => (_firestoreTenantId ?? widget.tenantId).trim();
+  String get _tid => ChurchPanelTenant.resolve(
+        (_firestoreTenantId ?? '').isNotEmpty
+            ? _firestoreTenantId
+            : widget.tenantId,
+      );
 
   User? get _user {
     try {
@@ -3788,8 +3793,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     } catch (_) {}
   }
 
-  String get _editorTenantId =>
-      (_operationalTenantId ?? widget.resolvedTenantId).trim();
+  String get _editorTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.resolvedTenantId,
+      );
 
   Future<DocumentReference<Map<String, dynamic>>> _resolveAvisoDocRefForPublish(
     String igrejaId,

@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -1035,14 +1036,11 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   late Future<QuerySnapshot<Map<String, dynamic>>> _fornecedoresFuture;
   String? _resolvedTenantId;
 
-  String get _effectiveTenantId {
-    final r = _resolvedTenantId?.trim() ?? '';
-    if (r.isNotEmpty) return r;
-    final bound = ChurchContext.currentChurchId?.trim() ?? '';
-    if (bound.isNotEmpty) return bound;
-    final panel = ChurchContextService.panelChurchId(widget.tenantId);
-    return panel.isNotEmpty ? panel : widget.tenantId.trim();
-  }
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_resolvedTenantId ?? '').isNotEmpty
+            ? _resolvedTenantId
+            : widget.tenantId,
+      );
 
   Future<void> _bootstrapTenant() async {
     await ChurchTenantResilientReads.preparePanelRead();

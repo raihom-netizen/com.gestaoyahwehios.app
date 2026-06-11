@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show
@@ -144,11 +145,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
 
   String get _churchId => ChurchRepository.resolveChurchId(_tid);
 
-  String get _loadChurchId {
-    final fromShell = widget.tenantId.trim();
-    if (fromShell.isNotEmpty) return fromShell;
-    return _churchId.trim();
-  }
+  String get _loadChurchId =>
+      ChurchPanelTenant.resolve(
+        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+      );
 
   Future<void> _prepareDeptRead() async {
     if (!kIsWeb) return;
@@ -157,13 +157,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   }
 
   void _bindPanelChurchId() {
-    final fromShell = widget.tenantId.trim();
-    if (fromShell.isNotEmpty) {
-      _effectiveTenantId = fromShell;
-      return;
-    }
-    final id = ChurchRepository.churchId(widget.tenantId);
-    if (id.isNotEmpty) _effectiveTenantId = id;
+    _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId);
   }
 
   void _startWebLoadingCap() {
@@ -185,7 +179,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   void initState() {
     super.initState();
     _bindPanelChurchId();
-    if (_effectiveTenantId.isEmpty) _effectiveTenantId = widget.tenantId.trim();
+    if (_effectiveTenantId.isEmpty) {
+      _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId);
+    }
     _startWebLoadingCap();
     unawaited(_bootstrapDepartmentsPage());
   }
@@ -257,7 +253,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   void didUpdateWidget(covariant DepartmentsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _effectiveTenantId = widget.tenantId;
+      _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId);
       _hydratedDeptDocs = null;
       _cpfToMemberName = const {};
       _membersByDeptId = const {};

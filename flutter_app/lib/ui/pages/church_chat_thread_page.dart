@@ -38,6 +38,7 @@ import 'package:gestao_yahweh/services/church_chat_local_file_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
@@ -231,7 +232,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   final List<ChurchChatOutboundPending> _pendingOutbound = [];
   String? _effectiveTenantId;
 
-  String get _tid => (_effectiveTenantId ?? widget.tenantId).trim();
+  String get _tid => ChurchPanelTenant.resolve(
+        (_effectiveTenantId ?? '').isNotEmpty
+            ? _effectiveTenantId
+            : widget.tenantId,
+      );
 
   Future<String> _awaitOperationalTenantId() async {
     final cached = (_effectiveTenantId ?? '').trim();

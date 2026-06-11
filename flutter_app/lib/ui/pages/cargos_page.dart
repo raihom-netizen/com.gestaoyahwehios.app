@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 
 /// Mesma faixa dourada dos cards em [DepartmentsPage] — identidade visual alinhada.
@@ -642,11 +643,11 @@ class _CargosPageState extends State<CargosPage> {
   CollectionReference<Map<String, dynamic>> get _col =>
       ChurchUiCollections.cargos(_loadChurchId);
 
-  String get _loadChurchId {
-    final fromShell = widget.tenantId.trim();
-    if (fromShell.isNotEmpty) return fromShell;
-    return (_resolvedTenantId ?? '').trim();
-  }
+  String get _loadChurchId => ChurchPanelTenant.resolve(
+        (_resolvedTenantId ?? '').isNotEmpty
+            ? _resolvedTenantId
+            : widget.tenantId,
+      );
 
   String get _tid {
     final id = _loadChurchId;
@@ -806,7 +807,7 @@ class _CargosPageState extends State<CargosPage> {
   @override
   void initState() {
     super.initState();
-    _resolvedTenantId = widget.tenantId.trim();
+    _resolvedTenantId = ChurchPanelTenant.resolve(widget.tenantId);
     _cargosFuture = _seedOrLoadCargos();
     _startWebLoadingCap();
     unawaited(_openCargosFast());
@@ -822,7 +823,7 @@ class _CargosPageState extends State<CargosPage> {
   void didUpdateWidget(covariant CargosPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _resolvedTenantId = widget.tenantId;
+      _resolvedTenantId = ChurchPanelTenant.resolve(widget.tenantId);
       _triedAutoSeed = false;
       _cargosFuture = _seedOrLoadCargos();
       _startWebLoadingCap();

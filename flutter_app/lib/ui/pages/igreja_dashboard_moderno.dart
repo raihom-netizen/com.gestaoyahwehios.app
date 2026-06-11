@@ -31,6 +31,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
@@ -280,10 +281,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     logYahwehModuleScreen('dashboard');
     YahwehPerformanceMonitor.markScreenStart('igreja_dashboard');
     WidgetsBinding.instance.addObserver(this);
-    _effectiveTenantId = widget.tenantId;
+    _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId);
     PanelScrollBridge.scrollToCorpoAdministrativo =
         _scrollToCorpoAdministrativo;
-    final tidBoot = widget.tenantId.trim();
+    final tidBoot = _effectiveTenantId.trim();
     if (tidBoot.isNotEmpty) {
       _effectiveTenantId = tidBoot;
       final memDir = MembersDirectorySnapshotService.peekMemory(tidBoot);

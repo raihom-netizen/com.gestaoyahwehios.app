@@ -28,6 +28,7 @@ import '../services/internal_notification_inbox_service.dart';
 import '../services/app_permissions.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import '../services/church_binding_repair_coordinator.dart';
 import '../services/church_chat_alert_notification_service.dart';
@@ -729,12 +730,28 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       }
       if (igrejaId.isEmpty) return null;
 
+      final igrejaSeedBeforeBind = igrejaId;
       try {
-        igrejaId = await ChurchContextService.resolveAndBind(
+        final bound = await ChurchContextService.resolveAndBind(
           seed: igrejaId,
           userUid: user.uid,
         );
+        if (bound.trim().isNotEmpty) igrejaId = bound.trim();
       } catch (_) {}
+      if (igrejaId.trim().isEmpty) {
+        final mapped =
+            TenantResolverService.mapLegacySeedToCanonical(igrejaSeedBeforeBind);
+        igrejaId = (mapped ?? igrejaSeedBeforeBind).trim();
+        if (igrejaId.isNotEmpty) {
+          try {
+            await ChurchContextService.resolveAndBind(
+              seed: igrejaId,
+              userUid: user.uid,
+            );
+          } catch (_) {}
+        }
+      }
+      igrejaId = ChurchPanelTenant.resolve(igrejaId);
 
       final storedTenant = (userData['igrejaId'] ?? userData['tenantId'] ?? '')
           .toString()
@@ -800,6 +817,11 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       if (churchData == null) {
         return null;
       }
+
+      ChurchContextService.bindChurchData(
+        churchId: igrejaId,
+        data: churchData,
+      );
 
       if (!hasIgrejaInDoc && userDoc.exists) {
         await db
@@ -1744,7 +1766,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     final user = widget.user;
     final active = p['active'] == true;
     final mustChangePass = p['mustChangePass'] == true;
-    final igrejaId = (p['igrejaId'] ?? '').toString();
+    final igrejaId = ChurchPanelTenant.resolve((p['igrejaId'] ?? '').toString());
     final cpf = (p['cpf'] ?? '').toString();
     final sub = (p['subscription'] as Map<String, dynamic>?);
     final church = p['church'] as Map<String, dynamic>?;

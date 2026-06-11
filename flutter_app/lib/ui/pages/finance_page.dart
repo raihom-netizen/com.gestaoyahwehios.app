@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
@@ -1045,7 +1046,11 @@ class _FinancePageState extends State<FinancePage>
   /// Mesmo critério que Eventos/Chat: doc operacional (cluster irmão) ganha sobre hint.
   String? _firestoreTenantId;
   bool _financeBootstrapDone = false;
-  String get _tid => (_firestoreTenantId ?? widget.tenantId).trim();
+  String get _tid => ChurchPanelTenant.resolve(
+        (_firestoreTenantId ?? '').isNotEmpty
+            ? _firestoreTenantId
+            : widget.tenantId,
+      );
 
   DocumentReference<Map<String, dynamic>> get _tenantRef =>
       ChurchUiCollections.churchDoc(_tid);
@@ -1208,7 +1213,7 @@ class _FinancePageState extends State<FinancePage>
     final idx = rawTab < 0 ? 0 : (rawTab > 7 ? 7 : rawTab);
     _tabCtrl = TabController(length: 8, vsync: this, initialIndex: idx);
     unawaited(_bootstrapFirestoreTenant());
-    _prewarmFinanceCaches(widget.tenantId);
+    _prewarmFinanceCaches(ChurchPanelTenant.resolve(widget.tenantId));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_warmupBankBrandingAssets());
     });

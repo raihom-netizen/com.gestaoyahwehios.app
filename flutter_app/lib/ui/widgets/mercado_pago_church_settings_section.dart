@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/firebase_options.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 
@@ -42,10 +43,11 @@ class _MercadoPagoChurchSettingsSectionState
   Map<String, dynamic>? _cfg;
   String? _operationalTenantId;
 
-  String get _effectiveTenantId {
-    final op = (_operationalTenantId ?? widget.tenantId).trim();
-    return op.isEmpty ? widget.tenantId.trim() : op;
-  }
+  String get _effectiveTenantId => ChurchPanelTenant.resolve(
+        (_operationalTenantId ?? '').isNotEmpty
+            ? _operationalTenantId
+            : widget.tenantId,
+      );
 
   static String _defaultWebhookUrl() {
     final pid = DefaultFirebaseOptions.currentPlatform.projectId;

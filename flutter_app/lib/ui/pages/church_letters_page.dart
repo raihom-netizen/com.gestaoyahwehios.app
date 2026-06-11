@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/pdf/church_transfer_letter_pdf.dart';
@@ -119,7 +120,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     _tabs.addListener(() {
       if (!_tabs.indexIsChanging && mounted) setState(() {});
     });
-    _effectiveTenantId = widget.tenantId.trim();
+    _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId);
     final ram = _effectiveTenantId.isNotEmpty
         ? _ChurchLettersMembersRamCache.peek(_effectiveTenantId)
         : null;

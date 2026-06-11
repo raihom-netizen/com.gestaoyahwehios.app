@@ -1,6 +1,6 @@
 # Codemagic — Flutter na RAIZ do clone quando o directório da aplicação é flutter_app/.
 # Assinatura: CM_CERTIFICATE + CM_PROVISIONING_PROFILE (Base64) — ver ../codemagic.yaml.
-# Preferir ../codemagic.yaml (monorepo): inclui deteção mono/root, iOS deployment 14 e scripts extra.
+# Preferir ../codemagic.yaml (monorepo): inclui deteção mono/root, iOS deployment 15 (Firebase 12+) e scripts extra.
 # Runner.entitlements sem Sign In with Apple — perfil App Store sem essa capability assina o IPA.
 
 workflows:

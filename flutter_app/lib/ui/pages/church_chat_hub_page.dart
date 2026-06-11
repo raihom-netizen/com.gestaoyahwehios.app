@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/church_chat_local_conversations.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_threads_list_cache.dart';
@@ -857,9 +858,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final hint = widget.tenantId.trim();
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
 
-    final tid = ChurchRepository.churchId(hint).isNotEmpty
-        ? ChurchRepository.churchId(hint)
-        : hint;
+    final tid = ChurchPanelTenant.resolve(hint);
     if (tid.isEmpty) return;
 
     QuerySnapshot<Map<String, dynamic>>? cachedList;

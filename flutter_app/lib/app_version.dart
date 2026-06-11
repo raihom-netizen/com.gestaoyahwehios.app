@@ -1,5 +1,10 @@
 /// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+1905: Tenant canónico — currentChurchId/resolveChurchId/bind sempre mapeiam slug BPC; ChurchPanelTenant em fornecedores, relatórios, chat, config, doações.
+/// 11.2.305+1904: Tenant canónico definitivo — resolveChurchId/bind sempre mapeiam slug BPC; ChurchPanelTenant em todos os módulos do shell.
+/// 11.2.305+1903: iOS 15.0 mínimo — Firebase SDK 12.14 / cloud_firestore (Codemagic pod install).
+/// 11.2.305+1902: Revisão web — tenant canónico em todos os módulos, gravações/mídia/chat resilientes, leituras sem mascarar erro.
+/// 11.2.305+1901: Painel — slug BPC→doc canónico síncrono (cadastro, departamentos, cargos); shell sem tenant errado no 1.º frame.
 /// 11.2.305+1900: Flutter 3.44.1 + Dart 3.12 — Firebase BoM 4.x, google_sign_in 7, file_picker 11, fl_chart 1.2, local_auth 3.
 /// 11.2.305+1899: Mídia multiplataforma — CrossPlatformMediaPipeline (XFile), compactação Web/mobile unificada, publish transacional.
 /// 11.2.305+1898: Site público + cadastro membro — índice `public_church_slugs`, resolver rápido, loader premium, cache `_panel_cache/public_site`.
@@ -364,7 +369,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1873: Carteirinha membro — cluster BPC + fallback dados da lista.
 /// 11.2.305+1874: Painel — líderes/corpo admin rápidos (cache + cluster departamentos).
 /// 11.2.305+1875: Eventos — publicação EcoFire (Storage+URL+thumb, linear, ampliar foto).
-const String appBuildNumber = '1900';
+const String appBuildNumber = '1905';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

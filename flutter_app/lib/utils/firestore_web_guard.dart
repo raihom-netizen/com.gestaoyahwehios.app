@@ -134,7 +134,7 @@ class FirestoreWebGuard {
     if (kIsWeb && WebPanelStability.isSessionExpired) {
       return fn();
     }
-    final attempts = kIsWeb ? (maxAttempts > 2 ? 2 : maxAttempts) : maxAttempts;
+    final attempts = kIsWeb ? maxAttempts.clamp(3, 6) : maxAttempts;
     Object? lastError;
     StackTrace? lastStack;
     for (var attempt = 0; attempt < attempts; attempt++) {
