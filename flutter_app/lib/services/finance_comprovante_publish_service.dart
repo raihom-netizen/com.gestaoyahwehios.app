@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_media_upload.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
@@ -14,9 +14,6 @@ import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/services/media_service.dart';
-import 'package:gestao_yahweh/services/storage_service.dart';
-import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isFirebaseStorageHttpUrl, sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -107,6 +104,25 @@ abstract final class FinanceComprovantePublishService {
         ext: ext,
       );
 
+  /// Data do lançamento para pasta `financeiro/YYYY_MM/` (campo `date` ou `createdAt`).
+  static DateTime? referenceDateFromMap(Map<String, dynamic> data) {
+    for (final key in ['date', 'createdAt']) {
+      final raw = data[key];
+      if (raw is Timestamp) return raw.toDate();
+      if (raw is DateTime) return raw;
+      if (raw is String && raw.length >= 10) {
+        return DateTime.tryParse(raw.substring(0, 10));
+      }
+      if (raw is Map) {
+        final sec = raw['seconds'] ?? raw['_seconds'];
+        if (sec is num) {
+          return DateTime.fromMillisecondsSinceEpoch(sec.toInt() * 1000);
+        }
+      }
+    }
+    return null;
+  }
+
   static Future<void> deleteComprovanteArtifacts({
     required String tenantId,
     required String lancamentoId,
@@ -191,46 +207,44 @@ abstract final class FinanceComprovantePublishService {
       ext: ext,
     );
 
-    final String url;
-    if (mimeType.contains('pdf')) {
-      url = await StorageService.uploadBytes(
-        storagePath: path,
-        bytes: rawBytes,
-        contentType: 'application/pdf',
-        module: YahwehUploadModule.generic,
-        tenantId: churchId,
-      );
-    } else {
-      final contentType =
-          mimeType.contains('png') ? 'image/png' : 'image/jpeg';
-      url = await StorageService.uploadCompressedImage(
-        storagePath: path,
-        rawBytes: rawBytes,
-        module: YahwehUploadModule.generic,
-        profile: MediaImageProfile.feed,
-        contentType: contentType,
-      );
-    }
+    final contentType = mimeType.contains('pdf')
+        ? 'application/pdf'
+        : (mimeType.contains('png') ? 'image/png' : 'image/jpeg');
 
-    await ChurchStorageMetadataVerify.assertExists(path);
+    // Bytes já comprimidos em [FinanceComprovanteAttachService.prepareUploadBytes].
+    final String url = await EcoFireMediaUpload.uploadBytes(
+      storagePath: path,
+      bytes: rawBytes,
+      contentType: contentType,
+      profile: EcoFireMediaProfile.document,
+    );
+
+    await ChurchStorageMetadataVerify.assertExists(
+      path,
+      maxAttempts: 4,
+      timeout: const Duration(seconds: 12),
+    );
 
     final safeName = (fileName ?? '').trim().isNotEmpty
         ? fileName!.trim()
         : 'comprovante.$ext';
 
+    final firestorePatch = {
+      'comprovanteUrl': url,
+      'comprovanteStoragePath': path,
+      'comprovanteMimeType': mimeType,
+      'comprovanteFileName': safeName,
+      'hasComprovante': true,
+      comprovanteUploadStateField: EntityPublishStatus.published,
+      'comprovanteUploadError': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
     await _writeFirestore(
-      () => docRef.set(
-        {
-          'comprovanteUrl': url,
-          'comprovanteStoragePath': path,
-          'comprovanteMimeType': mimeType,
-          'comprovanteFileName': safeName,
-          'hasComprovante': true,
-          comprovanteUploadStateField: EntityPublishStatus.published,
-          'comprovanteUploadError': FieldValue.delete(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
+      () => OptimisticFirestoreWrite.update(
+        ref: docRef,
+        data: firestorePatch,
+        module: OfflineModules.financeiro,
+        tenantId: churchId,
       ),
     );
 

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
@@ -21,6 +22,7 @@ abstract final class ImmediateFeedPhotoAttach {
     String title = '',
   }) async {
     if (!isNewDoc) return;
+    await ensureFirebaseReadyForPublishUpload();
     final t = title.trim();
     await runFirestorePublishWithRecovery<void>(() async {
       await docRef.set(

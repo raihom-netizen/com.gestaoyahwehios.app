@@ -30,8 +30,10 @@ import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_cache.dart';
 import 'package:gestao_yahweh/services/yahweh_media_bytes_disk_keys.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/services/membro_strict_publish_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_save_service.dart';
 
 /// Resultado de upload de foto de perfil do membro (chat + módulo Membros).
 class MemberProfilePhotoUpdateResult {
@@ -112,9 +114,9 @@ class MemberProfilePhotoUpdateService {
     String? cpfDigits,
   }) async {
     await ensureFirebaseCore(requireAuth: false);
-    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-    final base =         ChurchOperationalPaths.churchDoc(op)
-        .collection('membros');
+    final churchId = ChurchRepository.churchId(tenantId.trim());
+    if (churchId.isEmpty) return null;
+    final base = ChurchUiCollections.membros(churchId);
     final digits = (cpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
     try {
       if (digits.length == 11) {
@@ -146,12 +148,18 @@ class MemberProfilePhotoUpdateService {
       () async {
         await ensureFirebaseCore(requireAuth: requireAuth);
         YahwehFlowLog.membrosStart();
-        final result = await _uploadAndPatchMemberCore(
+        final result = await MemberProfilePhotoSaveService.saveInternal(
           tenantId: tenantId,
           memberDocId: memberDocId,
           memberData: memberData,
           rawBytes: rawBytes,
           requireAuth: requireAuth,
+        );
+        await _afterPhotoSaved(
+          tenantId: tenantId,
+          memberDocId: memberDocId,
+          memberData: memberData,
+          result: result,
         );
         YahwehFlowLog.membrosSuccess();
         onSuccess?.call(result);
@@ -192,12 +200,10 @@ class MemberProfilePhotoUpdateService {
       tenantIds.map(
         (tid) => FirestoreWebGuard.runWithWebRecovery(
           () async {
-            final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+            final churchId = ChurchRepository.churchId(tid.trim());
             return MembrosOfflineSync.set(
-              ref: ChurchOperationalPaths.churchDoc(op)
-                  .collection('membros')
-                  .doc(memberDocId),
-              tenantId: tid,
+              ref: ChurchUiCollections.membros(churchId).doc(memberDocId),
+              tenantId: churchId,
               merge: true,
               data: patch,
             );
@@ -213,15 +219,23 @@ class MemberProfilePhotoUpdateService {
     required String memberDocId,
     required Map<String, dynamic> memberData,
     required Uint8List rawBytes,
+    void Function(String phaseLabel)? onPhase,
   }) async {
     YahwehFlowLog.memberPhotoStart();
     ChurchPublishFlowLog.memberPhotoStart();
     try {
-      final r = await _uploadAndPatchMemberCore(
+      final r = await MemberProfilePhotoSaveService.save(
         tenantId: tenantId,
         memberDocId: memberDocId,
         memberData: memberData,
         rawBytes: rawBytes,
+        onPhase: onPhase,
+      );
+      await _afterPhotoSaved(
+        tenantId: tenantId,
+        memberDocId: memberDocId,
+        memberData: memberData,
+        result: r,
       );
       YahwehFlowLog.memberPhotoSuccess();
       ChurchPublishFlowLog.memberPhotoSuccess();
@@ -233,47 +247,21 @@ class MemberProfilePhotoUpdateService {
     }
   }
 
-  static Future<MemberProfilePhotoUpdateResult> _uploadAndPatchMemberCore({
+  static Future<void> _afterPhotoSaved({
     required String tenantId,
     required String memberDocId,
     required Map<String, dynamic> memberData,
-    required Uint8List rawBytes,
-    bool requireAuth = true,
+    required MemberProfilePhotoUpdateResult result,
   }) async {
-    await ensureFirebaseCore(requireAuth: requireAuth);
-    if (kIsWeb) {
-      await FirestoreWebGuard.recoverFirestoreWebSession(
-        allowHardReconnect: true,
-      );
-    }
-    YahwehFlowLog.uploadStart('member_profile');
-    ChurchPublishFlowLog.uploadStart('member_profile');
-    final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
-    final previousThumb = sanitizeImageUrl(
-      MemberProfileVariantsService.listPhotoUrl(memberData) ?? '',
-    );
-    final authUid = (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
-        .toString()
-        .trim();
-
-    final result = await MembroStrictPublishService.publishPhoto(
-      seedTenantId: tenantId,
-      memberDocId: memberDocId,
-      memberData: memberData,
-      rawBytes: rawBytes,
-      requireAuth: requireAuth,
-    );
-
     final photoUrl = sanitizeImageUrl(result.downloadUrl);
     final thumbUrl = sanitizeImageUrl(
       result.thumbDownloadUrl ??
           MemberProfileVariantsService.listPhotoUrl(memberData) ??
           photoUrl,
     );
-    YahwehFlowLog.memberPhotoUploadOk();
-    ChurchPublishFlowLog.memberPhotoUploadOk();
-    YahwehFlowLog.uploadSuccess('member_profile');
-    ChurchPublishFlowLog.uploadOk('member_profile');
+    final authUid = (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
+        .toString()
+        .trim();
 
     if (authUid.isNotEmpty) {
       try {
@@ -287,18 +275,6 @@ class MemberProfilePhotoUpdateService {
       } catch (e, st) {
         YahwehFlowLog.error('MEMBROS', e, st);
       }
-    }
-
-    invalidateDisplayCaches(
-      previousDownloadUrl: previousUrl,
-      newDownloadUrl: photoUrl,
-      storagePath: result.storagePath,
-    );
-    if (previousThumb.isNotEmpty) {
-      invalidateDisplayCaches(
-        previousDownloadUrl: previousThumb,
-        newDownloadUrl: thumbUrl,
-      );
     }
 
     final mergedMember = Map<String, dynamic>.from(memberData)
@@ -319,7 +295,45 @@ class MemberProfilePhotoUpdateService {
       photoStoragePath: result.storagePath,
       photoThumbStoragePath: result.thumbStoragePath,
     );
+  }
 
+  static Future<MemberProfilePhotoUpdateResult> _uploadAndPatchMemberCore({
+    required String tenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+    required Uint8List rawBytes,
+    bool requireAuth = true,
+  }) async {
+    final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
+    final previousThumb = sanitizeImageUrl(
+      MemberProfileVariantsService.listPhotoUrl(memberData) ?? '',
+    );
+    final result = await MemberProfilePhotoSaveService.saveInternal(
+      tenantId: tenantId,
+      memberDocId: memberDocId,
+      memberData: memberData,
+      rawBytes: rawBytes,
+      requireAuth: requireAuth,
+    );
+    await _afterPhotoSaved(
+      tenantId: tenantId,
+      memberDocId: memberDocId,
+      memberData: memberData,
+      result: result,
+    );
+    invalidateDisplayCaches(
+      previousDownloadUrl: previousUrl,
+      newDownloadUrl: sanitizeImageUrl(result.downloadUrl),
+      storagePath: result.storagePath,
+    );
+    if (previousThumb.isNotEmpty) {
+      invalidateDisplayCaches(
+        previousDownloadUrl: previousThumb,
+        newDownloadUrl: sanitizeImageUrl(
+          result.thumbDownloadUrl ?? result.downloadUrl,
+        ),
+      );
+    }
     return result;
   }
 

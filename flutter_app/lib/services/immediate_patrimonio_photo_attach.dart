@@ -65,6 +65,7 @@ abstract final class ImmediatePatrimonioPhotoAttach {
         itemDocId: itemDocId,
         slotIndex: slotIndex,
         rawBytes: rawBytes,
+        skipPrepare: true,
       );
       final path = result.storagePath;
       final url = sanitizeImageUrl(result.downloadUrl);

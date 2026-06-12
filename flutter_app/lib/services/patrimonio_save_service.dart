@@ -3,9 +3,10 @@ import 'dart:typed_data';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/patrimonio_strict_publish_service.dart';
 
-/// Gravação patrimônio — um caminho: Firebase OK → upload → Storage → Firestore.
+/// Gravação patrimônio — Storage paralelo → Firestore → confirmação.
 ///
 /// Storage: `igrejas/{churchId}/patrimonio/{itemId}/galeria_01.webp` … `_05.webp`
 /// Firestore: `fotoStoragePaths`, `fotos`, `fotoUrls`
@@ -30,13 +31,22 @@ abstract final class PatrimonioSaveService {
     final churchId = resolveChurchId(churchIdHint);
     await FirebaseBootstrapService.runGuarded(
       () async {
+        onProgress?.call(0.02, 'A preparar gravação…');
         await AppFinalizeBootstrap.ensureSessionForPublish(
           logLabel: 'patrimonio_save',
+        ).timeout(
+          const Duration(seconds: 20),
+          onTimeout: () {},
         );
-        onProgress?.call(0.02, 'A preparar gravação…');
 
         if (newImages.isNotEmpty) {
-          var slotDone = 0;
+          onProgress?.call(0.04, 'A ligar Storage…');
+          await FastMediaPublishBootstrap.warmForPatrimonioSave().timeout(
+            const Duration(seconds: 25),
+            onTimeout: () {},
+          );
+          onProgress?.call(0.06, 'A enviar ${newImages.length} foto(s)…');
+
           await PatrimonioStrictPublishService.publish(
             seedTenantId: churchId,
             itemId: itemId,
@@ -47,14 +57,16 @@ abstract final class PatrimonioSaveService {
             existingPaths: existingPaths,
             existingUrls: existingUrls,
             onUploadProgress: (p) {
-              slotDone = (p * newImages.length).floor().clamp(0, newImages.length);
-              final label = slotDone < newImages.length
-                  ? 'A enviar foto ${slotDone + 1} de ${newImages.length}…'
-                  : 'A confirmar fotos no Storage…';
-              onProgress?.call(0.05 + p * 0.82, label);
+              final pct = (p * 100).clamp(0, 100).toStringAsFixed(0);
+              final label = p < 0.15
+                  ? 'A preparar fotos…'
+                  : p < 0.88
+                      ? 'A enviar fotos ($pct%)…'
+                      : 'A gravar no Firestore…';
+              onProgress?.call(0.06 + p * 0.9, label);
             },
           );
-          onProgress?.call(0.95, 'Patrimônio gravado.');
+          onProgress?.call(1.0, 'Patrimônio gravado.');
           return;
         }
 

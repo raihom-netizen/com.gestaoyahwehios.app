@@ -289,19 +289,18 @@ class FirebaseStorageService {
     _pastorSigConfigUrlCache.remove(t);
   }
 
-  /// Pasta no Storage — **id do doc** `membros/{memberDocId}/` (alinha com Firestore e URLs existentes).
+  /// Pasta no Storage — **authUid** quando existir; senão id do doc Firestore.
   static String memberProfileStorageFolderId(
     String memberDocId,
     String? authUid,
   ) {
-    final mid = memberDocId.trim();
-    if (mid.isNotEmpty) return mid;
     final au = (authUid ?? '').trim();
-    return au;
+    if (au.isNotEmpty) return au;
+    return memberDocId.trim();
   }
 
   /// Caminho canónico: `igrejas/{tenant}/membros/{pasta}/foto_perfil.jpg` (sobrescreve ao trocar foto).
-  /// [pasta] = [authUid] se preenchido; caso contrário [memberDocId] (ex. CPF ou id auto).
+  /// [pasta] = [authUid] se preenchido; caso contrário [memberDocId].
   static String memberProfilePhotoPath({
     required String tenantId,
     required String memberDocId,
@@ -415,6 +414,32 @@ class FirebaseStorageService {
       } catch (_) {}
     }
     final cpf = cpfNorm;
+    final folderId = memberProfileStorageFolderId(
+      mid,
+      authNorm.isNotEmpty ? authNorm : null,
+    );
+    final paths = <String>[];
+    void addPath(String? raw) {
+      final p = StorageMediaService.normalizeFirestoreStoragePath(raw);
+      if (p == null || p.isEmpty) return;
+      if (!paths.contains(p)) paths.add(p);
+    }
+
+    // 1) Path gravado no Firestore (fonte única — evita varrer dezenas de legados).
+    if (memberFirestoreHint != null) {
+      if (preferListThumbnail) {
+        addPath(MemberImageFields.photoThumbStoragePath(memberFirestoreHint));
+      }
+      addPath(MemberImageFields.photoStoragePath(memberFirestoreHint));
+    }
+    // 2) Canónico desta igreja/membro (authUid ou doc id).
+    if (preferListThumbnail) {
+      addPath(
+        ChurchStorageLayout.memberProfileThumbPathFlatWebpLegacy(tid, folderId),
+      );
+    }
+    addPath(ChurchStorageLayout.memberProfilePhotoPath(tid, folderId));
+
     final orderedStems = <String>[];
     void addStem(String s) {
       final x = s.trim();
@@ -432,7 +457,6 @@ class FirebaseStorageService {
       addStem(authNorm);
     }
 
-    final paths = <String>[];
     void addThumbForStem(String stem) {
       final s = stem.trim();
       if (s.isEmpty) return;

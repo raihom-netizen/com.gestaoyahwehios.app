@@ -2,14 +2,41 @@
 /// Não altera documentos existentes; apenas centraliza leitura para UI e uploads.
 library;
 
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/storage_media_service.dart';
+
+String? _normalizeStoragePathField(String? raw, {String? churchIdHint}) {
+  var path = StorageMediaService.normalizeFirestoreStoragePath(raw);
+  if (path == null || path.isEmpty) return null;
+  if (path.endsWith('/configuracoes') || path.endsWith('/configuracoes/')) {
+    final tid = churchIdHint?.trim() ?? '';
+    if (tid.isNotEmpty) {
+      path = ChurchStorageLayout.churchIdentityLogoPath(tid);
+    } else {
+      path = '${path.replaceAll(RegExp(r'/+$'), '')}/logo_igreja.png';
+    }
+  }
+  return path;
+}
 
 /// Logo / identidade visual da igreja.
 abstract final class ChurchImageFields {
   ChurchImageFields._();
 
-  static String? logoStoragePath(Map<String, dynamic>? m) {
+  static String? logoStoragePath(
+    Map<String, dynamic>? m, {
+    String? churchIdHint,
+  }) {
     if (m == null) return null;
+    final tid = (churchIdHint ??
+            m['tenantId'] ??
+            m['churchId'] ??
+            m['igrejaId'] ??
+            m['id'] ??
+            '')
+        .toString()
+        .trim();
     for (final k in [
       'logoPath',
       'logo_path',
@@ -20,7 +47,20 @@ abstract final class ChurchImageFields {
       'imageStoragePath',
     ]) {
       final v = (m[k] ?? '').toString().trim();
-      if (v.isNotEmpty) return v.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+      if (v.isEmpty) continue;
+      final normalized = _normalizeStoragePathField(v, churchIdHint: tid);
+      if (normalized != null && normalized.isNotEmpty) return normalized;
+    }
+    return null;
+  }
+
+  /// URL https legada gravada em `logoPath` (migração manual) — só exibição imediata.
+  static String? logoHttpsUrlFromDoc(Map<String, dynamic>? m) {
+    if (m == null) return null;
+    for (final k in ['logoPath', 'logo_path', 'logoUrl', 'logo_url']) {
+      final v = (m[k] ?? '').toString().trim();
+      final low = v.toLowerCase();
+      if (low.startsWith('http://') || low.startsWith('https://')) return v;
     }
     return null;
   }
@@ -42,7 +82,8 @@ abstract final class MemberImageFields {
       'imageStoragePath',
     ]) {
       final v = (m[k] ?? '').toString().trim();
-      if (v.isNotEmpty) return v.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+      final normalized = _normalizeStoragePathField(v);
+      if (normalized != null && normalized.isNotEmpty) return normalized;
     }
     return null;
   }
@@ -60,6 +101,22 @@ abstract final class MemberImageFields {
     ]) {
       final v = (m[k] ?? '').toString().trim();
       if (v.startsWith('https://') || v.startsWith('http://')) return v;
+    }
+    return null;
+  }
+
+  /// Miniatura para listas — path Storage ou URL https.
+  static String? photoThumbStoragePath(Map<String, dynamic>? m) {
+    if (m == null) return null;
+    for (final k in [
+      'photoThumbStoragePath',
+      'fotoThumbPath',
+      'foto_thumb_path',
+      'thumbStoragePath',
+    ]) {
+      final v = (m[k] ?? '').toString().trim();
+      final normalized = _normalizeStoragePathField(v);
+      if (normalized != null && normalized.isNotEmpty) return normalized;
     }
     return null;
   }
@@ -96,9 +153,8 @@ abstract final class FeedImageFields {
     if (m == null) return null;
     for (final k in ['thumbStoragePath', 'thumb_storage_path']) {
       final v = (m[k] ?? '').toString().trim();
-      if (v.isNotEmpty) {
-        return v.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
-      }
+      final normalized = _normalizeStoragePathField(v);
+      if (normalized != null && normalized.isNotEmpty) return normalized;
     }
     final iv = m['imageVariants'];
     if (iv is Map) {
@@ -121,9 +177,8 @@ abstract final class FeedImageFields {
       'image_storage_path',
     ]) {
       final v = (m[k] ?? '').toString().trim();
-      if (v.isNotEmpty) {
-        return v.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
-      }
+      final normalized = _normalizeStoragePathField(v);
+      if (normalized != null && normalized.isNotEmpty) return normalized;
     }
     return null;
   }
@@ -137,9 +192,8 @@ abstract final class PatrimonioImageFields {
     if (m == null) return null;
     for (final k in ['fotoPrincipalPath', 'foto_principal_path']) {
       final v = (m[k] ?? '').toString().trim();
-      if (v.isNotEmpty) {
-        return v.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
-      }
+      final normalized = _normalizeStoragePathField(v);
+      if (normalized != null && normalized.isNotEmpty) return normalized;
     }
     return FeedImageFields.imageStoragePath(m);
   }
@@ -152,9 +206,8 @@ abstract final class PatrimonioImageFields {
       'thumbStoragePath',
     ]) {
       final v = (m[k] ?? '').toString().trim();
-      if (v.isNotEmpty) {
-        return v.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
-      }
+      final normalized = _normalizeStoragePathField(v);
+      if (normalized != null && normalized.isNotEmpty) return normalized;
     }
     return null;
   }
@@ -165,9 +218,8 @@ abstract final class PatrimonioImageFields {
       final raw = m[k];
       if (raw is List) {
         return raw
-            .map((e) => e?.toString().trim() ?? '')
+            .map((e) => _normalizeStoragePathField(e?.toString()) ?? '')
             .where((s) => s.isNotEmpty)
-            .map((s) => s.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), ''))
             .toList();
       }
     }

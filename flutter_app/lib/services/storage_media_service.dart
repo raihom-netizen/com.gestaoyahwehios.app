@@ -57,8 +57,8 @@ class StorageMediaService {
   static String? storageObjectPathFromPathOrUrl(String? raw) {
     final t = (raw ?? '').trim();
     if (t.isEmpty) return null;
-    final gs = t.toLowerCase();
-    if (gs.startsWith('gs://')) {
+    final low = t.toLowerCase();
+    if (low.startsWith('gs://')) {
       final rest = t.substring(5);
       final idx = rest.indexOf('/');
       if (idx >= 0 && idx < rest.length - 1) {
@@ -66,8 +66,19 @@ class StorageMediaService {
       }
       return null;
     }
-    if (t.contains('/') && !t.startsWith('http')) return t;
+    if (t.contains('/') &&
+        !low.startsWith('http://') &&
+        !low.startsWith('https://')) {
+      return t.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
+    }
     return firebaseStorageObjectPathFromHttpUrl(t);
+  }
+
+  /// Path canónico no bucket — normaliza `gs://`, URL https antiga ou path relativo.
+  static String? normalizeFirestoreStoragePath(String? raw) {
+    final path = storageObjectPathFromPathOrUrl(raw);
+    if (path == null || path.isEmpty) return null;
+    return path.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
   }
 
   /// Resolve caminho `igrejas/...` ou URL antiga para URL atual de download.

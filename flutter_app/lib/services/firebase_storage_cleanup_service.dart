@@ -1024,6 +1024,25 @@ class FirebaseStorageCleanupService {
     }
   }
 
+  /// Só o path canónico do slot — rápido antes de sobrescrever (save património).
+  static Future<void> deletePatrimonioCanonicalSlotFast({
+    required String tenantId,
+    required String itemDocId,
+    required int slot,
+  }) async {
+    if (slot < 0 || slot > 4) return;
+    final tid = tenantId.trim();
+    final iid = itemDocId.trim();
+    if (tid.isEmpty || iid.isEmpty) return;
+    final path = ChurchStorageLayout.patrimonioPhotoPath(tid, iid, slot);
+    try {
+      await FirebaseStorage.instance
+          .ref(path)
+          .delete()
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {}
+  }
+
   /// Remove foto principal + thumb do slot [0–4] (canónico `imagens/` + legado por pasta).
   static Future<void> deletePatrimonioSlotArtifacts({
     required String tenantId,

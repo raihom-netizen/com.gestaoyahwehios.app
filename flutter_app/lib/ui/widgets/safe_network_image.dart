@@ -314,6 +314,8 @@ bool firebaseStorageMediaUrlLooksLike(String url) {
           low.contains('cartao_membro%2f') ||
           low.contains('patrimonio/') ||
           low.contains('patrimonio%2f') ||
+          low.contains('chat_media/') ||
+          low.contains('chat_media%2f') ||
           low.contains('departamentos/') ||
           low.contains('departamentos%2f') ||
           low.contains('public/') ||
@@ -841,11 +843,39 @@ String imageUrlFromMap(Map<String, dynamic>? data, {String? baseUrl}) {
   return _pickBestImageUrlCandidate(ordered);
 }
 
-/// Logo do documento [igrejas/{id}]: apenas [logoPath] — URL via [ChurchBrandService.getLogoUrl].
+/// Path Storage da logo no doc `igrejas/{id}` — **não** é URL https.
 String churchTenantLogoUrl(Map<String, dynamic>? data) {
   if (data == null) return '';
-  final path = ChurchImageFields.logoStoragePath(data);
+  final tid = (data['tenantId'] ??
+          data['churchId'] ??
+          data['igrejaId'] ??
+          data['id'] ??
+          '')
+      .toString()
+      .trim();
+  final path = ChurchImageFields.logoStoragePath(data, churchIdHint: tid);
   if (path != null && path.isNotEmpty) return path;
+  if (tid.isNotEmpty) return ChurchStorageLayout.churchIdentityLogoPath(tid);
+  return '';
+}
+
+/// URL https imediata (Firestore legado ou migração manual) — vazio se só existir path Storage.
+String churchTenantLogoHttpsUrl(Map<String, dynamic>? data) {
+  if (data == null) return '';
+  final fromPathField = ChurchImageFields.logoHttpsUrlFromDoc(data);
+  if (fromPathField != null && fromPathField.isNotEmpty) {
+    final s = sanitizeImageUrl(fromPathField);
+    if (isValidImageUrl(s)) return s;
+  }
+  for (final k in [
+    'logoProcessedUrl',
+    'logoUrl',
+    'logo_url',
+    'logoDownloadUrl',
+  ]) {
+    final s = sanitizeImageUrl((data[k] ?? '').toString());
+    if (s.isNotEmpty && isValidImageUrl(s)) return s;
+  }
   return '';
 }
 
@@ -853,14 +883,20 @@ String churchTenantLogoUrl(Map<String, dynamic>? data) {
 List<String> churchTenantLogoUrlCandidates(Map<String, dynamic>? data) {
   if (data == null) return [];
   final out = <String>[];
+  final tid = (data['tenantId'] ??
+          data['churchId'] ??
+          data['igrejaId'] ??
+          data['id'] ??
+          '')
+      .toString()
+      .trim();
   void pushPath(String? raw) {
     final p = (raw ?? '').trim().replaceAll('\\', '/');
     if (p.isEmpty || out.contains(p)) return;
     out.add(p);
   }
 
-  pushPath(ChurchImageFields.logoStoragePath(data));
-  final tid = (data['tenantId'] ?? data['id'] ?? '').toString().trim();
+  pushPath(ChurchImageFields.logoStoragePath(data, churchIdHint: tid));
   if (tid.isNotEmpty) {
     pushPath(ChurchStorageLayout.churchIdentityLogoPath(tid));
     pushPath(ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(tid));

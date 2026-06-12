@@ -375,8 +375,10 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1875: Eventos — publicação EcoFire (Storage+URL+thumb, linear, ampliar foto).
 /// 11.2.305+1923: Cargos — ChurchCargosLoadService cache-first; path igrejas/{id}/cargos; web timeout 100s.
 /// 11.2.305+1925: Foto perfil membro — picker web/mobile unificado, preview imediato, upload Storage+Firestore por doc id.
-/// 11.2.305+1927: Aniversariantes do ano — grelha colorida mês/dia, cache-first, Chat + WhatsApp.
-const String appBuildNumber = '1927';
+/// 11.2.305+1930: Foto perfil membro — pipeline linear sem limpeza bloqueante; UI premium.
+/// 11.2.305+1931: Chat igreja — envio mídia pipeline único (timeout 90s, foto/PDF/vídeo, paths igrejas/{id}/chat_media).
+/// 11.2.305+1938: Financeiro — comprovante Storage directo, UI sem texto fantasma, olho/trocar.
+const String appBuildNumber = '1938';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

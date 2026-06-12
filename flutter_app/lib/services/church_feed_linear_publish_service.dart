@@ -8,8 +8,10 @@ import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart'
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_feed_media_storage_fields.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
+import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
@@ -140,28 +142,44 @@ abstract final class ChurchFeedLinearPublishService {
     final uploadedPaths = <String>[];
     final alignedThumbPaths = <String>[];
     final alignedThumbUrls = <String>[];
+    Map<String, dynamic>? mergedVariants;
 
     if (hasNewPhotos) {
       ChurchPublishFlowLog.uploadStart('$postType $docId');
-      final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
+      await FastMediaPublishBootstrap.warmForFeedPublish()
+          .timeout(const Duration(seconds: 28));
+      final slots = await ChurchFeedMediaStorageFields.uploadPhotoSlots(
         tenantId: churchId,
         postType: postType,
         postId: docId,
         startSlotIndex: startSlotIndex,
-        bytesList: newImagesBytes,
-        localPaths: newImagePaths,
-        onProgress: onUploadProgress,
+        newImagesBytes: newImagesBytes,
+        newImagePaths: newImagePaths,
       );
+      Map<String, dynamic>? slotVariants;
       for (final slot in slots) {
         uploadedPaths.add(slot.fullPath);
         alignedThumbPaths.add(slot.thumbPath);
-        alignedThumbUrls.add(slot.thumbUrl);
+        if (slot.imageVariants != null && slot.imageVariants!.isNotEmpty) {
+          slotVariants ??= <String, dynamic>{};
+          slotVariants.addAll(slot.imageVariants!);
+        }
+        final url = await EcoFireFeedPublishService.refsToPlayableUrls(
+          [slot.fullPath],
+        );
+        if (url.isNotEmpty) {
+          existingUrls = dedupeImageRefsByStorageIdentity([
+            ...existingUrls,
+            ...url,
+          ]);
+        }
       }
-      existingUrls = dedupeImageRefsByStorageIdentity([
-        ...existingUrls,
-        ...slots.map((s) => s.fullUrl),
-      ]);
-      ChurchPublishFlowLog.uploadOk('$postType $docId');
+      ChurchPublishFlowLog.uploadOk('$postType $docId (${slots.length} fotos)');
+      mergedVariants = slotVariants;
+      for (final tp in alignedThumbPaths) {
+        final tu = await EcoFireFeedPublishService.refsToPlayableUrls([tp]);
+        if (tu.isNotEmpty) alignedThumbUrls.add(tu.first);
+      }
     }
 
     final allPaths = <String>[
@@ -169,21 +187,12 @@ abstract final class ChurchFeedLinearPublishService {
       ...uploadedPaths,
     ];
 
-    if (hasNewPhotos) {
-      if (isEvento) {
-        await EventosPublishVerificationService.verifyStorageMetadata(
-          photoPaths: uploadedPaths,
-          videoPath: videoStoragePath,
-          timeout: const Duration(seconds: 8),
-          maxAttempts: 2,
-        );
-      } else {
-        await AvisosPublishVerificationService.verifyStorageMetadata(
-          photoPaths: uploadedPaths,
-          timeout: const Duration(seconds: 8),
-          maxAttempts: 2,
-        );
-      }
+    if (hasNewPhotos && uploadedPaths.isNotEmpty) {
+      await ChurchStorageMetadataVerify.assertAllExist(
+        uploadedPaths,
+        timeout: ChurchStorageMetadataVerify.kDefaultTimeout,
+        maxAttempts: ChurchStorageMetadataVerify.kMaxAttempts,
+      );
     }
 
     final aspectRatio = _aspectRatioFromPayload(corePayload);
@@ -205,6 +214,7 @@ abstract final class ChurchFeedLinearPublishService {
         aspectRatio: aspectRatio,
         hasVideo: hasVideo,
         allowDeleteSentinels: !isNewDoc,
+        imageVariants: mergedVariants,
       ),
     );
     if (alignedThumbUrls.isNotEmpty) {

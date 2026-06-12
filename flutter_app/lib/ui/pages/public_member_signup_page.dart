@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart'
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -41,7 +42,7 @@ import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
-        churchTenantLogoUrl,
+        churchTenantLogoHttpsUrl,
         isValidImageUrl,
         memCacheExtentForLogicalSize,
         ResilientNetworkImage,
@@ -314,7 +315,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     final preferRaw = _tenantLogoUrl?.trim();
     final prefer =
         (preferRaw != null && preferRaw.isNotEmpty) ? preferRaw : null;
-    final sp = ChurchImageFields.logoStoragePath(tenantMap);
+    final sp = ChurchImageFields.logoStoragePath(tenantMap, churchIdHint: tid);
 
     return SizedBox(
       width: maxWidth,
@@ -324,7 +325,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         tenantId: tid,
         tenantData: tenantMap,
         imageUrl: prefer,
-        storagePath: sp,
+        storagePath: sp ??
+            (tid.isNotEmpty ? ChurchStorageLayout.churchIdentityLogoPath(tid) : null),
         width: maxWidth,
         height: maxHeight,
         fit: BoxFit.contain,
@@ -334,12 +336,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     );
   }
 
-  /// Mesma resolução de URL do cadastro da igreja / site público ([logoProcessedUrl], [logoUrl], etc.).
+  /// URL https ou null — path Storage resolve via [_prefetchChurchLogoUrl].
   static String? _logoUrlFromChurchDoc(Map<String, dynamic> data) {
-    final u = churchTenantLogoUrl(data);
-    if (u.isEmpty) return null;
-    final s = sanitizeImageUrl(u);
-    return isValidImageUrl(s) ? s : null;
+    final https = churchTenantLogoHttpsUrl(data);
+    if (https.isNotEmpty) return https;
+    return null;
   }
 
   Future<String?> _prefetchChurchLogoUrl({
@@ -347,11 +348,16 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     required Map<String, dynamic> churchWithId,
   }) async {
     try {
+      final tid = tenantDocId.trim();
       return await AppStorageImageService.instance.resolveChurchTenantLogoUrl(
-        tenantId: tenantDocId,
+        tenantId: tid,
         tenantData: churchWithId,
-        preferImageUrl: _logoUrlFromChurchDoc(churchWithId),
-        preferStoragePath: ChurchImageFields.logoStoragePath(churchWithId),
+        preferImageUrl: ChurchImageFields.logoHttpsUrlFromDoc(churchWithId),
+        preferStoragePath: ChurchImageFields.logoStoragePath(
+              churchWithId,
+              churchIdHint: tid,
+            ) ??
+            ChurchBrandService.canonicalLogoPath(tid),
       );
     } catch (_) {
       return null;

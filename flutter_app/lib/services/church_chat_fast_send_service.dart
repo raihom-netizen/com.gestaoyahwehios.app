@@ -75,7 +75,7 @@ abstract final class ChurchChatFastSendService {
     void Function(String message)? onError,
     void Function()? onSuccess,
   }) async {
-    await warmSendPipeline(force: true);
+    await warmSendPipeline();
     await ChurchChatSyncSendService.sendMedia(
       tenantId: tenantId,
       threadId: threadId,

@@ -1104,16 +1104,25 @@ class _MemberCardPageState extends State<MemberCardPage> {
           ) ??
           ChurchBrandService.canonicalLogoPath(igrejaDocId);
       tenant['_carteiraLogoStoragePath'] = logoPath;
-      final logoResolved =
-          await AppStorageImageService.instance.resolveChurchTenantLogoUrl(
+      final logoResolvedFuture =
+          AppStorageImageService.instance.resolveChurchTenantLogoUrl(
         tenantId: igrejaDocId,
         tenantData: tenant,
         preferStoragePath: logoPath,
-        preferImageUrl: logoFromDoc.isNotEmpty ? logoFromDoc : null,
+        preferImageUrl: ChurchImageFields.logoHttpsUrlFromDoc(tenant),
       ).timeout(const Duration(seconds: 10));
+      final logoBytesFuture = ChurchBrandService.getLogoBytes(
+        churchId: igrejaDocId,
+        tenantData: tenant,
+      ).timeout(const Duration(seconds: 12));
+      final logoResolved = await logoResolvedFuture;
+      final logoBytes = await logoBytesFuture;
       final logoClean = sanitizeImageUrl(logoResolved ?? '');
       if (logoClean.isNotEmpty) {
         tenant['_carteiraLogoUrl'] = logoClean;
+      }
+      if (logoBytes != null && logoBytes.isNotEmpty) {
+        tenant['_carteiraLogoBytes'] = logoBytes;
       }
     } catch (_) {}
 
@@ -1434,6 +1443,25 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }
 
   Widget _cnhLogoSlot(_CardData data) {
+    final logoBytes = data.tenant['_carteiraLogoBytes'];
+    if (logoBytes is Uint8List && logoBytes.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Image.memory(
+          logoBytes,
+          width: 272,
+          height: 272,
+          fit: BoxFit.contain,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.high,
+          errorBuilder: (_, __, ___) => _cnhLogoSlotNetwork(data),
+        ),
+      );
+    }
+    return _cnhLogoSlotNetwork(data);
+  }
+
+  Widget _cnhLogoSlotNetwork(_CardData data) {
     final cached =
         sanitizeImageUrl((data.tenant['_carteiraLogoUrl'] ?? '').toString());
     final storagePath = (data.tenant['_carteiraLogoStoragePath'] ??

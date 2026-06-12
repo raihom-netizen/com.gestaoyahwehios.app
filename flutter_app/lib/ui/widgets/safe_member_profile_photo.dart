@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
@@ -8,7 +9,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         ResilientNetworkImage,
-        firebaseStorageDownloadUrlLooksTokenized,
+        firebaseStorageMediaUrlLooksLike,
         isValidImageUrl,
         sanitizeImageUrl;
 
@@ -115,35 +116,87 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
     }
   }
 
+  Future<String?> _storagePathToDisplayUrl(String rawPath) async {
+    final p = StorageMediaService.normalizeFirestoreStoragePath(rawPath);
+    if (p == null || p.isEmpty) return null;
+    try {
+      final u = await StorageMediaService.downloadUrlFromPathOrUrl(p);
+      final clean = sanitizeImageUrl(u ?? '');
+      if (clean.isNotEmpty && isValidImageUrl(clean)) return clean;
+    } catch (_) {}
+    return null;
+  }
+
+  bool _looksLikeMemberStoragePath(String raw) {
+    final t = raw.trim().replaceAll('\\', '/');
+    if (t.isEmpty) return false;
+    if (t.toLowerCase().startsWith('gs://')) return true;
+    if (t.contains('://')) return false;
+    return firebaseStorageMediaUrlLooksLike(t) || t.contains('membros/');
+  }
+
   Future<void> _resolveDisplayUrl() async {
     final hint = widget.memberFirestoreHint;
     final primary = sanitizeImageUrl(widget.imageUrl);
-    final thumbUrl = sanitizeImageUrl(
-      MemberProfileVariantsService.listPhotoUrl(hint) ?? '',
-    );
-    final fullUrl = sanitizeImageUrl(
-      MemberProfileVariantsService.profilePhotoUrl(hint) ?? '',
-    );
+    final thumbRaw = MemberImageFields.photoThumbStoragePath(hint) ??
+        MemberProfileVariantsService.listPhotoUrl(hint);
+    final fullRaw = MemberImageFields.photoStoragePath(hint) ??
+        MemberProfileVariantsService.profilePhotoUrl(hint);
 
-    final String norm;
+    String? pickRaw;
     if (widget.preferListThumbnail) {
-      norm = isValidImageUrl(thumbUrl) ? thumbUrl : '';
+      pickRaw = (thumbRaw ?? '').trim().isNotEmpty ? thumbRaw : fullRaw;
       _variantFallbackUrl = null;
     } else {
-      norm = isValidImageUrl(fullUrl)
-          ? fullUrl
-          : (isValidImageUrl(primary) ? primary : '');
+      pickRaw = (fullRaw ?? '').trim().isNotEmpty
+          ? fullRaw
+          : ((primary.isNotEmpty) ? widget.imageUrl : null);
+      final thumbUrl = sanitizeImageUrl(thumbRaw ?? '');
       _variantFallbackUrl = isValidImageUrl(thumbUrl) &&
-              isValidImageUrl(norm) &&
-              thumbUrl != norm
+              pickRaw != null &&
+              sanitizeImageUrl(pickRaw) != thumbUrl
           ? thumbUrl
           : null;
     }
+
+    final raw = (pickRaw ?? '').trim();
+    if (raw.isEmpty && !isValidImageUrl(primary)) {
+      if (mounted) {
+        setState(() {
+          _displayUrl = null;
+          _variantFallbackUrl = null;
+        });
+      }
+      return;
+    }
+
+    if (_looksLikeMemberStoragePath(raw)) {
+      if (mounted) {
+        setState(() {
+          _displayUrl = null;
+          _resolving = true;
+        });
+      }
+      final fromPath = await _storagePathToDisplayUrl(raw);
+      if (!mounted) return;
+      if (fromPath != null) {
+        setState(() {
+          _displayUrl = fromPath;
+          _resolving = false;
+        });
+        return;
+      }
+    }
+
+    final norm = isValidImageUrl(sanitizeImageUrl(raw))
+        ? sanitizeImageUrl(raw)
+        : (isValidImageUrl(primary) ? primary : '');
     if (!isValidImageUrl(norm)) {
       if (mounted) {
         setState(() {
           _displayUrl = null;
           _variantFallbackUrl = null;
+          _resolving = false;
         });
       }
       return;

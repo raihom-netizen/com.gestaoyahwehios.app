@@ -38,7 +38,10 @@ abstract final class ChurchBrandService {
     Map<String, dynamic>? data, {
     required String churchId,
   }) {
-    final fromDoc = ChurchImageFields.logoStoragePath(data);
+    final fromDoc = ChurchImageFields.logoStoragePath(
+      data,
+      churchIdHint: churchId,
+    );
     if (fromDoc != null && fromDoc.isNotEmpty) return fromDoc;
     final cid = churchId.trim();
     if (cid.isEmpty) return null;
@@ -120,6 +123,8 @@ abstract final class ChurchBrandService {
       }
       final path = logoPathFromData(data, churchId: churchId);
       if (path == null || path.isEmpty) return null;
+
+      unawaited(_repairLegacyLogoUrlInFirestore(churchId, path));
 
       try {
         final md = await firebaseDefaultStorage
@@ -235,9 +240,16 @@ abstract final class ChurchBrandService {
     required String storagePath,
   }) async {
     final cid = churchId.trim();
-    final path = storagePath.trim();
+    var path = StorageMediaService.normalizeFirestoreStoragePath(storagePath) ??
+        storagePath.trim();
+    if (path.endsWith('/configuracoes') || path.endsWith('/configuracoes/')) {
+      path = canonicalLogoPath(cid);
+    }
     if (cid.isEmpty || path.isEmpty) {
       throw StateError('churchId ou storagePath vazio.');
+    }
+    if (!path.startsWith('igrejas/') || path.contains('firebasestorage')) {
+      throw StateError('logoPath inválido — use igrejas/{id}/configuracoes/logo_igreja.png');
     }
     await ensureFirebaseReadyForPublishUpload();
     await ChurchStorageMetadataVerify.assertExists(path);
@@ -246,10 +258,28 @@ abstract final class ChurchBrandService {
       SetOptions(merge: true),
     );
     invalidate(churchId: cid);
+    unawaited(_repairLegacyLogoUrlInFirestore(cid, path));
     TenantResolverService.invalidateRegistrationContextCache(
       seedId: cid,
       userUid: firebaseDefaultAuth.currentUser?.uid,
     );
+  }
+
+  /// Se `logoPath` ainda guarda URL https, corrige para path canónico (silencioso).
+  static Future<void> _repairLegacyLogoUrlInFirestore(
+    String churchId,
+    String canonicalPath,
+  ) async {
+    try {
+      final snap = await ChurchOperationalPaths.churchDoc(churchId).get();
+      final raw = (snap.data()?['logoPath'] ?? '').toString().trim();
+      final low = raw.toLowerCase();
+      if (!low.startsWith('http://') && !low.startsWith('https://')) return;
+      await ChurchOperationalPaths.churchDoc(churchId).set(
+        logoPathFirestorePatch(canonicalPath),
+        SetOptions(merge: true),
+      );
+    } catch (_) {}
   }
 
   /// Pré-carrega logo em memória — Dashboard, carteirinha, certificado, chat, site.

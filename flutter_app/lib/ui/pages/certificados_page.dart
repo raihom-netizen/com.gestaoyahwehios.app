@@ -53,6 +53,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         SafeNetworkImage,
         FreshFirebaseStorageImage,
         churchTenantLogoUrl,
+        churchTenantLogoHttpsUrl,
         churchTenantLogoUrlCandidates,
         firebaseStorageMediaUrlLooksLike,
         isValidImageUrl,
@@ -553,7 +554,8 @@ class _CertificadosPageState extends State<CertificadosPage> {
       }
     }
     if (_tenantData != null) {
-      push(ChurchImageFields.logoStoragePath(_tenantData));
+      push(churchTenantLogoHttpsUrl(_tenantData));
+      push(ChurchImageFields.logoStoragePath(_tenantData, churchIdHint: widget.tenantId.trim()));
       push(
           '${ChurchStorageLayout.churchRoot(widget.tenantId)}/${ChurchStorageLayout.kSegCertificadosMidia}/logo_atual.jpg');
       push(
@@ -4707,6 +4709,30 @@ class _CertEditorPageState extends State<_CertEditorPage> {
   }
 
   Future<String?> _resolvePreviewDisplayLogoUrl() async {
+    Future<String?> tryStoragePath(String raw) async {
+      final trimmed = raw.trim().replaceAll('\\', '/');
+      if (trimmed.isEmpty) return null;
+      if (trimmed.toLowerCase().startsWith('http://') ||
+          trimmed.toLowerCase().startsWith('https://')) {
+        return null;
+      }
+      if (!firebaseStorageMediaUrlLooksLike(trimmed) &&
+          !trimmed.contains('/')) {
+        return null;
+      }
+      final path = normalizeFirebaseStorageObjectPath(
+        trimmed.replaceFirst(RegExp(r'^/+'), ''),
+      );
+      if (path.isEmpty) return null;
+      final r = await AppStorageImageService.instance.resolveChurchTenantLogoUrl(
+        tenantId: widget.tenantId,
+        tenantData: widget.tenantData,
+        preferStoragePath: path,
+      );
+      if (r != null && r.trim().isNotEmpty) return sanitizeImageUrl(r);
+      return null;
+    }
+
     Future<String?> tryHttps(String s) async {
       final norm = sanitizeImageUrl(s);
       if (!isValidImageUrl(norm)) return null;
@@ -4723,6 +4749,10 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     for (final u in widget.logoFetchCandidates) {
       final raw = u.trim();
       if (raw.isEmpty) continue;
+      if (!raw.toLowerCase().startsWith('http')) {
+        final fromPath = await tryStoragePath(raw);
+        if (fromPath != null) return fromPath;
+      }
       final s = sanitizeImageUrl(raw);
       if (isValidImageUrl(s)) {
         final got = await tryHttps(s);
@@ -4747,9 +4777,17 @@ class _CertEditorPageState extends State<_CertEditorPage> {
       final got = await tryHttps(fb);
       if (got != null) return got;
     }
+    if (!widget.logoUrl.toLowerCase().startsWith('http')) {
+      final fromPath = await tryStoragePath(widget.logoUrl);
+      if (fromPath != null) return fromPath;
+    }
     return AppStorageImageService.instance.resolveChurchTenantLogoUrl(
       tenantId: widget.tenantId,
       tenantData: widget.tenantData,
+      preferStoragePath: ChurchImageFields.logoStoragePath(
+        widget.tenantData,
+        churchIdHint: widget.tenantId,
+      ),
     );
   }
 

@@ -119,6 +119,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
   bool _uploading = false;
   bool _picking = false;
   String? _pickedFileName;
+  String _phaseLabel = '';
 
   @override
   void initState() {
@@ -185,17 +186,19 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
   Future<void> _save() async {
     final bytes = _previewBytes;
     if (bytes == null || bytes.isEmpty || _uploading) return;
-    setState(() => _uploading = true);
+    setState(() {
+      _uploading = true;
+      _phaseLabel = 'A preparar…';
+    });
     try {
-      final snap = await ChurchUiCollections.membros(widget.churchId)
-          .doc(widget.memberId)
-          .get();
-      final data = snap.data() ?? widget.initialData;
       final result = await MemberProfilePhotoUpdateService.uploadAndPatchMember(
         tenantId: widget.churchId,
         memberDocId: widget.memberId,
-        memberData: data,
+        memberData: widget.initialData,
         rawBytes: bytes,
+        onPhase: (label) {
+          if (mounted) setState(() => _phaseLabel = label);
+        },
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -204,7 +207,10 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
       Navigator.pop(context, result);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _uploading = false);
+      setState(() {
+        _uploading = false;
+        _phaseLabel = '';
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar('Erro ao enviar foto: $e'),
       );
@@ -257,11 +263,20 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
   Widget build(BuildContext context) {
     final hasPreview = _previewBytes != null && _previewBytes!.isNotEmpty;
     return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      backgroundColor: const Color(0xFFF4F6FB),
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: ThemeCleanPremium.onSurface,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF2563EB), Color(0xFF7C3AED), Color(0xFFDB2777)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded),
           tooltip: 'Voltar',
@@ -278,28 +293,66 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
           children: [
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(22),
               decoration: BoxDecoration(
-                color: Colors.white,
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF2563EB).withValues(alpha: 0.08),
+                    const Color(0xFFDB2777).withValues(alpha: 0.07),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
                 borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                border: Border.all(
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.18),
+                ),
                 boxShadow: ThemeCleanPremium.softUiCardShadow,
               ),
               child: Column(
                 children: [
-                  Text(
-                    'A mesma foto no módulo Membros e no chat — actualiza automaticamente em conversas e grupos.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.4,
-                      color: ThemeCleanPremium.onSurfaceVariant,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.75),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.sync_rounded,
+                            size: 18, color: Colors.purple.shade700),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Mesma foto em Membros, chat e grupos — actualiza sozinha.',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              height: 1.35,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade800,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 22),
                   Stack(
                     alignment: Alignment.center,
                     children: [
-                      _previewAvatar(),
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            colors: [Color(0xFF2563EB), Color(0xFFDB2777)],
+                          ),
+                        ),
+                        child: _previewAvatar(),
+                      ),
                       if (_picking)
                         Positioned.fill(
                           child: Container(
@@ -319,7 +372,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                     _memberName,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      fontSize: 17,
+                      fontSize: 18,
                       fontWeight: FontWeight.w800,
                       letterSpacing: -0.2,
                     ),
@@ -331,7 +384,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 12,
-                        color: ThemeCleanPremium.primary.withValues(alpha: 0.85),
+                        color: const Color(0xFF2563EB).withValues(alpha: 0.9),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -346,7 +399,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                   child: _PhotoSourceCard(
                     icon: Icons.photo_library_rounded,
                     label: kIsWeb ? 'Arquivo' : 'Galeria',
-                    tint: const Color(0xFF5B8DEF),
+                    tint: const Color(0xFF2563EB),
                     onTap: (_uploading || _picking) ? null : _pickFromGallery,
                   ),
                 ),
@@ -356,18 +409,38 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                     child: _PhotoSourceCard(
                       icon: Icons.photo_camera_rounded,
                       label: 'Câmera',
-                      tint: const Color(0xFF34A853),
+                      tint: const Color(0xFF059669),
                       onTap: (_uploading || _picking) ? null : _pickFromCamera,
                     ),
                   ),
                 ],
               ],
             ),
+            if (_uploading && _phaseLabel.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              LinearProgressIndicator(
+                minHeight: 3,
+                color: const Color(0xFF7C3AED),
+                backgroundColor: const Color(0xFF7C3AED).withValues(alpha: 0.15),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _phaseLabel,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade700,
+                  fontSize: 13,
+                ),
+              ),
+            ],
             const SizedBox(height: 20),
             FilledButton.icon(
               onPressed: (hasPreview && !_uploading && !_picking) ? _save : null,
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(52),
+                backgroundColor: const Color(0xFF2563EB),
+                disabledBackgroundColor: Colors.grey.shade400,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
                 ),
@@ -378,14 +451,19 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                       height: 22,
                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                     )
-                  : const Icon(Icons.check_rounded),
-              label: Text(_uploading ? 'A enviar…' : 'Guardar foto'),
+                  : const Icon(Icons.cloud_upload_rounded),
+              label: Text(
+                _uploading
+                    ? (_phaseLabel.isNotEmpty ? _phaseLabel : 'A enviar…')
+                    : 'Guardar foto',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
             ),
             if (!hasPreview)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: Text(
-                  'Escolha uma foto na galeria ou câmera para activar «Guardar foto».',
+                  'Escolha uma foto para activar «Guardar foto».',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 12,

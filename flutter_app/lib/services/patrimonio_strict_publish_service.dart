@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_verification_service.dart';
@@ -20,7 +22,7 @@ abstract final class PatrimonioStrictPublishService {
       EntityPublishStatus.photoUploadStateField;
   static const String statePublished = EntityPublishStatus.published;
 
-  /// Upload fotos (sequencial) → validar Storage → gravar Firestore → confirmar doc.
+  /// Upload fotos (paralelo) → validar Storage → gravar Firestore → confirmar doc.
   static Future<void> publish({
     required String seedTenantId,
     required String itemId,
@@ -48,11 +50,13 @@ abstract final class PatrimonioStrictPublishService {
       itemId: itemId,
     );
 
-    await PatrimonioPublishVerificationService.logPublishPhase(
-      phase: 'before',
-      igrejaId: igrejaId,
-      itemId: itemId,
-      nome: (corePayload['nome'] ?? '').toString(),
+    unawaited(
+      PatrimonioPublishVerificationService.logPublishPhase(
+        phase: 'before',
+        igrejaId: igrejaId,
+        itemId: itemId,
+        nome: (corePayload['nome'] ?? '').toString(),
+      ),
     );
 
     final allPaths = List<String>.from(existingPaths);
@@ -62,30 +66,44 @@ abstract final class PatrimonioStrictPublishService {
         .toList();
 
     if (newImages.isNotEmpty) {
-      for (var j = 0; j < newImages.length; j++) {
-        final slot = startSlot + j;
-        await FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-          tenantId: igrejaId,
-          itemDocId: itemId,
-          slot: slot,
-        );
-        final r = await PatrimonioMediaUpload.uploadGalleryPhoto(
-          churchId: igrejaId,
-          itemDocId: itemId,
-          slotIndex: slot,
-          rawBytes: newImages[j],
-          onProgress: (p) {
-            onUploadProgress?.call((j + p) / newImages.length);
-          },
-        );
+      await FastMediaPublishBootstrap.warmForPatrimonioSave().timeout(
+        const Duration(seconds: 25),
+        onTimeout: () {},
+      );
+      onUploadProgress?.call(0.06);
+
+      if (!isNewDoc) {
+        await Future.wait([
+          for (var j = 0; j < newImages.length; j++)
+            FirebaseStorageCleanupService.deletePatrimonioCanonicalSlotFast(
+              tenantId: igrejaId,
+              itemDocId: itemId,
+              slot: startSlot + j,
+            ),
+        ]);
+      }
+      onUploadProgress?.call(0.08);
+
+      final uploaded = await PatrimonioMediaUpload.uploadGalleryPhotosParallel(
+        churchId: igrejaId,
+        itemDocId: itemId,
+        images: newImages,
+        startSlot: startSlot,
+        skipPrepare: true,
+        onBatchProgress: (p) {
+          onUploadProgress?.call(0.08 + p * 0.78);
+        },
+      );
+
+      for (final r in uploaded) {
         allPaths.add(r.storagePath);
         allUrls.add(sanitizeImageUrl(r.downloadUrl));
       }
 
       await PatrimonioPublishVerificationService.verifyStorageMetadata(
         photoPaths: allPaths.sublist(existingPaths.length),
-        timeout: const Duration(seconds: 10),
-        maxAttempts: 3,
+        timeout: const Duration(seconds: 12),
+        maxAttempts: 4,
       );
     }
 
@@ -99,18 +117,22 @@ abstract final class PatrimonioStrictPublishService {
       payload['criadoEm'] = FieldValue.serverTimestamp();
     }
 
+    onUploadProgress?.call(0.92);
+
     await FirestoreWebGuard.runWithWebRecovery(
       () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
     );
 
     await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
 
-    await PatrimonioPublishVerificationService.logPublishPhase(
-      phase: 'after',
-      igrejaId: igrejaId,
-      itemId: itemId,
-      nome: (corePayload['nome'] ?? '').toString(),
-      storagePaths: allPaths,
+    unawaited(
+      PatrimonioPublishVerificationService.logPublishPhase(
+        phase: 'after',
+        igrejaId: igrejaId,
+        itemId: itemId,
+        nome: (corePayload['nome'] ?? '').toString(),
+        storagePaths: allPaths,
+      ),
     );
 
     YahwehFlowLog.patrimonioSuccess();

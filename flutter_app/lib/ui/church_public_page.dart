@@ -34,7 +34,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         FreshFirebaseStorageImage,
         SafeNetworkImage,
-        churchTenantLogoUrl,
+        churchTenantLogoHttpsUrl,
         sanitizeImageUrl,
         isValidImageUrl,
         isFirebaseStorageHttpUrl,
@@ -1549,8 +1549,11 @@ class _ChurchPublicLogoWarmup extends StatefulWidget {
 
 class _ChurchPublicLogoWarmupState extends State<_ChurchPublicLogoWarmup> {
   void _warm() {
-    final pref = churchTenantLogoUrl(widget.churchData);
-    final path = ChurchImageFields.logoStoragePath(widget.churchData);
+    final https = churchTenantLogoHttpsUrl(widget.churchData);
+    final path = ChurchImageFields.logoStoragePath(
+      widget.churchData,
+      churchIdHint: widget.tenantId,
+    );
     unawaited(() async {
       final meta = await PublicSiteMediaPrefetchService.readPrefetchMeta(
         widget.tenantId,
@@ -1568,7 +1571,7 @@ class _ChurchPublicLogoWarmupState extends State<_ChurchPublicLogoWarmup> {
         tenantData: widget.churchData,
         preferImageUrl: cachedLogo.isNotEmpty
             ? cachedLogo
-            : (pref.isNotEmpty ? pref : null),
+            : (https.isNotEmpty ? https : null),
         preferStoragePath: path,
       );
     }());
@@ -1590,12 +1593,15 @@ class _ChurchPublicLogoWarmupState extends State<_ChurchPublicLogoWarmup> {
   }
 
   String _cacheSigFor(_ChurchPublicLogoWarmup w) {
-    final pref = churchTenantLogoUrl(w.churchData);
-    final path = ChurchImageFields.logoStoragePath(w.churchData);
+    final https = churchTenantLogoHttpsUrl(w.churchData);
+    final path = ChurchImageFields.logoStoragePath(
+      w.churchData,
+      churchIdHint: w.tenantId,
+    );
     return AppStorageImageService.churchTenantLogoCacheKey(
       tenantId: w.tenantId,
       tenantData: w.churchData,
-      preferImageUrl: pref.isNotEmpty ? pref : null,
+      preferImageUrl: https.isNotEmpty ? https : null,
       preferStoragePath: path,
       preferGsUrl: null,
     );
@@ -1825,7 +1831,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                 (data['horariosCulto'] ?? data['horarios'] ?? '')
                     .toString()
                     .trim();
-            final logoUrl = sanitizeImageUrl(churchTenantLogoUrl(data));
+            final logoUrl = churchTenantLogoHttpsUrl(data);
 
             final instagramUri = churchPublicSocialHttpUri(data, const [
               'instagramUrl',
@@ -4257,7 +4263,7 @@ class _Logo extends StatelessWidget {
       final sf = sanitizeImageUrl(fallbackUrl);
       if (isValidImageUrl(sf)) return sf;
     }
-    final ct = churchTenantLogoUrl(m);
+    final ct = churchTenantLogoHttpsUrl(m);
     if (ct.isNotEmpty) {
       final sc = sanitizeImageUrl(ct);
       if (isValidImageUrl(sc)) return sc;

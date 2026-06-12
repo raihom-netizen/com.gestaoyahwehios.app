@@ -30,6 +30,7 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
+import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -800,23 +801,27 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _cnpjIgrejaCtrl.text =
         (data['cnpj'] ?? data['CNPJ'] ?? data['cnpjCpf'] ?? data['cpf'] ?? '')
             .toString();
-    // Logo: path canónico Storage ou campo logoPath no doc; URL https só em memória.
+    // Logo: path canónico Storage (`logoPath`) + URL https só em memória.
     final docId = (docIdFallback ?? '').trim();
-    _logoStoragePath = ChurchImageFields.logoStoragePath(data) ??
+    _logoStoragePath = ChurchImageFields.logoStoragePath(
+          data,
+          churchIdHint: docId,
+        ) ??
         (docId.isNotEmpty
             ? ChurchStorageLayout.churchIdentityLogoPath(docId)
             : null);
-    final pathFromDoc = churchTenantLogoUrl(data);
     final urlFromLegacy = sanitizeImageUrl(
       (data['logoUrl'] ?? data['logo_url'] ?? '').toString(),
     );
+    final urlFromLogoField =
+        sanitizeImageUrl(ChurchImageFields.logoHttpsUrlFromDoc(data) ?? '');
     if (urlFromLegacy.isNotEmpty && isValidImageUrl(urlFromLegacy)) {
       _logoUrl = urlFromLegacy;
       _logoBytes = null;
       _logoStagedNotUploaded = false;
-    } else if (pathFromDoc.isNotEmpty &&
-        isValidImageUrl(sanitizeImageUrl(pathFromDoc))) {
-      _logoUrl = pathFromDoc;
+    } else if (urlFromLogoField.isNotEmpty &&
+        isValidImageUrl(urlFromLogoField)) {
+      _logoUrl = urlFromLogoField;
       _logoBytes = null;
       _logoStagedNotUploaded = false;
     } else {
@@ -2054,7 +2059,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       ]);
 
       if (_logoStoragePath != null && _logoStoragePath!.trim().isNotEmpty) {
-        data['logoPath'] = _logoStoragePath!.trim();
+        final normalized =
+            StorageMediaService.normalizeFirestoreStoragePath(_logoStoragePath) ??
+                _logoStoragePath!.trim();
+        data['logoPath'] = normalized;
       }
       for (final k in ChurchBrandService.legacyLogoUrlFirestoreKeys) {
         data[k] = FieldValue.delete();

@@ -122,9 +122,9 @@ class AppStorageImageService {
   static String? _storagePathCandidate(String? raw) {
     final t = _norm(raw);
     if (t.isEmpty) return null;
-    if (t.toLowerCase().startsWith('http://') ||
-        t.toLowerCase().startsWith('https://')) {
-      return null;
+    final low = t.toLowerCase();
+    if (low.startsWith('http://') || low.startsWith('https://')) {
+      return StorageMediaService.normalizeFirestoreStoragePath(t);
     }
     return StorageMediaService.storageObjectPathFromPathOrUrl(t);
   }
@@ -134,6 +134,7 @@ class AppStorageImageService {
     String? imageUrl,
     String? gsUrl,
   }) async {
+    await ensureFirebaseInitialized();
     var pathNorm = _norm(storagePath);
     if (pathNorm.isEmpty) {
       pathNorm = _storagePathCandidate(imageUrl) ?? '';
@@ -337,6 +338,10 @@ class AppStorageImageService {
 
     pushPath(preferStoragePath);
     pushPath(ChurchImageFields.logoStoragePath(tenantData));
+    final httpsDoc = ChurchImageFields.logoHttpsUrlFromDoc(tenantData);
+    if (httpsDoc != null && httpsDoc.isNotEmpty) {
+      pushPath(httpsDoc);
+    }
     pushPath(preferImageUrl);
     pushPath(ChurchBrandService.canonicalLogoPath(tid));
 

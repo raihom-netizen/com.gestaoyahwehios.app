@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
+import 'package:gestao_yahweh/ui/widgets/church_feed_publish_editor_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
@@ -4353,6 +4354,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
+      await ensureFirebaseReadyForPublishUpload();
+      await FastMediaPublishBootstrap.warmForFeedPublish()
+          .timeout(const Duration(seconds: 28));
       await ensureFirebaseCore(requireAuth: true);
       if (kIsWeb) {
         await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
@@ -4590,11 +4594,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                             .kPublishVerifyFailedMessage
                         : AvisosPublishVerificationService
                             .kPublishVerifyFailedMessage))
-                : (msg.contains('core/no-app') ||
-                        msg.contains('Firebase não inicializou') ||
-                        msg.contains('Firebase não disponível')
-                    ? 'Falha ao publicar mídia. Verifique a conexão e tente de novo.'
-                    : formatUploadErrorForUser(e)),
+                : formatUploadErrorForUser(e),
             onRetry: _save,
           ),
         );
@@ -4745,14 +4745,24 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
     final publishLabel =
         widget.doc != null ? 'Atualizar' : 'Publicar';
+    final editorPalette = ChurchFeedPublishEditorTheme.paletteFor(widget.type);
+    final isAvisoEditor = widget.type == 'aviso';
     return PopScope(
       canPop: !_saving,
       child: Scaffold(
-      backgroundColor: const Color(0xFFF1F5F9),
+      backgroundColor: const Color(0xFFF0F4FA),
       resizeToAvoidBottomInset: true,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
         elevation: 0,
+        backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: ChurchFeedPublishEditorTheme.headerGradient(widget.type),
+          ),
+        ),
+        foregroundColor: Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.maybePop(context),
@@ -4762,9 +4772,31 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                 ThemeCleanPremium.minTouchTarget),
           ),
         ),
-        title: Text(widget.doc != null
-            ? 'Editar ${isEvento ? 'Evento' : 'Aviso'}'
-            : 'Novo ${isEvento ? 'Evento' : 'Aviso'}'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.doc != null
+                  ? 'Editar ${isEvento ? 'Evento' : 'Aviso'}'
+                  : 'Novo ${isEvento ? 'Evento' : 'Aviso'}',
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 17,
+                letterSpacing: -0.2,
+              ),
+            ),
+            Text(
+              isEvento
+                  ? 'Fotos, vídeo e local — publicação instantânea'
+                  : 'Até $_maxPhotosPerPost fotos — todos serão notificados',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w500,
+                color: Colors.white.withValues(alpha: 0.88),
+              ),
+            ),
+          ],
+        ),
       ),
       bottomNavigationBar: Material(
         elevation: 14,
@@ -4882,7 +4914,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                         ),
                       ),
                       style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF1D4ED8),
+                        backgroundColor: editorPalette.primary,
                         foregroundColor: Colors.white,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -4906,7 +4938,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         child: ListView(
             padding: EdgeInsets.fromLTRB(
               padding.left,
-              padding.top,
+              padding.top + 4,
               padding.right,
               padding.bottom + keyboardInset,
             ),
@@ -4916,40 +4948,82 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                 localActive: _mediaPicking || _saving,
                 localLabel: _mediaPicking
                     ? 'A preparar fotos…'
-                    : (isEvento ? 'A publicar evento…' : 'A publicar aviso…'),
+                    : (isEvento ? 'A enviar evento…' : 'A enviar aviso…'),
               ),
 
-              if (!isEvento && allPreviews.isNotEmpty) ...[
+              if (allPreviews.isNotEmpty) ...[
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        BorderRadius.circular(ThemeCleanPremium.radiusLg),
                     boxShadow: ThemeCleanPremium.softUiCardShadow,
+                    border: Border.all(
+                      color: editorPalette.accent.withValues(alpha: 0.25),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.photo_library_rounded,
-                              color: ThemeCleanPremium.primary, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Fotos anexadas (${_existingUrls.length + _newPhotoCount})',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 14,
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  editorPalette.primary.withValues(alpha: 0.18),
+                                  editorPalette.secondary.withValues(alpha: 0.12),
+                                ],
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(Icons.photo_library_rounded,
+                                color: editorPalette.primary, size: 22),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Fotos anexadas (${_existingUrls.length + _newPhotoCount})',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                Text(
+                                  isAvisoEditor
+                                      ? 'Serão enviadas antes de publicar'
+                                      : 'Banner + galeria no Storage da igreja',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
                       Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: allPreviews,
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: allPreviews
+                            .map(
+                              (w) => Container(
+                                decoration:
+                                    ChurchFeedPublishEditorTheme.photoTileDecoration(
+                                  editorPalette.accent,
+                                ),
+                                padding: const EdgeInsets.all(3),
+                                child: w,
+                              ),
+                            )
+                            .toList(),
                       ),
                     ],
                   ),

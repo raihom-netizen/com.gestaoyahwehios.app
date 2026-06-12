@@ -26,7 +26,7 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
-import 'package:gestao_yahweh/services/evento_strict_publish_service.dart';
+import 'package:gestao_yahweh/services/evento_create_publish_service.dart';
 import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 import 'package:intl/intl.dart';
@@ -6189,17 +6189,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   DateTime _date = DateTime.now().add(const Duration(days: 1));
   DateTime? _validUntil;
   bool _publicSite = true;
-  bool _galleryPermanent = false;
-  /// Espelha data/hora no calendário interno (`agenda` com [noticiaId]).
-  bool _syncAgenda = false;
   bool _allDay = false;
   late DateTime _allDayEndDate;
   late DateTime _endDateTime;
   String? _eventCategoryId;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _categoryDocs = [];
   bool _loadingCategories = false;
-  bool _notifyLeaders = false;
-  bool _notifyMembers = false;
+  bool _firebaseBootstrapReady = false;
+  String? _firebaseBootstrapError;
   bool _saving = false;
   bool _mediaPicking = false;
   bool _uploadingVideo = false;
@@ -6463,6 +6460,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<({DocumentReference<Map<String, dynamic>> docRef, String igrejaId})>
       _prepareEventoPublishContext() async {
+    await EventoCreatePublishService.ensureReady(logLabel: 'evento_prepare');
     final igrejaId = EventoPublishService.resolveChurchId(
       (_operationalTenantId ?? '').isNotEmpty
           ? _operationalTenantId!
@@ -6602,41 +6600,34 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     } catch (_) {}
     final cid = (data['eventCategoryId'] ?? '').toString().trim();
     _eventCategoryId = cid.isEmpty ? null : cid;
-    _notifyLeaders = data['notifyLeaders'] == true;
-    _notifyMembers = data['notifyMembers'] == true;
     try {
       final v = data['validUntil'];
       if (v is Timestamp) _validUntil = v.toDate();
     } catch (_) {}
     _publicSite = data['publicSite'] != false;
-    _galleryPermanent = data['galleryPermanent'] == true;
     unawaited(_bootstrapEventForm());
-    if (widget.doc != null) {
-      unawaited(_refreshAgendaLinkFromFirestore());
-    }
   }
 
   Future<void> _bootstrapEventForm() async {
     try {
-      await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+      await EventoCreatePublishService.ensureReady(logLabel: 'evento_form');
       final tid = ChurchRepository.churchId(widget.tenantId);
-      if (mounted && tid.trim().isNotEmpty) {
-        setState(() => _operationalTenantId = tid.trim());
+      if (mounted) {
+        setState(() {
+          _operationalTenantId = tid.trim();
+          _firebaseBootstrapReady = true;
+          _firebaseBootstrapError = null;
+        });
       }
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _firebaseBootstrapReady = false;
+          _firebaseBootstrapError = formatUploadErrorForUser(e);
+        });
+      }
+    }
     await _loadCategories();
-  }
-
-  Future<void> _refreshAgendaLinkFromFirestore() async {
-    try {
-      await ensureFirebaseReadyForPublishUpload();
-      final q = await ChurchUiCollections.agenda(_editorTenantId)
-          .where('noticiaId', isEqualTo: widget.doc!.id)
-          .limit(1)
-          .get();
-      if (!mounted) return;
-      setState(() => _syncAgenda = q.docs.isNotEmpty);
-    } catch (_) {}
   }
 
   String _agendaCategoryKeyFromEvent() {
@@ -6717,11 +6708,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _applyAgendaSyncAfterSave(String postId) async {
     try {
       await ensureFirebaseReadyForPublishUpload();
-      if (_syncAgenda) {
-        await _upsertAgendaLinkedNoticia(postId);
-      } else if (widget.doc != null) {
-        await _removeAgendaLinkedNoticia(postId);
-      }
+      await _upsertAgendaLinkedNoticia(postId);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -6784,8 +6771,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'endAt': Timestamp.fromDate(end),
       // dataEvento: índice da Agenda (sidebar); alinhado ao início do evento no mural.
       'dataEvento': startTs,
-      'notifyLeaders': _notifyLeaders,
-      'notifyMembers': _notifyMembers,
+      'notifyLeaders': true,
+      'notifyMembers': true,
     };
     if (_eventCategoryId != null && _eventCategoryId!.isNotEmpty) {
       QueryDocumentSnapshot<Map<String, dynamic>>? cat;
@@ -7437,7 +7424,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'updatedAt': FieldValue.serverTimestamp(),
       'generated': false,
       'publicSite': _publicSite,
-      'galleryPermanent': _galleryPermanent,
+      'galleryPermanent': false,
       ..._schedulingAndCategoryFields(merge: !isNewDoc),
       ..._locationFieldsForSave(allowDeleteSentinels: !isNewDoc),
       ...MuralPostMediaPayload.buildMediaFields(
@@ -7533,7 +7520,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       isNewDoc: isNewDoc,
     );
     payload.remove('videoUrl');
-    await EventoStrictPublishService.publish(
+    await EventoCreatePublishService.publish(
       docRef: docRef,
       tenantId: publishTenantId,
       corePayload: payload,
@@ -7547,7 +7534,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       publicSite: _publicSite,
       eventStartAt: eventStart,
       location: _localSalvo(),
-      syncAgenda: _syncAgenda,
       agendaCategory: _agendaCategoryKeyFromEvent(),
       agendaColorHex: _agendaColorHexForCategory(),
     );
@@ -7657,6 +7643,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final titulo = _title.text.trim();
     try {
+      await EventoCreatePublishService.ensureReady(logLabel: 'evento_save');
       ChurchPublishFlowLog.eventoStart();
       final ctx = await _prepareEventoPublishContext();
       final docRef = ctx.docRef;
@@ -7700,7 +7687,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       payload.remove('videoUrl');
 
-      await EventoStrictPublishService.publish(
+      await EventoCreatePublishService.publish(
         docRef: docRef,
         tenantId: publishTenantId,
         corePayload: payload,
@@ -7714,7 +7701,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         publicSite: _publicSite,
         eventStartAt: eventStart,
         location: _localSalvo(),
-        syncAgenda: _syncAgenda,
         agendaCategory: _agendaCategoryKeyFromEvent(),
         agendaColorHex: _agendaColorHexForCategory(),
       );
@@ -7732,9 +7718,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       EventosPublishVerificationService.clearLastError();
       await _showEventoPublishVerifiedSuccess(isNewDoc: isNewDoc);
-      if (!_syncAgenda && widget.doc != null) {
-        await _removeAgendaLinkedNoticia(postId);
-      }
     } catch (e, st) {
       ChurchPublishFlowLog.logCatch(e, st, label: 'evento_save');
       EventosPublishVerificationService.rememberLastError(e);
@@ -7812,6 +7795,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final docRef = _eventDocRef;
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
     try {
+      await EventoCreatePublishService.ensureReady(logLabel: 'evento_draft');
       await runFirebaseBackgroundTask(() async {
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       double? aspectRatio;
@@ -7945,7 +7929,19 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
-        toolbarHeight: 52,
+        toolbarHeight: 56,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Color(0xFF2563EB), Color(0xFF7C3AED), Color(0xFFDB2777)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.maybePop(context),
@@ -7953,7 +7949,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           style: IconButton.styleFrom(minimumSize: Size(minTouch, minTouch)),
         ),
         title: Text(widget.doc != null ? 'Editar Evento' : 'Novo Evento',
-            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
       ),
       bottomNavigationBar: Material(
         elevation: 14,
@@ -8101,6 +8097,30 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       ? 'A preparar fotos…'
                       : 'A publicar evento…'),
             ),
+            if (_firebaseBootstrapError != null) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: ThemeCleanPremium.error.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: ThemeCleanPremium.error),
+                ),
+                child: Text(
+                  _firebaseBootstrapError!,
+                  style: TextStyle(
+                    color: ThemeCleanPremium.error,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ] else if (!_firebaseBootstrapReady) ...[
+              const SizedBox(height: 10),
+              const LinearProgressIndicator(minHeight: 3),
+            ],
+            const SizedBox(height: 10),
             // Mídia no topo (fotos + vídeos antes dos campos de texto).
             Container(
               padding: const EdgeInsets.all(16),
@@ -8575,32 +8595,37 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                 ],
                 const SizedBox(height: 8),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _notifyLeaders,
-                  onChanged: (v) => setState(() => _notifyLeaders = v),
-                  title: const Text('Notificar líderes'),
-                  subtitle: Text(
-                    'Preferência salva no evento; push depende do app e políticas.',
-                    style:
-                        TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFEEF2FF), Color(0xFFFDF2F8)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF818CF8).withValues(alpha: 0.35)),
                   ),
-                  secondary:
-                      Icon(Icons.admin_panel_settings_rounded,
-                          color: ThemeCleanPremium.primary),
-                ),
-                SwitchListTile.adaptive(
-                  contentPadding: EdgeInsets.zero,
-                  value: _notifyMembers,
-                  onChanged: (v) => setState(() => _notifyMembers = v),
-                  title: const Text('Notificar membros'),
-                  subtitle: Text(
-                    'Preferência salva no evento; envio em massa pode exigir função no servidor.',
-                    style:
-                        TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.notifications_active_rounded,
+                          color: Color(0xFF7C3AED), size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Notificações automáticas: ao publicar, 1 dia antes e 1 hora antes do evento. Agenda interna sincronizada sozinha.',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            height: 1.4,
+                            color: Colors.grey.shade800,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  secondary: Icon(Icons.groups_rounded,
-                      color: ThemeCleanPremium.primary),
                 ),
                 const SizedBox(height: 20),
                 Row(
@@ -8983,47 +9008,47 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     ]),
               ]),
             ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _publicSite,
-              onChanged: (v) => setState(() => _publicSite = v),
-              title: const Text('Publicar no site público'),
-              subtitle: Text(
-                _publicSite
-                    ? 'Aparece no site gestaoyahweh.com.br/{slug} com interações.'
-                    : 'Só no painel e no app.',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    const Color(0xFF2563EB).withValues(alpha: 0.08),
+                    const Color(0xFFDB2777).withValues(alpha: 0.08),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.25),
+                ),
+                boxShadow: ThemeCleanPremium.softUiCardShadow,
               ),
-              secondary:
-                  Icon(Icons.public_rounded, color: ThemeCleanPremium.primary),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _galleryPermanent,
-              onChanged: (v) => setState(() => _galleryPermanent = v),
-              title: const Text('Salvar no arquivo da Galeria de Eventos'),
-              subtitle: Text(
-                _galleryPermanent
-                    ? 'Após o horário final, permanece no Feed por 1 dia e depois vai automaticamente para a aba Galeria.'
-                    : 'Após o período normal, não entra no arquivo da galeria.',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              child: SwitchListTile.adaptive(
+                contentPadding: EdgeInsets.zero,
+                value: _publicSite,
+                onChanged: (v) => setState(() => _publicSite = v),
+                title: const Text(
+                  'Publicar no site público',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: Text(
+                  _publicSite
+                      ? 'Visível no site da igreja com interações (padrão ligado).'
+                      : 'Só no painel e no app da igreja.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
+                secondary: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2563EB).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.public_rounded,
+                      color: Color(0xFF2563EB)),
+                ),
               ),
-              secondary: Icon(Icons.photo_library_rounded,
-                  color: ThemeCleanPremium.primary),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _syncAgenda,
-              onChanged: (v) => setState(() => _syncAgenda = v),
-              title: const Text('Sincronizar com a agenda interna'),
-              subtitle: Text(
-                _syncAgenda
-                    ? 'Cria ou atualiza um item no calendário (Agenda) com a mesma data e hora, vinculado a este post.'
-                    : 'Não espelha no módulo Agenda inteligente.',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              ),
-              secondary: Icon(Icons.edit_calendar_rounded,
-                  color: ThemeCleanPremium.primary),
             ),
             const SizedBox(height: 24),
             SizedBox(height: max(120.0, minTouch * 0.25)),

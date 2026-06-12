@@ -1,17 +1,11 @@
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
-import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
-import 'package:gestao_yahweh/services/firebase_storage_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_save_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
-import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Foto de perfil — upload validado → Firestore → confirmação (sem falso sucesso).
+/// Foto de perfil — fachada com logs → [MemberProfilePhotoSaveService].
 abstract final class MembroStrictPublishService {
   MembroStrictPublishService._();
 
@@ -22,6 +16,7 @@ abstract final class MembroStrictPublishService {
     required Uint8List rawBytes,
     String? userUid,
     bool requireAuth = true,
+    void Function(String phaseLabel)? onPhase,
   }) async {
     final igrejaId = await MembroPublishVerificationService.resolveTenantForPublish(
       seedTenantId: seedTenantId,
@@ -35,117 +30,26 @@ abstract final class MembroStrictPublishService {
     );
 
     try {
-      await FirebaseStorageCleanupService.deleteMemberProfilePhotoArtifactsBeforeReplace(
+      final result = await MemberProfilePhotoSaveService.saveInternal(
         tenantId: igrejaId,
-        memberId: memberDocId,
-        data: memberData,
+        memberDocId: memberDocId,
+        memberData: memberData,
+        rawBytes: rawBytes,
+        onPhase: onPhase,
+        requireAuth: requireAuth,
       );
+
+      await MembroPublishVerificationService.logPublishPhase(
+        phase: 'after',
+        igrejaId: igrejaId,
+        memberDocId: memberDocId,
+        storagePath: result.storagePath,
+      );
+
+      return result;
     } catch (e, st) {
       YahwehFlowLog.error('MEMBROS', e, st);
+      rethrow;
     }
-
-    final authUid = (memberData['authUid'] ??
-            memberData['firebaseUid'] ??
-            memberData['uid'] ??
-            '')
-        .toString()
-        .trim();
-    final storageFolderId = FirebaseStorageService.memberProfileStorageFolderId(
-      memberDocId,
-      authUid.isEmpty ? null : authUid,
-    );
-
-    final tiers = await MemberProfileVariantsService.encodeProfileTiers(rawBytes);
-    final uploaded = await MemberProfileVariantsService.uploadProfileVariants(
-      tenantId: igrejaId,
-      storageFolderId: storageFolderId,
-      fullBytes: tiers.full,
-      thumbBytes: tiers.thumb,
-      requireAuth: requireAuth,
-    );
-
-    await MembroPublishVerificationService.verifyStorageMetadata(
-      fullStoragePath: uploaded.fullStoragePath,
-      thumbStoragePath: uploaded.thumbStoragePath,
-    );
-
-    final revision = DateTime.now().millisecondsSinceEpoch;
-    final photoUrl = uploaded.photoFull.trim();
-    final thumbUrl = sanitizeImageUrl(uploaded.photoThumb.trim());
-    final updates = <String, dynamic>{
-      'photoStoragePath': uploaded.fullStoragePath,
-      'photoThumbStoragePath': uploaded.thumbStoragePath,
-      'fotoPath': uploaded.fullStoragePath,
-      'fotoThumbPath': uploaded.thumbStoragePath,
-      if (photoUrl.isNotEmpty) ...{
-        'FOTO_URL_DB': photoUrl,
-        'avatarUrl': photoUrl,
-        'fotoUrl': photoUrl,
-        'FOTO_URL_OU_ID': photoUrl,
-        'photoURL': photoUrl,
-        'photoUrl': photoUrl,
-        'foto_url': photoUrl,
-      },
-      if (thumbUrl.isNotEmpty && thumbUrl != photoUrl) ...{
-        'fotoThumbUrl': thumbUrl,
-        'photoThumbUrl': thumbUrl,
-      },
-      MemberProfilePhotoUpdateService.photoUploadStateField:
-          EntityPublishStatus.published,
-      'photoUploadError': FieldValue.delete(),
-      'fotoUrlCacheRevision': revision,
-      'ATUALIZADO_EM': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'ativo': true,
-    };
-
-    final docRef = MembroPublishVerificationService.membroDocRef(
-      igrejaId: igrejaId,
-      memberDocId: memberDocId,
-    );
-
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => docRef.set(updates, SetOptions(merge: true)),
-    );
-
-    await MembroPublishVerificationService.verifyDocumentExists(
-      docRef,
-      expectedStoragePath: uploaded.fullStoragePath,
-    );
-
-    await MembroPublishVerificationService.logPublishPhase(
-      phase: 'after',
-      igrejaId: igrejaId,
-      memberDocId: memberDocId,
-      storagePath: uploaded.fullStoragePath,
-    );
-
-    FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload(
-      tenantId: igrejaId,
-      memberId: FirebaseStorageService.memberProfileStorageFolderId(
-        memberDocId,
-        (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
-            .toString()
-            .trim()
-            .isEmpty
-            ? null
-            : (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
-                .toString()
-                .trim(),
-      ),
-    );
-
-    MemberProfilePhotoUpdateService.invalidateDisplayCaches(
-      storagePath: uploaded.fullStoragePath,
-      newDownloadUrl: uploaded.photoFull,
-    );
-
-    return MemberProfilePhotoUpdateResult(
-      downloadUrl: uploaded.photoFull,
-      storagePath: uploaded.fullStoragePath,
-      cacheRevision: revision,
-      thumbDownloadUrl: uploaded.photoThumb,
-      thumbStoragePath: uploaded.thumbStoragePath,
-    );
   }
 }

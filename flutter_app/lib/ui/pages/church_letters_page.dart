@@ -92,6 +92,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   bool _pdfBusy = false;
   _LetterSignatureMode _signatureMode = _LetterSignatureMode.digital;
   final Set<String> _selectedIds = {};
+  final Map<String, ChurchLetterMemberEntry> _selectedMembersCache = {};
   List<({String id, String name})> _deptFilterItems = [];
   late Future<QuerySnapshot<Map<String, dynamic>>> _membersFuture;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _seedMemberDocs = [];
@@ -161,31 +162,89 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   ) {
     return docs
         .map(
-          (d) => ChurchLetterMemberEntry(
-            id: d.id,
-            name: _memberName(d.data()),
-            cpfDigits: _memberCpf(d.data()),
-            data: d.data(),
-            active: _memberAtivo(d.data()),
-          ),
+          (d) => _entryFromDoc(d),
         )
         .toList();
   }
 
+  ChurchLetterMemberEntry _entryFromDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> d,
+  ) {
+    final data = d.data();
+    return ChurchLetterMemberEntry(
+      id: d.id,
+      name: _memberName(data),
+      cpfDigits: _memberCpf(data),
+      data: data,
+      active: _memberAtivo(data),
+    );
+  }
+
   ChurchLetterMemberEntry? _entryById(String? id) {
     if (id == null || id.isEmpty) return null;
+    final cached = _selectedMembersCache[id];
+    if (cached != null && cached.name.isNotEmpty) return cached;
     for (final d in _seedMemberDocs) {
-      if (d.id == id) {
-        return ChurchLetterMemberEntry(
-          id: d.id,
-          name: _memberName(d.data()),
-          cpfDigits: _memberCpf(d.data()),
-          data: d.data(),
-          active: _memberAtivo(d.data()),
-        );
+      if (_docMatchesMemberId(d, id)) {
+        return _entryFromDoc(d);
       }
     }
-    return null;
+    return cached;
+  }
+
+  bool _docMatchesMemberId(
+    QueryDocumentSnapshot<Map<String, dynamic>> d,
+    String id,
+  ) {
+    if (d.id == id) return true;
+    final data = d.data();
+    final auth =
+        (data['authUid'] ?? data['firebaseUid'] ?? data['uid'] ?? '')
+            .toString()
+            .trim();
+    if (auth.isNotEmpty && auth == id) return true;
+    final cpf = _memberCpf(data);
+    final idDigits = id.replaceAll(RegExp(r'\D'), '');
+    if (cpf.isNotEmpty && idDigits.length == 11 && cpf == idDigits) {
+      return true;
+    }
+    return false;
+  }
+
+  Map<String, Map<String, dynamic>> _memberDataById(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final out = <String, Map<String, dynamic>>{};
+    for (final d in docs) {
+      final data = d.data();
+      out[d.id] = data;
+      final auth =
+          (data['authUid'] ?? data['firebaseUid'] ?? data['uid'] ?? '')
+              .toString()
+              .trim();
+      if (auth.isNotEmpty) out[auth] = data;
+      final cpf = _memberCpf(data);
+      if (cpf.length == 11) out[cpf] = data;
+    }
+    return out;
+  }
+
+  void _syncSelectedMembersCache() {
+    for (final id in _selectedIds) {
+      final hit = _entryById(id);
+      if (hit != null) {
+        _selectedMembersCache[id] = hit;
+      }
+    }
+    _selectedMembersCache.removeWhere((k, _) => !_selectedIds.contains(k));
+  }
+
+  List<ChurchLetterMemberEntry> get _selectedMemberEntries {
+    _syncSelectedMembersCache();
+    return _selectedIds
+        .map((id) => _selectedMembersCache[id] ?? _entryById(id))
+        .whereType<ChurchLetterMemberEntry>()
+        .toList();
   }
 
   Future<void> _pickSigner({
@@ -225,9 +284,18 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       departments: _deptFilterItems,
     );
     if (!mounted || picked == null) return;
-    setState(() => _selectedIds
-      ..clear()
-      ..addAll(picked));
+    setState(() {
+      _selectedIds
+        ..clear()
+        ..addAll(picked);
+      _selectedMembersCache
+        ..clear()
+        ..addEntries(
+          entries
+              .where((e) => picked.contains(e.id))
+              .map((e) => MapEntry(e.id, e)),
+        );
+    });
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _memberDocsFromSnapshot(
@@ -285,6 +353,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         _seedMemberDocs = docs;
         _membersFuture = Future.value(_LettersMembersListSnapshot(docs));
         _applyDefaultSignerFromLoadedMembers(docs);
+        _syncSelectedMembersCache();
         _membersSyncing = false;
       });
     } catch (_) {
@@ -706,7 +775,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   }
 
   String _memberName(Map<String, dynamic> m) =>
-      (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '').toString().trim();
+      ChurchLetterMemberEntry.nameFromData(m);
 
   String _memberCpf(Map<String, dynamic> m) {
     final raw = (m['CPF'] ?? m['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
@@ -1005,10 +1074,12 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       }
 
       final snap = await _membersFuture;
-      final byId = {for (final d in snap.docs) d.id: d.data()};
+      final byId = _memberDataById(snap.docs);
       final lines = <ChurchLetterMemberLine>[];
       for (final id in _selectedIds) {
-        final m = byId[id];
+        final m = byId[id] ??
+            _entryById(id)?.data ??
+            _selectedMembersCache[id]?.data;
         if (m == null) continue;
         final n = _memberName(m);
         if (n.isEmpty) continue;
@@ -1163,6 +1234,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     _selectedIds
       ..clear()
       ..addAll(mids);
+    _selectedMembersCache.clear();
+    _syncSelectedMembersCache();
     final sigs = List<String>.from(d['signerMemberIds'] ?? []);
     _signer1MemberId = sigs.isNotEmpty ? sigs[0] : null;
     _signer2MemberId = sigs.length > 1 ? sigs[1] : null;
@@ -1196,6 +1269,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     _selectedIds
       ..clear()
       ..addAll(mids);
+    _selectedMembersCache.clear();
+    _syncSelectedMembersCache();
     final sigs = List<String>.from(d['signerMemberIds'] ?? []);
     _signer1MemberId = sigs.isNotEmpty ? sigs[0] : null;
     _signer2MemberId = sigs.length > 1 ? sigs[1] : null;
@@ -1845,7 +1920,14 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFF2563EB).withValues(alpha: 0.07),
+                        const Color(0xFFDB2777).withValues(alpha: 0.06),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
                     borderRadius:
                         BorderRadius.circular(ThemeCleanPremium.radiusLg),
                     border: Border.all(color: accent.withValues(alpha: 0.14)),
@@ -1924,29 +2006,25 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                           const Spacer(),
                           if (_selectedIds.isNotEmpty)
                             TextButton(
-                              onPressed: () => setState(_selectedIds.clear),
+                              onPressed: () => setState(() {
+                                _selectedIds.clear();
+                                _selectedMembersCache.clear();
+                              }),
                               child: const Text('Limpar'),
                             ),
                         ],
                       ),
                       if (_selectedIds.isNotEmpty) ...[
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: _selectedIds.map((id) {
-                            final e = _entryById(id);
-                            final label = e?.name ?? id;
-                            return InputChip(
-                              label: Text(
-                                label.isEmpty ? id : label,
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                              onDeleted: () =>
-                                  setState(() => _selectedIds.remove(id)),
-                              deleteIcon: const Icon(Icons.close_rounded, size: 16),
-                            );
-                          }).toList(),
+                        const SizedBox(height: 12),
+                        ChurchLetterSelectedMembersGrid(
+                          tenantId: _effectiveTenantId.isNotEmpty
+                              ? _effectiveTenantId
+                              : widget.tenantId.trim(),
+                          entries: _selectedMemberEntries,
+                          onRemove: (id) => setState(() {
+                            _selectedIds.remove(id);
+                            _selectedMembersCache.remove(id);
+                          }),
                         ),
                       ],
                       if (_membersSyncing && _seedMemberDocs.isEmpty) ...[

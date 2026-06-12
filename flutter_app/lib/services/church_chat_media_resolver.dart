@@ -1,16 +1,18 @@
-import 'dart:async' show TimeoutException, unawaited;
+import 'dart:async' show unawaited;
+import 'dart:typed_data';
 
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
 
 /// Resolve mídia do chat **somente** via [storagePath] — nunca persiste download URL.
 abstract final class ChurchChatMediaResolver {
   ChurchChatMediaResolver._();
 
-  static const Duration mediaTimeout = Duration(seconds: 15);
+  static const Duration mediaTimeout = Duration(seconds: 18);
+  static const int kMaxInlineDownloadBytes = 6 * 1024 * 1024;
 
   static final Map<String, _CachedUrl> _urlCache = {};
 
@@ -20,29 +22,37 @@ abstract final class ChurchChatMediaResolver {
     if (t.toLowerCase().startsWith('gs://')) {
       final idx = t.indexOf('/o/');
       if (idx > 0) return Uri.decodeFull(t.substring(idx + 3).split('?').first);
+      final slash = t.indexOf('/', 5);
+      if (slash > 0 && slash < t.length - 1) {
+        return t.substring(slash + 1);
+      }
+    }
+    if (t.contains('firebasestorage.googleapis.com') ||
+        t.contains('firebasestorage.app')) {
+      return StorageMediaService.normalizeFirestoreStoragePath(t) ?? t;
     }
     return t.replaceAll('\\', '/');
   }
 
-  /// Verifica existência no bucket antes de exibir.
+  /// Verifica existência no bucket (diagnóstico — não usar na UI quente).
   static Future<bool> objectExists(String? storagePath) async {
     final path = normalizePath(storagePath);
     if (path.isEmpty) return false;
     try {
-      await _ref(path).getMetadata().timeout(mediaTimeout);
+      await firebaseDefaultStorage.ref(path).getMetadata().timeout(mediaTimeout);
       return true;
     } catch (_) {
       return false;
     }
   }
 
-  /// Gera URL de download na hora (com cache curto em memória).
+  /// URL de download na hora (cache curto). **Sem** getMetadata bloqueante.
   static Future<String?> resolveDownloadUrl({
     required String? storagePath,
     String? tenantId,
     String? messageId,
     bool forceRefresh = false,
-    bool fastPreview = false,
+    bool fastPreview = true,
   }) async {
     final path = normalizePath(storagePath);
     if (path.isEmpty) return null;
@@ -53,18 +63,16 @@ abstract final class ChurchChatMediaResolver {
     }
 
     try {
-      await ensureFirebaseReadyForMediaUpload();
+      await ensureFirebaseCore(requireAuth: true);
       if (kIsWeb) {
         await PublicSiteMediaAuth.ensureWebAnonymousForStorage().catchError((_) {});
       }
-      final ref = _ref(path);
-      if (!fastPreview) {
-        await ref.getMetadata().timeout(mediaTimeout);
-      }
-      final url = await ref.getDownloadURL().timeout(
-            fastPreview ? const Duration(seconds: 8) : mediaTimeout,
+      final url = await StorageMediaService.downloadUrlFromPathOrUrl(path)
+          .timeout(
+            fastPreview ? const Duration(seconds: 10) : mediaTimeout,
+            onTimeout: () => null,
           );
-      if (url.trim().isEmpty) return null;
+      if (url == null || url.trim().isEmpty) return null;
       _urlCache[path] = _CachedUrl(url.trim(), DateTime.now());
       return url.trim();
     } catch (e, st) {
@@ -89,12 +97,33 @@ abstract final class ChurchChatMediaResolver {
     }
   }
 
+  /// Baixa bytes do objeto (PDF preview, partilha) — até [maxBytes].
+  static Future<Uint8List?> downloadBytes({
+    required String? storagePath,
+    int maxBytes = kMaxInlineDownloadBytes,
+  }) async {
+    final path = normalizePath(storagePath);
+    if (path.isEmpty) return null;
+    try {
+      await ensureFirebaseCore(requireAuth: true);
+      if (kIsWeb) {
+        await PublicSiteMediaAuth.ensureWebAnonymousForStorage().catchError((_) {});
+      }
+      final data = await firebaseDefaultStorage
+          .ref(path)
+          .getData(maxBytes)
+          .timeout(const Duration(seconds: 35));
+      if (data == null || data.isEmpty) return null;
+      return Uint8List.fromList(data);
+    } catch (_) {
+      return null;
+    }
+  }
+
   static void forgetPath(String? storagePath) {
     final path = normalizePath(storagePath);
     if (path.isNotEmpty) _urlCache.remove(path);
   }
-
-  static Reference _ref(String path) => firebaseDefaultStorage.ref(path);
 }
 
 class _CachedUrl {

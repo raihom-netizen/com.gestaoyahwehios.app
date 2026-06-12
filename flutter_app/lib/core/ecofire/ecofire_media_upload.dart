@@ -54,6 +54,19 @@ abstract final class EcoFireMediaUpload {
     return (bytes: out, mime: 'image/jpeg');
   }
 
+  /// Bytes já WebP comprimidos no picker — sem segundo decode/crop (património/listas).
+  static Future<String> uploadPreparedWebp({
+    required String storagePath,
+    required Uint8List bytes,
+    void Function(double progress)? onProgress,
+  }) =>
+      EcoFireStorageUpload.putData(
+        storagePath: storagePath,
+        bytes: bytes,
+        mimeType: 'image/webp',
+        onProgress: onProgress,
+      );
+
   /// Upload genérico — qualquer path `igrejas/…`.
   static Future<String> uploadBytes({
     required String storagePath,

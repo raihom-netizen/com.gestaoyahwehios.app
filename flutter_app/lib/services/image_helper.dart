@@ -112,29 +112,21 @@ class ImageHelper {
     return current;
   }
 
-  /// Patrimônio: WebP 80% antes do upload (paralelo no painel); boa nitidez em etiquetas/texto.
-  static const int kPatrimonioWebpQuality = 80;
+  /// Patrimônio: WebP leve (1024px @ 75%) — listas rápidas + upload paralelo.
+  static const int kPatrimonioWebpQuality = 75;
 
   static Future<Uint8List> compressPatrimonioPhotoForUpload(Uint8List list) async {
     if (list.isEmpty) return list;
     // FlutterImageCompress usa platform channel — não pode correr em isolate (UnimplementedError).
-    Future<Uint8List> runPass(int minSide) async {
+    try {
       final result = await FlutterImageCompress.compressWithList(
         list,
-        minWidth: minSide > 0 ? minSide : 1920,
-        minHeight: minSide > 0 ? minSide : 1920,
+        minWidth: kStandardUploadImageMaxEdge,
+        minHeight: kStandardUploadImageMaxEdge,
         quality: kPatrimonioWebpQuality,
         format: CompressFormat.webp,
       );
       if (result.isNotEmpty) return Uint8List.fromList(result);
-      return list;
-    }
-
-    try {
-      return await runPass(2400);
-    } catch (_) {}
-    try {
-      return await runPass(0);
     } catch (_) {}
     return list;
   }

@@ -1,13 +1,13 @@
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/yahweh_unified_image_pipeline.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap;
-import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 
 /// Foto de perfil do membro — um único ficheiro em
@@ -46,7 +46,8 @@ abstract final class MemberProfileVariantsService {
     );
 
     if (requireAuth) {
-      await FastMediaPublishBootstrap.warmForFeedPublish();
+      await ensureFirebaseReadyForPublishUpload()
+          .timeout(const Duration(seconds: 25));
     } else {
       await FirebaseBootstrap.ensureInitialized();
       FirebaseBootstrapService.refreshCachedApp();
@@ -94,6 +95,8 @@ abstract final class MemberProfileVariantsService {
   /// URL para listas / chat / escalas / aniversariantes.
   static String? listPhotoUrl(Map<String, dynamic>? data) {
     if (data == null) return null;
+    final thumbPath = MemberImageFields.photoThumbStoragePath(data);
+    if (thumbPath != null && thumbPath.isNotEmpty) return thumbPath;
     for (final k in [
       'photoThumbStoragePath',
       'fotoThumbPath',
@@ -126,6 +129,8 @@ abstract final class MemberProfileVariantsService {
   /// URL full — carteirinha, PDF, ecrã de perfil detalhado.
   static String? profilePhotoUrl(Map<String, dynamic>? data) {
     if (data == null) return null;
+    final storagePath = MemberImageFields.photoStoragePath(data);
+    if (storagePath != null && storagePath.isNotEmpty) return storagePath;
     for (final k in [
       'photoStoragePath',
       'fotoPath',

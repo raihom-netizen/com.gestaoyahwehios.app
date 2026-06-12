@@ -4700,107 +4700,18 @@ class _MessageBody extends StatelessWidget {
       );
     }
     if (ChurchChatMessageFields.isDocumentType(type)) {
-      final name = ChurchChatMessageFields.fileName(data);
-      final displayName = name.isEmpty ? 'Documento' : name;
-      final size = ChurchChatMessageFields.fileSize(data);
-      IconData ic = Icons.insert_drive_file_rounded;
-      switch (type) {
-        case 'pdf':
-          ic = Icons.picture_as_pdf_rounded;
-          break;
-        case 'doc':
-          ic = Icons.description_rounded;
-          break;
-        case 'xls':
-          ic = Icons.table_chart_rounded;
-          break;
-        case 'zip':
-          ic = Icons.folder_zip_rounded;
-          break;
-        default:
-          final lower = displayName.toLowerCase();
-          if (lower.endsWith('.pdf')) {
-            ic = Icons.picture_as_pdf_rounded;
-          } else if (lower.endsWith('.doc') || lower.endsWith('.docx')) {
-            ic = Icons.description_rounded;
-          } else if (lower.endsWith('.xls') || lower.endsWith('.xlsx')) {
-            ic = Icons.table_chart_rounded;
-          } else if (lower.endsWith('.zip')) {
-            ic = Icons.folder_zip_rounded;
-          }
-      }
       return Column(
         crossAxisAlignment:
             mine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           ..._quotePrefix(context),
-          Material(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            elevation: 0,
-            shadowColor: Colors.black.withValues(alpha: 0.04),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: () async {
-                final sp = ChurchChatMessageFields.storagePath(data);
-                final resolved = await ChurchChatMediaResolver.resolveDownloadUrl(
-                  storagePath: sp,
-                  tenantId: tenantId,
-                  messageId: messageId,
-                );
-                final openUrl =
-                    resolved ?? ChurchChatMessageFields.mediaUrl(data);
-                if (openUrl.isNotEmpty) {
-                  await onOpenAttachment?.call(openUrl);
-                }
-              },
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(ic, color: const Color(0xFF128C7E), size: 28),
-                    const SizedBox(width: 10),
-                    Flexible(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            displayName,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          if (size != null && size > 0)
-                            Text(
-                              ChurchChatAttachmentUtils.formatFileSize(size),
-                              style: TextStyle(
-                                color: ThemeCleanPremium.onSurfaceVariant,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.open_in_new_rounded,
-                      size: 18,
-                      color: ThemeCleanPremium.onSurfaceVariant,
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          ChurchChatDocumentBubble(
+            data: data,
+            type: type,
+            tenantId: tenantId,
+            messageId: messageId,
+            onOpenExternally: onOpenAttachment,
           ),
         ],
       );

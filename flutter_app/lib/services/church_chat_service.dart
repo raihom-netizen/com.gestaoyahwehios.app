@@ -2274,11 +2274,14 @@ class ChurchChatService {
     );
   }
 
-  /// Extrai `timestampMs` do path `…/{uid}_{ts}_…`.
+  /// Extrai `timestampMs` do segmento `{uid}_{ts}_{name}` no path Storage.
   static int? timestampMsFromChatMediaPath(String path) {
-    final m = RegExp(r'/(\d+)_').firstMatch(path);
-    if (m == null) return null;
-    return int.tryParse(m.group(1)!);
+    final name = path.split('/').last;
+    final m = RegExp(r'^[A-Za-z0-9]+_(\d+)_').firstMatch(name);
+    if (m != null) return int.tryParse(m.group(1)!);
+    final legacy = RegExp(r'/(\d+)_').firstMatch(path);
+    if (legacy == null) return null;
+    return int.tryParse(legacy.group(1)!);
   }
 
   /// Cria mensagem no thread sem `mediaUrl` (lista e thread atualizam na hora).

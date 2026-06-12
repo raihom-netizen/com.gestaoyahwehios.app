@@ -8171,6 +8171,18 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
       appBar: AppBar(
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                ThemeCleanPremium.primary,
+                ThemeCleanPremium.primary.withValues(alpha: 0.82),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+        ),
         leading: IconButton(
           tooltip: 'Voltar',
           icon: const Icon(Icons.arrow_back_rounded),
@@ -8446,26 +8458,28 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               const SizedBox(height: 24),
 
               // Botão salvar
-              if (_saving && _uploadProgress > 0) ...[
+              if (_saving) ...[
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(12),
                   child: LinearProgressIndicator(
-                    value: _uploadProgress.clamp(0.0, 1.0),
-                    minHeight: 8,
+                    value: _uploadProgress > 0 ? _uploadProgress.clamp(0.0, 1.0) : null,
+                    minHeight: 10,
+                    backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                    color: ThemeCleanPremium.primary,
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 10),
                 Text(
                   _uploadProgressLabel.isNotEmpty
                       ? '${_uploadProgressLabel} (${(_uploadProgress * 100).clamp(0, 100).toStringAsFixed(0)}%)'
-                      : 'Enviando: ${(_uploadProgress * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                      : 'A gravar patrimônio…',
                   style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade700,
+                    fontSize: 13,
+                    color: Colors.grey.shade800,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
               ],
               SizedBox(
                   height: 52,
@@ -8480,17 +8494,19 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                         : const Icon(Icons.save_rounded),
                     label: Text(
                         _saving
-                            ? 'Salvando...'
+                            ? 'Salvando…'
                             : (isEditing
                                 ? 'Atualizar Patrimônio'
                                 : 'Cadastrar Patrimônio'),
                         style: const TextStyle(
                             fontWeight: FontWeight.w700, fontSize: 15)),
                     style: FilledButton.styleFrom(
-                        backgroundColor: ThemeCleanPremium.primary,
+                        backgroundColor: _saving
+                            ? Colors.grey.shade500
+                            : ThemeCleanPremium.primary,
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm))),
+                                ThemeCleanPremium.radiusMd))),
                   )),
             ],
           ),

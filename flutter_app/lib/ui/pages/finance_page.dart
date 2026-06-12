@@ -4978,7 +4978,7 @@ class _LancamentoCard extends StatelessWidget {
         : (isEntrada ? _financeEntradas : _financeSaidas);
     final titulo = isTransfer
         ? 'Transferência'
-        : (isDonation ? '$donationLabel • Extrato' : categoria);
+        : (isDonation ? donationLabel : categoria);
     final subtitulo = isTransfer
         ? (origemNome.isNotEmpty && destinoNome.isNotEmpty
             ? '$origemNome → $destinoNome'
@@ -5038,142 +5038,89 @@ class _LancamentoCard extends StatelessWidget {
           },
           child: Padding(
             padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    gradient: pendenteRecorrencia
-                        ? null
-                        : LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: [
-                              color.withValues(alpha: 0.2),
-                              color.withValues(alpha: 0.08),
-                            ],
-                          ),
-                    color: pendenteRecorrencia ? Colors.amber.shade100 : null,
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                    border: Border.all(
-                      color: pendenteRecorrencia
-                          ? Colors.amber.shade300
-                          : color.withValues(alpha: 0.2),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        gradient: pendenteRecorrencia
+                            ? null
+                            : LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  color.withValues(alpha: 0.2),
+                                  color.withValues(alpha: 0.08),
+                                ],
+                              ),
+                        color:
+                            pendenteRecorrencia ? Colors.amber.shade100 : null,
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                        border: Border.all(
+                          color: pendenteRecorrencia
+                              ? Colors.amber.shade300
+                              : color.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Icon(
+                        pendenteRecorrencia
+                            ? Icons.schedule_rounded
+                            : (isTransfer
+                                ? Icons.swap_horiz_rounded
+                                : (isEntrada
+                                    ? Icons.trending_up_rounded
+                                    : Icons.trending_down_rounded)),
+                        color: pendenteRecorrencia
+                            ? Colors.amber.shade900
+                            : color,
+                        size: 24,
+                      ),
                     ),
-                  ),
-                  child: Icon(
-                    pendenteRecorrencia
-                        ? Icons.schedule_rounded
-                        : (isTransfer
-                            ? Icons.swap_horiz_rounded
-                            : (isEntrada
-                                ? Icons.trending_up_rounded
-                                : Icons.trending_down_rounded)),
-                    color: pendenteRecorrencia
-                        ? Colors.amber.shade900
-                        : color,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(titulo,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w700, fontSize: 14)),
-                      if (subtitulo.isNotEmpty)
-                        Text(subtitulo,
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey.shade600),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis),
-                      if (vinculoLinha != null && !isTransfer)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: FinancePremiumVinculoPill(
-                            label: vinculoLinha,
-                            isMembro: vinculoLinha.startsWith('Membro'),
-                          ),
-                        ),
-                      if (centroCusto.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            'Projeto: $centroCusto',
-                            style: TextStyle(
-                                fontSize: 11,
-                                color: ThemeCleanPremium.primary,
-                                fontWeight: FontWeight.w600),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      const SizedBox(height: 2),
-                      Row(
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(dataStr,
-                              style: TextStyle(
-                                  fontSize: 11, color: Colors.grey.shade500)),
-                          if (pendenteRecorrencia) ...[
-                            const SizedBox(width: 6),
-                            const FinancePremiumStatusPill(
-                              label: 'Conciliar',
-                              icon: Icons.sync_problem_rounded,
-                              colors: [Color(0xFFD97706), Color(0xFFFBBF24)],
+                          Text(titulo,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w700, fontSize: 14)),
+                          if (subtitulo.isNotEmpty)
+                            Text(subtitulo,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                          if (vinculoLinha != null && !isTransfer)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: FinancePremiumVinculoPill(
+                                label: vinculoLinha,
+                                isMembro: vinculoLinha.startsWith('Membro'),
+                              ),
                             ),
-                          ],
-                          if (hasComprovanteAnexo) ...[
-                            const SizedBox(width: 6),
-                            Icon(Icons.attach_file_rounded,
-                                size: 14, color: Colors.grey.shade500),
-                          ],
-                          if (pendenteAprovacao) ...[
-                            const SizedBox(width: 6),
-                            const FinancePremiumStatusPill(
-                              label: 'Aprovar',
-                              icon: Icons.gavel_rounded,
-                              colors: [Color(0xFFEA580C), Color(0xFFFB923C)],
+                          if (centroCusto.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                'Projeto: $centroCusto',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: ThemeCleanPremium.primary,
+                                    fontWeight: FontWeight.w600),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ],
-                          if (!isTransfer && !conciliadoOk) ...[
-                            const SizedBox(width: 6),
-                            const FinancePremiumStatusPill(
-                              label: 'Extrato',
-                              icon: Icons.receipt_long_rounded,
-                              colors: [Color(0xFF2563EB), Color(0xFF60A5FA)],
-                            ),
-                          ],
-                          if (!isTransfer &&
-                              isEntrada &&
-                              data['recebimentoConfirmado'] == false) ...[
-                            const SizedBox(width: 6),
-                            const FinancePremiumStatusPill(
-                              label: 'Pendente',
-                              icon: Icons.schedule_rounded,
-                              colors: [Color(0xFFD97706), Color(0xFFFBBF24)],
-                            ),
-                          ],
-                          if (!isTransfer &&
-                              !isEntrada &&
-                              data['pagamentoConfirmado'] == false) ...[
-                            const SizedBox(width: 6),
-                            const FinancePremiumStatusPill(
-                              label: 'A pagar',
-                              icon: Icons.schedule_rounded,
-                              colors: [Color(0xFFDC2626), Color(0xFFF87171)],
-                            ),
-                          ],
                         ],
                       ),
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
+                    ),
+                    const SizedBox(width: 8),
                     Text(
                       isTransfer
                           ? 'R\$ ${valor.toStringAsFixed(2)}'
@@ -5183,45 +5130,112 @@ class _LancamentoCard extends StatelessWidget {
                           fontSize: 16,
                           color: color),
                     ),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (podeAprovar)
-                          FinancePremiumIconAction(
-                            icon: Icons.verified_rounded,
-                            color: const Color(0xFF059669),
-                            onTap: onApprove,
-                            tooltip: 'Aprovar despesa',
-                          ),
-                        if (podeAprovar) const SizedBox(width: 6),
-                        FinancePremiumIconAction(
-                          icon: Icons.edit_rounded,
-                          color: ThemeCleanPremium.primary,
-                          onTap: onEdit,
-                          tooltip: 'Editar',
-                        ),
-                        const SizedBox(width: 6),
-                        FinancePremiumIconAction(
-                          icon: Icons.delete_outline_rounded,
-                          color: const Color(0xFFDC2626),
-                          onTap: onDelete,
-                          tooltip: 'Excluir',
-                        ),
-                        const SizedBox(width: 6),
-                        FinancePremiumIconAction(
-                          icon: Icons.camera_alt_rounded,
-                          color: const Color(0xFF7C3AED),
-                          tooltip: 'Comprovante',
-                          onTap: () => uploadFinanceComprovanteForLancamento(
-                            context,
-                            tenantId: tenantId,
-                            doc: doc,
-                          ),
-                        ),
-                      ],
-                    ),
                   ],
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(dataStr,
+                        style: TextStyle(
+                            fontSize: 11, color: Colors.grey.shade500)),
+                    if (pendenteRecorrencia)
+                      const FinancePremiumStatusPill(
+                        label: 'Conciliar',
+                        icon: Icons.sync_problem_rounded,
+                        colors: [Color(0xFFD97706), Color(0xFFFBBF24)],
+                      ),
+                    if (hasComprovanteAnexo)
+                      FinancePremiumStatusPill(
+                        label: 'Comprovante',
+                        icon: Icons.receipt_long_rounded,
+                        colors: [
+                          ThemeCleanPremium.success,
+                          ThemeCleanPremium.success.withValues(alpha: 0.7),
+                        ],
+                      ),
+                    if (pendenteAprovacao)
+                      const FinancePremiumStatusPill(
+                        label: 'Aprovar',
+                        icon: Icons.gavel_rounded,
+                        colors: [Color(0xFFEA580C), Color(0xFFFB923C)],
+                      ),
+                    if (!isTransfer && !conciliadoOk)
+                      const FinancePremiumStatusPill(
+                        label: 'Não conciliado',
+                        icon: Icons.receipt_long_outlined,
+                        colors: [Color(0xFF2563EB), Color(0xFF60A5FA)],
+                      ),
+                    if (!isTransfer &&
+                        isEntrada &&
+                        data['recebimentoConfirmado'] == false)
+                      const FinancePremiumStatusPill(
+                        label: 'Pendente',
+                        icon: Icons.schedule_rounded,
+                        colors: [Color(0xFFD97706), Color(0xFFFBBF24)],
+                      ),
+                    if (!isTransfer &&
+                        !isEntrada &&
+                        data['pagamentoConfirmado'] == false)
+                      const FinancePremiumStatusPill(
+                        label: 'A pagar',
+                        icon: Icons.schedule_rounded,
+                        colors: [Color(0xFFDC2626), Color(0xFFF87171)],
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Wrap(
+                    spacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      if (podeAprovar)
+                        FinancePremiumIconAction(
+                          icon: Icons.verified_rounded,
+                          color: const Color(0xFF059669),
+                          onTap: onApprove,
+                          tooltip: 'Aprovar despesa',
+                        ),
+                      FinancePremiumIconAction(
+                        icon: Icons.edit_rounded,
+                        color: ThemeCleanPremium.primary,
+                        onTap: onEdit,
+                        tooltip: 'Editar',
+                      ),
+                      FinancePremiumIconAction(
+                        icon: Icons.delete_outline_rounded,
+                        color: const Color(0xFFDC2626),
+                        onTap: onDelete,
+                        tooltip: 'Excluir',
+                      ),
+                      if (hasComprovanteAnexo)
+                        FinancePremiumIconAction(
+                          icon: Icons.visibility_rounded,
+                          color: const Color(0xFF0D9488),
+                          onTap: () => FinanceComprovanteAttachService
+                              .viewFromDoc(context, data),
+                          tooltip: 'Ver comprovante',
+                        ),
+                      FinancePremiumIconAction(
+                        icon: hasComprovanteAnexo
+                            ? Icons.sync_rounded
+                            : Icons.camera_alt_rounded,
+                        color: const Color(0xFF7C3AED),
+                        tooltip: hasComprovanteAnexo
+                            ? 'Trocar comprovante'
+                            : 'Anexar comprovante',
+                        onTap: () => uploadFinanceComprovanteForLancamento(
+                          context,
+                          tenantId: tenantId,
+                          doc: doc,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -8136,13 +8150,33 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                           fontSize: 12, color: Colors.grey.shade700),
                     ),
                   ),
-                  TextButton.icon(
-                    onPressed: () => FinanceComprovanteAttachService.viewFromDoc(
-                      ctx,
-                      data ?? {},
-                    ),
-                    icon: const Icon(Icons.visibility_outlined, size: 18),
-                    label: const Text('Ver comprovante atual'),
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: () =>
+                            FinanceComprovanteAttachService.viewFromDoc(
+                          ctx,
+                          data ?? {},
+                        ),
+                        icon: const Icon(Icons.visibility_rounded, size: 18),
+                        label: const Text('Ver comprovante'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          final picked =
+                              await FinanceComprovanteAttachService
+                                  .showPickSheet(
+                            ctx,
+                            title: 'Trocar comprovante',
+                          );
+                          if (picked == null) return;
+                          comprovanteAnexo = picked;
+                          setDlgState(() {});
+                        },
+                        icon: const Icon(Icons.sync_rounded, size: 18),
+                        label: const Text('Trocar comprovante'),
+                      ),
+                    ],
                   ),
                 ],
                     ],
@@ -8248,11 +8282,9 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       );
       if (pendingComprovanteBytes != null &&
           pendingComprovanteMime != null) {
-        final refDate = patch['createdAt'] is Timestamp
-            ? (patch['createdAt'] as Timestamp).toDate()
-            : (data?['createdAt'] is Timestamp
-                ? (data!['createdAt'] as Timestamp).toDate()
-                : null);
+        final refDate = FinanceComprovantePublishService.referenceDateFromMap(
+          {...?data, ...patch},
+        );
         await FinanceComprovantePublishService.uploadComprovanteNow(
           tenantId: tenantId,
           docRef: existingDoc.reference,
@@ -8288,9 +8320,8 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         hasNewComprovante: pendingAddBytes != null,
       );
       if (pendingAddBytes != null && pendingAddMime != null) {
-        final refDate = result['createdAt'] is Timestamp
-            ? (result['createdAt'] as Timestamp).toDate()
-            : null;
+        final refDate =
+            FinanceComprovantePublishService.referenceDateFromMap(result);
         await FinanceComprovantePublishService.uploadComprovanteNow(
           tenantId: tenantId,
           docRef: docRef,
@@ -8340,15 +8371,13 @@ Future<void> uploadFinanceComprovanteForLancamento(
   if (picked == null) return;
 
   if (!context.mounted) return;
-  ImmediateMediaAttachFeedback.showArquivoAnexado(context, picked.fileName);
 
   try {
     final prepared =
         await FinanceComprovanteAttachService.prepareUploadBytes(picked);
     final data = doc.data() ?? {};
-    final ts = data['createdAt'] ?? data['date'];
-    DateTime? refDate;
-    if (ts is Timestamp) refDate = ts.toDate();
+    final refDate =
+        FinanceComprovantePublishService.referenceDateFromMap(data);
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Enviando comprovante…')));
@@ -8363,11 +8392,20 @@ Future<void> uploadFinanceComprovanteForLancamento(
       previousDownloadUrl: (data['comprovanteUrl'] ?? '').toString(),
     );
     if (!context.mounted) return;
+    final pathHint = FinanceComprovantePublishService.comprovantePathFor(
+      tenantId: tenantId,
+      lancamentoId: doc.id,
+      referenceDate: refDate,
+      ext: FinanceComprovanteAttachService.extensionForMime(prepared.mimeType),
+    );
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
-            jaTem ? 'Comprovante atualizado!' : 'Comprovante anexado!',
+            jaTem
+                ? 'Comprovante atualizado!\n$pathHint'
+                : 'Comprovante anexado!\n$pathHint',
             style: const TextStyle(color: Colors.white)),
-        backgroundColor: Colors.green));
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 4)));
     unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
   } catch (e) {
     if (context.mounted) {

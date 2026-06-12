@@ -233,11 +233,28 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
     return '${churchTenantLogoUrl(m)}|${ChurchImageFields.logoStoragePath(m) ?? ''}|$uStr';
   }
 
-  String? _immediateLogoUrl() {
+  String? _preferHttpsImageUrl() {
     for (final raw in <String?>[
       widget.imageUrl,
+      widget.tenantData != null
+          ? ChurchImageFields.logoHttpsUrlFromDoc(widget.tenantData)
+          : null,
+    ]) {
+      final t = (raw ?? '').trim();
+      if (t.isEmpty) continue;
+      final low = t.toLowerCase();
+      if (!low.startsWith('http://') && !low.startsWith('https://')) continue;
+      final clean = sanitizeImageUrl(t);
+      if (clean.isNotEmpty && isValidImageUrl(clean)) return clean;
+    }
+    return null;
+  }
+
+  String? _immediateLogoUrl() {
+    final https = _preferHttpsImageUrl();
+    if (https != null) return https;
+    for (final raw in <String?>[
       widget.gsUrl,
-      if (widget.tenantData != null) churchTenantLogoUrl(widget.tenantData!),
     ]) {
       final clean = sanitizeImageUrl(raw ?? '');
       if (clean.isEmpty) continue;
@@ -291,7 +308,7 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
       return AppStorageImageService.instance.resolveChurchTenantLogoUrl(
         tenantId: tid,
         tenantData: widget.tenantData,
-        preferImageUrl: widget.imageUrl,
+        preferImageUrl: _preferHttpsImageUrl(),
         preferStoragePath: storagePath,
         preferGsUrl: widget.gsUrl,
       );
@@ -360,6 +377,7 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
               memCacheHeight: widget.memCacheHeight,
               placeholder: ph,
               errorWidget: _fallback(),
+              skipFreshDisplayUrl: true,
             ),
           );
         },

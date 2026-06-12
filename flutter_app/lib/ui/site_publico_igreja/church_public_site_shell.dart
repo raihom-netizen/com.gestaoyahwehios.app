@@ -11,11 +11,14 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_back_button.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/install_pwa_button.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show churchTenantLogoUrl, memCacheExtentForLogicalSize;
+    show
+        churchTenantLogoHttpsUrl,
+        memCacheExtentForLogicalSize;
 import 'package:gestao_yahweh/ui/widgets/church_public_social_gallery.dart'
     show ChurchPublicSocialPresets;
 
@@ -244,9 +247,16 @@ class ChurchPublicSiteLogoBadge extends StatelessWidget {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     // Decode proporcional ao badge — evita decodificar resolução desnecessária na web.
     final cache = memCacheExtentForLogicalSize(size, dpr, maxPx: 512, oversample: 2.25);
-    final prefer = churchData != null ? churchTenantLogoUrl(churchData!) : '';
-    final path =
-        churchData != null ? ChurchImageFields.logoStoragePath(churchData) : null;
+    final tid = tenantId.trim();
+    final path = churchData != null
+        ? (ChurchImageFields.logoStoragePath(churchData, churchIdHint: tid) ??
+            (tid.isNotEmpty
+                ? ChurchStorageLayout.churchIdentityLogoPath(tid)
+                : null))
+        : (tid.isNotEmpty ? ChurchStorageLayout.churchIdentityLogoPath(tid) : null);
+    final https = churchData != null
+        ? churchTenantLogoHttpsUrl(churchData!)
+        : '';
     final r = borderRadius.clamp(8.0, 28.0);
     return Container(
       decoration: BoxDecoration(
@@ -275,7 +285,7 @@ class ChurchPublicSiteLogoBadge extends StatelessWidget {
           child: StableChurchLogo(
             tenantId: tenantId,
             tenantData: churchData,
-            imageUrl: prefer.isNotEmpty ? prefer : null,
+            imageUrl: https.isNotEmpty ? https : null,
             storagePath: path,
             width: size,
             height: size,

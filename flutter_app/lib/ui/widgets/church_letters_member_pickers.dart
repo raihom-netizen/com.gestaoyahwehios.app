@@ -22,6 +22,142 @@ class ChurchLetterMemberEntry {
   String get cargoLabel => signatoryCargoDisplayLabel(data);
 
   bool get canSignDocuments => memberCanSignChurchDocuments(data);
+
+  static String nameFromData(Map<String, dynamic> m) {
+    for (final k in ['NOME_COMPLETO', 'nome', 'name', 'displayName', 'NOME']) {
+      final v = (m[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
+  static String cpfDigitsFromData(Map<String, dynamic> m) {
+    return (m['CPF'] ?? m['cpf'] ?? '')
+        .toString()
+        .replaceAll(RegExp(r'\D'), '');
+  }
+}
+
+/// Grelha colorida dos membros escolhidos para a carta.
+class ChurchLetterSelectedMembersGrid extends StatelessWidget {
+  const ChurchLetterSelectedMembersGrid({
+    super.key,
+    required this.tenantId,
+    required this.entries,
+    required this.onRemove,
+  });
+
+  final String tenantId;
+  final List<ChurchLetterMemberEntry> entries;
+  final ValueChanged<String> onRemove;
+
+  static const _palette = <Color>[
+    Color(0xFF2563EB),
+    Color(0xFF7C3AED),
+    Color(0xFFDB2777),
+    Color(0xFF059669),
+    Color(0xFFEA580C),
+    Color(0xFF0891B2),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    if (entries.isEmpty) return const SizedBox.shrink();
+    return LayoutBuilder(
+      builder: (context, c) {
+        final w = c.maxWidth;
+        final cols = w >= 520 ? 3 : (w >= 340 ? 2 : 1);
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cols,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            childAspectRatio: cols == 1 ? 3.2 : 2.35,
+          ),
+          itemCount: entries.length,
+          itemBuilder: (context, i) {
+            final e = entries[i];
+            final accent = _palette[i % _palette.length];
+            final name =
+                e.name.isNotEmpty ? e.name : '(sem nome)';
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => onRemove(e.id),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        accent.withValues(alpha: 0.14),
+                        accent.withValues(alpha: 0.05),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: accent.withValues(alpha: 0.28)),
+                    boxShadow: ThemeCleanPremium.softUiCardShadow,
+                  ),
+                  child: Row(
+                    children: [
+                      FotoMembroWidget(
+                        tenantId: tenantId,
+                        memberId: e.id,
+                        memberData: e.data,
+                        cpfDigits:
+                            e.cpfDigits.length == 11 ? e.cpfDigits : null,
+                        size: 44,
+                        memCacheWidth: 120,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13.5,
+                                height: 1.2,
+                                color: Colors.grey.shade900,
+                              ),
+                            ),
+                            if (e.cpfDigits.length == 11)
+                              Text(
+                                'CPF ${e.cpfDigits}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: accent.withValues(alpha: 0.9),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Remover',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => onRemove(e.id),
+                        icon: Icon(Icons.close_rounded, color: accent),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 bool churchLetterMemberMatchesDepartment(
