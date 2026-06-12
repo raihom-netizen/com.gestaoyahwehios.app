@@ -145,8 +145,21 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
 
     String? pickRaw;
     if (widget.preferListThumbnail) {
-      pickRaw = (thumbRaw ?? '').trim().isNotEmpty ? thumbRaw : fullRaw;
-      _variantFallbackUrl = null;
+      final thumb = (thumbRaw ?? '').trim();
+      final full = (fullRaw ?? '').trim();
+      pickRaw = thumb.isNotEmpty ? thumbRaw : fullRaw;
+      if (thumb.isNotEmpty && full.isNotEmpty && thumb != full) {
+        final fullUrl = sanitizeImageUrl(full);
+        if (isValidImageUrl(fullUrl)) {
+          _variantFallbackUrl = fullUrl;
+        } else if (_looksLikeMemberStoragePath(full)) {
+          _variantFallbackUrl = full;
+        } else {
+          _variantFallbackUrl = null;
+        }
+      } else {
+        _variantFallbackUrl = null;
+      }
     } else {
       pickRaw = (fullRaw ?? '').trim().isNotEmpty
           ? fullRaw
@@ -185,6 +198,20 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
           _resolving = false;
         });
         return;
+      }
+      if (widget.preferListThumbnail) {
+        final full = (fullRaw ?? '').trim();
+        if (full.isNotEmpty && full != raw && _looksLikeMemberStoragePath(full)) {
+          final fromFull = await _storagePathToDisplayUrl(full);
+          if (!mounted) return;
+          if (fromFull != null) {
+            setState(() {
+              _displayUrl = fromFull;
+              _resolving = false;
+            });
+            return;
+          }
+        }
       }
     }
 
@@ -389,6 +416,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
         memCacheWidth: mcW,
         memCacheHeight: mcH,
         skipFreshDisplayUrl: true,
+        storageCacheRevision: rev,
         placeholder: widget.placeholder ?? err,
         errorWidget: _buildLoadErrorFallback(
           currentUrl: url,
@@ -586,7 +614,19 @@ class _MemberPhotoStorageFallbackState extends State<_MemberPhotoStorageFallback
       nomeCompleto: widget.nomeCompleto,
       memberFirestoreHint: widget.memberFirestoreHint,
       preferListThumbnail: widget.preferListThumbnail,
-    );
+    ).then((url) async {
+      if (url != null && url.isNotEmpty) return url;
+      if (!widget.preferListThumbnail) return null;
+      return FirebaseStorageService.getMemberProfilePhotoDownloadUrl(
+        tenantId: widget.tenantId,
+        memberId: widget.memberId,
+        cpfDigits: widget.cpfDigits,
+        authUid: widget.authUid,
+        nomeCompleto: widget.nomeCompleto,
+        memberFirestoreHint: widget.memberFirestoreHint,
+        preferListThumbnail: false,
+      );
+    });
     }
 
     try {

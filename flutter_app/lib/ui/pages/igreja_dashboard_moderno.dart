@@ -24,7 +24,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
-    show SafeMemberProfilePhoto;
+    show SafeMemberProfilePhoto, memberPhotoDisplayCacheRevision;
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart' show avatarColorForMember;
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1635,6 +1635,7 @@ void _openAniversarianteDetalheSheetCore(
         authUid: _dashboardMemberAuthUid(data),
         nomeCompleto: nomeCompleto.isNotEmpty ? nomeCompleto : null,
         memberFirestoreHint: data,
+        imageCacheRevision: memberPhotoDisplayCacheRevision(data) ?? 0,
         width: 112,
         height: 112,
         circular: true,
@@ -2437,6 +2438,7 @@ class _AniversariantesCard extends StatelessWidget {
                       ? null
                       : lite.displayName.trim(),
                   memberFirestoreHint: data,
+                  imageCacheRevision: memberPhotoDisplayCacheRevision(data) ?? 0,
                   width: kAvatarRadius * 2,
                   height: kAvatarRadius * 2,
                   circular: true,
@@ -2887,6 +2889,7 @@ class _AniversariantesCard extends StatelessWidget {
                       ? null
                       : _anivNomeCompleto(data).trim(),
                   memberFirestoreHint: data,
+                  imageCacheRevision: memberPhotoDisplayCacheRevision(data) ?? 0,
                   width: kAvatarRadius * 2,
                   height: kAvatarRadius * 2,
                   circular: true,

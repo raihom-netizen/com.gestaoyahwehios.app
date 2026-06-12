@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/member_photo_storage_naming.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -229,7 +230,8 @@ class FirebaseStorageService {
     final path = ChurchStorageLayout.financeiroFolderPlaceholderPath(tid);
     if (path.isEmpty) return;
     try {
-      await FirebaseStorage.instance.ref(path).getMetadata();
+      await ensureFirebaseCore(requireAuth: false);
+      await firebaseDefaultStorage.ref(path).getMetadata();
       return;
     } catch (_) {}
     if (kIsWeb) {
@@ -239,7 +241,7 @@ class FirebaseStorageService {
       } catch (_) {}
     }
     try {
-      await FirebaseStorage.instance.ref(path).putData(
+      await firebaseDefaultStorage.ref(path).putData(
             ChurchStorageLayout.kMinimalTransparentIdentityPng,
             SettableMetadata(contentType: 'image/png'),
           );

@@ -77,6 +77,10 @@ class MemberProfilePhotoUpdateService {
     String? previousDownloadUrl,
     String? newDownloadUrl,
     String? storagePath,
+    String? thumbStoragePath,
+    String? tenantId,
+    String? memberDocId,
+    String? authUid,
   }) {
     for (final raw in [previousDownloadUrl, newDownloadUrl]) {
       final u = sanitizeImageUrl(raw);
@@ -89,6 +93,10 @@ class MemberProfilePhotoUpdateService {
     final path = (storagePath ?? '').trim();
     if (path.isNotEmpty) {
       MemberProfilePhotoBytesCache.removeByObjectPath(path);
+    }
+    final thumbPath = (thumbStoragePath ?? '').trim();
+    if (thumbPath.isNotEmpty && thumbPath != path) {
+      MemberProfilePhotoBytesCache.removeByObjectPath(thumbPath);
     }
     for (final raw in [previousDownloadUrl, newDownloadUrl]) {
       final p = firebaseStorageObjectPathFromHttpUrl(sanitizeImageUrl(raw));
@@ -104,6 +112,20 @@ class MemberProfilePhotoUpdateService {
       unawaited(deleteYahwehMediaBytesDiskKeys(
         YahwehMediaBytesDiskKeys.invalidateKeysForStoragePath(sp),
       ));
+    }
+    if (thumbPath.isNotEmpty) {
+      unawaited(deleteYahwehMediaBytesDiskKeys(
+        YahwehMediaBytesDiskKeys.invalidateKeysForStoragePath(thumbPath),
+      ));
+    }
+    final tid = (tenantId ?? '').trim();
+    final mid = (memberDocId ?? '').trim();
+    if (tid.isNotEmpty && mid.isNotEmpty) {
+      FirebaseStorageService.invalidateMemberPhotoCache(
+        tenantId: tid,
+        memberId: mid,
+        authUid: (authUid ?? '').trim().isEmpty ? null : authUid!.trim(),
+      );
     }
   }
 
@@ -325,6 +347,12 @@ class MemberProfilePhotoUpdateService {
       previousDownloadUrl: previousUrl,
       newDownloadUrl: sanitizeImageUrl(result.downloadUrl),
       storagePath: result.storagePath,
+      thumbStoragePath: result.thumbStoragePath,
+      tenantId: tenantId,
+      memberDocId: memberDocId,
+      authUid: (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
+          .toString()
+          .trim(),
     );
     if (previousThumb.isNotEmpty) {
       invalidateDisplayCaches(
@@ -332,6 +360,12 @@ class MemberProfilePhotoUpdateService {
         newDownloadUrl: sanitizeImageUrl(
           result.thumbDownloadUrl ?? result.downloadUrl,
         ),
+        thumbStoragePath: result.thumbStoragePath,
+        tenantId: tenantId,
+        memberDocId: memberDocId,
+        authUid: (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
+            .toString()
+            .trim(),
       );
     }
     return result;

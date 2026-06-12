@@ -8471,7 +8471,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                 const SizedBox(height: 10),
                 Text(
                   _uploadProgressLabel.isNotEmpty
-                      ? '${_uploadProgressLabel} (${(_uploadProgress * 100).clamp(0, 100).toStringAsFixed(0)}%)'
+                      ? _uploadProgressLabel
                       : 'A gravar patrimônio…',
                   style: TextStyle(
                     fontSize: 13,

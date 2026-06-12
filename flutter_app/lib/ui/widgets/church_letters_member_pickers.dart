@@ -554,6 +554,161 @@ class _ChurchLetterRecipientsPickerSheetState
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   }
 
+  Widget _deptFilterChip({
+    required String label,
+    required String value,
+    IconData icon = Icons.groups_rounded,
+  }) {
+    final selected = _deptFilter == value;
+    final accent = ThemeCleanPremium.primary;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => setState(() => _deptFilter = value),
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? accent.withValues(alpha: 0.12)
+                : const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected
+                  ? accent.withValues(alpha: 0.45)
+                  : const Color(0xFFE2E8F0),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: selected ? accent : const Color(0xFF64748B),
+              ),
+              const SizedBox(width: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 220),
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    height: 1.15,
+                    color: selected ? accent : const Color(0xFF334155),
+                  ),
+                ),
+              ),
+              if (selected) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.check_rounded, size: 16, color: accent),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _memberRow(ChurchLetterMemberEntry e) {
+    final sel = _sel.contains(e.id);
+    final accent = ThemeCleanPremium.primary;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () {
+          setState(() {
+            if (sel) {
+              _sel.remove(e.id);
+            } else {
+              _sel.add(e.id);
+            }
+          });
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: sel ? accent.withValues(alpha: 0.07) : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: sel
+                  ? accent.withValues(alpha: 0.35)
+                  : const Color(0xFFE8EEF4),
+            ),
+            boxShadow: sel ? ThemeCleanPremium.softUiCardShadow : null,
+          ),
+          child: Row(
+            children: [
+              FotoMembroWidget(
+                tenantId: widget.tenantId,
+                memberId: e.id,
+                memberData: e.data,
+                cpfDigits:
+                    e.cpfDigits.length == 11 ? e.cpfDigits : null,
+                size: 46,
+                memCacheWidth: 120,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      e.name.isEmpty ? '(sem nome)' : e.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                        height: 1.2,
+                      ),
+                    ),
+                    if (e.cpfDigits.length == 11)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          'CPF ${e.cpfDigits}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: sel ? accent : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: sel ? accent : Colors.grey.shade400,
+                    width: sel ? 0 : 1.5,
+                  ),
+                ),
+                child: sel
+                    ? const Icon(Icons.check_rounded,
+                        size: 18, color: Colors.white)
+                    : null,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
@@ -617,34 +772,21 @@ class _ChurchLetterRecipientsPickerSheetState
                   ),
                 ),
                 const SizedBox(height: 10),
-                SizedBox(
-                  height: 40,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: FilterChip(
-                          label: const Text('Geral'),
-                          selected: _deptFilter == 'todos',
-                          onSelected: (_) =>
-                              setState(() => _deptFilter = 'todos'),
-                          selectedColor:
-                              ThemeCleanPremium.primary.withValues(alpha: 0.14),
-                        ),
+                      _deptFilterChip(
+                        label: 'Geral',
+                        value: 'todos',
+                        icon: Icons.dashboard_rounded,
                       ),
                       ...widget.departments.map(
-                        (d) => Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: FilterChip(
-                            label: Text(d.name),
-                            selected: _deptFilter == d.id,
-                            onSelected: (_) =>
-                                setState(() => _deptFilter = d.id),
-                            selectedColor: ThemeCleanPremium.primary
-                                .withValues(alpha: 0.14),
-                          ),
+                        (d) => _deptFilterChip(
+                          label: d.name,
+                          value: d.id,
                         ),
                       ),
                     ],
@@ -687,58 +829,11 @@ class _ChurchLetterRecipientsPickerSheetState
                             style: TextStyle(color: Colors.grey.shade600),
                           ),
                         )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+                      : ListView.builder(
+                          padding: const EdgeInsets.fromLTRB(0, 6, 0, 16),
                           itemCount: _filtered.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 4),
-                          itemBuilder: (context, i) {
-                            final e = _filtered[i];
-                            final sel = _sel.contains(e.id);
-                            return Material(
-                              color: sel
-                                  ? ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.06)
-                                  : Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              child: CheckboxListTile(
-                                value: sel,
-                                onChanged: (v) {
-                                  setState(() {
-                                    if (v == true) {
-                                      _sel.add(e.id);
-                                    } else {
-                                      _sel.remove(e.id);
-                                    }
-                                  });
-                                },
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                secondary: FotoMembroWidget(
-                                  tenantId: widget.tenantId,
-                                  memberId: e.id,
-                                  memberData: e.data,
-                                  cpfDigits: e.cpfDigits.length == 11
-                                      ? e.cpfDigits
-                                      : null,
-                                  size: 42,
-                                  memCacheWidth: 120,
-                                ),
-                                title: Text(
-                                  e.name.isEmpty ? '(sem nome)' : e.name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                subtitle: e.cpfDigits.length == 11
-                                    ? Text(
-                                        'CPF: ${e.cpfDigits}',
-                                        style: const TextStyle(fontSize: 12),
-                                      )
-                                    : null,
-                              ),
-                            );
-                          },
+                          itemBuilder: (context, i) =>
+                              _memberRow(_filtered[i]),
                         ),
                 ),
               ],

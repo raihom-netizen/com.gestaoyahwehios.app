@@ -1,18 +1,15 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
-import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_sheet.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 
-/// Comprovante financeiro — seleção e visualização (padrão Controle Total).
+/// Comprovante financeiro — JPEG/PNG/PDF (sem vídeo), padrão Controle Total.
 class FinanceComprovanteAttachment {
   const FinanceComprovanteAttachment({
     required this.bytes,
@@ -62,14 +59,20 @@ abstract final class FinanceComprovanteAttachService {
     return 'image/jpeg';
   }
 
+  static String extensionForMime(String mimeType) {
+    final m = mimeType.toLowerCase();
+    if (m.contains('pdf')) return 'pdf';
+    if (m.contains('png')) return 'png';
+    return 'jpg';
+  }
+
   static String _mimeFromExtension(String ext) {
-    switch (ext) {
+    switch (ext.toLowerCase().replaceAll('jpeg', 'jpg')) {
       case 'pdf':
         return 'application/pdf';
       case 'png':
         return 'image/png';
       case 'jpg':
-      case 'jpeg':
       default:
         return 'image/jpeg';
     }
@@ -87,7 +90,6 @@ abstract final class FinanceComprovanteAttachService {
     );
   }
 
-  /// Galeria / arquivo — JPEG, PNG ou PDF (até 5 MB).
   static Future<FinanceComprovanteAttachment?> pickFromFiles(
     BuildContext context,
   ) async {
@@ -105,7 +107,7 @@ abstract final class FinanceComprovanteAttachService {
       if (!_isAllowedExtension(ext)) {
         _showSnack(
           context,
-          'Arquivo inválido. Use apenas JPEG, PNG ou PDF.',
+          'Arquivo inválido. Use apenas JPEG, PNG ou PDF (sem vídeo).',
         );
         return null;
       }
@@ -123,7 +125,12 @@ abstract final class FinanceComprovanteAttachService {
         return null;
       }
 
-      final mime = _mimeFromExtension(ext.replaceAll('jpeg', 'jpg'));
+      final mime = _mimeFromExtension(ext);
+      if (mime.startsWith('video/')) {
+        _showSnack(context, 'Vídeo não permitido. Use JPEG, PNG ou PDF.');
+        return null;
+      }
+
       return FinanceComprovanteAttachment(
         bytes: bytes,
         fileName: f.name,
@@ -138,7 +145,6 @@ abstract final class FinanceComprovanteAttachService {
     }
   }
 
-  /// Câmera — foto JPEG.
   static Future<FinanceComprovanteAttachment?> pickFromCamera(
     BuildContext context,
   ) async {
@@ -175,7 +181,6 @@ abstract final class FinanceComprovanteAttachService {
     }
   }
 
-  /// Folha: câmera (mobile) ou arquivo.
   static Future<FinanceComprovanteAttachment?> showPickSheet(
     BuildContext context, {
     bool allowCamera = true,
@@ -273,11 +278,14 @@ abstract final class FinanceComprovanteAttachService {
     }
   }
 
-  /// Comprime imagens; PDF passa direto.
+  /// PDF passa direto; imagens comprimidas levemente (sem tratar PDF como foto).
   static Future<({Uint8List bytes, String mimeType})> prepareUploadBytes(
     FinanceComprovanteAttachment attachment,
   ) async {
     if (attachment.isPdf) {
+      return (bytes: attachment.bytes, mimeType: 'application/pdf');
+    }
+    if (attachment.bytes.length <= 900000) {
       return (bytes: attachment.bytes, mimeType: attachment.mimeType);
     }
     final compressed = await ImageHelper.compressImage(
@@ -292,88 +300,9 @@ abstract final class FinanceComprovanteAttachService {
     return (bytes: compressed, mimeType: mime);
   }
 
-  static String extensionForMime(String mimeType) =>
-      EcoFireImageProcess.extensionFromMime(mimeType);
-
-  /// Abre comprovante já gravado (imagem ou PDF).
   static Future<void> viewFromDoc(
     BuildContext context,
     Map<String, dynamic> data,
-  ) async {
-    if (!hasComprovanteInDoc(data)) {
-      _showSnack(context, 'Este lançamento não tem comprovante.');
-      return;
-    }
-    final mime = mimeFromDoc(data);
-    final fileName = displayNameFromDoc(data);
-
-    if (mime.contains('pdf')) {
-      await _viewPdf(context, data, fileName);
-      return;
-    }
-
-    final url =
-        await FinanceComprovantePublishService.resolveComprovanteUrl(data);
-    if (!context.mounted) return;
-    if (url.isEmpty) {
-      _showSnack(context, 'Não foi possível abrir o comprovante.');
-      return;
-    }
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (ctx) => Scaffold(
-          backgroundColor: Colors.black,
-          appBar: AppBar(
-            title: Text(fileName),
-            backgroundColor: ThemeCleanPremium.primary,
-            foregroundColor: Colors.white,
-          ),
-          body: Center(
-            child: InteractiveViewer(
-              child: SafeNetworkImage(
-                imageUrl: url,
-                fit: BoxFit.contain,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  static Future<void> _viewPdf(
-    BuildContext context,
-    Map<String, dynamic> data,
-    String fileName,
-  ) async {
-    try {
-      await ensureFirebaseCore(requireAuth: false);
-      final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
-      Uint8List? bytes;
-      if (path.isNotEmpty) {
-        bytes = await firebaseDefaultStorage.ref(path).getData(maxBytes);
-      }
-      if ((bytes == null || bytes.isEmpty) &&
-          (data['comprovanteUrl'] ?? '').toString().trim().isNotEmpty) {
-        final url =
-            await FinanceComprovantePublishService.resolveComprovanteUrl(data);
-        if (url.isNotEmpty) {
-          bytes = await firebaseDefaultStorage.refFromURL(url).getData(maxBytes);
-        }
-      }
-      if (!context.mounted) return;
-      if (bytes == null || bytes.isEmpty) {
-        _showSnack(context, 'Não foi possível carregar o PDF.');
-        return;
-      }
-      await showPdfActions(context, bytes: bytes, filename: fileName);
-    } catch (e) {
-      if (context.mounted) {
-        _showSnack(
-          context,
-          'Erro ao abrir PDF: ${e.toString().split('\n').first}',
-        );
-      }
-    }
-  }
+  ) =>
+      FinanceComprovanteViewerSheet.showFromDoc(context, data);
 }

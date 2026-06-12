@@ -136,6 +136,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     unawaited(_openChurchLettersFast());
     unawaited(_bootstrap());
     unawaited(_loadDepartmentsForLetters());
+    unawaited(warmChurchLetterPdfAssets());
   }
 
   Future<void> _loadDepartmentsForLetters() async {
@@ -270,6 +271,12 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         if (_signer2MemberId == _signer1MemberId) _signer2MemberId = null;
       }
     });
+    if (!second && _signer1MemberId != null) {
+      final m = _entryById(_signer1MemberId!)?.data;
+      if (m != null) {
+        unawaited(_getSignatureBytesCached(_signatureUrlFromMember(m)));
+      }
+    }
   }
 
   Future<void> _openRecipientsPicker() async {
@@ -851,9 +858,12 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
 
   String _contactoPdf(
     QuerySnapshot<Map<String, dynamic>> snap,
-  ) {
-    final m1 = _memberData(snap, _signer1MemberId);
-    final m2 = _memberData(snap, _signer2MemberId);
+  ) =>
+      _contactoPdfFromMaps(_memberDataById(snap.docs));
+
+  String _contactoPdfFromMaps(Map<String, Map<String, dynamic>> byId) {
+    final m1 = _signer1MemberId != null ? byId[_signer1MemberId!] : null;
+    final m2 = _signer2MemberId != null ? byId[_signer2MemberId!] : null;
     final c1 = m1 != null ? _contactLineFromMember(m1) : '';
     final c2 = m2 != null ? _contactLineFromMember(m2) : '';
     if (c1.isEmpty) return c2;
@@ -1060,6 +1070,14 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       return;
     }
 
+    if (_signer1MemberId != null && _signer1MemberId!.isNotEmpty) {
+      final m1Early = _entryById(_signer1MemberId!)?.data ??
+          _memberDataById(_seedMemberDocs)[_signer1MemberId!];
+      if (m1Early != null) {
+        unawaited(_getSignatureBytesCached(_signatureUrlFromMember(m1Early)));
+      }
+    }
+
     setState(() => _pdfBusy = true);
     YahwehFlowLog.cartaStart();
     try {
@@ -1068,13 +1086,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         _CartaKind.transferencia => _tplTransferCtrl.text,
         _CartaKind.agradecimento => _tplAgradecimentoCtrl.text,
       };
-      if (saveHistorico) {
-        await _persistHistorico(kind: kind, templateText: tplEarly);
-        if (mounted) setState(() => _historyEditDocId = null);
-      }
 
-      final snap = await _membersFuture;
-      final byId = _memberDataById(snap.docs);
+      final byId = _memberDataById(_seedMemberDocs);
       final lines = <ChurchLetterMemberLine>[];
       for (final id in _selectedIds) {
         final m = byId[id] ??
@@ -1133,7 +1146,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         }
       }
 
-      final contactPdf = _contactoPdf(snap);
+      final contactPdf = _contactoPdfFromMaps(byId);
       if (contactPdf.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1206,6 +1219,18 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           .toString()
           .replaceAll(RegExp(r'[^\w\-]'), '_');
       final kindSlug = kind.firestoreKind;
+
+      if (saveHistorico) {
+        unawaited(() async {
+          try {
+            await _persistHistorico(kind: kind, templateText: tplEarly);
+            if (mounted) setState(() => _historyEditDocId = null);
+          } catch (e, st) {
+            YahwehFlowLog.error('CARTA_HIST', e, st);
+          }
+        }());
+      }
+
       unawaited(
         showPdfActions(
           context,
@@ -2045,16 +2070,44 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           Container(
             color: Colors.black26,
             alignment: Alignment.center,
-            child: const Card(
+            child: Card(
+              elevation: 8,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
               child: Padding(
-                padding: EdgeInsets.all(24),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 28,
+                  vertical: 24,
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 12),
-                    Text('A gerar PDF…',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: ThemeCleanPremium.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text(
+                      'A gerar PDF…',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Quase pronto — histórico grava em segundo plano.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ],
                 ),
               ),

@@ -117,6 +117,7 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
+import 'package:gestao_yahweh/services/aviso_publish_service.dart';
 import 'package:gestao_yahweh/services/aviso_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/evento_strict_publish_service.dart';
@@ -3594,6 +3595,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   Future<({DocumentReference<Map<String, dynamic>> docRef, String igrejaId})>
       _prepareAvisoPublishContext() async {
+    await AvisoPublishService.ensureReady(logLabel: 'aviso_prepare');
     final igrejaId = ChurchPublishContext.churchIdForPublish(_editorTenantId);
     if (mounted) setState(() => _operationalTenantId = igrejaId);
     final docRef = AvisosPublishVerificationService.avisoDocRef(
@@ -4207,10 +4209,17 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       final expiresAt = refDate.add(const Duration(days: 1));
       payload['avisoExpiresAt'] = Timestamp.fromDate(expiresAt);
     }
-    if (widget.type == 'evento') {
-      final fotoPaths =
-          EventosPublishVerificationService.storagePathsFromUrls(allUrls);
-      payload['fotos'] = fotoPaths;
+    if (widget.type == 'aviso' || widget.type == 'evento') {
+      if (allUrls.isNotEmpty) {
+        payload['fotos'] = allUrls;
+        final paths = AvisosPublishVerificationService.storagePathsFromUrls(
+          allUrls,
+        );
+        if (paths.isNotEmpty) {
+          payload['fotoStoragePaths'] = paths;
+          payload['imageStoragePaths'] = paths;
+        }
+      }
     }
     payload['publicSite'] = _publicSite;
     if (widget.type == 'evento' && !isNewDoc) {
@@ -4533,9 +4542,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           msg.contains('permission-denied') ||
           msg.contains('WatchChangeAggregator') ||
           msg.contains('PersistentListenStream') ||
-          msg.contains('Unexpected state');
+          msg.contains('Unexpected state') ||
+          msg.contains('core/no-app') ||
+          isFirebaseNoAppError(e);
       if (mounted && isAssertionOrPerm) {
         try {
+          FastMediaPublishBootstrap.resetSessionWarm();
+          FirebaseBootstrapService.invalidateStorageUploadBootstrap();
+          await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
           await _retryPublishFirestoreFirst();
           if (widget.type == 'aviso') {
             final ctx = await _prepareAvisoPublishContext();

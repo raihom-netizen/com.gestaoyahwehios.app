@@ -51,7 +51,6 @@ import 'package:gestao_yahweh/ui/pages/relatorios_page.dart'
 import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
 import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
-import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
@@ -5223,7 +5222,7 @@ class _LancamentoCard extends StatelessWidget {
                       FinancePremiumIconAction(
                         icon: hasComprovanteAnexo
                             ? Icons.sync_rounded
-                            : Icons.camera_alt_rounded,
+                            : Icons.attach_file_rounded,
                         color: const Color(0xFF7C3AED),
                         tooltip: hasComprovanteAnexo
                             ? 'Trocar comprovante'
@@ -8104,9 +8103,13 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                     comprovanteAnexo = picked;
                     setDlgState(() {});
                     if (ctx.mounted) {
-                      ImmediateMediaAttachFeedback.showArquivoAnexado(
-                        ctx,
-                        picked.fileName,
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '${picked.fileName} selecionado — toque «Salvar» para enviar.',
+                          ),
+                          behavior: SnackBarBehavior.floating,
+                        ),
                       );
                     }
                   },
@@ -8117,7 +8120,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                       size: 20),
                   label: Text(
                     comprovanteAnexo != null
-                        ? 'Comprovante anexado'
+                        ? 'Pronto para enviar ao salvar'
                         : (comprovanteExistente
                             ? 'Comprovante já gravado'
                             : 'Anexar comprovante'),
@@ -8221,6 +8224,35 @@ Future<bool> showFinanceLancamentoEditorForTenant(
     Uint8List? pendingComprovanteBytes;
     String? pendingComprovanteMime;
     String? pendingComprovanteFileName;
+
+    Future<void> uploadPending({
+      required DocumentReference<Map<String, dynamic>> docRef,
+      required Map<String, dynamic> refData,
+      String? prevPath,
+      String? prevUrl,
+    }) async {
+      if (pendingComprovanteBytes == null || pendingComprovanteMime == null) {
+        return;
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Enviando comprovante…')),
+        );
+      }
+      final refDate =
+          FinanceComprovantePublishService.referenceDateFromMap(refData);
+      await FinanceComprovantePublishService.uploadComprovanteNow(
+        tenantId: tenantId,
+        docRef: docRef,
+        rawBytes: pendingComprovanteBytes!,
+        mimeType: pendingComprovanteMime!,
+        fileName: pendingComprovanteFileName,
+        referenceDate: refDate,
+        previousStoragePath: prevPath,
+        previousDownloadUrl: prevUrl,
+      );
+    }
+
     if (isEdit) {
       final novoComp = comprovanteAnexo;
       if (novoComp != null) {
@@ -8280,22 +8312,12 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         existingRef: existingDoc.reference,
         hasNewComprovante: pendingComprovanteBytes != null,
       );
-      if (pendingComprovanteBytes != null &&
-          pendingComprovanteMime != null) {
-        final refDate = FinanceComprovantePublishService.referenceDateFromMap(
-          {...?data, ...patch},
-        );
-        await FinanceComprovantePublishService.uploadComprovanteNow(
-          tenantId: tenantId,
-          docRef: existingDoc.reference,
-          rawBytes: pendingComprovanteBytes,
-          mimeType: pendingComprovanteMime,
-          fileName: pendingComprovanteFileName,
-          referenceDate: refDate,
-          previousStoragePath: (data?['comprovanteStoragePath'] ?? '').toString(),
-          previousDownloadUrl: (data?['comprovanteUrl'] ?? '').toString(),
-        );
-      }
+      await uploadPending(
+        docRef: existingDoc.reference,
+        refData: {...?data, ...patch},
+        prevPath: (data?['comprovanteStoragePath'] ?? '').toString(),
+        prevUrl: (data?['comprovanteUrl'] ?? '').toString(),
+      );
       if (context.mounted) {
         showFinanceSaveSnackBar(context, message: 'Lançamento atualizado!');
       }
@@ -8319,18 +8341,13 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         isEdit: false,
         hasNewComprovante: pendingAddBytes != null,
       );
-      if (pendingAddBytes != null && pendingAddMime != null) {
-        final refDate =
-            FinanceComprovantePublishService.referenceDateFromMap(result);
-        await FinanceComprovantePublishService.uploadComprovanteNow(
-          tenantId: tenantId,
-          docRef: docRef,
-          rawBytes: pendingAddBytes,
-          mimeType: pendingAddMime,
-          fileName: pendingAddFileName,
-          referenceDate: refDate,
-        );
-      }
+      pendingComprovanteBytes = pendingAddBytes;
+      pendingComprovanteMime = pendingAddMime;
+      pendingComprovanteFileName = pendingAddFileName;
+      await uploadPending(
+        docRef: docRef,
+        refData: result,
+      );
       if (context.mounted) {
         showFinanceSaveSnackBar(context, message: 'Lançamento salvo!');
       }

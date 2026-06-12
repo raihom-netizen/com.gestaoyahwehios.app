@@ -487,10 +487,10 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
   }
 
-  /// Foto canónica — **uma pasta por bem**, até 5 ficheiros:
-  /// `patrimonio/{itemDocId}/galeria_01.webp` … `galeria_05.webp` (sobrescreve ao trocar slot).
+  /// Foto canónica — **uma pasta por bem**, até 4 ficheiros:
+  /// `patrimonio/{itemDocId}/galeria_01.webp` … `galeria_04.webp` (sobrescreve ao trocar slot).
   static String patrimonioPhotoPath(String tenantId, String itemDocId, int slot) {
-    final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
+    final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
     final safeId = _safeDocId(itemDocId);
     final n = (s + 1).toString().padLeft(2, '0');
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/galeria_$n.webp';
@@ -501,14 +501,14 @@ abstract final class ChurchStorageLayout {
       String tenantId, String itemDocId, int slot) =>
       patrimonioPhotoPath(tenantId, itemDocId, slot);
 
-  /// Mesmo ficheiro do slot (política: 5 fotos na pasta, sem thumb separada).
+  /// Mesmo ficheiro do slot (política: 4 fotos na pasta, sem thumb separada).
   static String patrimonioThumbPath(String tenantId, String itemDocId, int slot) =>
       patrimonioPhotoPath(tenantId, itemDocId, slot);
 
   /// Layout antigo (flat) — só limpeza: `patrimonio/imagens/{id}_01.webp`.
   static String patrimonioPhotoPathFlatLegacy(
       String tenantId, String itemDocId, int slot) {
-    final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
+    final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
     final safeId = _safeDocId(itemDocId);
     final n = (s + 1).toString().padLeft(2, '0');
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$kSegImagens/${safeId}_$n.webp';
@@ -517,7 +517,7 @@ abstract final class ChurchStorageLayout {
   /// Layout antigo (flat) — só limpeza: `patrimonio/thumbs/{id}_01.webp`.
   static String patrimonioThumbPathFlatLegacy(
       String tenantId, String itemDocId, int slot) {
-    final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
+    final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
     final safeId = _safeDocId(itemDocId);
     final n = (s + 1).toString().padLeft(2, '0');
     return '${churchRoot(tenantId)}/$kSegPatrimonio/thumbs/${safeId}_$n.webp';
@@ -526,7 +526,7 @@ abstract final class ChurchStorageLayout {
   /// Base sem extensão (limpeza) — path canónico na pasta do bem.
   static String patrimonioPhotoBaseWithoutExt(
       String tenantId, String itemDocId, int slot) {
-    final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
+    final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
     final safeId = _safeDocId(itemDocId);
     final n = (s + 1).toString().padLeft(2, '0');
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/galeria_$n';
@@ -558,7 +558,7 @@ abstract final class ChurchStorageLayout {
 
   static String patrimonioPhotoBaseWithoutExtLegacy(
       String tenantId, String itemDocId, int slot) {
-    final s = slot < 0 ? 0 : (slot > 4 ? 4 : slot);
+    final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
     final safeId = _safeDocId(itemDocId);
     final root = '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
     final n = (s + 1).toString().padLeft(2, '0');

@@ -7,13 +7,19 @@ import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/media_image_variants_service.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show isValidImageUrl, sanitizeImageUrl;
 
-/// Resultado de um slot de foto — só paths (Firestore nunca guarda bytes nem URL fixa).
+/// Resultado de um slot de foto — path Storage + URL HTTPS para o Firestore.
 class FeedPhotoSlotResult {
   const FeedPhotoSlotResult({
     required this.fullPath,
     required this.thumbPath,
     this.imageVariants,
+    this.downloadUrl,
+    this.thumbDownloadUrl,
   });
 
   final String fullPath;
@@ -21,6 +27,12 @@ class FeedPhotoSlotResult {
 
   /// Variantes por tier (`thumb_300`, `medium_800`, `full_1920`) — só `storagePath`.
   final Map<String, dynamic>? imageVariants;
+
+  /// URL HTTPS do ficheiro principal (getDownloadURL após upload).
+  final String? downloadUrl;
+
+  /// URL HTTPS da miniatura (lista/painel); pode ser igual a [downloadUrl].
+  final String? thumbDownloadUrl;
 }
 
 /// Pipeline instantâneo: comprimir → upload Storage → paths (upload-first, paralelo).
@@ -80,7 +92,7 @@ abstract final class ChurchInstantUploadPipeline {
     return out;
   }
 
-  /// Upload de um slot do feed — Web: 3 variantes em paralelo; mobile: 1 upload + path de thumb canónico.
+  /// Upload de um slot do feed — evento: 1 ficheiro `galeria_XX.jpg` + URL no Firestore.
   static Future<FeedPhotoSlotResult> uploadFeedPhotoSlot({
     required String tenantId,
     required String postType,
@@ -90,6 +102,19 @@ abstract final class ChurchInstantUploadPipeline {
     String? localPath,
     void Function(double progress)? onProgress,
   }) async {
+    final pt = postType.trim().toLowerCase();
+    if (pt == 'evento' || pt == 'aviso') {
+      return _uploadSimpleFeedPhotoSlot(
+        postType: pt,
+        tenantId: tenantId,
+        postId: postId,
+        slotIndex: slotIndex,
+        bytes: bytes,
+        localPath: localPath,
+        onProgress: onProgress,
+      );
+    }
+
     final useWebTiers = kIsWeb;
     final useMobileTiers = !kIsWeb &&
         !IosPublishImagePipeline.useNativeFastFeedUpload;
@@ -181,6 +206,50 @@ abstract final class ChurchInstantUploadPipeline {
     return FeedPhotoSlotResult(
       fullPath: storageFull,
       thumbPath: thumbPath,
+    );
+  }
+
+  /// Aviso/evento — path legado estável `capa_aviso.jpg` / `galeria_XX.jpg`.
+  static Future<FeedPhotoSlotResult> _uploadSimpleFeedPhotoSlot({
+    required String postType,
+    required String tenantId,
+    required String postId,
+    required int slotIndex,
+    Uint8List? bytes,
+    String? localPath,
+    void Function(double progress)? onProgress,
+  }) async {
+    await ensureFirebaseCore(requireAuth: true);
+    Uint8List? prepared = bytes;
+    if (prepared == null || prepared.isEmpty) {
+      if (localPath != null && localPath.isNotEmpty) {
+        prepared = await prepareImageBytes(Uint8List(0), localPath: localPath);
+      }
+    } else {
+      prepared = await prepareImageBytes(prepared, localPath: localPath);
+    }
+    if (prepared == null || prepared.isEmpty) {
+      throw StateError('Sem imagem para enviar.');
+    }
+    final isAviso = postType.trim().toLowerCase() == 'aviso';
+    final storagePath = isAviso
+        ? ChurchStorageLayout.avisoPostPhotoPath(tenantId, postId, slotIndex)
+        : ChurchStorageLayout.eventPostPhotoPath(tenantId, postId, slotIndex);
+    final downloadUrl = await FeedPostMediaUpload.uploadFeedPhotoBytes(
+      storagePath: storagePath,
+      bytes: prepared,
+      onProgress: onProgress,
+    );
+    final clean = sanitizeImageUrl(downloadUrl);
+    if (!isValidImageUrl(clean)) {
+      throw StateError('Upload concluiu sem URL de download válida.');
+    }
+    await ChurchStorageMetadataVerify.assertExists(storagePath);
+    return FeedPhotoSlotResult(
+      fullPath: storagePath,
+      thumbPath: storagePath,
+      downloadUrl: clean,
+      thumbDownloadUrl: clean,
     );
   }
 

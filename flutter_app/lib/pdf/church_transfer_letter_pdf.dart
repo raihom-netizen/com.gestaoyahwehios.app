@@ -21,6 +21,28 @@ class ChurchLetterMemberLine {
 /// Corpo da carta: ~2 cm de recuo na 1.ª linha (normas cultas).
 const double _kLetterFirstLineIndentPt = 57;
 
+pw.Font? _cachedSerifBodyFont;
+
+Future<pw.Font?> _loadSerifBodyFont() async {
+  if (_cachedSerifBodyFont != null) return _cachedSerifBodyFont;
+  try {
+    final bytes =
+        await rootBundle.load('assets/fonts/LibreBaskerville-Variable.ttf');
+    _cachedSerifBodyFont = pw.Font.ttf(bytes);
+  } catch (e, st) {
+    debugPrint('church_transfer_letter_pdf: serif font $e\n$st');
+  }
+  return _cachedSerifBodyFont;
+}
+
+/// Pré-aquece fontes PDF (Roboto + serif) — chamar ao abrir Cartas.
+Future<void> warmChurchLetterPdfAssets() async {
+  await Future.wait([
+    PdfSuperPremiumTheme.loadRobotoPdfTheme(),
+    _loadSerifBodyFont(),
+  ]);
+}
+
 /// Gera PDF de carta de apresentação ou transferência (cabeçalho premium + logo).
 Future<Uint8List> buildChurchTransferLetterPdf({
   required ReportPdfBranding branding,
@@ -33,14 +55,7 @@ Future<Uint8List> buildChurchTransferLetterPdf({
   await PdfSuperPremiumTheme.loadRobotoPdfTheme();
   final doc = await PdfSuperPremiumTheme.newPdfDocument();
 
-  pw.Font? serifBody;
-  try {
-    final bytes =
-        await rootBundle.load('assets/fonts/LibreBaskerville-Variable.ttf');
-    serifBody = pw.Font.ttf(bytes);
-  } catch (e, st) {
-    debugPrint('church_transfer_letter_pdf: serif font $e\n$st');
-  }
+  final serifBody = await _loadSerifBodyFont();
 
   final extra = _churchHeaderExtraLines(churchData);
   final ink = PdfColor.fromInt(0xFF1E293B);

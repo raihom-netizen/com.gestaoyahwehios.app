@@ -66,7 +66,7 @@ abstract final class FirebasePerformanceLimits {
   static const int eventosMaxVideos = 1;
   static const int eventosMaxVideoSeconds = 90;
   static const int avisosMaxPhotos = 5;
-  static const int patrimonioMaxPhotos = 5;
+  static const int patrimonioMaxPhotos = 4;
 
   // ─── Streams ──────────────────────────────────────────────────────────────
   /// 1 listener por chave (`watchKey`) — ver [StreamListenerRegistry].

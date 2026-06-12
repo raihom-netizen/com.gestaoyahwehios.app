@@ -45,8 +45,8 @@ const int kStorageUploadCompressedImageStallSeconds = 15;
 /// Cancela upload se bytes não avançarem neste intervalo (imagens maiores).
 const int kStorageUploadImageStallSeconds = 30;
 
-/// Património — até 5 fotos por bem (móvel, equipamento, veículo, etc.).
-const int kMaxPatrimonioPhotosPerItem = 5;
+/// Património — até 4 fotos por bem (móvel, equipamento, veículo, etc.).
+const int kMaxPatrimonioPhotosPerItem = 4;
 
 /// Eventos (editor + galeria) — vídeo até 90 s.
 const int kMediaEventVideoMaxSeconds = 90;

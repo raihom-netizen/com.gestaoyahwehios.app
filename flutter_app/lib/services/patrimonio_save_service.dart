@@ -3,20 +3,18 @@ import 'dart:typed_data';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/patrimonio_strict_publish_service.dart';
 
-/// Gravação patrimônio — Storage paralelo → Firestore → confirmação.
+/// Gravação patrimônio — Storage sequencial → URLs HTTPS → Firestore.
 ///
-/// Storage: `igrejas/{churchId}/patrimonio/{itemId}/galeria_01.webp` … `_05.webp`
-/// Firestore: `fotoStoragePaths`, `fotos`, `fotoUrls`
+/// Storage: `igrejas/{churchId}/patrimonio/{itemId}/galeria_01.webp` … `_04.webp`
+/// Firestore: `fotoUrls`, `fotos` (URLs), `fotoStoragePaths`
 abstract final class PatrimonioSaveService {
   PatrimonioSaveService._();
 
   static String resolveChurchId(String hint) =>
       ChurchRepository.churchId(hint.trim());
 
-  /// Upload (se houver fotos novas) + metadados + verificação Storage/Firestore.
   static Future<void> save({
     required String churchIdHint,
     required String itemId,
@@ -40,12 +38,7 @@ abstract final class PatrimonioSaveService {
         );
 
         if (newImages.isNotEmpty) {
-          onProgress?.call(0.04, 'A ligar Storage…');
-          await FastMediaPublishBootstrap.warmForPatrimonioSave().timeout(
-            const Duration(seconds: 25),
-            onTimeout: () {},
-          );
-          onProgress?.call(0.06, 'A enviar ${newImages.length} foto(s)…');
+          onProgress?.call(0.05, 'A enviar ${newImages.length} foto(s)…');
 
           await PatrimonioStrictPublishService.publish(
             seedTenantId: churchId,
@@ -58,12 +51,12 @@ abstract final class PatrimonioSaveService {
             existingUrls: existingUrls,
             onUploadProgress: (p) {
               final pct = (p * 100).clamp(0, 100).toStringAsFixed(0);
-              final label = p < 0.15
+              final label = p < 0.12
                   ? 'A preparar fotos…'
-                  : p < 0.88
-                      ? 'A enviar fotos ($pct%)…'
+                  : p < 0.92
+                      ? 'A enviar fotos…'
                       : 'A gravar no Firestore…';
-              onProgress?.call(0.06 + p * 0.9, label);
+              onProgress?.call(0.05 + p * 0.93, '$label $pct%');
             },
           );
           onProgress?.call(1.0, 'Patrimônio gravado.');

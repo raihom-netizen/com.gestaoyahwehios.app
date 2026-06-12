@@ -7413,7 +7413,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'videoUrl': firstVideoUrl,
       'thumbUrl': firstThumbUrl,
       'videos': videosClean,
-      'fotos': fotoPaths,
+      if (allUrlsSafe.isNotEmpty) 'fotos': allUrlsSafe,
+      if (fotoPaths.isNotEmpty) 'fotoStoragePaths': fotoPaths,
+      if (fotoPaths.isNotEmpty) 'imageStoragePaths': fotoPaths,
       if (videoPath != null && videoPath.isNotEmpty) 'videoPath': videoPath,
       'ativo': true,
       'publicado': true,
@@ -7746,8 +7748,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   .kPublishVerifyFailedMessage) ||
               msg.contains(EventosPublishVerificationService
                   .kStorageVerifyFailedMessage);
-      if (mounted && isAssertionOrPerm) {
+      if (mounted && (isAssertionOrPerm || isFirebaseNoAppError(e))) {
         try {
+          FastMediaPublishBootstrap.resetSessionWarm();
+          FirebaseBootstrapService.invalidateStorageUploadBootstrap();
+          await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
           await _retryEventPublishFirestoreFirst();
           final verifyCtx = await _prepareEventoPublishContext();
           await EventosPublishVerificationService.verifyDocumentExists(

@@ -217,6 +217,70 @@ class _MembersPageState extends State<MembersPage> {
     return id.isNotEmpty ? id : widget.tenantId.trim();
   }
 
+  Map<String, dynamic> _memberPhotoFirestorePatch(
+    MemberProfilePhotoUpdateResult result,
+  ) {
+    final displayUrl = sanitizeImageUrl(result.downloadUrl);
+    final patch = <String, dynamic>{
+      'photoStoragePath': result.storagePath,
+      'photoThumbStoragePath': result.thumbStoragePath,
+      'fotoPath': result.storagePath,
+      'fotoThumbPath': result.thumbStoragePath,
+      'fotoUrlCacheRevision': result.cacheRevision,
+    };
+    if (displayUrl.isNotEmpty) {
+      patch.addAll({
+        'FOTO_URL_DB': displayUrl,
+        'avatarUrl': displayUrl,
+        'fotoUrl': displayUrl,
+        'FOTO_URL_OU_ID': displayUrl,
+        'foto_url': displayUrl,
+        'photoURL': displayUrl,
+        'photoUrl': displayUrl,
+      });
+    }
+    final thumbUrl = sanitizeImageUrl(result.thumbDownloadUrl ?? '');
+    if (thumbUrl.isNotEmpty) {
+      patch['fotoThumbUrl'] = thumbUrl;
+      patch['photoThumbUrl'] = thumbUrl;
+    }
+    return patch;
+  }
+
+  void _applyMemberPhotoUpdateLocally(
+    String memberDocId,
+    Map<String, dynamic> memberData,
+    MemberProfilePhotoUpdateResult result,
+  ) {
+    final patch = _memberPhotoFirestorePatch(result);
+    final merged = Map<String, dynamic>.from(memberData)..addAll(patch);
+    final displayUrl = sanitizeImageUrl(result.downloadUrl);
+    setState(() {
+      if (displayUrl.isNotEmpty) {
+        _uploadedPhotoUrls[memberDocId] = displayUrl;
+      }
+      _optimisticProfilePhotoBytes.remove(memberDocId);
+    });
+    _applyMemberSavedLocally(memberDocId, patch);
+    _invalidateMemberPhotoCaches(_effectiveTenantId, memberDocId, merged);
+    MemberProfilePhotoUpdateService.invalidateDisplayCaches(
+      previousDownloadUrl: sanitizeImageUrl(imageUrlFromMap(memberData)),
+      newDownloadUrl: displayUrl,
+      storagePath: result.storagePath,
+      thumbStoragePath: result.thumbStoragePath,
+      tenantId: _effectiveTenantId,
+      memberDocId: memberDocId,
+      authUid: (memberData['authUid'] ?? '').toString().trim(),
+    );
+    if (displayUrl.isNotEmpty) {
+      unawaited(FirebaseStorageCleanupService.evictImageCaches(displayUrl));
+    }
+    Future.delayed(const Duration(seconds: 20), () {
+      if (!mounted) return;
+      setState(() => _uploadedPhotoUrls.remove(memberDocId));
+    });
+  }
+
   /// Mesmo pipeline do Chat Igreja — Storage `membros/{authUid}/foto_perfil.jpg` + sync chat.
   Future<void> _publishMemberProfilePhotoStrict({
     required String tenantId,
@@ -231,43 +295,7 @@ class _MembersPageState extends State<MembersPage> {
       rawBytes: bytes,
     );
     if (!mounted) return;
-    final displayUrl = sanitizeImageUrl(result.downloadUrl);
-    final merged = Map<String, dynamic>.from(memberData)
-      ..addAll({
-        'photoStoragePath': result.storagePath,
-        'photoThumbStoragePath': result.thumbStoragePath,
-        'fotoPath': result.storagePath,
-        'fotoThumbPath': result.thumbStoragePath,
-        'fotoUrlCacheRevision': result.cacheRevision,
-        if (displayUrl.isNotEmpty) ...{
-          'FOTO_URL_DB': displayUrl,
-          'avatarUrl': displayUrl,
-          'fotoUrl': displayUrl,
-          'FOTO_URL_OU_ID': displayUrl,
-          'foto_url': displayUrl,
-          'photoURL': displayUrl,
-          'photoUrl': displayUrl,
-        },
-        if (result.thumbDownloadUrl != null &&
-            result.thumbDownloadUrl!.trim().isNotEmpty) ...{
-          'fotoThumbUrl': sanitizeImageUrl(result.thumbDownloadUrl!),
-          'photoThumbUrl': sanitizeImageUrl(result.thumbDownloadUrl!),
-        },
-      });
-    setState(() {
-      if (displayUrl.isNotEmpty) {
-        _uploadedPhotoUrls[memberDocId] = displayUrl;
-      }
-      _optimisticProfilePhotoBytes.remove(memberDocId);
-    });
-    _invalidateMemberPhotoCaches(tenantId, memberDocId, merged);
-    if (displayUrl.isNotEmpty) {
-      unawaited(FirebaseStorageCleanupService.evictImageCaches(displayUrl));
-    }
-    Future.delayed(const Duration(seconds: 20), () {
-      if (!mounted) return;
-      setState(() => _uploadedPhotoUrls.remove(memberDocId));
-    });
+    _applyMemberPhotoUpdateLocally(memberDocId, memberData, result);
   }
 
   void _invalidateMemberPhotoCaches(
@@ -1847,13 +1875,9 @@ class _MembersPageState extends State<MembersPage> {
     return m;
   }
 
-  /// Toque na linha: gestor abre edição; demais perfis abrem a ficha.
+  /// Toque na linha: sempre abre a ficha (detalhes); editar só pelos botões da ficha.
   void _onMemberRowTap(BuildContext context, _MemberDoc member) {
-    if (_canEditMemberRecord(member)) {
-      unawaited(_editMember(context, member));
-      return;
-    }
-    _showMemberDetails(context, member);
+    _showMemberDetails(context, _memberWithOptimisticOverlay(member));
   }
 
   void _applyOptimisticMemberEditOverlay(
@@ -2074,9 +2098,7 @@ class _MembersPageState extends State<MembersPage> {
       initialData: member.data,
     );
     if (!mounted || result == null) return;
-    setState(() {
-      _optimisticProfilePhotoBytes.remove(member.id);
-    });
+    _applyMemberPhotoUpdateLocally(member.id, member.data, result);
     _refreshMembers(forceServer: true);
   }
 

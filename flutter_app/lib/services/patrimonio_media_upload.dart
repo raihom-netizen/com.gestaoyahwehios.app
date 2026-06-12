@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_media_upload.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
-import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 
 /// Resultado de upload de galeria — um ficheiro por slot na pasta do bem.
 class PatrimonioGalleryUploadResult {
@@ -24,7 +23,7 @@ abstract final class PatrimonioMediaUpload {
   PatrimonioMediaUpload._();
 
   static const Duration uploadTimeout = Duration(seconds: 45);
-  static const Duration batchTimeout = Duration(minutes: 6);
+  static const Duration batchTimeout = Duration(minutes: 3);
 
   /// Fotos já comprimidas no picker (WebP ~1024px) — evita reprocessar no save.
   static Future<PatrimonioGalleryUploadResult> uploadGalleryPhoto({
@@ -42,6 +41,11 @@ abstract final class PatrimonioMediaUpload {
     }
     if (rawBytes.isEmpty) {
       throw StateError('Imagem vazia — selecione outra foto.');
+    }
+    if (slotIndex < 0 || slotIndex >= kMaxPatrimonioPhotosPerItem) {
+      throw StateError(
+        'Slot de foto inválido ($slotIndex). Máximo: $kMaxPatrimonioPhotosPerItem fotos.',
+      );
     }
 
     final path = ChurchStorageLayout.patrimonioPhotoPath(cid, iid, slotIndex);
@@ -77,8 +81,8 @@ abstract final class PatrimonioMediaUpload {
     );
   }
 
-  /// Até 5 fotos em paralelo (3–4 workers) — gravação rápida no painel.
-  static Future<List<PatrimonioGalleryUploadResult>> uploadGalleryPhotosParallel({
+  /// Até 4 fotos em sequência — evita deadlock do 5.º slot e garante conclusão.
+  static Future<List<PatrimonioGalleryUploadResult>> uploadGalleryPhotosSequential({
     required String churchId,
     required String itemDocId,
     required List<Uint8List> images,
@@ -87,23 +91,26 @@ abstract final class PatrimonioMediaUpload {
     bool skipPrepare = true,
   }) async {
     if (images.isEmpty) return const [];
-    final maxConc =
-        mediaFeedUploadMaxConcurrent.clamp(1, images.length.clamp(1, 5));
-    final results = await FeedPostMediaUpload.uploadParallel<PatrimonioGalleryUploadResult>(
-      count: images.length,
-      maxConcurrent: maxConc,
-      progressLabel: 'Patrimônio',
-      onBatchProgress: onBatchProgress,
-      uploadOne: (i, report) => uploadGalleryPhoto(
+    final count = images.length.clamp(0, kMaxPatrimonioPhotosPerItem - startSlot);
+    if (count <= 0) return const [];
+
+    final results = <PatrimonioGalleryUploadResult>[];
+    for (var i = 0; i < count; i++) {
+      final slot = startSlot + i;
+      onBatchProgress?.call(i / count);
+      final r = await uploadGalleryPhoto(
         churchId: churchId,
         itemDocId: itemDocId,
-        slotIndex: startSlot + i,
+        slotIndex: slot,
         rawBytes: images[i],
         skipPrepare: skipPrepare,
-        onProgress: report,
-      ).timeout(uploadTimeout),
-    ).timeout(batchTimeout);
-    results.sort((a, b) => a.slotIndex.compareTo(b.slotIndex));
+        onProgress: (slotP) {
+          onBatchProgress?.call((i + slotP) / count);
+        },
+      );
+      results.add(r);
+    }
+    onBatchProgress?.call(1.0);
     return results;
   }
 }

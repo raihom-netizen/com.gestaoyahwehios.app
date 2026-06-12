@@ -5,8 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
-import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
 import 'package:gestao_yahweh/services/patrimonio_publish_verification_service.dart';
@@ -14,7 +14,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Patrimônio — Storage validado → Firestore → confirmação (sem falso sucesso).
+/// Patrimônio — upload Storage (até 4 fotos) → URLs HTTPS → Firestore → confirmação.
 abstract final class PatrimonioStrictPublishService {
   PatrimonioStrictPublishService._();
 
@@ -22,7 +22,7 @@ abstract final class PatrimonioStrictPublishService {
       EntityPublishStatus.photoUploadStateField;
   static const String statePublished = EntityPublishStatus.published;
 
-  /// Upload fotos (paralelo) → validar Storage → gravar Firestore → confirmar doc.
+  /// Upload sequencial (fiável) → validar Storage → gravar Firestore → confirmar doc.
   static Future<void> publish({
     required String seedTenantId,
     required String itemId,
@@ -65,16 +65,15 @@ abstract final class PatrimonioStrictPublishService {
         .where((e) => e.isNotEmpty)
         .toList();
 
-    if (newImages.isNotEmpty) {
-      await FastMediaPublishBootstrap.warmForPatrimonioSave().timeout(
-        const Duration(seconds: 25),
-        onTimeout: () {},
-      );
-      onUploadProgress?.call(0.06);
+    final maxNew = (kMaxPatrimonioPhotosPerItem - startSlot).clamp(0, kMaxPatrimonioPhotosPerItem);
+    final batch = newImages.take(maxNew).toList(growable: false);
+
+    if (batch.isNotEmpty) {
+      onUploadProgress?.call(0.04);
 
       if (!isNewDoc) {
         await Future.wait([
-          for (var j = 0; j < newImages.length; j++)
+          for (var j = 0; j < batch.length; j++)
             FirebaseStorageCleanupService.deletePatrimonioCanonicalSlotFast(
               tenantId: igrejaId,
               itemDocId: itemId,
@@ -84,15 +83,13 @@ abstract final class PatrimonioStrictPublishService {
       }
       onUploadProgress?.call(0.08);
 
-      final uploaded = await PatrimonioMediaUpload.uploadGalleryPhotosParallel(
+      final uploaded = await PatrimonioMediaUpload.uploadGalleryPhotosSequential(
         churchId: igrejaId,
         itemDocId: itemId,
-        images: newImages,
+        images: batch,
         startSlot: startSlot,
         skipPrepare: true,
-        onBatchProgress: (p) {
-          onUploadProgress?.call(0.08 + p * 0.78);
-        },
+        onBatchProgress: (p) => onUploadProgress?.call(0.08 + p * 0.82),
       );
 
       for (final r in uploaded) {
@@ -101,9 +98,9 @@ abstract final class PatrimonioStrictPublishService {
       }
 
       await PatrimonioPublishVerificationService.verifyStorageMetadata(
-        photoPaths: allPaths.sublist(existingPaths.length),
-        timeout: const Duration(seconds: 12),
-        maxAttempts: 4,
+        photoPaths: uploaded.map((e) => e.storagePath),
+        timeout: const Duration(seconds: 10),
+        maxAttempts: 3,
       );
     }
 
@@ -117,13 +114,26 @@ abstract final class PatrimonioStrictPublishService {
       payload['criadoEm'] = FieldValue.serverTimestamp();
     }
 
-    onUploadProgress?.call(0.92);
+    onUploadProgress?.call(0.94);
 
     await FirestoreWebGuard.runWithWebRecovery(
       () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
+    ).timeout(
+      const Duration(seconds: 45),
+      onTimeout: () => throw TimeoutException(
+        'Gravação no Firestore demorou demais. Verifique a rede e tente novamente.',
+      ),
     );
 
-    await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
+    await PatrimonioPublishVerificationService.verifyDocumentExists(docRef)
+        .timeout(
+      const Duration(seconds: 20),
+      onTimeout: () => throw TimeoutException(
+        'Patrimônio gravado mas confirmação no servidor demorou demais.',
+      ),
+    );
+
+    onUploadProgress?.call(1.0);
 
     unawaited(
       PatrimonioPublishVerificationService.logPublishPhase(
@@ -190,8 +200,26 @@ abstract final class PatrimonioStrictPublishService {
     List<String> paths,
     List<String> urls,
   ) {
+    if (urls.isNotEmpty) {
+      payload['fotos'] = urls;
+      payload['fotoUrls'] = urls;
+      payload['imageUrls'] = urls;
+      payload['imageUrl'] = urls.first;
+      payload['fotoUrl'] = urls.first;
+      payload['thumbnail'] = urls.first;
+      payload['fotoPrincipalThumbPath'] = FieldValue.delete();
+      payload['thumbStoragePath'] = FieldValue.delete();
+      payload['imageVariants'] = FieldValue.delete();
+      payload['fotoVariants'] = FieldValue.delete();
+    } else {
+      payload['fotos'] = FieldValue.delete();
+      payload['fotoUrls'] = FieldValue.delete();
+      payload['imageUrls'] = FieldValue.delete();
+      payload['imageUrl'] = FieldValue.delete();
+      payload['fotoUrl'] = FieldValue.delete();
+      payload['thumbnail'] = FieldValue.delete();
+    }
     if (paths.isNotEmpty) {
-      payload['fotos'] = paths;
       payload['fotoStoragePaths'] = paths;
       payload['imageStoragePath'] = paths.first;
       payload['fotoPath'] = paths.first;
@@ -201,14 +229,6 @@ abstract final class PatrimonioStrictPublishService {
       } else {
         payload['gallery'] = FieldValue.delete();
       }
-    }
-    if (urls.isNotEmpty) {
-      payload['fotoUrls'] = urls;
-      payload['imageUrl'] = urls.first;
-      payload['fotoUrl'] = urls.first;
-      payload['thumbnail'] = urls.first;
-      payload['fotoPrincipalThumbPath'] = FieldValue.delete();
-      payload['thumbStoragePath'] = FieldValue.delete();
     }
   }
 }

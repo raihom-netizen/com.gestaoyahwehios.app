@@ -1,5 +1,7 @@
 /// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+1944: Financeiro — comprovante JPEG/PNG/PDF Storage→Firestore; olho premium; sem vídeo.
+/// 11.2.305+1943: Patrimônio — upload sequencial até 4 fotos, URLs HTTPS no Firestore, save conclui.
 /// 11.2.305+1921: Eventos — ChurchEventosLoadService cache-first; publish web sem dart:io (_Namespace); paths igrejas/{id}/eventos.
 /// 11.2.305+1908: Cadastro Igreja — leitura Firestore completa (timeout 100s web), retry automático, perfil rico.
 /// 11.2.305+1907: Cadastro Igreja — leitura directa igrejas/{id}, logo configuracoes/logo_igreja.png, formulário resiliente web.
@@ -377,8 +379,8 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1925: Foto perfil membro — picker web/mobile unificado, preview imediato, upload Storage+Firestore por doc id.
 /// 11.2.305+1930: Foto perfil membro — pipeline linear sem limpeza bloqueante; UI premium.
 /// 11.2.305+1931: Chat igreja — envio mídia pipeline único (timeout 90s, foto/PDF/vídeo, paths igrejas/{id}/chat_media).
-/// 11.2.305+1938: Financeiro — comprovante Storage directo, UI sem texto fantasma, olho/trocar.
-const String appBuildNumber = '1938';
+/// 11.2.305+1939: Cartas — deptos visíveis, lista moderna, PDF rápido.
+const String appBuildNumber = '1944';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

@@ -12,6 +12,8 @@ import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
+    show memberPhotoDisplayCacheRevision;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap, isValidImageUrl;
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
@@ -253,6 +255,7 @@ class ChurchPanelLeaderTile extends StatelessWidget {
       size: avatarSize,
       memCacheWidth: memPx,
       memCacheHeight: memPx,
+      imageCacheRevision: memberPhotoDisplayCacheRevision(data) ?? 0,
       preferListThumbnail: true,
       backgroundColor:
           avatarColor ?? ThemeCleanPremium.primary.withValues(alpha: 0.1),
