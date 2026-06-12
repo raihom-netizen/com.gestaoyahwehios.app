@@ -1,19 +1,21 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_feed_media_storage_fields.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
-import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity;
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Pipeline único e síncrono: upload → Storage OK → Firestore → agenda → distribuição.
 abstract final class ChurchFeedLinearPublishService {
@@ -31,6 +33,7 @@ abstract final class ChurchFeedLinearPublishService {
     bool publicSite = true,
     DateTime? calendarDate,
     bool syncCalendar = true,
+    void Function(double progress)? onUploadProgress,
   }) =>
       _publish(
         kind: PublicationKind.aviso,
@@ -46,6 +49,7 @@ abstract final class ChurchFeedLinearPublishService {
         calendarDate: calendarDate,
         syncCalendar: syncCalendar,
         hasVideo: false,
+        onUploadProgress: onUploadProgress,
       );
 
   static Future<String> publishEvento({
@@ -65,6 +69,7 @@ abstract final class ChurchFeedLinearPublishService {
     bool syncAgenda = true,
     String? agendaCategory,
     String? agendaColorHex,
+    void Function(double progress)? onUploadProgress,
   }) =>
       _publish(
         kind: PublicationKind.evento,
@@ -84,6 +89,7 @@ abstract final class ChurchFeedLinearPublishService {
         syncAgenda: syncAgenda,
         agendaCategory: agendaCategory,
         agendaColorHex: agendaColorHex,
+        onUploadProgress: onUploadProgress,
       );
 
   static Future<String> _publish({
@@ -106,14 +112,17 @@ abstract final class ChurchFeedLinearPublishService {
     bool syncAgenda = false,
     String? agendaCategory,
     String? agendaColorHex,
+    void Function(double progress)? onUploadProgress,
   }) async {
     final isEvento = kind == PublicationKind.evento;
     final postType = isEvento ? 'evento' : 'aviso';
     final docId = docRef.id;
-    final churchId = tenantId.trim();
+    final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
 
-    await ensureFirebaseReadyForPublishUpload();
-    await FeedPublishPreflight.prepareForFirestoreSave();
+    await ensureFirebaseCore(requireAuth: true);
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+    }
 
     if (isEvento) {
       ChurchPublishFlowLog.eventoStart();
@@ -141,6 +150,7 @@ abstract final class ChurchFeedLinearPublishService {
         startSlotIndex: startSlotIndex,
         bytesList: newImagesBytes,
         localPaths: newImagePaths,
+        onProgress: onUploadProgress,
       );
       for (final slot in slots) {
         uploadedPaths.add(slot.fullPath);
@@ -159,15 +169,21 @@ abstract final class ChurchFeedLinearPublishService {
       ...uploadedPaths,
     ];
 
-    if (isEvento) {
-      await EventosPublishVerificationService.verifyStorageMetadata(
-        photoPaths: allPaths,
-        videoPath: videoStoragePath,
-      );
-    } else {
-      await AvisosPublishVerificationService.verifyStorageMetadata(
-        photoPaths: allPaths,
-      );
+    if (hasNewPhotos) {
+      if (isEvento) {
+        await EventosPublishVerificationService.verifyStorageMetadata(
+          photoPaths: uploadedPaths,
+          videoPath: videoStoragePath,
+          timeout: const Duration(seconds: 8),
+          maxAttempts: 2,
+        );
+      } else {
+        await AvisosPublishVerificationService.verifyStorageMetadata(
+          photoPaths: uploadedPaths,
+          timeout: const Duration(seconds: 8),
+          maxAttempts: 2,
+        );
+      }
     }
 
     final aspectRatio = _aspectRatioFromPayload(corePayload);

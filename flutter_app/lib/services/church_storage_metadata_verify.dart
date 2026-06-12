@@ -11,13 +11,14 @@ abstract final class ChurchStorageMetadataVerify {
   static Future<void> assertExists(
     String storagePath, {
     Duration timeout = kDefaultTimeout,
+    int maxAttempts = kMaxAttempts,
   }) async {
     final path = storagePath.trim();
     if (path.isEmpty) {
       throw StateError('storagePath vazio — upload não concluído.');
     }
     Object? last;
-    for (var attempt = 0; attempt < kMaxAttempts; attempt++) {
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         await firebaseDefaultStorage
             .ref(path)
@@ -26,7 +27,7 @@ abstract final class ChurchStorageMetadataVerify {
         return;
       } catch (e) {
         last = e;
-        if (attempt >= kMaxAttempts - 1) break;
+        if (attempt >= maxAttempts - 1) break;
         await Future<void>.delayed(
           Duration(milliseconds: 180 + attempt * 220),
         );
@@ -38,11 +39,12 @@ abstract final class ChurchStorageMetadataVerify {
   static Future<void> assertAllExist(
     Iterable<String> storagePaths, {
     Duration timeout = kDefaultTimeout,
+    int maxAttempts = kMaxAttempts,
   }) async {
     for (final p in storagePaths) {
       final t = p.trim();
       if (t.isEmpty) continue;
-      await assertExists(t, timeout: timeout);
+      await assertExists(t, timeout: timeout, maxAttempts: maxAttempts);
     }
   }
 }

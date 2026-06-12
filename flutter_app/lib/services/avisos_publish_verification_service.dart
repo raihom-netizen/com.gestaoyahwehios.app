@@ -99,9 +99,15 @@ abstract final class AvisosPublishVerificationService {
   /// Confirma fotos no Storage antes de marcar aviso como publicado.
   static Future<void> verifyStorageMetadata({
     Iterable<String> photoPaths = const [],
+    Duration timeout = ChurchStorageMetadataVerify.kDefaultTimeout,
+    int maxAttempts = ChurchStorageMetadataVerify.kMaxAttempts,
   }) async {
     try {
-      await ChurchStorageMetadataVerify.assertAllExist(photoPaths);
+      await ChurchStorageMetadataVerify.assertAllExist(
+        photoPaths,
+        timeout: timeout,
+        maxAttempts: maxAttempts,
+      );
     } catch (e) {
       rememberLastError(kStorageVerifyFailedMessage);
       rethrow;

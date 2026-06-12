@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
 
-/// Aviso — EcoFire: upload → Storage → URL no Firestore → calendário (síncrono).
+/// Aviso — EcoFire: upload → Storage → Firestore → calendário → distribuição (síncrono).
 abstract final class AvisoStrictPublishService {
   AvisoStrictPublishService._();
 
@@ -19,6 +19,7 @@ abstract final class AvisoStrictPublishService {
     bool publicSite = true,
     DateTime? calendarDate,
     bool syncCalendar = true,
+    void Function(double progress)? onUploadProgress,
   }) =>
       ChurchFeedLinearPublishService.publishAviso(
         docRef: docRef,
@@ -32,5 +33,6 @@ abstract final class AvisoStrictPublishService {
         publicSite: publicSite,
         calendarDate: calendarDate,
         syncCalendar: syncCalendar,
+        onUploadProgress: onUploadProgress,
       );
 }

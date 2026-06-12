@@ -59,6 +59,7 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
 import 'package:gestao_yahweh/services/membro_strict_update_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
@@ -238,6 +239,20 @@ class _MembersPageState extends State<MembersPage> {
         'fotoPath': result.storagePath,
         'fotoThumbPath': result.thumbStoragePath,
         'fotoUrlCacheRevision': result.cacheRevision,
+        if (displayUrl.isNotEmpty) ...{
+          'FOTO_URL_DB': displayUrl,
+          'avatarUrl': displayUrl,
+          'fotoUrl': displayUrl,
+          'FOTO_URL_OU_ID': displayUrl,
+          'foto_url': displayUrl,
+          'photoURL': displayUrl,
+          'photoUrl': displayUrl,
+        },
+        if (result.thumbDownloadUrl != null &&
+            result.thumbDownloadUrl!.trim().isNotEmpty) ...{
+          'fotoThumbUrl': sanitizeImageUrl(result.thumbDownloadUrl!),
+          'photoThumbUrl': sanitizeImageUrl(result.thumbDownloadUrl!),
+        },
       });
     setState(() {
       if (displayUrl.isNotEmpty) {
@@ -1792,32 +1807,53 @@ class _MembersPageState extends State<MembersPage> {
     return _MemberDoc(m.id, {...m.data, ...o});
   }
 
-  /// Ficha completa do Firestore (filição, endereço, etc.) — o cache leve do painel omite estes campos.
+  /// Ficha completa do Firestore (filição, endereço, etc.) — doc directo `igrejas/{churchId}/membros`.
   Future<_MemberDoc> _hydrateMemberDocFull(_MemberDoc member) async {
     var m = _memberWithOptimisticOverlay(member);
-    final tid = _effectiveTenantId.trim();
-    if (tid.isEmpty) return m;
+    final churchId = ChurchRepository.churchId(_effectiveTenantId);
+    if (churchId.isEmpty) return m;
     try {
-      await ChurchTenantResilientReads.preparePanelRead();
-      var operational = tid;
-      try {
-        operational =
-            await ChurchTenantResilientReads.operationalTenantId(tid);
-      } catch (_) {}
-      final cpf = _str(m.data, 'CPF', 'cpf').replaceAll(RegExp(r'\D'), '');
-      final snap = await ChurchTenantResilientReads.membroByHint(
-        operational,
-        m.id,
-        cpfDigits: cpf.length == 11 ? cpf : null,
-      );
-      if (snap != null && snap.exists) {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      Future<DocumentSnapshot<Map<String, dynamic>>> readDoc(String id) {
+        Future<DocumentSnapshot<Map<String, dynamic>>> go() =>
+            ChurchUiCollections.membros(churchId).doc(id).get();
+        if (kIsWeb) {
+          return FirestoreWebGuard.runWithWebRecovery(go, maxAttempts: 4);
+        }
+        return go();
+      }
+
+      var snap = await readDoc(m.id);
+      if (snap.exists) {
         final fresh = snap.data();
         if (fresh != null && fresh.isNotEmpty) {
           m = _MemberDoc(m.id, {...m.data, ...fresh});
         }
+      } else {
+        final cpf = _str(m.data, 'CPF', 'cpf').replaceAll(RegExp(r'\D'), '');
+        if (cpf.length == 11 && cpf != m.id) {
+          snap = await readDoc(cpf);
+          if (snap.exists) {
+            final fresh = snap.data();
+            if (fresh != null && fresh.isNotEmpty) {
+              m = _MemberDoc(snap.id, {...m.data, ...fresh});
+            }
+          }
+        }
       }
     } catch (_) {}
     return m;
+  }
+
+  /// Toque na linha: gestor abre edição; demais perfis abrem a ficha.
+  void _onMemberRowTap(BuildContext context, _MemberDoc member) {
+    if (_canEditMemberRecord(member)) {
+      unawaited(_editMember(context, member));
+      return;
+    }
+    _showMemberDetails(context, member);
   }
 
   void _applyOptimisticMemberEditOverlay(
@@ -2038,6 +2074,9 @@ class _MembersPageState extends State<MembersPage> {
       initialData: member.data,
     );
     if (!mounted || result == null) return;
+    setState(() {
+      _optimisticProfilePhotoBytes.remove(member.id);
+    });
     _refreshMembers(forceServer: true);
   }
 
@@ -2567,7 +2606,8 @@ class _MembersPageState extends State<MembersPage> {
                       label: 'Chat igreja',
                       color: const Color(0xFF0D9488),
                       onTap: () {
-                        ChurchMemberContactChat.openChatIgrejaUnawaited(
+                        Navigator.pop(ctx);
+                        unawaited(ChurchMemberContactChat.openChatIgreja(
                           context: context,
                           tenantId: _effectiveTenantId,
                           memberRole: widget.role,
@@ -2577,8 +2617,7 @@ class _MembersPageState extends State<MembersPage> {
                           memberData: member.data,
                           memberDocId: member.id,
                           displayName: name,
-                          popSheetBeforeNavigate: true,
-                        );
+                        ));
                       },
                     ),
                     _ActionChip(
@@ -2910,7 +2949,8 @@ class _MembersPageState extends State<MembersPage> {
       }
       return;
     }
-    member = await _hydrateMemberDocFull(member);
+    member = await _hydrateMemberDocFull(member)
+        .timeout(const Duration(seconds: 14), onTimeout: () => member);
     if (!mounted) return;
     final selfOnly = !staffEdit;
     final d = member.data;
@@ -2990,6 +3030,7 @@ class _MembersPageState extends State<MembersPage> {
         TextEditingController(text: _str(d, 'PROFISSAO', 'profissao'));
     XFile? newPhoto;
     Uint8List? newPhotoBytes;
+    final profilePhotoPreview = ValueNotifier<Uint8List?>(null);
     final currentPhoto = _photoUrlForMember(member.id, d);
     final photoTenantId = _storageTenantIdForMemberPhotos(d);
     final memberName = _str(d, 'NOME_COMPLETO', 'nome', 'name');
@@ -3046,9 +3087,15 @@ class _MembersPageState extends State<MembersPage> {
                     ),
                     child: Row(
                       children: [
+                        TextButton.icon(
+                          onPressed: () => Navigator.pop(ctx, null),
+                          icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                          label: const Text('Voltar'),
+                        ),
+                        const SizedBox(width: 8),
                         const Icon(Icons.edit_rounded,
                             color: ThemeCleanPremium.primary),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             selfOnly ? 'Meu cadastro' : 'Editar Membro',
@@ -3085,21 +3132,30 @@ class _MembersPageState extends State<MembersPage> {
                               if (_pickingProfilePhoto) return;
                               setDlg(() => _pickingProfilePhoto = true);
                               try {
-                                final picked = await _pickImage(ctx);
-                                if (picked != null) {
-                                  // Sempre em memória: XFile pós-WebP pode ser fromData sem path válido no disco.
-                                  newPhotoBytes =
-                                      await SafeImageBytes.memberProfileFromPicker(
-                                          picked);
-                                  newPhoto = picked;
+                                final picked =
+                                    await MemberProfilePhotoPickService
+                                        .pickForMemberEdit(ctx);
+                                if (picked != null &&
+                                    picked.bytes.isNotEmpty) {
+                                  newPhotoBytes = picked.bytes;
+                                  profilePhotoPreview.value = picked.bytes;
+                                  newPhoto = null;
                                   if (ctx.mounted) {
-                                    ImmediateMediaAttachFeedback.showArquivoAnexado(
+                                    ImmediateMediaAttachFeedback
+                                        .showArquivoAnexado(
                                       ctx,
-                                      picked.name.isNotEmpty
-                                          ? picked.name
-                                          : 'foto_perfil.webp',
+                                      picked.displayName,
                                     );
+                                    setDlg(() {});
                                   }
+                                }
+                              } catch (e) {
+                                if (ctx.mounted) {
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    ThemeCleanPremium.feedbackSnackBar(
+                                      'Não foi possível carregar a foto: $e',
+                                    ),
+                                  );
                                 }
                               } finally {
                                 if (!ctx.mounted) return;
@@ -3109,36 +3165,36 @@ class _MembersPageState extends State<MembersPage> {
                             child: Stack(
                               alignment: Alignment.bottomRight,
                               children: [
-                                if (newPhoto != null)
-                                  CircleAvatar(
-                                    radius: 45,
-                                    backgroundColor: avatarBg,
-                                    backgroundImage:
-                                        (newPhotoBytes != null &&
-                                                newPhotoBytes!.isNotEmpty)
-                                            ? MemoryImage(newPhotoBytes!)
-                                            : null,
-                                    child: (newPhotoBytes == null ||
-                                            newPhotoBytes!.isEmpty)
-                                        ? Icon(Icons.person,
-                                            size: 45, color: avatarBg)
-                                        : null,
-                                  )
-                                else
-                                  _MemberAvatar(
-                                    photoUrl: currentPhoto.isNotEmpty
-                                        ? currentPhoto
-                                        : null,
-                                    memberData: d,
-                                    name: memberName,
-                                    radius: 45,
-                                    backgroundColor: avatarBg,
-                                    tenantId: photoTenantId,
-                                    memberId: member.id,
-                                    cpfDigits: _str(d, 'CPF', 'cpf'),
-                                    authUid: _memberAuthUidFromData(d),
-                                    memCacheMaxPx: 720,
-                                  ),
+                                ValueListenableBuilder<Uint8List?>(
+                                  valueListenable: profilePhotoPreview,
+                                  builder: (_, preview, __) {
+                                    final localBytes =
+                                        preview ?? newPhotoBytes;
+                                    if (localBytes != null &&
+                                        localBytes.isNotEmpty) {
+                                      return CircleAvatar(
+                                        radius: 45,
+                                        backgroundColor: avatarBg,
+                                        backgroundImage:
+                                            MemoryImage(localBytes),
+                                      );
+                                    }
+                                    return _MemberAvatar(
+                                      photoUrl: currentPhoto.isNotEmpty
+                                          ? currentPhoto
+                                          : null,
+                                      memberData: d,
+                                      name: memberName,
+                                      radius: 45,
+                                      backgroundColor: avatarBg,
+                                      tenantId: photoTenantId,
+                                      memberId: member.id,
+                                      cpfDigits: _str(d, 'CPF', 'cpf'),
+                                      authUid: _memberAuthUidFromData(d),
+                                      memCacheMaxPx: 720,
+                                    );
+                                  },
+                                ),
                                 Container(
                                   padding: const EdgeInsets.all(6),
                                   decoration: BoxDecoration(
@@ -3156,6 +3212,19 @@ class _MembersPageState extends State<MembersPage> {
                             const Padding(
                               padding: EdgeInsets.only(top: 10),
                               child: LinearProgressIndicator(minHeight: 3),
+                            )
+                          else
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                'Toque na foto para trocar. Salve para enviar ao Storage.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  height: 1.35,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
                             ),
                           const SizedBox(height: 16),
                           _EditField(
@@ -4381,6 +4450,7 @@ class _MembersPageState extends State<MembersPage> {
     );
 
     if (!mounted) return;
+    profilePhotoPreview.dispose();
     if (dialogResult == null || dialogResult is! Map) return;
     final result = Map<String, dynamic>.from(dialogResult as Map);
     if (result['saved'] != true) return;
@@ -4396,13 +4466,10 @@ class _MembersPageState extends State<MembersPage> {
           _tenantIdForMemberData(member.data),
         );
         Uint8List? pendingProfilePhotoBytes;
-        final pickedPhotoSelf = newPhoto;
-        if (pickedPhotoSelf != null) {
+        if (newPhotoBytes != null && newPhotoBytes!.isNotEmpty) {
           try {
-            final rawBytes =
-                newPhotoBytes ?? await pickedPhotoSelf.readAsBytes();
             final compressedBytes =
-                await ImageHelper.compressMemberProfileForUpload(rawBytes);
+                await ImageHelper.compressMemberProfileForUpload(newPhotoBytes!);
             pendingProfilePhotoBytes = compressedBytes;
             if (mounted) {
               setState(() {
@@ -4538,6 +4605,11 @@ class _MembersPageState extends State<MembersPage> {
             final bytes = pendingProfilePhotoBytes;
             final mergedSelf = Map<String, dynamic>.from(member.data)
               ..addAll(updates);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                ThemeCleanPremium.successSnackBar('Enviando foto de perfil…'),
+              );
+            }
             try {
               await _publishMemberProfilePhotoStrict(
                 tenantId: targetTenantId,
@@ -4613,11 +4685,10 @@ class _MembersPageState extends State<MembersPage> {
     } catch (_) {}
 
     Uint8List? pendingProfilePhotoBytesGestor;
-    final pickedPhoto = newPhoto;
-    if (pickedPhoto != null) {
+    if (newPhotoBytes != null && newPhotoBytes!.isNotEmpty) {
       try {
         final compressedBytes =
-            await SafeImageBytes.memberProfileFromPicker(pickedPhoto);
+            await ImageHelper.compressMemberProfileForUpload(newPhotoBytes!);
         pendingProfilePhotoBytesGestor = compressedBytes;
         if (mounted) {
           setState(() {
@@ -4944,6 +5015,9 @@ class _MembersPageState extends State<MembersPage> {
         final bytes = pendingProfilePhotoBytesGestor;
         final mergedGestor = Map<String, dynamic>.from(member.data)
           ..addAll(updates);
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Enviando foto de perfil…'),
+        );
         try {
           await _publishMemberProfilePhotoStrict(
             tenantId: targetTenantId,
@@ -5098,101 +5172,99 @@ class _MembersPageState extends State<MembersPage> {
         .toString()
         .trim();
     setState(() => _optimisticRemovedMemberIds.add(mid));
+
+    if (!context.mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      useRootNavigator: true,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Excluindo membro do banco…'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
     try {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       if (kIsWeb) {
         await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
+
       var loginPurgeWarning = '';
-      try {
-        final payload = <String, dynamic>{
-          'tenantId': _effectiveTenantId,
-          'memberId': mid,
-        };
-        if (authUid.isNotEmpty) payload['authUid'] = authUid;
-        await FirebaseFunctions.instanceFor(region: 'us-central1')
-            .httpsCallable('purgeMemberFirebaseLogin')
-            .call(payload);
-      } catch (e, st) {
-        debugPrint('purgeMemberFirebaseLogin $e $st');
-        loginPurgeWarning =
-            ' Login Firebase pode não ter sido removido — verifique depois.';
-      }
-      await FirebaseStorageCleanupService.deleteMemberRelatedFiles(
-        tenantId: _effectiveTenantId,
-        memberId: mid,
-        data: member.data,
+      final churchId = ChurchRepository.churchId(_effectiveTenantId);
+
+      await MembroStrictUpdateService.purgeMemberCompletely(
+        seedTenantId: _effectiveTenantId,
+        memberDocId: mid,
+        memberData: member.data,
+        purgeAuthLogin: ({
+          required String churchId,
+          required String memberDocId,
+          required String? authUid,
+        }) async {
+          try {
+            final payload = <String, dynamic>{
+              'tenantId': churchId.isNotEmpty ? churchId : _effectiveTenantId,
+              'memberId': memberDocId,
+            };
+            if (authUid != null && authUid.isNotEmpty) {
+              payload['authUid'] = authUid;
+            }
+            await FirebaseFunctions.instanceFor(region: 'us-central1')
+                .httpsCallable('purgeMemberFirebaseLogin')
+                .call(payload);
+          } on FirebaseFunctionsException catch (e) {
+            if (e.code == 'permission-denied' ||
+                e.code == 'unauthenticated') {
+              rethrow;
+            }
+            loginPurgeWarning =
+                ' Login Firebase pode não ter sido removido — verifique depois.';
+            debugPrint('purgeMemberFirebaseLogin ${e.code}: ${e.message}');
+          } catch (e, st) {
+            debugPrint('purgeMemberFirebaseLogin $e $st');
+            loginPurgeWarning =
+                ' Login Firebase pode não ter sido removido — verifique depois.';
+          }
+        },
       );
-      final db = firebaseDefaultFirestore;
-      Object? lastDeleteError;
-      try {
-        await MembroStrictUpdateService.deleteMember(
-          seedTenantId: ChurchContextService.panelChurchId(_effectiveTenantId),
-          memberDocId: mid,
-          userUid: FirebaseAuth.instance.currentUser?.uid,
-        );
-      } catch (e) {
-        lastDeleteError = e;
-      }
 
-      final allDocIds = await _resolvedFirestoreTenantIds(_effectiveTenantId);
-      final refs = <DocumentReference<Map<String, dynamic>>>[];
-      for (final tid in allDocIds) {
-        if (tid.isEmpty) continue;
-        final op = ChurchRepository.churchId(tid.trim());
-        refs.add(
-          ChurchUiCollections.membros(op).doc(mid),
-        );
-      }
-      final userDocIds = <String>{};
-      if (authUid.isNotEmpty) userDocIds.add(authUid);
-      if (_docIdLooksLikeFirebaseAuthUid(mid)) userDocIds.add(mid);
-      for (final uid in userDocIds) {
-        refs.add(db.collection('users').doc(uid));
-      }
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
 
-      var deletedMembroDoc = lastDeleteError == null;
-      for (final r in refs) {
-        try {
-          final exists = (await r.get()).exists;
-          if (!exists) continue;
-          await FirestoreWebGuard.runWithWebRecovery(() => r.delete());
-        } catch (e) {
-          debugPrint('members_page._deleteMember cleanup ref=$r: $e');
-        }
-      }
-
-      if (!deletedMembroDoc) {
-        if (!mounted) return;
+      unawaited(
+        DashboardStatsCounterService.onMemberDeleted(_effectiveTenantId),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          '"$name" excluído do banco de dados.$loginPurgeWarning',
+        ),
+      );
+      _refreshMembers(forceServer: true);
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
         setState(() => _optimisticRemovedMemberIds.remove(mid));
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(
-            lastDeleteError != null
-                ? 'Não foi possível excluir o membro no banco: $lastDeleteError'
-                : 'Membro não encontrado nos documentos da igreja (já excluído?).',
-          ),
-        );
-        _refreshMembers(forceServer: true);
-        return;
-      }
-
-      if (mounted) {
-        unawaited(
-          DashboardStatsCounterService.onMemberDeleted(_effectiveTenantId),
-        );
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            '"$name" excluído.$loginPurgeWarning',
-          ),
+          ThemeCleanPremium.feedbackSnackBar('Erro ao excluir: $e'),
         );
         _refreshMembers(forceServer: true);
       }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _optimisticRemovedMemberIds.remove(mid));
-      ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Erro ao excluir: $e'));
     }
   }
 
@@ -5547,7 +5619,7 @@ class _MembersPageState extends State<MembersPage> {
                   child: Material(
                     color: Colors.transparent,
                     child: InkWell(
-                      onTap: () => _showMemberDetails(context, docs[i]),
+                      onTap: () => _onMemberRowTap(context, docs[i]),
                       borderRadius: BorderRadius.circular(16),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
@@ -5891,7 +5963,7 @@ class _MembersPageState extends State<MembersPage> {
             child: Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: () => _showMemberDetails(context, member),
+                onTap: () => _onMemberRowTap(context, member),
                 borderRadius: BorderRadius.circular(16),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(

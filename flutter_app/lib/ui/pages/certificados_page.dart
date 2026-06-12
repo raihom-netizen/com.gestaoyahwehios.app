@@ -61,6 +61,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart'
     show avatarColorForMember;
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
+import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/utils/brasilia_datetime_format.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/utils/cert_digital_signature_format.dart';
@@ -3423,19 +3424,28 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
 
   Future<void> _loadMembersForSignatoryPickers() async {
     try {
-      final op = ChurchRepository.churchId(widget.tenantId.trim());
-      final q = await           ChurchUiCollections.membros(op)
-          .limit(YahwehPerformanceV4.defaultPageSize * 5)
-          .get();
+      final entries = await ChurchSignatoryLoadService.loadEligible(
+        seedTenantId: widget.tenantId.trim(),
+      );
       if (!mounted) return;
-      final docs = q.docs.toList()
-        ..sort((a, b) {
-          final na =
-              (a.data()['NOME_COMPLETO'] ?? a.data()['nome'] ?? '').toString();
-          final nb =
-              (b.data()['NOME_COMPLETO'] ?? b.data()['nome'] ?? '').toString();
-          return na.toLowerCase().compareTo(nb.toLowerCase());
-        });
+      final op = ChurchRepository.churchId(widget.tenantId.trim());
+      final col = ChurchUiCollections.membros(op);
+      final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      for (var i = 0; i < entries.length; i += 10) {
+        final ids = entries.skip(i).take(10).map((e) => e.memberId).toList();
+        if (ids.isEmpty) continue;
+        final snap = await col
+            .where(FieldPath.documentId, whereIn: ids)
+            .get();
+        docs.addAll(snap.docs);
+      }
+      docs.sort((a, b) {
+        final na =
+            (a.data()['NOME_COMPLETO'] ?? a.data()['nome'] ?? '').toString();
+        final nb =
+            (b.data()['NOME_COMPLETO'] ?? b.data()['nome'] ?? '').toString();
+        return na.toLowerCase().compareTo(nb.toLowerCase());
+      });
       setState(() {
         _memberDocs = docs;
         _membersLoading = false;
@@ -3903,7 +3913,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Até 3 signatários (membros com cargo de liderança). '
+                    'Até 3 signatários (pastor, gestor, secretário, tesoureiro, '
+                    'administrador ou líder de departamento). '
                     'O cargo abaixo é o texto exibido sob o nome no certificado.',
                     style: TextStyle(
                       fontSize: 12,
@@ -3966,10 +3977,13 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                                       '')
                                   .toString()
                                   .trim();
+                              final cargo = signatoryCargoDisplayLabel(doc.data());
                               return DropdownMenuItem<String?>(
                                 value: doc.id,
                                 child: Text(
-                                  nome.isEmpty ? doc.id : nome,
+                                  nome.isEmpty
+                                      ? doc.id
+                                      : '$nome — $cargo',
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               );

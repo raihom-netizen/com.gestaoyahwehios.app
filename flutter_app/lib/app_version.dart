@@ -1,6 +1,9 @@
 /// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
-/// 11.2.305+1905: Tenant canónico — currentChurchId/resolveChurchId/bind sempre mapeiam slug BPC; ChurchPanelTenant em fornecedores, relatórios, chat, config, doações.
+/// 11.2.305+1921: Eventos — ChurchEventosLoadService cache-first; publish web sem dart:io (_Namespace); paths igrejas/{id}/eventos.
+/// 11.2.305+1908: Cadastro Igreja — leitura Firestore completa (timeout 100s web), retry automático, perfil rico.
+/// 11.2.305+1907: Cadastro Igreja — leitura directa igrejas/{id}, logo configuracoes/logo_igreja.png, formulário resiliente web.
+/// 11.2.305+1906: Chat WhatsApp-fast, patrimônio strict save, relatórios financeiros premium, eventos/carteirinha/foto membro.
 /// 11.2.305+1904: Tenant canónico definitivo — resolveChurchId/bind sempre mapeiam slug BPC; ChurchPanelTenant em todos os módulos do shell.
 /// 11.2.305+1903: iOS 15.0 mínimo — Firebase SDK 12.14 / cloud_firestore (Codemagic pod install).
 /// 11.2.305+1902: Revisão web — tenant canónico em todos os módulos, gravações/mídia/chat resilientes, leituras sem mascarar erro.
@@ -332,6 +335,7 @@
 /// chat igreja — envio foto/vídeo/arquivo com a mesma lógica (sem stub Firestore).
 /// 11.2.295+1609: Mídia rápida — preview imediato avisos/eventos; chat foto auto-envio;
 /// vídeo 90s (chat + eventos); FAB novo aviso; vídeo hospedado no mural.
+/// 11.2.305+1924: Assinantes — só liderança (pastor, gestor, secretário, tesoureiro, admin, líder dept.) em certificados, carteirinha, financeiro e patrimônio.
 const String appVersion = '11.2.305';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
@@ -369,7 +373,10 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1873: Carteirinha membro — cluster BPC + fallback dados da lista.
 /// 11.2.305+1874: Painel — líderes/corpo admin rápidos (cache + cluster departamentos).
 /// 11.2.305+1875: Eventos — publicação EcoFire (Storage+URL+thumb, linear, ampliar foto).
-const String appBuildNumber = '1905';
+/// 11.2.305+1923: Cargos — ChurchCargosLoadService cache-first; path igrejas/{id}/cargos; web timeout 100s.
+/// 11.2.305+1925: Foto perfil membro — picker web/mobile unificado, preview imediato, upload Storage+Firestore por doc id.
+/// 11.2.305+1927: Aniversariantes do ano — grelha colorida mês/dia, cache-first, Chat + WhatsApp.
+const String appBuildNumber = '1927';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

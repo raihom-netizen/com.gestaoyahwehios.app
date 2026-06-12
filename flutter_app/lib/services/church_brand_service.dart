@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
@@ -113,12 +114,18 @@ abstract final class ChurchBrandService {
     String cacheKey,
   ) async {
     try {
-      await ensureFirebaseReadyForPublishUpload();
+      await ensureFirebaseReadyForMediaUpload();
+      if (kIsWeb) {
+        await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
+      }
       final path = logoPathFromData(data, churchId: churchId);
       if (path == null || path.isEmpty) return null;
 
       try {
-        final md = await firebaseDefaultStorage.ref(path).getMetadata();
+        final md = await firebaseDefaultStorage
+            .ref(path)
+            .getMetadata()
+            .timeout(const Duration(seconds: 8));
         final sz = md.size ?? 0;
         if (sz > 0 &&
             sz <
@@ -130,7 +137,8 @@ abstract final class ChurchBrandService {
         // Metadata indisponível (rede/web) — tenta getDownloadURL mesmo assim.
       }
 
-      final url = await StorageMediaService.downloadUrlFromPathOrUrl(path);
+      final url = await StorageMediaService.downloadUrlFromPathOrUrl(path)
+          .timeout(const Duration(seconds: 12));
       if (url != null && url.isNotEmpty) {
         _cache[cacheKey] = _BrandCacheEntry(
           path: path,

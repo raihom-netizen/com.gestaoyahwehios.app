@@ -152,6 +152,8 @@ abstract final class ChurchProfileLoader {
 
     var data = <String, dynamic>{};
     var readSource = 'server';
+    Object? lastReadError;
+    var docConfirmedMissing = false;
     final ref = ChurchFirestoreAccess.churchDoc(id);
 
     try {
@@ -167,23 +169,37 @@ abstract final class ChurchProfileLoader {
     final directScore = TenantResolverService.churchProfileRichnessScore(data);
     if (directScore < 6) {
       try {
-        final snap = await FirestoreReadResilience.getDocument(
-          ref,
-          cacheKey: 'church_direct_$id',
-          maxAttempts: kIsWeb ? 2 : 3,
-          attemptTimeout: kIsWeb
-              ? const Duration(seconds: 8)
-              : const Duration(seconds: 12),
-        );
-        if (snap.exists && snap.data() != null) {
+        Future<DocumentSnapshot<Map<String, dynamic>>> readServer() =>
+            FirestoreReadResilience.getDocument(
+              ref,
+              cacheKey: 'church_direct_$id',
+              maxAttempts: kIsWeb ? 4 : 3,
+              attemptTimeout: kIsWeb
+                  ? const Duration(seconds: 12)
+                  : const Duration(seconds: 12),
+            );
+
+        final snap = kIsWeb
+            ? await FirestoreWebGuard.runWithWebRecovery(
+                readServer,
+                maxAttempts: 4,
+              )
+            : await readServer();
+
+        if (!snap.exists) {
+          docConfirmedMissing = true;
+        } else if (snap.data() != null) {
           final fresh = Map<String, dynamic>.from(snap.data()!);
           if (TenantResolverService.churchProfileRichnessScore(fresh) >
-              directScore) {
+                  directScore ||
+              data.isEmpty) {
             data = fresh;
             readSource = snap.metadata.isFromCache ? 'cache' : 'server';
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        lastReadError = e;
+      }
     }
 
     if (!kIsWeb &&
@@ -204,13 +220,21 @@ abstract final class ChurchProfileLoader {
       } catch (_) {}
     }
 
-    if (data.isEmpty) {
+    if (data.isEmpty && lastReadError != null) {
+      final msg = lastReadError is FirebaseException
+          ? (lastReadError.message ?? lastReadError.code)
+          : lastReadError.toString();
       throw ChurchRepositoryException(
-        'Não foi possível carregar os dados da igreja em $firestorePath.',
+        'Não foi possível carregar os dados da igreja em $firestorePath: $msg',
         seedTenantId: seedTenantId ?? id,
         resolvedChurchId: id,
         firestorePath: firestorePath,
       );
+    }
+
+    // Doc inexistente ou vazio: painel ainda abre o formulário (subcoleções podem existir).
+    if (data.isEmpty && !docConfirmedMissing && lastReadError == null) {
+      readSource = 'empty_doc';
     }
 
     final seed = (seedTenantId ?? id).trim();
@@ -236,7 +260,8 @@ abstract final class ChurchProfileLoader {
     bool forceRefresh = false,
     bool directDocOnly = false,
   }) async {
-    const totalTimeout = Duration(seconds: 15);
+    final totalTimeout =
+        kIsWeb ? const Duration(seconds: 22) : const Duration(seconds: 15);
     return loadChurchDataInner(
       seedTenantId: seedTenantId,
       userUid: userUid,

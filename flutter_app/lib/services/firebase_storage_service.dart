@@ -289,14 +289,15 @@ class FirebaseStorageService {
     _pastorSigConfigUrlCache.remove(t);
   }
 
-  /// Pasta no Storage: **authUid** quando existir (conta Firebase do membro/gestor); senão id do doc em `membros/`.
+  /// Pasta no Storage — **id do doc** `membros/{memberDocId}/` (alinha com Firestore e URLs existentes).
   static String memberProfileStorageFolderId(
     String memberDocId,
     String? authUid,
   ) {
+    final mid = memberDocId.trim();
+    if (mid.isNotEmpty) return mid;
     final au = (authUid ?? '').trim();
-    if (au.isNotEmpty) return au;
-    return memberDocId.trim();
+    return au;
   }
 
   /// Caminho canónico: `igrejas/{tenant}/membros/{pasta}/foto_perfil.jpg` (sobrescreve ao trocar foto).

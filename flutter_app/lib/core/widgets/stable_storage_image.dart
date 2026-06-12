@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
@@ -257,23 +258,46 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
     return null;
   }
 
+  String? _effectiveLogoStoragePath() {
+    for (final raw in <String?>[
+      widget.storagePath,
+      ChurchImageFields.logoStoragePath(widget.tenantData),
+      if (widget.tenantData != null) churchTenantLogoUrl(widget.tenantData!),
+      widget.imageUrl,
+    ]) {
+      final p = (raw ?? '').trim().replaceAll('\\', '/');
+      if (p.isEmpty) continue;
+      if (p.toLowerCase().startsWith('http://') ||
+          p.toLowerCase().startsWith('https://')) {
+        continue;
+      }
+      if (p.contains('/')) return p;
+    }
+    final tid = widget.tenantId?.trim() ?? '';
+    if (tid.isNotEmpty) {
+      return ChurchStorageLayout.churchIdentityLogoPath(tid);
+    }
+    return null;
+  }
+
   Future<String?> _load() {
     final immediate = _immediateLogoUrl();
     if (immediate != null) {
       return Future<String?>.value(immediate);
     }
     final tid = widget.tenantId?.trim() ?? '';
+    final storagePath = _effectiveLogoStoragePath();
     if (tid.isNotEmpty) {
       return AppStorageImageService.instance.resolveChurchTenantLogoUrl(
         tenantId: tid,
         tenantData: widget.tenantData,
         preferImageUrl: widget.imageUrl,
-        preferStoragePath: widget.storagePath,
+        preferStoragePath: storagePath,
         preferGsUrl: widget.gsUrl,
       );
     }
     return AppStorageImageService.instance.resolveImageUrl(
-      storagePath: widget.storagePath,
+      storagePath: storagePath ?? widget.storagePath,
       imageUrl: widget.imageUrl,
       gsUrl: widget.gsUrl,
     );

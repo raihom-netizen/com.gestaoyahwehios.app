@@ -69,14 +69,28 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
       _resolvedUrl = null;
     });
 
-    final path = ChurchChatMessageFields.storagePath(widget.data);
+    final thumbPath = ChurchChatMessageFields.thumbStoragePath(widget.data);
+    final fullPath = ChurchChatMessageFields.storagePath(widget.data);
+    final pathForList =
+        thumbPath.isNotEmpty ? thumbPath : fullPath;
     final legacyUrl = ChurchChatMessageFields.mediaUrl(widget.data);
 
     try {
       String? url;
-      if (path.isNotEmpty) {
+      if (pathForList.isNotEmpty) {
         url = await ChurchChatMediaResolver.resolveDownloadUrl(
-          storagePath: path,
+          storagePath: pathForList,
+          tenantId: widget.tenantId,
+          messageId: widget.messageId,
+          forceRefresh: force,
+          fastPreview: thumbPath.isNotEmpty,
+        );
+      }
+      if ((url == null || url.trim().isEmpty) &&
+          fullPath.isNotEmpty &&
+          fullPath != pathForList) {
+        url = await ChurchChatMediaResolver.resolveDownloadUrl(
+          storagePath: fullPath,
           tenantId: widget.tenantId,
           messageId: widget.messageId,
           forceRefresh: force,

@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/member_card_directory_service.dart';
+import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/services/member_card_photo_cache.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -25,12 +26,15 @@ import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
+import 'package:gestao_yahweh/ui/widgets/church_signatory_picker_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         churchTenantLogoUrl,
@@ -67,6 +71,7 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/certificado_digital_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_document_resolve.dart';
+import 'package:gestao_yahweh/services/member_card_load_service.dart';
 import 'package:gestao_yahweh/services/carteira_pades_signer.dart';
 import 'package:gestao_yahweh/utils/carteirinha_zip_export.dart';
 import 'package:gestao_yahweh/utils/carteirinha_pdf_image_resize.dart';
@@ -325,6 +330,32 @@ abstract final class _MemberCardListRamCache {
   }
 }
 
+/// Cache RAM — carteirinha já montada (reabrir tela cheia instantâneo).
+abstract final class _MemberCardDataRamCache {
+  _MemberCardDataRamCache._();
+
+  static final Map<String, ({_CardData data, DateTime at})> _byKey = {};
+  static const Duration _ttl = Duration(minutes: 25);
+
+  static _CardData? peek(String key) {
+    final k = key.trim();
+    if (k.isEmpty) return null;
+    final hit = _byKey[k];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byKey.remove(k);
+      return null;
+    }
+    return hit.data;
+  }
+
+  static void put(String key, _CardData data) {
+    final k = key.trim();
+    if (k.isEmpty) return;
+    _byKey[k] = (data: data, at: DateTime.now());
+  }
+}
+
 class _MemberCardPageState extends State<MemberCardPage> {
   /// Tamanho físico CR80 — export único legível (evita folha A4 com cartão “gigante”).
   static final PdfPageFormat _kPdfCr80Export = PdfPageFormat(
@@ -333,6 +364,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
   );
 
   Future<_CardData?>? _loadFuture;
+  Timer? _cardLoadCap;
 
   /// Doc `igrejas/{id}` após [resolveEffectiveTenantId] (cache por sessão desta página).
   String? _cachedIgrejaDocId;
@@ -369,6 +401,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   /// Seleção na lista de membros (emissão / assinatura em bloco).
   final Set<String> _carteiraListaSelecionados = {};
+
+  /// Preview gestor — membro escolhido na lista (não depende só de widget.memberId).
+  String? _gestorPreviewMemberId;
+  Map<String, dynamic>? _gestorPreviewMemberSeed;
 
   final ScreenshotController _walletScreenshotController = ScreenshotController();
 
@@ -418,51 +454,182 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<String> _effectiveIgrejaDocId() async {
     final hit = _cachedIgrejaDocId;
     if (hit != null && hit.isNotEmpty) return hit;
-    await _resolveOperationalTenantOnce();
+    _resolveOperationalTenantOnce();
     final resolved = (_cachedIgrejaDocId ?? '').trim();
     if (resolved.isNotEmpty) return resolved;
     return widget.tenantId.trim();
   }
 
-  Future<void> _bootstrapOperationalTenant() async {
-    await _resolveOperationalTenantOnce();
-    if (!mounted) return;
-    final tid = _cachedIgrejaDocId ?? '';
-    if (tid.isEmpty) return;
+  String _memberCardCacheKey(String churchId) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final mid =
+        (_gestorPreviewMemberId ?? widget.memberId)?.trim() ?? '';
+    final cpf = (widget.cpf ?? '').replaceAll(RegExp(r'\D'), '');
+    return '${churchId.trim()}_${mid}_${cpf}_$uid';
+  }
+
+  String _resolvedChurchIdHint() {
+    final bound = ChurchContext.currentChurchId?.trim() ?? '';
+    if (bound.isNotEmpty) return bound;
+    final cached = (_cachedIgrejaDocId ?? '').trim();
+    if (cached.isNotEmpty) return cached;
+    return ChurchPanelTenant.resolve(widget.tenantId).trim();
+  }
+
+  Map<String, dynamic>? _memberSeedForId(String memberId) {
+    final id = memberId.trim();
+    if (id.isEmpty) return null;
+    if (widget.memberId?.trim() == id &&
+        widget.memberSeedData != null &&
+        widget.memberSeedData!.isNotEmpty) {
+      return widget.memberSeedData;
+    }
+    final previewSeed = _gestorPreviewMemberSeed;
+    if (_gestorPreviewMemberId?.trim() == id &&
+        previewSeed != null &&
+        previewSeed.isNotEmpty) {
+      return previewSeed;
+    }
+    for (final m in _seedMemberItems) {
+      if (m.id == id && m.data.isNotEmpty) return m.data;
+    }
+    return null;
+  }
+
+  _CardData? _cardDataFromMemberSeed(
+    String churchId,
+    String memberId,
+    Map<String, dynamic> seed,
+  ) {
+    final nome =
+        (seed['NOME_COMPLETO'] ?? seed['nome'] ?? '').toString().trim();
+    if (nome.isEmpty) return null;
+    final tenant = <String, dynamic>{
+      'id': churchId,
+      '_carteiraLogoStoragePath':
+          ChurchBrandService.canonicalLogoPath(churchId),
+    };
+    return _CardData(
+      memberId: memberId.trim(),
+      member: Map<String, dynamic>.from(seed),
+      cardConfig: _defaultCardConfigFromTenant(tenant),
+      tenant: tenant,
+      igrejaDocId: churchId,
+    );
+  }
+
+  void _openMemberCardCnhFor(BuildContext context, String memberId) {
+    final seed = _memberSeedForId(memberId);
+    openMemberCardCnhFullscreen(
+      context,
+      tenantId: widget.tenantId,
+      role: widget.role,
+      memberId: memberId,
+      cpf: widget.cpf,
+      memberSeedData:
+          seed != null ? Map<String, dynamic>.from(seed) : null,
+    );
+  }
+
+  void _refreshGestorPreviewForSelection() {
+    if (!_canManage) return;
+    if (_carteiraListaSelecionados.length != 1) {
+      if (_carteiraListaSelecionados.isEmpty &&
+          !_hasExplicitMemberTarget &&
+          _gestorPreviewMemberId != null) {
+        setState(() {
+          _gestorPreviewMemberId = null;
+          _gestorPreviewMemberSeed = null;
+          _loadFuture = Future.value(null);
+        });
+      }
+      return;
+    }
+    final mid = _carteiraListaSelecionados.first;
+    final churchId = _resolvedChurchIdHint();
+    if (churchId.isEmpty) return;
+    final seed = _memberSeedForId(mid);
+    _gestorPreviewMemberId = mid;
+    _gestorPreviewMemberSeed =
+        seed != null ? Map<String, dynamic>.from(seed) : null;
+    final instant =
+        seed != null ? _cardDataFromMemberSeed(churchId, mid, seed) : null;
     setState(() {
-      if (!_isRestrictedMember) {
-        _reloadMembersList();
-      }
-      if (_isRestrictedMember || _hasExplicitMemberTarget) {
-        _loadFuture = _bootstrapAndLoadCard();
-      }
+      _loadFuture = instant != null
+          ? Future.value(instant)
+          : _bootstrapAndLoadCard();
+    });
+    if (instant != null) {
+      unawaited(
+        _bootstrapAndLoadCard().then((fresh) {
+          if (!mounted || fresh == null) return;
+          setState(() => _loadFuture = Future.value(fresh));
+        }),
+      );
+    }
+  }
+
+  void _startCardLoadCap() {
+    _cardLoadCap?.cancel();
+    if (!_isRestrictedMember && !_hasExplicitMemberTarget && !widget.cnhFullscreenOnly) {
+      return;
+    }
+    _cardLoadCap = Timer(ChurchPanelReadTimeouts.queryCap, () {
+      if (!mounted) return;
+      setState(() {
+        _loadFuture = Future<_CardData?>.error(
+          TimeoutException(
+            'Tempo esgotado ao carregar a carteirinha. Toque em Tentar novamente.',
+          ),
+        );
+      });
     });
   }
 
-  Future<void> _resolveOperationalTenantOnce() async {
+  void _resolveOperationalTenantOnce() {
     final bound = ChurchContext.currentChurchId?.trim() ?? '';
     if (bound.isNotEmpty) {
       _cachedIgrejaDocId = bound;
       return;
     }
-    final hint = widget.tenantId.trim();
     _cachedIgrejaDocId = ChurchPanelTenant.resolve(widget.tenantId);
   }
 
+  Future<void> _bootstrapOperationalTenant() async {
+    _resolveOperationalTenantOnce();
+    if (!mounted) return;
+    if (!_isRestrictedMember) {
+      unawaited(_reloadMembersList());
+    }
+  }
+
   Future<_CardData?> _bootstrapAndLoadCard() async {
-    await _resolveOperationalTenantOnce();
+    _resolveOperationalTenantOnce();
+    final churchId = (_cachedIgrejaDocId ?? '').trim();
+    if (churchId.isEmpty) return null;
+
+    final cacheKey = _memberCardCacheKey(churchId);
+    final cached = _MemberCardDataRamCache.peek(cacheKey);
+    if (cached != null) {
+      _cardLoadCap?.cancel();
+      return cached;
+    }
+
+    _startCardLoadCap();
     try {
-      return await FirestoreWebGuard.runWithWebRecovery(
-        () => _load().timeout(
-          Duration(seconds: kIsWeb ? 22 : 16),
-          onTimeout: () => throw TimeoutException(
-            'Tempo esgotado ao carregar a carteirinha.',
-          ),
+      final result = await _load().timeout(
+        ChurchPanelReadTimeouts.queryCap,
+        onTimeout: () => throw TimeoutException(
+          'Tempo esgotado ao carregar a carteirinha.',
         ),
-        maxAttempts: 4,
       );
-    } catch (_) {
-      return null;
+
+      if (result != null) {
+        _MemberCardDataRamCache.put(cacheKey, result);
+      }
+      return result;
+    } finally {
+      _cardLoadCap?.cancel();
     }
   }
 
@@ -475,7 +642,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
     }
     if (oldWidget.memberId != widget.memberId || oldWidget.cpf != widget.cpf) {
       setState(() {
-        if (_isRestrictedMember) {
+        if (_isRestrictedMember || widget.cnhFullscreenOnly) {
           _loadFuture = _bootstrapAndLoadCard();
         } else {
           _loadFuture = _hasExplicitMemberTarget
@@ -748,10 +915,38 @@ class _MemberCardPageState extends State<MemberCardPage> {
       unawaited(PublicSiteMediaAuth.ensureWebAnonymousForStorage());
     }
     _memberSearchController = TextEditingController();
-    unawaited(_bootstrapOperationalTenant());
-    if (_isRestrictedMember) {
+    _resolveOperationalTenantOnce();
+    final churchId = _resolvedChurchIdHint();
+
+    if (widget.cnhFullscreenOnly) {
       _membersListFuture = Future.value([]);
-      _loadFuture = _bootstrapAndLoadCard();
+      final cached = churchId.isNotEmpty
+          ? _MemberCardDataRamCache.peek(_memberCardCacheKey(churchId))
+          : null;
+      if (cached != null) {
+        _loadFuture = Future.value(cached);
+      } else {
+        final instant = churchId.isNotEmpty ? _instantCardFromSeed(churchId) : null;
+        if (instant != null) {
+          _loadFuture = Future.value(instant);
+          unawaited(
+            _bootstrapAndLoadCard().then((fresh) {
+              if (!mounted || fresh == null) return;
+              setState(() => _loadFuture = Future.value(fresh));
+            }),
+          );
+        } else {
+          _loadFuture = _bootstrapAndLoadCard();
+        }
+      }
+    } else if (_isRestrictedMember) {
+      _membersListFuture = Future.value([]);
+      final cached = churchId.isNotEmpty
+          ? _MemberCardDataRamCache.peek(_memberCardCacheKey(churchId))
+          : null;
+      _loadFuture = cached != null
+          ? Future.value(cached)
+          : _bootstrapAndLoadCard();
     } else {
       final hint = widget.tenantId.trim();
       final ram = hint.isNotEmpty ? _MemberCardListRamCache.peek(hint) : null;
@@ -766,13 +961,23 @@ class _MemberCardPageState extends State<MemberCardPage> {
       _loadDepartmentsForCarteira().then((list) {
         if (mounted) setState(() => _deptFilterItems = list);
       });
-      _loadFuture =
-          _hasExplicitMemberTarget ? _bootstrapAndLoadCard() : Future.value(null);
+      if (_hasExplicitMemberTarget) {
+        final cached = churchId.isNotEmpty
+            ? _MemberCardDataRamCache.peek(_memberCardCacheKey(churchId))
+            : null;
+        _loadFuture = cached != null
+            ? Future.value(cached)
+            : _bootstrapAndLoadCard();
+      } else {
+        _loadFuture = Future.value(null);
+      }
     }
+    unawaited(_bootstrapOperationalTenant());
   }
 
   @override
   void dispose() {
+    _cardLoadCap?.cancel();
     _memberSearchDebounce?.cancel();
     _memberSearchController.dispose();
     super.dispose();
@@ -862,27 +1067,75 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Future<Map<String, dynamic>> _loadTenantBundleForCard(String igrejaDocId) async {
     Map<String, dynamic> tenant = {};
     try {
-      final tenantSnap =
-          await ChurchTenantResilientReads.churchDocument(igrejaDocId);
-      tenant = Map<String, dynamic>.from(tenantSnap.data() ?? {})
-        ..['id'] = igrejaDocId;
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final hit = await IgrejaDirectFirestoreReads.readIgrejaDoc(igrejaDocId)
+          .timeout(Duration(seconds: kIsWeb ? 12 : 8));
+      if (hit != null && hit.data.isNotEmpty) {
+        tenant = Map<String, dynamic>.from(hit.data)..['id'] = hit.docId;
+      }
     } catch (_) {}
+
+    if (tenant.isEmpty) {
+      try {
+        final snap = await FirestoreReadResilience.getDocument(
+          ChurchUiCollections.churchDoc(igrejaDocId),
+          cacheKey: 'card_igreja_$igrejaDocId',
+          maxAttempts: kIsWeb ? 3 : 2,
+          attemptTimeout: Duration(seconds: kIsWeb ? 10 : 8),
+        );
+        if (snap.exists) {
+          tenant = Map<String, dynamic>.from(snap.data() ?? {})
+            ..['id'] = igrejaDocId;
+        }
+      } catch (_) {}
+    }
+
+    final logoFromDoc = churchTenantLogoUrl(tenant);
+    if (logoFromDoc.isNotEmpty) {
+      tenant['_carteiraLogoStoragePath'] = logoFromDoc;
+    }
+
     try {
+      final logoPath = ChurchBrandService.logoPathFromData(
+            tenant,
+            churchId: igrejaDocId,
+          ) ??
+          ChurchBrandService.canonicalLogoPath(igrejaDocId);
+      tenant['_carteiraLogoStoragePath'] = logoPath;
       final logoResolved =
           await AppStorageImageService.instance.resolveChurchTenantLogoUrl(
         tenantId: igrejaDocId,
         tenantData: tenant,
-      );
+        preferStoragePath: logoPath,
+        preferImageUrl: logoFromDoc.isNotEmpty ? logoFromDoc : null,
+      ).timeout(const Duration(seconds: 10));
       final logoClean = sanitizeImageUrl(logoResolved ?? '');
       if (logoClean.isNotEmpty) {
         tenant['_carteiraLogoUrl'] = logoClean;
       }
     } catch (_) {}
+
     return tenant;
   }
 
+  _CardData? _instantCardFromSeed(String churchId) {
+    if (!_canBuildCardFromSeed()) return null;
+    final tenant = <String, dynamic>{
+      'id': churchId,
+      '_carteiraLogoStoragePath': ChurchBrandService.canonicalLogoPath(churchId),
+    };
+    return _CardData(
+      memberId: widget.memberId!.trim(),
+      member: Map<String, dynamic>.from(widget.memberSeedData!),
+      cardConfig: _defaultCardConfigFromTenant(tenant),
+      tenant: tenant,
+      igrejaDocId: churchId,
+    );
+  }
+
   bool _canBuildCardFromSeed() {
-    if (!_canManage) return false;
     final seed = widget.memberSeedData;
     final mid = widget.memberId?.trim() ?? '';
     if (seed == null || seed.isEmpty || mid.isEmpty) return false;
@@ -890,6 +1143,21 @@ class _MemberCardPageState extends State<MemberCardPage> {
         .toString()
         .trim();
     return nome.isNotEmpty;
+  }
+
+  String _friendlyCardLoadError(Object? error) {
+    if (error is TimeoutException) {
+      return error.message ??
+          'Tempo esgotado ao carregar a carteirinha. Verifique a conexão e tente novamente.';
+    }
+    final msg = error.toString();
+    if (msg.contains('permission-denied') || msg.contains('PERMISSION_DENIED')) {
+      return 'Sem permissão para ler a carteirinha. Faça login novamente.';
+    }
+    if (msg.length > 160) {
+      return 'Não foi possível carregar a carteirinha. Tente novamente.';
+    }
+    return msg;
   }
 
   List<String> _memberResolveHints() {
@@ -923,75 +1191,102 @@ class _MemberCardPageState extends State<MemberCardPage> {
     final cpf = (widget.cpf ?? '').replaceAll(RegExp(r'[^0-9]'), '');
     final cpfArg = cpf.length >= 11 ? cpf : null;
     final user = FirebaseAuth.instance.currentUser;
+    final col = ChurchUiCollections.membros(igrejaDocId);
 
-    if (_isRestrictedMember) {
-      return ChurchTenantResilientReads.resolveSelfMember(
-        igrejaDocId,
-        memberId: widget.memberId,
-        cpfDigits: cpf,
-        authUid: user?.uid,
-        email: user?.email,
-      );
-    }
-
-    for (final hint in _memberResolveHints()) {
-      final snap = await ChurchTenantResilientReads.membroByHint(
-        igrejaDocId,
-        hint,
-        cpfDigits: cpfArg,
-        userUid: user?.uid,
-      );
-      if (snap != null && snap.exists) return snap;
-    }
-    return null;
-  }
-
-  Future<_CardData?> _load() async {
-    await ChurchTenantResilientReads.preparePanelRead();
-    var igrejaDocId = await _effectiveIgrejaDocId();
-    var tenant = await _loadTenantBundleForCard(igrejaDocId);
-
-    final memberDoc = await _resolveMemberDocForCard(igrejaDocId);
-
-    late final String resolvedMemberId;
-    late Map<String, dynamic> memberMap;
-
-    if (memberDoc != null && memberDoc.exists) {
-      final memberTenantId =
-          memberDoc.reference.parent.parent?.id.trim() ?? '';
-      if (memberTenantId.isNotEmpty && memberTenantId != igrejaDocId) {
-        igrejaDocId = memberTenantId;
-        tenant = await _loadTenantBundleForCard(igrejaDocId);
+    Future<DocumentSnapshot<Map<String, dynamic>>?> resolveDirect() async {
+      if (_isRestrictedMember && user?.uid != null) {
+        try {
+          final q = await col
+              .where('authUid', isEqualTo: user!.uid)
+              .limit(1)
+              .get(const GetOptions(source: Source.serverAndCache))
+              .timeout(const Duration(seconds: 10));
+          if (q.docs.isNotEmpty) return q.docs.first;
+        } catch (_) {}
       }
-      resolvedMemberId = memberDoc.id;
-      memberMap = Map<String, dynamic>.from(memberDoc.data() ?? {});
-    } else if (_canBuildCardFromSeed()) {
-      resolvedMemberId = widget.memberId!.trim();
-      memberMap = Map<String, dynamic>.from(widget.memberSeedData!);
-    } else {
+
+      for (final hint in _memberResolveHints()) {
+        try {
+          final snap = await MemberDocumentResolve.findByHint(
+            col,
+            hint,
+            cpfDigits: cpfArg,
+          ).timeout(const Duration(seconds: 12));
+          if (snap != null && snap.exists) return snap;
+        } catch (_) {}
+      }
       return null;
     }
 
-    final cardCfg = await _resolveAutomaticCardConfig(
-      tenant: tenant,
-      igrejaDocId: igrejaDocId,
-    );
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      return FirestoreWebGuard.runWithWebRecovery(resolveDirect, maxAttempts: 3);
+    }
+    return resolveDirect();
+  }
 
-    memberMap = await _enrichMemberCarteirinhaSignatureFromSignatory(
-      memberMap,
-      igrejaDocId: igrejaDocId,
+  Future<_CardData?> _load() async {
+    var igrejaDocId = await _effectiveIgrejaDocId();
+    if (igrejaDocId.isEmpty) return null;
+
+    final previewMid = _gestorPreviewMemberId?.trim();
+    final payload = await MemberCardLoadService.load(
+      MemberCardLoadRequest(
+        churchIdHint: igrejaDocId,
+        memberId: previewMid ?? widget.memberId,
+        cpf: widget.cpf,
+        memberSeedData: _gestorPreviewMemberSeed ?? widget.memberSeedData,
+        restrictedMember: _isRestrictedMember && previewMid == null,
+      ),
     );
+    if (payload == null) return null;
+
+    igrejaDocId = payload.igrejaDocId;
+    final tenant = payload.tenant;
+    final resolvedMemberId = payload.memberId;
+    var memberMap = payload.member;
+
+    Map<String, dynamic> cardCfg;
+    try {
+      cardCfg = await _resolveAutomaticCardConfig(
+        tenant: tenant,
+        igrejaDocId: igrejaDocId,
+      ).timeout(
+        const Duration(seconds: 4),
+        onTimeout: () => _defaultCardConfigFromTenant(tenant),
+      );
+    } catch (_) {
+      cardCfg = _defaultCardConfigFromTenant(tenant);
+    }
+
+    try {
+      memberMap = await _enrichMemberCarteirinhaSignatureFromSignatory(
+        memberMap,
+        igrejaDocId: igrejaDocId,
+      ).timeout(const Duration(seconds: 3), onTimeout: () => memberMap);
+    } catch (_) {}
 
     if (MemberCodigoService.readFromMember(memberMap).isEmpty) {
-      try {
-        final code = await MemberCodigoService.ensureForMember(
-          tenantId: igrejaDocId,
-          memberId: resolvedMemberId,
-          memberData: memberMap,
-        );
-        memberMap = Map<String, dynamic>.from(memberMap)
-          ..addAll(MemberCodigoService.fieldsForFirestore(code));
-      } catch (_) {}
+      unawaited(() async {
+        try {
+          final code = await MemberCodigoService.ensureForMember(
+            tenantId: igrejaDocId,
+            memberId: resolvedMemberId,
+            memberData: memberMap,
+          ).timeout(const Duration(seconds: 10));
+          _MemberCardDataRamCache.put(
+            _memberCardCacheKey(igrejaDocId),
+            _CardData(
+              memberId: resolvedMemberId,
+              member: Map<String, dynamic>.from(memberMap)
+                ..addAll(MemberCodigoService.fieldsForFirestore(code)),
+              cardConfig: cardCfg,
+              tenant: tenant,
+              igrejaDocId: igrejaDocId,
+            ),
+          );
+        } catch (_) {}
+      }());
     }
 
     return _CardData(
@@ -1141,21 +1436,20 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Widget _cnhLogoSlot(_CardData data) {
     final cached =
         sanitizeImageUrl((data.tenant['_carteiraLogoUrl'] ?? '').toString());
+    final storagePath = (data.tenant['_carteiraLogoStoragePath'] ??
+                ChurchImageFields.logoStoragePath(data.tenant) ??
+                ChurchBrandService.canonicalLogoPath(data.igrejaDocId))
+            .toString()
+            .trim();
     final logoUrl =
         cached.isNotEmpty ? cached : churchTenantLogoUrl(data.tenant);
-    if (logoUrl.isEmpty) {
-      return const DefaultChurchLogoAsset(
-        width: 272,
-        height: 272,
-        fit: BoxFit.contain,
-        fractionOfBox: 0.92,
-      );
-    }
     return StableChurchLogo(
       tenantId: data.igrejaDocId,
       tenantData: data.tenant,
-      storagePath: ChurchImageFields.logoStoragePath(data.tenant),
-      imageUrl: logoUrl.isEmpty ? null : logoUrl,
+      storagePath: storagePath.isNotEmpty ? storagePath : null,
+      imageUrl: logoUrl.isNotEmpty && isValidImageUrl(sanitizeImageUrl(logoUrl))
+          ? logoUrl
+          : null,
       width: 272,
       height: 272,
       fit: BoxFit.contain,
@@ -1207,13 +1501,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }
 
   void _openCnhFullscreen(BuildContext context) {
-    openMemberCardCnhFullscreen(
-      context,
-      tenantId: widget.tenantId,
-      role: widget.role,
-      memberId: widget.memberId,
-      cpf: widget.cpf,
-    );
+    final mid = (_gestorPreviewMemberId ?? widget.memberId)?.trim();
+    if (mid == null || mid.isEmpty) return;
+    _openMemberCardCnhFor(context, mid);
   }
 
   Widget _buildCnhFullscreenBody(BuildContext context) {
@@ -1221,8 +1511,21 @@ class _MemberCardPageState extends State<MemberCardPage> {
       future: _loadFuture,
       builder: (context, snap) {
         if (snap.connectionState != ConnectionState.done) {
-          return const Center(
-            child: CircularProgressIndicator(color: Colors.white),
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const CircularProgressIndicator(color: Colors.white),
+                const SizedBox(height: 16),
+                Text(
+                  'Carregando carteirinha…',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
           );
         }
         if (snap.hasError || snap.data == null) {
@@ -1237,8 +1540,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   const SizedBox(height: 12),
                   Text(
                     snap.hasError
-                        ? snap.error.toString()
-                        : 'Cartão não disponível.',
+                        ? _friendlyCardLoadError(snap.error)
+                        : 'Cartão não disponível. Verifique se o membro está vinculado à sua conta.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white70),
                   ),
@@ -3588,13 +3891,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                 enabled: alvo.length == 1,
                 onTap: () {
                   if (alvo.length != 1) return;
-                  openMemberCardCnhFullscreen(
-                    context,
-                    tenantId: widget.tenantId,
-                    role: widget.role,
-                    memberId: alvo.first,
-                    cpf: widget.cpf,
-                  );
+                  _openMemberCardCnhFor(context, alvo.first);
                 },
               ),
             ],
@@ -4529,10 +4826,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
   /// Modelo único CNH: nome/logo do cadastro da igreja + cores fixas do app.
   /// Em [config/carteira] só lê signatário predefinido e intensidade da assinatura no PDF.
-  Future<Map<String, dynamic>> _resolveAutomaticCardConfig({
-    required Map<String, dynamic> tenant,
-    required String igrejaDocId,
-  }) async {
+  Map<String, dynamic> _defaultCardConfigFromTenant(Map<String, dynamic> tenant) {
     final cfg = <String, dynamic>{
       'title': _churchDisplayNameForCard(tenant),
       'subtitle': 'Credencial de Membro',
@@ -4544,26 +4838,29 @@ class _MemberCardPageState extends State<MemberCardPage> {
       'visualModel': 'padrao',
       'carteiraVisualModel': 'padrao',
     };
-
     var logoUrl = churchTenantLogoUrl(tenant);
     if (logoUrl.isEmpty) {
-      await _hydrateCardCfgLogoFromIdentityPathIfNeeded(cfg, igrejaDocId);
-      logoUrl = sanitizeImageUrl((cfg['logoUrl'] ?? '').toString());
+      logoUrl = sanitizeImageUrl((tenant['_carteiraLogoUrl'] ?? '').toString());
     }
     if (logoUrl.isNotEmpty) {
       cfg['logoUrl'] = logoUrl;
     }
+    return _mergeChurchLogoIntoCardConfig(cfg, tenant);
+  }
 
-    cfg.remove('logoDataBase64');
-    final merged = _mergeChurchLogoIntoCardConfig(cfg, tenant);
+  Future<Map<String, dynamic>> _resolveAutomaticCardConfig({
+    required Map<String, dynamic> tenant,
+    required String igrejaDocId,
+  }) async {
+    final merged = _defaultCardConfigFromTenant(tenant);
 
     try {
-      final snap = await ChurchTenantResilientReads.configDoc(
+      final hit = await IgrejaDirectFirestoreReads.readIgrejaConfig(
         igrejaDocId,
         'carteira',
-      );
-      if (snap.exists && snap.data() != null) {
-        final d = snap.data()!;
+      ).timeout(const Duration(seconds: 3));
+      if (hit != null && hit.data.isNotEmpty) {
+        final d = hit.data;
         final def = (d['defaultSignatoryMemberId'] ?? '').toString().trim();
         if (def.isNotEmpty) merged['defaultSignatoryMemberId'] = def;
         final mode = (d['signatureEnhanceMode'] ?? '').toString();
@@ -4573,10 +4870,16 @@ class _MemberCardPageState extends State<MemberCardPage> {
       }
     } catch (_) {}
 
+    final logoPath = (tenant['_carteiraLogoStoragePath'] ??
+            ChurchBrandService.canonicalLogoPath(igrejaDocId))
+        .toString()
+        .trim();
+    if (logoPath.isNotEmpty) {
+      merged['logoStoragePath'] = logoPath;
+    }
+
     return merged;
   }
-
-  /// Se não houver URL no Firestore, tenta `configuracoes/logo_igreja.png` no Storage.
   Future<void> _hydrateCardCfgLogoFromIdentityPathIfNeeded(
     Map<String, dynamic> cardCfg,
     String igrejaDocId,
@@ -4586,18 +4889,21 @@ class _MemberCardPageState extends State<MemberCardPage> {
     try {
       if (kIsWeb) {
         await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
-        try {
-          await FirebaseAuth.instance.currentUser?.getIdToken();
-        } catch (_) {}
       }
       final logoPath = ChurchBrandService.logoPathFromData(
-        cardCfg,
-        churchId: igrejaDocId,
-      ) ?? ChurchBrandService.canonicalLogoPath(igrejaDocId);
+            cardCfg,
+            churchId: igrejaDocId,
+          ) ??
+          ChurchBrandService.canonicalLogoPath(igrejaDocId);
       cardCfg['logoStoragePath'] = logoPath;
-      final u = await ChurchBrandService.getLogoUrl(
-        churchId: igrejaDocId,
-      );
+      final u = await AppStorageImageService.instance
+          .resolveChurchTenantLogoUrl(
+        tenantId: igrejaDocId,
+        tenantData: cardCfg,
+        preferStoragePath: logoPath,
+        preferImageUrl: raw.isNotEmpty ? raw : null,
+      )
+          .timeout(const Duration(seconds: 10));
       if (u != null && u.isNotEmpty) cardCfg['logoUrl'] = u;
     } catch (_) {}
   }
@@ -5063,84 +5369,33 @@ class _MemberCardPageState extends State<MemberCardPage> {
     String? preferredMemberId,
   }) async {
     if (options.isEmpty) return null;
-    var selectedId = (preferredMemberId ?? '').trim();
-    if (selectedId.isEmpty ||
-        !options.any((o) => o.memberId == selectedId)) {
-      selectedId = options.first.memberId;
-    }
-    return showDialog<
-        ({
-          String memberId,
-          String nome,
-          String cargo,
-          String? cpf,
-          String? assinaturaUrl,
-        })?>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocal) {
-            return AlertDialog(
-              title: const Text('Quem assina?'),
-              content: SizedBox(
-                width: 360,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      'Gestor, pastor, secretário, tesoureiro ou líder de departamento com assinatura cadastrada em Membros.',
-                      style: TextStyle(
-                        fontSize: 13,
-                        height: 1.35,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      value: selectedId,
-                      decoration: const InputDecoration(
-                        labelText: 'Signatário',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: [
-                        for (final o in options)
-                          DropdownMenuItem(
-                            value: o.memberId,
-                            child: Text(
-                              '${o.nome} (${o.cargo})',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                      ],
-                      onChanged: (v) {
-                        if (v != null) setLocal(() => selectedId = v);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    for (final o in options) {
-                      if (o.memberId == selectedId) {
-                        Navigator.pop(ctx, o);
-                        return;
-                      }
-                    }
-                  },
-                  child: const Text('Continuar'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+
+    final signers = options
+        .map(
+          (o) => ChurchSignatoryEntry(
+            memberId: o.memberId,
+            nome: o.nome,
+            cargo: o.cargo,
+            cpfDigits: o.cpf,
+            assinaturaUrl: o.assinaturaUrl,
+          ),
+        )
+        .toList();
+
+    final picked = await showChurchSignatoryPickerSheet(
+      context,
+      title: 'Quem assina a carteirinha?',
+      tenantId: widget.tenantId,
+      signers: signers,
+      selectedMemberId: preferredMemberId,
+    );
+    if (picked == null) return null;
+    return (
+      memberId: picked.memberId,
+      nome: picked.nome,
+      cargo: picked.cargo,
+      cpf: picked.cpfDigits,
+      assinaturaUrl: picked.assinaturaUrl,
     );
   }
 
@@ -7561,13 +7816,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       const SizedBox(height: 24),
                       FilledButton.icon(
                         onPressed: () => setState(() {
-                          if (_isRestrictedMember) {
-                            _loadFuture = _load();
-                          } else {
-                            _loadFuture = _hasExplicitMemberTarget
-                                ? _load()
-                                : Future.value(null);
-                          }
+                          _loadFuture = _bootstrapAndLoadCard();
                         }),
                         icon: const Icon(Icons.refresh_rounded),
                         label: const Text('Tentar novamente'),
@@ -7969,7 +8218,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       value: sel,
                                       onChanged: !_canManage
                                           ? null
-                                          : (v) => setState(() {
+                                          : (v) {
+                                              setState(() {
                                                 if (v == true) {
                                                   _carteiraListaSelecionados
                                                       .add(m.id);
@@ -7977,16 +8227,12 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                                   _carteiraListaSelecionados
                                                       .remove(m.id);
                                                 }
-                                              }),
+                                              });
+                                              _refreshGestorPreviewForSelection();
+                                            },
                                       secondary: InkWell(
                                         onTap: () {
-                                          openMemberCardCnhFullscreen(
-                                            context,
-                                            tenantId: widget.tenantId,
-                                            role: widget.role,
-                                            memberId: m.id,
-                                            cpf: widget.cpf,
-                                          );
+                                          _openMemberCardCnhFor(context, m.id);
                                         },
                                         borderRadius: BorderRadius.circular(22),
                                         child: FotoMembroWidget(

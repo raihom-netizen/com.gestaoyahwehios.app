@@ -21,69 +21,17 @@ import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/widgets/donation_kind_selector_grid.dart';
 import 'package:gestao_yahweh/ui/widgets/ios_donation_reader_view.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
-import 'package:gestao_yahweh/utils/search_input_debounce.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/services/church_donation_load_service.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/search_input_debounce.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 
 /// Dízimos, ofertas e contribuições via PIX ou cartão (Checkout Pro Mercado Pago da igreja).
 /// Só contas tesouraria **Mercado Pago** (323) entram na conciliação desta tela.
 String _onlyDigits(String? s) => (s ?? '').replaceAll(RegExp(r'\D'), '');
-
-bool _isMercadoPagoTreasuryAccount(Map<String, dynamic> data) {
-  final cod = (data['bancoCodigo'] ?? '').toString().trim();
-  if (cod == '323') return true;
-  final bn = (data['bancoNome'] ?? '').toString().toLowerCase();
-  if (bn.contains('mercado pago')) return true;
-  if ((data['seedPreset'] ?? '').toString() == 'tesouraria_mercado_pago') {
-    return true;
-  }
-  final nome = (data['nome'] ?? '').toString().toLowerCase();
-  if (nome.contains('mercado pago')) return true;
-  return false;
-}
-
-/// Cache RAM — dropdown Mercado Pago instantâneo ao reabrir Doação.
-abstract final class _DonationMpContasCache {
-  _DonationMpContasCache._();
-
-  static final Map<String, ({List<({String id, String nome})> contas, DateTime at})>
-      _byTenant = {};
-
-  static const Duration _ttl = Duration(minutes: 25);
-
-  static List<({String id, String nome})>? peek(String tenantId) {
-    final key = tenantId.trim();
-    if (key.isEmpty) return null;
-    final hit = _byTenant[key];
-    if (hit == null) return null;
-    if (DateTime.now().difference(hit.at) > _ttl) {
-      _byTenant.remove(key);
-      return null;
-    }
-    return hit.contas;
-  }
-
-  static void put(String tenantId, List<({String id, String nome})> contas) {
-    final key = tenantId.trim();
-    if (key.isEmpty || contas.isEmpty) return;
-    _byTenant[key] = (contas: contas, at: DateTime.now());
-  }
-}
-
-List<({String id, String nome})> _filterMercadoPagoContas(
-  QuerySnapshot<Map<String, dynamic>> snap,
-) {
-  return snap.docs
-      .where((d) => d.data()['ativo'] != false)
-      .where((d) => _isMercadoPagoTreasuryAccount(d.data()))
-      .map((d) => (id: d.id, nome: (d.data()['nome'] ?? '').toString()))
-      .where((e) => e.nome.isNotEmpty)
-      .toList();
-}
 
 /// URL de retorno após pagamento no Checkout Pro (Mercado Pago exige `https`).
 String _churchPanelDonationReturnUrl() {
@@ -141,6 +89,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   String? _checkoutEmbedUrl;
   String? _erro;
   static final Set<String> _mpClusterSyncAttempted = <String>{};
+  int _donationLoadRetryGen = 0;
 
   String get _effectiveTenantId => ChurchPanelTenant.resolve(
         (_operationalTenantId ?? '').isNotEmpty
@@ -155,24 +104,73 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     final u = FirebaseAuth.instance.currentUser;
     _nomeCtrl.text = u?.displayName ?? '';
     _emailCtrl.text = u?.email ?? '';
-    final seed = widget.tenantId.trim();
-    if (seed.isNotEmpty) {
-      _operationalTenantId = seed;
-      final ram = _DonationMpContasCache.peek(seed);
+    final churchId = ChurchPanelTenant.resolve(widget.tenantId.trim());
+    if (churchId.isNotEmpty) {
+      _operationalTenantId = churchId;
+      final ram = ChurchDonationLoadService.peekContasRam(churchId);
       if (ram != null && ram.isNotEmpty) {
         _contas = ram;
         _contaId = ram.first.id;
         _loadingContas = false;
+      } else {
+        final mem = FirestoreReadResilience.peekLastGoodQuery(
+          ChurchDonationLoadService.contasCacheKey(churchId),
+        );
+        if (mem != null && mem.docs.isNotEmpty) {
+          final list = ChurchDonationLoadService.contasFromSnapshot(mem);
+          if (list.isNotEmpty) {
+            _contas = list;
+            _contaId = list.first.id;
+            _loadingContas = false;
+          }
+        }
       }
     }
     unawaited(_bootstrapDonationsPage());
   }
 
+  void _applyDonationLoadResult(ChurchDonationLoadResult result) {
+    if (!mounted) return;
+    setState(() {
+      _operationalTenantId = result.churchId;
+      _contas = result.contas;
+      if (result.contas.isNotEmpty) {
+        _contaId ??= result.contas.first.id;
+        if (_contaId != null &&
+            !result.contas.any((e) => e.id == _contaId)) {
+          _contaId = result.contas.first.id;
+        }
+        _erro = null;
+      } else {
+        _contaId = null;
+        if (result.softError != null) {
+          _erro = _donationLoadErrorMessage(result.softError!);
+        }
+      }
+      _loadingContas = false;
+    });
+  }
+
+  void _scheduleDonationContasRetry() {
+    final gen = ++_donationLoadRetryGen;
+    for (final delay in const [2, 6, 12]) {
+      Future<void>.delayed(Duration(seconds: delay), () async {
+        if (!mounted || gen != _donationLoadRetryGen) return;
+        if (_contas.isNotEmpty) return;
+        await _loadContas(forceRefresh: delay >= 6);
+      });
+    }
+  }
+
   Future<void> _bootstrapDonationsPage() async {
-    final seed = widget.tenantId.trim();
-    if (seed.isEmpty) {
+    final churchId = ChurchPanelTenant.resolve(widget.tenantId.trim());
+    if (churchId.isEmpty) {
       if (mounted) setState(() => _loadingContas = false);
       return;
+    }
+
+    if (mounted) {
+      setState(() => _operationalTenantId = churchId);
     }
 
     if (_contas.isEmpty && mounted) {
@@ -182,34 +180,72 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       });
     }
 
-    try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      final resolved = await ChurchTenantResilientReads.operationalTenantId(
-        seed,
-        userUid: uid,
-      );
-      if (mounted && resolved.trim().isNotEmpty) {
-        setState(() => _operationalTenantId = resolved.trim());
-      }
-    } catch (_) {}
+    final result = await ChurchDonationLoadService.load(
+      seedTenantId: widget.tenantId.trim(),
+      forceRefresh: _contas.isEmpty,
+    );
+    _applyDonationLoadResult(result);
 
-    await _syncMercadoPagoFromClusterIfNeeded();
-    await _loadContas(refreshNetwork: true);
+    if (result.contas.isEmpty) {
+      _scheduleDonationContasRetry();
+    }
+
     unawaited(_bindMemberForDonation());
+    unawaited(_syncMercadoPagoBackgroundIfNeeded());
   }
 
-  /// Copia credenciais/conta MP do doc irmão (ex.: legado) → tenant operacional.
-  Future<void> _syncMercadoPagoFromClusterIfNeeded() async {
+  Future<bool> _hasLocalMercadoPagoConfig(String churchId) async {
+    final cached = ChurchDonationLoadService.peekConfigReadyRam(churchId);
+    if (cached != null) return cached;
+    return ChurchDonationLoadService.loadMercadoPagoConfigReady(churchId);
+  }
+
+  /// Só igrejas legadas sem config local — em background, nunca bloqueia a tela.
+  Future<void> _syncMercadoPagoBackgroundIfNeeded() async {
     final tid = _effectiveTenantId;
     if (tid.isEmpty || _mpClusterSyncAttempted.contains(tid)) return;
     _mpClusterSyncAttempted.add(tid);
+
+    if (await _hasLocalMercadoPagoConfig(tid)) {
+      if (_contas.isEmpty) {
+        unawaited(_ensureTreasuryPresetsBackground());
+      }
+      return;
+    }
+
     try {
       final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable(
         'syncChurchMercadoPagoFromCluster',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 50)),
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 12)),
       );
-      await fn.call(<String, dynamic>{'tenantId': tid});
+      await fn
+          .call(<String, dynamic>{'tenantId': tid})
+          .timeout(const Duration(seconds: 12));
+      ChurchDonationLoadService.putConfigReadyRam(tid, true);
+      if (mounted && _contas.isEmpty) {
+        await _loadContas(forceRefresh: true);
+      }
+    } catch (_) {
+      unawaited(_ensureTreasuryPresetsBackground());
+    }
+  }
+
+  Future<void> _ensureTreasuryPresetsBackground() async {
+    final tid = _effectiveTenantId;
+    if (tid.isEmpty) return;
+    try {
+      final callable = FirebaseFunctions.instanceFor(region: 'us-central1')
+          .httpsCallable(
+        'ensureChurchTreasuryAccountPresets',
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 15)),
+      );
+      await callable
+          .call(<String, dynamic>{'tenantId': tid})
+          .timeout(const Duration(seconds: 15));
+      if (mounted && _contas.isEmpty) {
+        await _loadContas(forceRefresh: true);
+      }
     } catch (_) {}
   }
 
@@ -251,38 +287,21 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     return raw;
   }
 
-  Future<void> _loadContas({bool refreshNetwork = true}) async {
-    if (refreshNetwork && _contas.isEmpty && mounted) {
+  Future<void> _loadContas({bool forceRefresh = false}) async {
+    if (forceRefresh && mounted) {
       setState(() {
         _loadingContas = true;
         _erro = null;
       });
     }
     try {
-      final tid = _effectiveTenantId;
-      if (tid.isEmpty) {
-        if (mounted) setState(() => _loadingContas = false);
-        return;
-      }
-      final snap = await ChurchTenantResilientReads.contasDonation(tid);
-      final list = _filterMercadoPagoContas(snap);
-      _DonationMpContasCache.put(tid, list);
-      _DonationMpContasCache.put(widget.tenantId.trim(), list);
-      if (mounted) {
-        setState(() {
-          _contas = list;
-          if (list.isNotEmpty) {
-            _contaId ??= list.first.id;
-            if (_contaId != null &&
-                !list.any((e) => e.id == _contaId)) {
-              _contaId = list.first.id;
-            }
-            _erro = null;
-          } else {
-            _contaId = null;
-          }
-          _loadingContas = false;
-        });
+      final result = await ChurchDonationLoadService.load(
+        seedTenantId: widget.tenantId.trim(),
+        forceRefresh: forceRefresh,
+      );
+      _applyDonationLoadResult(result);
+      if (result.contas.isEmpty && result.softError != null) {
+        _scheduleDonationContasRetry();
       }
     } catch (e) {
       if (mounted) {
@@ -1047,7 +1066,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
                     TextButton.icon(
                       onPressed: _loadingContas
                           ? null
-                          : () => unawaited(_loadContas(refreshNetwork: true)),
+                          : () => unawaited(_loadContas(forceRefresh: true)),
                       icon: const Icon(Icons.refresh_rounded, size: 18),
                       label: const Text('Recarregar contas Mercado Pago'),
                     ),

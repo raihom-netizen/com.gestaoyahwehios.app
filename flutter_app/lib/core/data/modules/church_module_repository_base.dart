@@ -23,6 +23,7 @@ abstract class ChurchModuleRepositoryBase {
       listCacheFirst({
     String? churchIdHint,
     int limit = 120,
+    String? firestoreCacheKey,
   }) async {
     final id = churchId(churchIdHint);
     if (id.isEmpty) {
@@ -34,15 +35,19 @@ abstract class ChurchModuleRepositoryBase {
         error: 'churchId vazio',
       );
     }
+    final cacheKey =
+        firestoreCacheKey ?? 'data_${id}_${subcollection}_$limit';
     try {
       final snap = await TenantStaleWhileRevalidate.loadQuery(
         tenantId: id,
         module: subcollection,
+        firestoreCacheKey: cacheKey,
         networkFetch: () => ChurchFirestoreAccess.listOnce(
           module: moduleLabel,
           churchId: id,
           subcollectionName: subcollection,
           limit: limit,
+          cacheKey: cacheKey,
         ),
       );
       return churchDataListFromSnapshot(

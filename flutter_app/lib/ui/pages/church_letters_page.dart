@@ -16,7 +16,6 @@ import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
@@ -24,8 +23,11 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/ui/widgets/church_letters_member_pickers.dart';
+import 'package:gestao_yahweh/utils/church_department_list.dart'
+    show churchDepartmentNameFromDoc;
+import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
 
 enum _CartaKind {
   apresentacao,
@@ -72,14 +74,13 @@ class ChurchLettersPage extends StatefulWidget {
 }
 
 class _ChurchLettersPageState extends State<ChurchLettersPage>
-    with SingleTickerProviderStateMixin, SearchDebounceStateMixin {
+    with SingleTickerProviderStateMixin {
   late TabController _tabs;
   final _destIgrejaCtrl = TextEditingController();
   final _missionCtrl = TextEditingController();
   final _tplApresentacaoCtrl = TextEditingController();
   final _tplTransferCtrl = TextEditingController();
   final _tplAgradecimentoCtrl = TextEditingController();
-  final _searchCtrl = TextEditingController();
 
   /// Doc ids em `membros` — obrigatório 1º; 2º opcional (segunda assinatura).
   String? _signer1MemberId;
@@ -90,8 +91,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   bool _savingTpl = false;
   bool _pdfBusy = false;
   _LetterSignatureMode _signatureMode = _LetterSignatureMode.digital;
-  String _memberFilter = '';
   final Set<String> _selectedIds = {};
+  List<({String id, String name})> _deptFilterItems = [];
   late Future<QuerySnapshot<Map<String, dynamic>>> _membersFuture;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _seedMemberDocs = [];
   int _membersQueryLimit = 600;
@@ -133,6 +134,100 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     }
     unawaited(_openChurchLettersFast());
     unawaited(_bootstrap());
+    unawaited(_loadDepartmentsForLetters());
+  }
+
+  Future<void> _loadDepartmentsForLetters() async {
+    try {
+      final tid = _effectiveTenantId.isNotEmpty
+          ? _effectiveTenantId
+          : widget.tenantId.trim();
+      if (tid.isEmpty) return;
+      final snap = await ChurchTenantResilientReads.departamentos(tid);
+      final list = snap.docs
+          .map((d) => (
+                id: d.id,
+                name: churchDepartmentNameFromDoc(d),
+              ))
+          .where((e) => e.name.isNotEmpty)
+          .toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      if (mounted) setState(() => _deptFilterItems = list);
+    } catch (_) {}
+  }
+
+  List<ChurchLetterMemberEntry> _memberEntriesFromDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    return docs
+        .map(
+          (d) => ChurchLetterMemberEntry(
+            id: d.id,
+            name: _memberName(d.data()),
+            cpfDigits: _memberCpf(d.data()),
+            data: d.data(),
+            active: _memberAtivo(d.data()),
+          ),
+        )
+        .toList();
+  }
+
+  ChurchLetterMemberEntry? _entryById(String? id) {
+    if (id == null || id.isEmpty) return null;
+    for (final d in _seedMemberDocs) {
+      if (d.id == id) {
+        return ChurchLetterMemberEntry(
+          id: d.id,
+          name: _memberName(d.data()),
+          cpfDigits: _memberCpf(d.data()),
+          data: d.data(),
+          active: _memberAtivo(d.data()),
+        );
+      }
+    }
+    return null;
+  }
+
+  Future<void> _pickSigner({
+    required bool second,
+  }) async {
+    final entries = _memberEntriesFromDocs(_seedMemberDocs);
+    final picked = await showChurchLetterSignerPicker(
+      context,
+      title: second ? '2.º assinante (opcional)' : '1.º assinante *',
+      tenantId: _effectiveTenantId.isNotEmpty
+          ? _effectiveTenantId
+          : widget.tenantId.trim(),
+      signers: entries,
+      selectedId: second ? _signer2MemberId : _signer1MemberId,
+      excludeId: second ? _signer1MemberId : null,
+    );
+    if (!mounted || picked == null) return;
+    setState(() {
+      if (second) {
+        _signer2MemberId = picked == _signer1MemberId ? null : picked;
+      } else {
+        _signer1MemberId = picked;
+        if (_signer2MemberId == _signer1MemberId) _signer2MemberId = null;
+      }
+    });
+  }
+
+  Future<void> _openRecipientsPicker() async {
+    final entries = _memberEntriesFromDocs(_seedMemberDocs);
+    final picked = await showChurchLetterRecipientsPicker(
+      context,
+      tenantId: _effectiveTenantId.isNotEmpty
+          ? _effectiveTenantId
+          : widget.tenantId.trim(),
+      members: entries,
+      initialSelected: _selectedIds,
+      departments: _deptFilterItems,
+    );
+    if (!mounted || picked == null) return;
+    setState(() => _selectedIds
+      ..clear()
+      ..addAll(picked));
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _memberDocsFromSnapshot(
@@ -293,6 +388,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     if (gestorNome.isNotEmpty) {
       for (final d in docs) {
         if (!_memberAtivo(d.data())) continue;
+        if (!memberCanSignChurchDocuments(d.data())) continue;
         final n = _memberName(d.data()).toLowerCase();
         if (n == gestorNome || n.contains(gestorNome)) {
           _signer1MemberId = d.id;
@@ -304,6 +400,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     for (final d in docs) {
       final m = d.data();
       if (!_memberAtivo(m)) continue;
+      if (!memberCanSignChurchDocuments(m)) continue;
       final funcoes = m['FUNCOES'];
       if (funcoes is List) {
         for (final f in funcoes) {
@@ -453,7 +550,6 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     _tplApresentacaoCtrl.dispose();
     _tplTransferCtrl.dispose();
     _tplAgradecimentoCtrl.dispose();
-    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -1441,79 +1537,61 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                     );
                                   }
 
-                                  Widget signerRow({
-                                    required String label,
-                                    required String? value,
-                                    required ValueChanged<String?> onChanged,
-                                    required bool isSecond,
-                                  }) {
-                                    final items = <DropdownMenuItem<String>>[
-                                      if (!isSecond)
-                                        const DropdownMenuItem<String>(
-                                          value: null,
-                                          child: Text('— Selecione o assinante —'),
-                                        ),
-                                      if (isSecond)
-                                        const DropdownMenuItem<String>(
-                                          value: null,
-                                          child: Text('— Nenhum —'),
-                                        ),
-                                      ...activeDocs.map((d) {
-                                        final m = d.data();
-                                        final n = _memberName(m);
-                                        return DropdownMenuItem<String>(
-                                          value: d.id,
-                                          child: Text(
-                                            n.isEmpty ? d.id : n,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        );
-                                      }),
-                                    ];
-                                    final safeVal =
-                                        value != null &&
-                                                items.any((e) => e.value == value)
-                                            ? value
-                                            : null;
-                                    return DropdownButtonFormField<String>(
-                                      value: safeVal,
-                                      isExpanded: true,
-                                      decoration: premiumField(
-                                        label,
-                                        helper:
-                                            'Dados do cadastro Membros — não editáveis aqui',
-                                      ),
-                                      items: items,
-                                      onChanged: onChanged,
-                                    );
-                                  }
+                                  final signerPool = activeDocs
+                                      .where((d) =>
+                                          memberCanSignChurchDocuments(d.data()))
+                                      .length;
+                                  final tid = _effectiveTenantId.isNotEmpty
+                                      ? _effectiveTenantId
+                                      : widget.tenantId.trim();
 
                                   return Column(
                                     crossAxisAlignment: CrossAxisAlignment.stretch,
                                     children: [
-                                      signerRow(
-                                        label: '1.º assinante (cadastro membro) *',
-                                        value: _signer1MemberId,
-                                        isSecond: false,
-                                        onChanged: (v) {
-                                          setState(() {
-                                            _signer1MemberId = v;
-                                            if (_signer2MemberId == _signer1MemberId) {
-                                              _signer2MemberId = null;
-                                            }
-                                          });
-                                        },
+                                      Text(
+                                        'Quem assina',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.grey.shade900,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        signerPool > 0
+                                            ? '$signerPool assinante(s) elegível(is): pastor, gestor, secretário, tesoureiro, administrador ou líder de departamento.'
+                                            : 'Cadastre liderança em Membros (pastor, gestor, secretário, tesoureiro ou líder).',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          height: 1.35,
+                                          color: Colors.grey.shade600,
+                                        ),
                                       ),
                                       const SizedBox(height: 12),
-                                      signerRow(
-                                        label: '2.º assinante (opcional)',
-                                        value: _signer2MemberId,
-                                        isSecond: true,
-                                        onChanged: (v) => setState(() {
-                                          _signer2MemberId =
-                                              v == _signer1MemberId ? null : v;
-                                        }),
+                                      ChurchLetterSignerTile(
+                                        label: '1.º assinante *',
+                                        tenantId: tid,
+                                        entry: _entryById(_signer1MemberId),
+                                        onTap: () => _pickSigner(second: false),
                                       ),
+                                      const SizedBox(height: 10),
+                                      ChurchLetterSignerTile(
+                                        label: '2.º assinante (opcional)',
+                                        tenantId: tid,
+                                        entry: _entryById(_signer2MemberId),
+                                        optional: true,
+                                        onTap: () => _pickSigner(second: true),
+                                      ),
+                                      if (_signer2MemberId != null)
+                                        Align(
+                                          alignment: Alignment.centerRight,
+                                          child: TextButton(
+                                            onPressed: () => setState(
+                                              () => _signer2MemberId = null,
+                                            ),
+                                            child: const Text('Remover 2.º assinante'),
+                                          ),
+                                        ),
                                       const SizedBox(height: 12),
                                       if (docs.isNotEmpty)
                                         InputDecorator(
@@ -1764,200 +1842,122 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
               ),
               if (!isHistorico) ...[
                 const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Text(
-                      'Membros',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.grey.shade900,
-                      ),
-                    ),
-                    const Spacer(),
-                    TextButton.icon(
-                      onPressed: _refreshMembers,
-                      icon: const Icon(Icons.refresh_rounded, size: 20),
-                      label: const Text('Atualizar lista'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _searchCtrl,
-                  onChanged: (v) => scheduleSearchUpdate(
-                    () => _memberFilter = v.trim().toLowerCase(),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                        BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                    border: Border.all(color: accent.withValues(alpha: 0.14)),
+                    boxShadow: ThemeCleanPremium.softUiCardShadow,
                   ),
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    hintText: 'Filtrar por nome ou CPF…',
-                    border:
-                        OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    filled: true,
-                    fillColor: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    TextButton(
-                      onPressed: () async {
-                        final snap = await _membersFuture;
-                        final next = <String>{};
-                        for (final d in snap.docs) {
-                          final m = d.data();
-                          if (!_memberAtivo(m)) continue;
-                          final n = _memberName(m);
-                          final cpf = _memberCpf(m);
-                          final q = _memberFilter;
-                          if (q.isNotEmpty &&
-                              !n.toLowerCase().contains(q) &&
-                              !cpf.contains(q)) {
-                            continue;
-                          }
-                          next.add(d.id);
-                        }
-                        setState(() {
-                          _selectedIds
-                            ..clear()
-                            ..addAll(next);
-                        });
-                      },
-                      child: const Text('Selecionar filtrados'),
-                    ),
-                    TextButton(
-                      onPressed: () => setState(_selectedIds.clear),
-                      child: const Text('Limpar seleção'),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '${_selectedIds.length} selecionado(s) · ${_seedMemberDocs.where((d) => _memberAtivo(d.data())).length} ativo(s)',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: accent,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  future: _membersFuture,
-                  builder: (context, snap) {
-                    if (snap.hasError) {
-                      return Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          children: [
-                            Text('Erro: ${snap.error}',
-                                style: TextStyle(color: Colors.red.shade700)),
-                            TextButton.icon(
-                              onPressed: _refreshMembers,
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('Tentar novamente'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(14),
                             ),
-                          ],
-                        ),
-                      );
-                    }
-                    if ((snap.connectionState == ConnectionState.waiting &&
-                            !snap.hasData &&
-                            _seedMemberDocs.isEmpty) ||
-                        (_membersSyncing && _memberDocsFromSnapshot(snap.data).isEmpty)) {
-                      return _buildMembersListSkeleton();
-                    }
-                    final docs = _memberDocsFromSnapshot(snap.data).where((d) {
-                      final m = d.data();
-                      if (!_memberAtivo(m)) return false;
-                      final n = _memberName(m).toLowerCase();
-                      final cpf = _memberCpf(m);
-                      final q = _memberFilter;
-                      if (q.isEmpty) return true;
-                      return n.contains(q) || cpf.contains(q);
-                    }).toList()
-                      ..sort((a, b) => _memberName(a.data())
-                          .toLowerCase()
-                          .compareTo(_memberName(b.data()).toLowerCase()));
-
-                    if (docs.isEmpty) {
-                      return Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Text(
-                          'Nenhum membro ativo com este filtro.',
-                          style: TextStyle(color: Colors.grey.shade600),
-                        ),
-                      );
-                    }
-
-                    return ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: docs.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, i) {
-                        final d = docs[i];
-                        final m = d.data();
-                        final name = _memberName(m);
-                        final cpf = _memberCpf(m);
-                        final sel = _selectedIds.contains(d.id);
-                        final authUidRaw =
-                            (m['authUid'] ?? '').toString().trim();
-                        final authUidOpt =
-                            authUidRaw.isEmpty ? null : authUidRaw;
-                        return Material(
-                          color:
-                              sel ? accent.withValues(alpha: 0.06) : Colors.white,
-                          child: CheckboxListTile(
-                            value: sel,
-                            onChanged: (v) {
-                              setState(() {
-                                if (v == true) {
-                                  _selectedIds.add(d.id);
-                                } else {
-                                  _selectedIds.remove(d.id);
-                                }
-                              });
-                            },
-                            title: Text(
-                              name.isEmpty ? '(sem nome)' : name,
-                              style: const TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                            subtitle: cpf.isNotEmpty
-                                ? Text('CPF: $cpf',
-                                    style: const TextStyle(fontSize: 12))
-                                : null,
-                            secondary: SizedBox(
-                              width: 40,
-                              height: 40,
-                              child: FotoMembroWidget(
-                                tenantId: _effectiveTenantId.isNotEmpty
-                                    ? _effectiveTenantId
-                                    : null,
-                                memberId: d.id,
-                                memberData: m,
-                                cpfDigits: cpf.length == 11 ? cpf : null,
-                                authUid: authUidOpt,
-                                size: 40,
-                                backgroundColor: accent.withValues(alpha: 0.15),
-                                fallbackChild: CircleAvatar(
-                                  backgroundColor:
-                                      accent.withValues(alpha: 0.15),
-                                  child: Text(
-                                    name.isNotEmpty
-                                        ? name.characters.first.toUpperCase()
-                                        : '?',
-                                    style: TextStyle(
-                                      color: accent,
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                            child: Icon(Icons.groups_rounded, color: accent),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Membros da carta',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.grey.shade900,
                                   ),
                                 ),
-                              ),
+                                Text(
+                                  'Seleção múltipla — busca, filtro por departamento ou geral.',
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    height: 1.35,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        );
-                      },
-                    );
-                  },
+                          TextButton.icon(
+                            onPressed: _refreshMembers,
+                            icon: const Icon(Icons.refresh_rounded, size: 20),
+                            label: const Text('Atualizar'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton.icon(
+                        onPressed: _membersSyncing ? null : _openRecipientsPicker,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: accent,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        icon: const Icon(Icons.person_add_alt_1_rounded),
+                        label: Text(
+                          _selectedIds.isEmpty
+                              ? 'Selecionar membros'
+                              : 'Editar seleção (${_selectedIds.length})',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Text(
+                            '${_selectedIds.length} selecionado(s) · ${_seedMemberDocs.where((d) => _memberAtivo(d.data())).length} ativo(s)',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: accent,
+                            ),
+                          ),
+                          const Spacer(),
+                          if (_selectedIds.isNotEmpty)
+                            TextButton(
+                              onPressed: () => setState(_selectedIds.clear),
+                              child: const Text('Limpar'),
+                            ),
+                        ],
+                      ),
+                      if (_selectedIds.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _selectedIds.map((id) {
+                            final e = _entryById(id);
+                            final label = e?.name ?? id;
+                            return InputChip(
+                              label: Text(
+                                label.isEmpty ? id : label,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              onDeleted: () =>
+                                  setState(() => _selectedIds.remove(id)),
+                              deleteIcon: const Icon(Icons.close_rounded, size: 16),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                      if (_membersSyncing && _seedMemberDocs.isEmpty) ...[
+                        const SizedBox(height: 12),
+                        LinearProgressIndicator(
+                          minHeight: 3,
+                          color: accent.withValues(alpha: 0.65),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ],
             ],

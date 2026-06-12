@@ -1,10 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resumo mensal em `igrejas/{tid}/_panel_cache/finance_summary` (Cloud Function).
 class PanelFinanceMonthTotals {
@@ -75,18 +75,59 @@ class PanelFinanceSnapshotService {
   static Stream<PanelFinanceSnapshot> watch(String tenantId) {
     final tid = ChurchPanelTenant.resolve(tenantId);
     if (tid.isEmpty) return Stream.value(const PanelFinanceSnapshot());
+    if (kIsWeb) {
+      return cacheRef(tid)
+          .watchSafe()
+          .map((snap) => PanelFinanceSnapshot.fromMap(snap.data()));
+    }
     return _watchCacheFirst(tid);
   }
 
   static Stream<PanelFinanceSnapshot> _watchCacheFirst(String tenantId) async* {
-    try {
-      yield await readOnce(tenantId);
-    } catch (_) {
-      yield const PanelFinanceSnapshot();
-    }
-    await for (final snap
-        in cacheRef(tenantId).watchSafe()) {
+    await for (final snap in cacheRef(tenantId).watchBootstrap()) {
       yield PanelFinanceSnapshot.fromMap(snap.data());
+    }
+  }
+
+  static Future<PanelFinanceSnapshot> _fetchOnce(
+    String tenantId, {
+    Source? source,
+  }) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return const PanelFinanceSnapshot();
+
+    Future<PanelFinanceSnapshot> load() async {
+      if (source == null) {
+        try {
+          final cached = await cacheRef(tid)
+              .get(const GetOptions(source: Source.cache))
+              .timeout(const Duration(seconds: 3));
+          final fromCache = PanelFinanceSnapshot.fromMap(cached.data());
+          if (fromCache.hasData) return fromCache;
+        } catch (_) {}
+      }
+      final opts = source != null ? GetOptions(source: source) : null;
+      final snap = await cacheRef(tid)
+          .get(opts)
+          .timeout(Duration(seconds: kIsWeb ? 12 : 8));
+      return PanelFinanceSnapshot.fromMap(snap.data());
+    }
+
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      try {
+        return await FirestoreWebGuard.runWithWebRecovery(
+          load,
+          maxAttempts: 3,
+        );
+      } catch (_) {
+        return const PanelFinanceSnapshot();
+      }
+    }
+    try {
+      return await load();
+    } catch (_) {
+      return const PanelFinanceSnapshot();
     }
   }
 
@@ -137,35 +178,16 @@ class PanelFinanceSnapshotService {
     return out;
   }
 
-  static Future<PanelFinanceSnapshot> readOnce(String tenantId) async {
-    final tid = tenantId.trim();
-    if (tid.isEmpty) return const PanelFinanceSnapshot();
-    try {
-      final cached = await cacheRef(tid)
-          .get(const GetOptions(source: Source.cache))
-          .timeout(const Duration(seconds: 3));
-      final fromCache = PanelFinanceSnapshot.fromMap(cached.data());
-      if (fromCache.hasData) return fromCache;
-    } catch (_) {}
-    try {
-      final snap = await cacheRef(tid).get();
-      return PanelFinanceSnapshot.fromMap(snap.data());
-    } catch (_) {
-      return const PanelFinanceSnapshot();
-    }
-  }
+  static Future<PanelFinanceSnapshot> readOnce(String tenantId) =>
+      _fetchOnce(tenantId);
 
   /// Ignora cache local — uso após lançamento financeiro (actualização imediata).
   static Future<PanelFinanceSnapshot> readOnceFromServer(String tenantId) async {
-    final tid = tenantId.trim();
-    if (tid.isEmpty) return const PanelFinanceSnapshot();
-    try {
-      final snap = await cacheRef(tid).get(
-        const GetOptions(source: Source.server),
-      );
-      return PanelFinanceSnapshot.fromMap(snap.data());
-    } catch (_) {
-      return readOnce(tid);
-    }
+    final fromServer = await _fetchOnce(
+      tenantId,
+      source: Source.server,
+    );
+    if (fromServer.hasData) return fromServer;
+    return readOnce(tenantId);
   }
 }

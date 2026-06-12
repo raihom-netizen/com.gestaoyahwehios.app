@@ -10,7 +10,6 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
-import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
@@ -36,14 +35,15 @@ import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
-import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
-import 'package:gestao_yahweh/services/immediate_feed_photo_attach.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
+import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
+import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -56,6 +56,7 @@ import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
 import 'package:gestao_yahweh/core/mural_video_warmup.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
+import 'package:gestao_yahweh/ui/widgets/mural_comments_sheet.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -108,14 +109,15 @@ import 'package:shimmer/shimmer.dart';
 import 'church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
 import 'package:gestao_yahweh/ui/widgets/yahweh_whatsapp_one_tap_button.dart';
+import 'package:gestao_yahweh/ui/widgets/feed_editor_local_photo_thumb.dart';
 import '../theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/aviso_strict_publish_service.dart';
+import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/evento_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -431,13 +433,13 @@ class InstagramMuralState extends State<InstagramMural> {
     }
 
     try {
-      final snap = await ChurchTenantResilientReads.avisosFeed(
-        tid,
+      final hit = await ChurchAvisosLoadService.loadFeed(
+        seedTenantId: tid,
         limit: _feedPageSize,
-      ).timeout(const Duration(milliseconds: 1800));
-      if (snap.docs.isNotEmpty) {
-        _AvisosFeedRamCache.put(tid, snap.docs);
-        applyDocs(snap.docs);
+      ).timeout(const Duration(milliseconds: 2800));
+      if (hit.docs.isNotEmpty) {
+        _AvisosFeedRamCache.put(tid, hit.docs);
+        applyDocs(hit.docs);
       }
     } catch (_) {}
 
@@ -531,11 +533,7 @@ class InstagramMuralState extends State<InstagramMural> {
       }
       return;
     }
-    final uid = firebaseDefaultAuth.currentUser?.uid;
-    final igrejaId = await ChurchOperationalPaths.resolveCached(
-      widget.tenantId,
-      userUid: uid,
-    );
+    final igrejaId = ChurchPanelTenant.resolve(widget.tenantId);
     final postsCollection = type == 'evento'
         ? ChurchUiCollections.churchDoc(igrejaId)
             .collection(ChurchTenantPostsCollections.eventos)
@@ -659,12 +657,14 @@ class InstagramMuralState extends State<InstagramMural> {
       }
       QuerySnapshot<Map<String, dynamic>> snap;
       if (reset && _feedLastCursor == null) {
-        snap = await FirestoreWebGuard.runWithWebRecovery(() {
-          return ChurchTenantResilientReads.avisosFeed(
-            _tid,
-            limit: _feedPageSize,
-          ).timeout(const Duration(seconds: 8));
-        });
+        final hit = await ChurchAvisosLoadService.loadFeed(
+          seedTenantId: _tid,
+          limit: _feedPageSize,
+        );
+        snap = hit.snapshot;
+        if (hit.softError != null && hit.docs.isEmpty && mounted) {
+          _feedLoadError = hit.softError;
+        }
       } else {
         snap = await FirestoreWebGuard.runWithWebRecovery(() async {
           try {
@@ -1554,6 +1554,9 @@ class _PostCardState extends State<_PostCard>
     with AutomaticKeepAliveClientMixin, SingleTickerProviderStateMixin {
   int _carouselIndex = 0;
   bool _rsvpBusy = false;
+  bool _likeBusy = false;
+  bool? _likeOverride;
+  int _likeCountAdjust = 0;
   late final AnimationController _heartBurst;
 
   @override
@@ -1581,6 +1584,12 @@ class _PostCardState extends State<_PostCard>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.doc.id != widget.doc.id) {
       _carouselIndex = 0;
+      _likeOverride = null;
+      _likeCountAdjust = 0;
+    } else if (oldWidget.doc.data()['likes'] != widget.doc.data()['likes'] ||
+        oldWidget.doc.data()['likesCount'] != widget.doc.data()['likesCount']) {
+      _likeOverride = null;
+      _likeCountAdjust = 0;
     }
   }
 
@@ -1708,6 +1717,7 @@ class _PostCardState extends State<_PostCard>
   Future<void> _toggleLike({
     required bool liked,
   }) async {
+    if (_likeBusy) return;
     final uid = _uid;
     if (uid.isEmpty) {
       if (!mounted) return;
@@ -1716,24 +1726,32 @@ class _PostCardState extends State<_PostCard>
       );
       return;
     }
+    setState(() {
+      _likeBusy = true;
+      _likeOverride = !liked;
+      _likeCountAdjust += liked ? -1 : 1;
+    });
     try {
       final dn = _displayName;
       final photo = FirebaseAuth.instance.currentUser?.photoURL?.trim() ?? '';
-      await NoticiaSocialService.toggleCurtida(
-        tenantId: widget.tenantId,
-        postId: widget.doc.id,
+      await NoticiaSocialService.toggleCurtidaOnPost(
+        postRef: widget.doc.reference,
         uid: uid,
         memberName: dn,
         photoUrl: photo,
         currentlyLiked: liked,
-        parentCollection:
-            ChurchTenantPostsCollections.segmentFromPostRef(widget.doc.reference),
       );
     } catch (_) {
       if (!mounted) return;
+      setState(() {
+        _likeOverride = null;
+        _likeCountAdjust = 0;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar('Não foi possível curtir agora.'),
+        ThemeCleanPremium.feedbackSnackBar('Não foi possível curtir agora.'),
       );
+    } finally {
+      if (mounted) setState(() => _likeBusy = false);
     }
   }
 
@@ -1746,189 +1764,13 @@ class _PostCardState extends State<_PostCard>
       );
       return;
     }
-    final commentsRef = widget.doc.reference.collection('comentarios');
-    final ctrl = TextEditingController();
-    bool sending = false;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setLocalState) {
-            Future<void> sendComment() async {
-              final text = ctrl.text.trim();
-              if (text.isEmpty || sending) return;
-              setLocalState(() => sending = true);
-              try {
-                await commentsRef.add({
-                  'authorUid': uid,
-                  'authorName': _displayName,
-                  'authorPhoto':
-                      FirebaseAuth.instance.currentUser?.photoURL ?? '',
-                  'text': text,
-                  'texto': text,
-                  'createdAt': FieldValue.serverTimestamp(),
-                });
-                final current = (widget.doc.data()['commentsCount'] is num)
-                    ? (widget.doc.data()['commentsCount'] as num).toInt()
-                    : 0;
-                await widget.doc.reference.set({
-                  'commentsCount': (current + 1).clamp(0, 999999),
-                }, SetOptions(merge: true));
-                ctrl.clear();
-              } catch (_) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    ThemeCleanPremium.successSnackBar(
-                        'Não foi possível comentar agora.'),
-                  );
-                }
-              } finally {
-                if (ctx.mounted) setLocalState(() => sending = false);
-              }
-            }
-
-            final bottom = MediaQuery.viewInsetsOf(ctx).bottom;
-            return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              ),
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(14, 12, 14, 12 + bottom),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                          width: 42,
-                          height: 4,
-                          decoration: BoxDecoration(
-                              color: Colors.grey.shade300,
-                              borderRadius: BorderRadius.circular(8))),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: const [
-                          Icon(Icons.mode_comment_outlined, size: 20),
-                          SizedBox(width: 8),
-                          Text('Comentários',
-                              style: TextStyle(
-                                  fontWeight: FontWeight.w800, fontSize: 16)),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        height: 260,
-                        child:
-                            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          stream: commentsRef
-                              .orderBy('createdAt', descending: true)
-                              .limit(60)
-                              .watchSafe(),
-                          builder: (context, snap) {
-                            final docs = snap.data?.docs ?? const [];
-                            if (docs.isEmpty) {
-                              return Center(
-                                child: Text('Seja o primeiro a comentar.',
-                                    style:
-                                        TextStyle(color: Colors.grey.shade600)),
-                              );
-                            }
-                            return ListView.separated(
-                              itemCount: docs.length,
-                              separatorBuilder: (_, __) => Divider(
-                                  height: 12, color: Colors.grey.shade200),
-                              itemBuilder: (context, i) {
-                                final c = docs[i].data();
-                                final name =
-                                    (c['authorName'] ?? c['name'] ?? 'Membro')
-                                        .toString();
-                                final text = (c['text'] ?? '').toString();
-                                return Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    CircleAvatar(
-                                        radius: 14,
-                                        backgroundColor: ThemeCleanPremium
-                                            .primary
-                                            .withValues(alpha: 0.12),
-                                        child: Icon(Icons.person,
-                                            size: 14,
-                                            color: ThemeCleanPremium.primary)),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(name,
-                                              style: const TextStyle(
-                                                  fontWeight: FontWeight.w700,
-                                                  fontSize: 12)),
-                                          const SizedBox(height: 2),
-                                          Text(text,
-                                              style: TextStyle(
-                                                  fontSize: 13,
-                                                  color: Colors.grey.shade800)),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: ctrl,
-                              minLines: 1,
-                              maxLines: 3,
-                              textInputAction: TextInputAction.send,
-                              onSubmitted: (_) => sendComment(),
-                              decoration: const InputDecoration(
-                                hintText: 'Escreva um comentário...',
-                                prefixIcon:
-                                    Icon(Icons.chat_bubble_outline_rounded),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            onPressed: sending ? null : sendComment,
-                            icon: sending
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2))
-                                : const Icon(Icons.send_rounded),
-                            style: IconButton.styleFrom(
-                              backgroundColor:
-                                  ThemeCleanPremium.primary.withValues(alpha: 0.1),
-                              minimumSize: const Size(
-                                  ThemeCleanPremium.minTouchTarget,
-                                  ThemeCleanPremium.minTouchTarget),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
+    await MuralCommentsSheet.show(
+      context,
+      postRef: widget.doc.reference,
+      authorUid: uid,
+      authorName: _displayName,
+      authorPhoto: FirebaseAuth.instance.currentUser?.photoURL ?? '',
     );
-    ctrl.dispose();
   }
 
   @override
@@ -1980,8 +1822,12 @@ class _PostCardState extends State<_PostCard>
         : '';
     final isEvento = type == 'evento';
     final mergedLikes = NoticiaSocialService.mergedLikeUids(data);
-    final liked = _uid.isNotEmpty && mergedLikes.contains(_uid);
-    final likesCount = NoticiaSocialService.likeDisplayCount(data, mergedLikes);
+    final likedBase = _uid.isNotEmpty && mergedLikes.contains(_uid);
+    final liked = _likeOverride ?? likedBase;
+    final likesCountBase =
+        NoticiaSocialService.likeDisplayCount(data, mergedLikes);
+    final likesCount =
+        (likesCountBase + _likeCountAdjust).clamp(0, 999999);
     final commentsCount = (data['commentsCount'] is num)
         ? (data['commentsCount'] as num).toInt()
         : 0;
@@ -3516,7 +3362,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
   final List<String> _newNames = [];
   DocumentReference<Map<String, dynamic>>? _lazyPostRef;
   bool _draftStubEnsured = false;
-  int _inFlightPhotoUploads = 0;
   final ValueNotifier<int> _addressPreviewTick = ValueNotifier(0);
 
   void _notifyAddressPreview() => _addressPreviewTick.value++;
@@ -3572,86 +3417,22 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     if (!mounted) return;
     ImmediateMediaAttachFeedback.showArquivoAnexado(context, displayName);
-    unawaited(
-      _uploadAttachedFeedPhotoInBackground(
-        webBytes: webBytes,
-        mobilePath: mobilePath,
-      ),
-    );
   }
 
-  void _removePendingPhotoFromLists({Uint8List? webBytes, String? mobilePath}) {
-    if (webBytes != null) {
-      final i = _newImages.indexOf(webBytes);
-      if (i >= 0) {
-        _newImages.removeAt(i);
-        if (i < _newNames.length) _newNames.removeAt(i);
-      }
-    } else if (mobilePath != null) {
-      final i = _newImagePaths.indexOf(mobilePath);
-      if (i >= 0) {
-        _newImagePaths.removeAt(i);
-        if (i < _newNames.length) _newNames.removeAt(i);
-      }
+  ({List<Uint8List>? bytes, List<String>? paths}) _newPhotosForPublish() {
+    if (kIsWeb) {
+      if (_newImages.isEmpty) return (bytes: null, paths: null);
+      return (bytes: List<Uint8List>.from(_newImages), paths: null);
     }
+    final paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
+    if (paths.isEmpty) return (bytes: null, paths: null);
+    return (bytes: null, paths: paths);
   }
 
-  Future<void> _uploadAttachedFeedPhotoInBackground({
-    Uint8List? webBytes,
-    String? mobilePath,
-  }) async {
-    if (!mounted) return;
-    final slot = _existingUrls.length + _inFlightPhotoUploads;
-    _inFlightPhotoUploads++;
-    try {
-      final ref = _editorPostRef;
-      if (widget.doc == null && !_draftStubEnsured) {
-        await ImmediateFeedPhotoAttach.ensureDraftPost(
-          docRef: ref,
-          isNewDoc: true,
-          tenantId: _editorTenantId,
-          postType: widget.type,
-          title: _title.text,
-        );
-        _draftStubEnsured = true;
-      }
-      final url = await ImmediateFeedPhotoAttach.uploadSingleSlot(
-        tenantId: _editorTenantId,
-        postType: widget.type,
-        postId: ref.id,
-        slotIndex: slot,
-        bytes: webBytes,
-        localPath: mobilePath,
-      );
-      if (!mounted) return;
-      if (url != null && url.isNotEmpty) {
-        setState(() {
-          _removePendingPhotoFromLists(
-            webBytes: webBytes,
-            mobilePath: mobilePath,
-          );
-          _existingUrls.add(url);
-        });
-        if (mounted) {
-          ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(formatUploadErrorForUser(e)),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _inFlightPhotoUploads--);
-      } else {
-        _inFlightPhotoUploads--;
-      }
-    }
+  void _clearNewPhotosAfterPublish() {
+    _newImages.clear();
+    _newImagePaths.clear();
+    _newNames.clear();
   }
 
   Future<List<Uint8List>> _copyNewImagesForPublish() async {
@@ -3799,28 +3580,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             : widget.resolvedTenantId,
       );
 
-  Future<DocumentReference<Map<String, dynamic>>> _resolveAvisoDocRefForPublish(
-    String igrejaId,
-  ) async {
-    final docId = _editorPostRef.id;
-    final docRef = AvisosPublishVerificationService.avisoDocRef(
-      igrejaId: igrejaId,
-      docId: docId,
-    );
-    return docRef;
-  }
-
   Future<({DocumentReference<Map<String, dynamic>> docRef, String igrejaId})>
       _prepareEventoPublishContext() async {
-    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
-    final igrejaId =
-        await EventosPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: widget.tenantId,
-      userUid: uid.isEmpty ? null : uid,
-    );
+    final igrejaId = EventoPublishService.resolveChurchId(_editorTenantId);
     if (mounted) setState(() => _operationalTenantId = igrejaId);
-    final docRef = EventosPublishVerificationService.eventoDocRef(
-      igrejaId: igrejaId,
+    final docRef = EventoPublishService.docRef(
+      churchId: igrejaId,
       docId: _editorPostRef.id,
     );
     return (docRef: docRef, igrejaId: igrejaId);
@@ -3828,14 +3593,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   Future<({DocumentReference<Map<String, dynamic>> docRef, String igrejaId})>
       _prepareAvisoPublishContext() async {
-    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
-    final igrejaId =
-        await AvisosPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: widget.tenantId,
-      userUid: uid.isEmpty ? null : uid,
-    );
+    final igrejaId = ChurchPublishContext.churchIdForPublish(_editorTenantId);
     if (mounted) setState(() => _operationalTenantId = igrejaId);
-    final docRef = await _resolveAvisoDocRefForPublish(igrejaId);
+    final docRef = AvisosPublishVerificationService.avisoDocRef(
+      igrejaId: igrejaId,
+      docId: _editorPostRef.id,
+    );
     return (docRef: docRef, igrejaId: igrejaId);
   }
 
@@ -3922,11 +3685,22 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     if (_loadingChurchAddress) return;
     setState(() => _loadingChurchAddress = true);
     try {
-      final bundle = await ChurchTenantResilientReads.loadChurchAddressBundle(
-        _editorTenantId,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
+      final loaded = await ChurchCadastroLoadService.load(
+        seedTenantId: _editorTenantId,
       );
-      final data = bundle.tenantData;
+      if (loaded.data.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+              loaded.softError?.isNotEmpty == true
+                  ? loaded.softError!
+                  : 'Cadastre o endereço da igreja em Cadastro da Igreja primeiro.',
+            ),
+          );
+        }
+        return;
+      }
+      final data = loaded.data;
       final endereco = _buildEnderecoFromTenant(data);
       if (endereco.isEmpty) {
         if (mounted) {
@@ -3941,7 +3715,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       final lng = data['longitude'];
       if (mounted) {
         setState(() {
-          _operationalTenantId = bundle.firestoreTenantId;
+          _operationalTenantId = loaded.churchId;
           _useChurchLocation = true;
           _churchAddressText = endereco;
           _fillManualFieldsFromTenant(data);
@@ -4457,49 +4231,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     return payload;
   }
 
-  Future<void> _waitForInFlightPhotoUploads() async {
-    const maxWait = Duration(seconds: 90);
-    final deadline = DateTime.now().add(maxWait);
-    while (_inFlightPhotoUploads > 0 && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 120));
-    }
-    if (_inFlightPhotoUploads > 0) {
-      throw StateError(
-        'Ainda a enviar fotos. Aguarde o vínculo ao Storage e tente de novo.',
-      );
-    }
-  }
-
-  /// Envia fotos pendentes ao Storage antes do publish (sem rascunho Firestore).
-  Future<void> _flushPendingFeedPhotosBeforePublish(
-    String tenantId, {
-    required DocumentReference<Map<String, dynamic>> docRef,
-  }) async {
-    if (_newPhotoCount <= 0) return;
-    final start = _existingUrls.length;
-    final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
-      tenantId: tenantId,
-      postType: widget.type,
-      postId: docRef.id,
-      startSlotIndex: start,
-      bytesList: kIsWeb ? List<Uint8List>.from(_newImages) : null,
-      localPaths: kIsWeb
-          ? null
-          : FeedEditorMediaService.existingValidPaths(_newImagePaths),
-    );
-    if (!mounted) return;
-    setState(() {
-      _newImages.clear();
-      _newImagePaths.clear();
-      _newNames.clear();
-      for (final s in slots) {
-        _existingUrls.add(s.fullUrl);
-      }
-    });
-  }
-
   Future<void> _retryPublishFirestoreFirst() async {
     await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
+    await ensureFirebaseCore(requireAuth: true);
     final isAviso = widget.type == 'aviso';
     final isEvento = widget.type == 'evento';
     late final DocumentReference<Map<String, dynamic>> docRef;
@@ -4517,13 +4251,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       publishTenantId = _editorTenantId;
     }
     final isNewDoc = widget.doc == null && !_draftStubEnsured;
-    if (isAviso || isEvento) {
-      await _waitForInFlightPhotoUploads();
-      await _flushPendingFeedPhotosBeforePublish(
-        publishTenantId,
-        docRef: docRef,
-      );
-    }
+    final pendingPhotos = _newPhotosForPublish();
     final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
     var aspectRatio = 1.0;
     if (existingUrls.isNotEmpty) {
@@ -4551,8 +4279,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           existingUrls: existingUrls,
           startSlotIndex: existingUrls.length,
           hasVideo: videoPath != null || _videoUrl.text.trim().isNotEmpty,
-          newImagesBytes: null,
-          newImagePaths: null,
+          newImagesBytes: pendingPhotos.bytes,
+          newImagePaths: pendingPhotos.paths,
           videoStoragePath: videoPath,
           publicSite: _publicSite,
           eventStartAt: _eventStartAtForSave(),
@@ -4567,13 +4295,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           isNewDoc: isNewDoc,
           existingUrls: existingUrls,
           startSlotIndex: existingUrls.length,
-          newImagesBytes: null,
-          newImagePaths: null,
+          newImagesBytes: pendingPhotos.bytes,
+          newImagePaths: pendingPhotos.paths,
           publicSite: _publicSite,
           calendarDate: _validUntil,
           syncCalendar: _validUntil != null,
         );
       }
+      _clearNewPhotosAfterPublish();
       return;
     }
     await FeedMediaPublishService.publishNow(
@@ -4624,9 +4353,10 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     setState(() => _saving = true);
     try {
-      await AppFinalizeBootstrap.ensureSessionForPublish(
-        logLabel: 'mural_${widget.type}_save',
-      );
+      await ensureFirebaseCore(requireAuth: true);
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+      }
       if (widget.type == 'evento') {
         ChurchPublishFlowLog.eventoStart();
       } else {
@@ -4678,14 +4408,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           ),
         );
       }
-      if (isAviso || isEvento) {
-        await _waitForInFlightPhotoUploads();
-        await _flushPendingFeedPhotosBeforePublish(
-          publishTenantId,
-          docRef: docRef,
-        );
-      }
-
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
       if (existingUrls.isNotEmpty) {
@@ -4695,9 +4417,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
         }
       }
-
       if (isAviso || isEvento) {
         final startSlot = existingUrls.length;
+        final pendingPhotos = _newPhotosForPublish();
         final corePayload = _buildCorePayload(
           allUrls: existingUrls,
           aspectRatio: aspectRatio,
@@ -4727,8 +4449,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             existingUrls: existingUrls,
             startSlotIndex: startSlot,
             hasVideo: videoPath != null || _videoUrl.text.trim().isNotEmpty,
-            newImagesBytes: null,
-            newImagePaths: null,
+            newImagesBytes: pendingPhotos.bytes,
+            newImagePaths: pendingPhotos.paths,
             videoStoragePath: videoPath,
             publicSite: _publicSite,
             eventStartAt: _eventStartAtForSave(),
@@ -4745,6 +4467,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             ),
           );
           EventosPublishVerificationService.clearLastError();
+          _clearNewPhotosAfterPublish();
+          _draftStubEnsured = true;
         } else {
           await AvisoStrictPublishService.publish(
             docRef: docRef,
@@ -4753,12 +4477,14 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
             isNewDoc: isNewDoc,
             existingUrls: existingUrls,
             startSlotIndex: startSlot,
-            newImagesBytes: null,
-            newImagePaths: null,
+            newImagesBytes: pendingPhotos.bytes,
+            newImagePaths: pendingPhotos.paths,
             publicSite: _publicSite,
             calendarDate: _validUntil,
             syncCalendar: _validUntil != null,
           );
+          _clearNewPhotosAfterPublish();
+          _draftStubEnsured = true;
           unawaited(
             AvisosPublishVerificationService.logPublishPhase(
               phase: 'after',
@@ -4991,17 +4717,11 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     }
     for (var i = 0; i < _newPhotoCount; i++) {
       final idx = i;
-      final thumbChild = kIsWeb
-          ? Image.memory(
-              _newImages[idx],
-              width: thumbSize,
-              height: thumbSize,
-              fit: BoxFit.cover,
-            )
-          : IosPublishImagePipeline.fileThumbnail(
-              file: File(_newImagePaths[idx]),
-              size: thumbSize,
-            );
+      final thumbChild = feedEditorLocalPhotoThumb(
+        webBytes: kIsWeb ? _newImages[idx] : null,
+        mobilePath: kIsWeb ? null : _newImagePaths[idx],
+        size: thumbSize,
+      );
       allPreviews.add(Stack(children: [
         ClipRRect(
             borderRadius: BorderRadius.circular(12), child: thumbChild),

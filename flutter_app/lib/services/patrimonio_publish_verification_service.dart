@@ -26,10 +26,10 @@ abstract final class PatrimonioPublishVerificationService {
 
   static void clearLastError() => _lastError = null;
 
-  static Future<String> resolveTenantForPublish({
+  static String resolveTenantForPublish({
     required String seedTenantId,
     String? userUid,
-  }) async {
+  }) {
     final resolved = ChurchPublishContext.churchIdForPublish(seedTenantId);
     debugPrint('CHURCH_ID (patrimônio): $resolved');
     return resolved;
@@ -76,15 +76,25 @@ abstract final class PatrimonioPublishVerificationService {
   static Future<void> verifyStorageMetadata({
     Iterable<String> photoPaths = const [],
     Iterable<String> thumbPaths = const [],
+    Duration timeout = ChurchStorageMetadataVerify.kDefaultTimeout,
+    int maxAttempts = ChurchStorageMetadataVerify.kMaxAttempts,
   }) async {
     try {
-      await ChurchStorageMetadataVerify.assertAllExist(photoPaths);
+      await ChurchStorageMetadataVerify.assertAllExist(
+        photoPaths,
+        timeout: timeout,
+        maxAttempts: maxAttempts,
+      );
       final thumbs = thumbPaths
           .map((e) => e.trim())
           .where((e) => e.isNotEmpty)
           .toList();
       if (thumbs.isNotEmpty) {
-        await ChurchStorageMetadataVerify.assertAllExist(thumbs);
+        await ChurchStorageMetadataVerify.assertAllExist(
+          thumbs,
+          timeout: timeout,
+          maxAttempts: maxAttempts,
+        );
       }
     } catch (e) {
       rememberLastError(kStorageVerifyFailedMessage);

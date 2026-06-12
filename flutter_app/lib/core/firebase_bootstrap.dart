@@ -34,7 +34,9 @@ Future<void> ensureFirebaseInitialized() =>
 Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
   await fb_core.FirebaseBootstrap.ensureInitialized();
   FirebaseBootstrapService.refreshCachedApp();
-  if (!FirebaseBootstrapService.isReady()) {
+  if (requireAuth) {
+    await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+  } else if (!FirebaseBootstrapService.isReady()) {
     await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
   }
   if (!requireAuth) return;

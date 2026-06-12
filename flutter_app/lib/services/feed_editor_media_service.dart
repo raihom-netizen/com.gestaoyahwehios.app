@@ -23,8 +23,7 @@ abstract final class FeedEditorMediaService {
     String prefix = 'gy_video',
   }) async {
     if (kIsWeb) {
-      final p = file.path.trim();
-      return p.isNotEmpty ? p : null;
+      return null;
     }
     final trimmed = file.path.trim();
     if (trimmed.isNotEmpty) {
@@ -64,8 +63,7 @@ abstract final class FeedEditorMediaService {
     String prefix = 'gy_feed',
   }) async {
     if (kIsWeb) {
-      final p = file.path.trim();
-      return p.isNotEmpty ? p : null;
+      return null;
     }
     final dir = await getTemporaryDirectory();
     final ext = _extensionForXFile(file);

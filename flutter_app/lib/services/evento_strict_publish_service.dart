@@ -1,9 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
+import 'package:gestao_yahweh/services/evento_publish_service.dart';
 
-/// Evento — EcoFire: upload → Storage → URL no Firestore → agenda (síncrono).
+/// Evento — fachada legada → [EventoPublishService].
 abstract final class EventoStrictPublishService {
   EventoStrictPublishService._();
 
@@ -24,13 +24,14 @@ abstract final class EventoStrictPublishService {
     bool syncAgenda = true,
     String? agendaCategory,
     String? agendaColorHex,
+    void Function(double progress)? onUploadProgress,
   }) =>
-      ChurchFeedLinearPublishService.publishEvento(
+      EventoPublishService.publish(
         docRef: docRef,
         tenantId: tenantId,
         corePayload: corePayload,
         isNewDoc: isNewDoc,
-        existingPhotoRefs: existingUrls,
+        existingUrls: existingUrls,
         startSlotIndex: startSlotIndex,
         hasVideo: hasVideo,
         newImagesBytes: newImagesBytes,
@@ -42,5 +43,6 @@ abstract final class EventoStrictPublishService {
         syncAgenda: syncAgenda,
         agendaCategory: agendaCategory,
         agendaColorHex: agendaColorHex,
+        onUploadProgress: onUploadProgress,
       );
 }

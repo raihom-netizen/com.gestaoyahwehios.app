@@ -22,6 +22,8 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_report_premium_ui.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_premium_widgets.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
@@ -3068,124 +3070,109 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                            child: _FinanceStatCard(
-                                title: 'Entradas',
-                                value: entradas,
-                                color: const Color(0xFF16A34A))),
-                        const SizedBox(width: 8),
-                        Expanded(
-                            child: _FinanceStatCard(
-                                title: 'Saídas',
-                                value: saidas,
-                                color: const Color(0xFFDC2626))),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _FinanceStatCard(
-                            title: 'Saldo líquido',
-                            value: saldo,
-                            color: saldo >= 0
-                                ? const Color(0xFF16A34A)
-                                : const Color(0xFFDC2626),
-                          ),
-                        ),
-                      ],
+                    FinanceReportBalanceHero(
+                      receitas: entradas,
+                      despesas: saidas,
+                      saldo: saldo,
+                      periodLabel: _periodoLabelHumano(),
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Previsão (contas a receber / a pagar)',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: ThemeCleanPremium.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Valores em aberto: receitas não confirmadas e despesas não pagas (lançamentos do período).',
-                      style: TextStyle(
-                        fontSize: 11,
-                        height: 1.25,
-                        color: Colors.grey.shade600,
-                      ),
+                    const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    const FinanceReportSectionHeader(
+                      title: 'Previsão e pendências',
+                      subtitle:
+                          'Contas a receber / a pagar no período filtrado.',
+                      icon: Icons.schedule_rounded,
+                      accent: Color(0xFF0891B2),
                     ),
                     const SizedBox(height: 10),
                     LayoutBuilder(
                       builder: (ctx, c) {
                         final narrow = c.maxWidth < 520;
-                        final w = narrow ? double.infinity : null;
-                        Widget cardARec = SizedBox(
-                          width: w,
-                          child: _FinanceStatCard(
-                            title: 'A receber (pendente)',
+                        final tiles = [
+                          FinanceReportKpiTile(
+                            title: 'A receber',
                             value: aReceberPendente,
-                            color: const Color(0xFF0891B2),
+                            accent: const Color(0xFF0891B2),
+                            icon: Icons.call_received_rounded,
                           ),
-                        );
-                        Widget cardAPag = SizedBox(
-                          width: w,
-                          child: _FinanceStatCard(
-                            title: 'A pagar (pendente)',
+                          FinanceReportKpiTile(
+                            title: 'A pagar',
                             value: aPagarPendente,
-                            color: const Color(0xFFEA580C),
+                            accent: const Color(0xFFEA580C),
+                            icon: Icons.call_made_rounded,
                           ),
-                        );
-                        Widget cardFluxo = SizedBox(
-                          width: w,
-                          child: _FinanceStatCard(
+                          FinanceReportKpiTile(
                             title: 'Saldo + previsão',
                             value: fluxoPrevisto,
-                            color: fluxoPrevisto >= 0
+                            accent: fluxoPrevisto >= 0
                                 ? const Color(0xFF0D9488)
                                 : const Color(0xFFB91C1C),
+                            icon: Icons.auto_graph_rounded,
                           ),
-                        );
+                        ];
                         if (narrow) {
                           return Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              cardARec,
-                              const SizedBox(height: 8),
-                              cardAPag,
-                              const SizedBox(height: 8),
-                              cardFluxo,
+                              for (var i = 0; i < tiles.length; i++) ...[
+                                if (i > 0) const SizedBox(height: 10),
+                                tiles[i],
+                              ],
                             ],
                           );
                         }
                         return Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(child: cardARec),
-                            const SizedBox(width: 8),
-                            Expanded(child: cardAPag),
-                            const SizedBox(width: 8),
-                            Expanded(child: cardFluxo),
+                            for (var i = 0; i < tiles.length; i++) ...[
+                              if (i > 0) const SizedBox(width: 10),
+                              Expanded(child: tiles[i]),
+                            ],
                           ],
                         );
                       },
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
-                    Text(
-                      _periodMode == _FinancePeriodMode.month
-                          ? 'Painel visual (mês selecionado)'
+                    FinanceReportSectionHeader(
+                      title: _periodMode == _FinancePeriodMode.month
+                          ? 'Evolução mensal'
                           : _periodMode == _FinancePeriodMode.fullYear
-                              ? 'Painel visual (ano completo)'
-                              : 'Painel visual (período personalizado)',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: ThemeCleanPremium.onSurface,
-                      ),
+                              ? 'Evolução anual'
+                              : 'Evolução no período',
+                      subtitle: 'Receitas e despesas agregadas por dia ou mês.',
+                      icon: Icons.show_chart_rounded,
                     ),
                     const SizedBox(height: 8),
                     _FinanceEvolucaoLineChart(data: evolucao),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
-                    if (porContaDetalhe.isNotEmpty)
-                      _FinancePorContaPanel(rows: porContaDetalhe),
-                    if (porContaDetalhe.isNotEmpty)
-                      const SizedBox(height: ThemeCleanPremium.spaceMd),
+                    if (porContaDetalhe.isNotEmpty) ...[
+                      const FinanceReportSectionHeader(
+                        title: 'Por conta',
+                        subtitle:
+                            'Entradas e saídas de cada conta no período.',
+                        icon: Icons.account_balance_rounded,
+                      ),
+                      const SizedBox(height: 10),
+                      for (final m in porContaDetalhe.take(12))
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: FinanceReportContaResumoCard(
+                            nome: (m['nome'] ?? 'Conta').toString(),
+                            entradas:
+                                ((m['entradas'] ?? 0) as num).toDouble(),
+                            saidas: ((m['saidas'] ?? 0) as num).toDouble(),
+                            liquido:
+                                ((m['liquido'] ?? 0) as num).toDouble(),
+                          ),
+                        ),
+                      const SizedBox(height: ThemeCleanPremium.spaceSm),
+                    ],
+                    const FinanceReportSectionHeader(
+                      title: 'Análise por categoria',
+                      subtitle: 'Dízimos, ofertas e distribuição de despesas.',
+                      icon: Icons.pie_chart_rounded,
+                      accent: Color(0xFF7C3AED),
+                    ),
+                    const SizedBox(height: 8),
                     _FinanceBiCharts(
                         dizimos: dizimos,
                         ofertas: ofertas,
@@ -3198,124 +3185,55 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                         prefixIcon: const Icon(Icons.search_rounded),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm),
+                              ThemeCleanPremium.radiusMd),
                         ),
                         filled: true,
-                        fillColor: const Color(0xFFF8FAFC),
+                        fillColor: Colors.white,
                       ),
                       onChanged: (v) => setState(() {
                         _buscaLancamentos = v;
                         _pageLancamentos = 0;
                       }),
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Lançamentos filtrados (${filteredRows.length})',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey.shade700,
-                      ),
+                    const SizedBox(height: 12),
+                    FinanceReportSectionHeader(
+                      title: 'Lançamentos (${filteredRows.length})',
+                      subtitle: _resumoFiltros().isEmpty
+                          ? 'Todos os tipos e categorias.'
+                          : _resumoFiltros(),
+                      icon: Icons.receipt_long_rounded,
                     ),
                     const SizedBox(height: 8),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: ThemeCleanPremium.cardBackground,
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        boxShadow: ThemeCleanPremium.softUiCardShadow,
-                        border: Border.all(color: const Color(0xFFF1F5F9)),
-                      ),
-                      child: ClipRRect(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: DataTable(
-                            headingRowColor: WidgetStateProperty.all(
-                                const Color(0xFFF1F5F9)),
-                            columns: const [
-                              DataColumn(label: Text('Data')),
-                              DataColumn(label: Text('Tipo')),
-                              DataColumn(label: Text('Valor')),
-                              DataColumn(label: Text('Categoria')),
-                              DataColumn(label: Text('Descrição')),
-                              DataColumn(label: Text('Comp.')),
-                            ],
-                            rows: [
-                              for (final m in slice)
-                                DataRow(
-                                  cells: [
-                                    DataCell(Text(DateFormat('dd/MM/yyyy')
-                                        .format(DateTime
-                                            .fromMillisecondsSinceEpoch(
-                                                (m['createdAtMs'] ?? 0)
-                                                    as int)))),
-                                    DataCell(Text((m['tipo'] ?? '').toString(),
-                                        maxLines: 2)),
-                                    DataCell(Text(
-                                      'R\$ ${((m['valor'] ?? 0) as num).toStringAsFixed(2)}',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: () {
-                                          final t = (m['tipo'] ?? '')
-                                              .toString()
-                                              .toLowerCase();
-                                          if (t.contains('entrada') ||
-                                              t.contains('receita')) {
-                                            return const Color(0xFF16A34A);
-                                          }
-                                          if (t.contains('saida') ||
-                                              t.contains('despesa')) {
-                                            return const Color(0xFFDC2626);
-                                          }
-                                          return ThemeCleanPremium.onSurface;
-                                        }(),
-                                      ),
-                                    )),
-                                    DataCell(Text(
-                                        (m['categoria'] ?? '-').toString(),
-                                        maxLines: 2)),
-                                    DataCell(SizedBox(
-                                      width: 200,
-                                      child: Text(
-                                        (m['descricao'] ?? '').toString(),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    )),
-                                    DataCell(
-                                      (m['comprovanteUrl'] ?? '')
-                                              .toString()
-                                              .trim()
-                                              .isEmpty
-                                          ? const Text('—')
-                                          : IconButton(
-                                              icon: const Icon(
-                                                  Icons.receipt_long_rounded,
-                                                  color: Color(0xFF059669)),
-                                              tooltip: 'Ver comprovante',
-                                              style: IconButton.styleFrom(
-                                                minimumSize: const Size(
-                                                    ThemeCleanPremium
-                                                        .minTouchTarget,
-                                                    ThemeCleanPremium
-                                                        .minTouchTarget),
-                                              ),
-                                              onPressed: () =>
-                                                  _abrirComprovante(
-                                                      (m['comprovanteUrl'] ??
-                                                              '')
-                                                          .toString()),
-                                            ),
-                                    ),
-                                  ],
-                                ),
-                            ],
+                    if (slice.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: const Color(0xFFE2E8F4)),
+                        ),
+                        child: Text(
+                          'Nenhum lançamento neste filtro.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      ),
-                    ),
+                      )
+                    else
+                      for (final m in slice)
+                        FinanceReportLancamentoCard(
+                          data: m,
+                          onComprovante: (m['comprovanteUrl'] ?? '')
+                                  .toString()
+                                  .trim()
+                                  .isEmpty
+                              ? null
+                              : () => _abrirComprovante(
+                                    (m['comprovanteUrl'] ?? '').toString(),
+                                  ),
+                        ),
                     if (totalPages > 1)
                       Padding(
                         padding: const EdgeInsets.only(top: 10),
@@ -3346,47 +3264,12 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
             ),
             const SizedBox(height: ThemeCleanPremium.spaceLg),
             PremiumPdfOrientationBar(landscape: _pdfLandscape, onChanged: (v) => setState(() => _pdfLandscape = v)),
-            const SizedBox(height: ThemeCleanPremium.spaceLg),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                FilledButton.icon(
-                  onPressed: _loading ? null : () => _exportPdf(),
-                  icon: _loading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.picture_as_pdf_rounded),
-                  label: Text(_loading ? 'Gerando...' : 'Exportar PDF'),
-                  style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF059669),
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 14, horizontal: 16)),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _loading ? null : () => _exportPdf(fechamentoOficial: true),
-                  icon: const Icon(Icons.lock_outline_rounded),
-                  label: const Text('Fechamento de mês (oficial)'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF059669),
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 14, horizontal: 16),
-                  ),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _loading ? null : _exportCsv,
-                  icon: const Icon(Icons.table_chart_rounded),
-                  label: const Text('Exportar Excel (CSV)'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF059669),
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 14, horizontal: 16),
-                  ),
-                ),
-              ],
+            const SizedBox(height: ThemeCleanPremium.spaceMd),
+            FinanceReportExportBar(
+              loading: _loading,
+              onPdf: () => _exportPdf(),
+              onFechamento: () => _exportPdf(fechamentoOficial: true),
+              onCsv: _exportCsv,
             ),
     ];
     return Scaffold(
@@ -3405,14 +3288,34 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                   ),
                 ),
               ),
-              title: const Text('Relatório financeiro'),
-              backgroundColor: const Color(0xFF059669),
+              title: const Text(
+                'Relatório financeiro',
+                style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.2),
+              ),
+              flexibleSpace: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      FinanceReportColors.heroStart,
+                      FinanceReportColors.heroEnd,
+                    ],
+                  ),
+                ),
+              ),
+              backgroundColor: FinanceReportColors.heroStart,
               foregroundColor: Colors.white,
             ),
       body: SafeArea(
-        child: ListView(
-          padding: ThemeCleanPremium.pagePadding(context),
-          children: listChildren,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: ThemeCleanPremium.churchPanelBodyGradient,
+          ),
+          child: ListView(
+            padding: ThemeCleanPremium.pagePadding(context),
+            children: listChildren,
+          ),
         ),
       ),
     );
@@ -3686,97 +3589,6 @@ class _LegendDotFinance extends StatelessWidget {
   }
 }
 
-/// Resumo por conta no período (entradas na conta / saídas da conta).
-class _FinancePorContaPanel extends StatelessWidget {
-  final List<Map<String, dynamic>> rows;
-
-  const _FinancePorContaPanel({required this.rows});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-        border: Border.all(color: const Color(0xFFF1F5F9)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.account_balance_wallet_rounded,
-                  color: const Color(0xFF059669), size: 22),
-              const SizedBox(width: 8),
-              const Text(
-                'Por conta (detalhe)',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  color: ThemeCleanPremium.onSurface,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Entradas creditadas e saídas debitadas em cada conta no período filtrado.',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-          ),
-          const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
-              headingRowColor:
-                  WidgetStateProperty.all(const Color(0xFFF8FAFC)),
-              columns: const [
-                DataColumn(label: Text('Conta')),
-                DataColumn(label: Text('Entradas')),
-                DataColumn(label: Text('Saídas')),
-                DataColumn(label: Text('Líquido')),
-              ],
-              rows: [
-                for (final m in rows.take(24))
-                  DataRow(
-                    cells: [
-                      DataCell(Text(
-                        (m['nome'] ?? '').toString(),
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      )),
-                      DataCell(Text(
-                        'R\$ ${((m['entradas'] ?? 0) as num).toStringAsFixed(2)}',
-                        style: const TextStyle(
-                            color: Color(0xFF16A34A),
-                            fontWeight: FontWeight.w600),
-                      )),
-                      DataCell(Text(
-                        'R\$ ${((m['saidas'] ?? 0) as num).toStringAsFixed(2)}',
-                        style: const TextStyle(
-                            color: Color(0xFFDC2626),
-                            fontWeight: FontWeight.w600),
-                      )),
-                      DataCell(Text(
-                        'R\$ ${((m['liquido'] ?? 0) as num).toStringAsFixed(2)}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: ((m['liquido'] ?? 0) as num).toDouble() >= 0
-                              ? const Color(0xFF0D9488)
-                              : const Color(0xFFB91C1C),
-                        ),
-                      )),
-                    ],
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// Gráficos do painel BI (dízimos x ofertas + pizza de despesas do mês).
 class _FinanceBiCharts extends StatelessWidget {
   final double dizimos;
@@ -3829,22 +3641,35 @@ class _FinanceBiCharts extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
           decoration: BoxDecoration(
-            color: ThemeCleanPremium.cardBackground,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                const Color(0xFF7C3AED).withValues(alpha: 0.05),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
             boxShadow: ThemeCleanPremium.softUiCardShadow,
-            border: Border.all(color: const Color(0xFFF1F5F9)),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Dízimos vs ofertas (receitas do mês por categoria)',
+              const Text(
+                'Dízimos vs ofertas',
                 style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.grey.shade800),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.2,
+                ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
+              Text(
+                'Receitas do período por categoria principal.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 12),
               SizedBox(
                 height: 200,
                 child: BarChart(
@@ -3931,14 +3756,21 @@ class _FinanceBiCharts extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
           decoration: BoxDecoration(
-            color: ThemeCleanPremium.cardBackground,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                FinanceReportColors.despesas.withValues(alpha: 0.05),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
             boxShadow: ThemeCleanPremium.softUiCardShadow,
-            border: Border.all(color: const Color(0xFFF1F5F9)),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
           ),
           child: gastosMes.isEmpty
               ? Text(
-                  'Sem despesas registradas no mês para o gráfico por categoria.',
+                  'Sem despesas no período para o gráfico por categoria.',
                   style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                 )
               : LayoutBuilder(
@@ -4000,34 +3832,6 @@ class _FinanceBiCharts extends StatelessWidget {
                 ),
         ),
       ],
-    );
-  }
-}
-
-class _FinanceStatCard extends StatelessWidget {
-  final String title;
-  final double value;
-  final Color color;
-
-  const _FinanceStatCard({required this.title, required this.value, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-        border: Border.all(color: color.withOpacity(0.35)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color)),
-          const SizedBox(height: 4),
-          Text('R\$ ${value.toStringAsFixed(2)}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
-        ],
-      ),
     );
   }
 }

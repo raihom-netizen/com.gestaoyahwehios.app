@@ -60,7 +60,7 @@ abstract final class IgrejaDirectFirestoreReads {
           cacheKey: key,
         ),
         maxAttempts: kIsWeb ? 4 : 2,
-      ).timeout(Duration(seconds: kIsWeb ? 14 : 18));
+      ).timeout(Duration(seconds: kIsWeb ? 90 : 24));
     } on TimeoutException {
       rethrow;
     } on FirebaseException catch (e) {
@@ -141,7 +141,7 @@ abstract final class IgrejaDirectFirestoreReads {
           attemptTimeout: Duration(seconds: kIsWeb ? 12 : 10),
         ),
         maxAttempts: 4,
-      ).timeout(Duration(seconds: kIsWeb ? 18 : 14));
+      ).timeout(Duration(seconds: kIsWeb ? 90 : 24));
 
       if (!snap.exists) return null;
       final raw = snap.data();

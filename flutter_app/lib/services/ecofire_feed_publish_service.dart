@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -34,6 +35,8 @@ class EcoFireFeedPhotoSlot {
 /// Ex.: `igrejas/{churchId}/eventos/{postId}/banner_evento.jpg`
 abstract final class EcoFireFeedPublishService {
   EcoFireFeedPublishService._();
+
+  static const Duration uploadTimeout = Duration(seconds: 45);
 
   static bool _isEventoPostType(String postType) {
     final t = postType.trim().toLowerCase();
@@ -90,6 +93,11 @@ abstract final class EcoFireFeedPublishService {
       bytes: processed.bytes,
       mimeType: processed.mime,
       onProgress: onProgress,
+    ).timeout(
+      uploadTimeout,
+      onTimeout: () => throw TimeoutException(
+        'Upload da foto ${slotIndex + 1} demorou demais. Verifique a rede.',
+      ),
     );
 
     return EcoFireFeedPhotoSlot(
@@ -108,6 +116,7 @@ abstract final class EcoFireFeedPublishService {
     required int startSlotIndex,
     List<Uint8List>? bytesList,
     List<String>? localPaths,
+    void Function(double progress)? onProgress,
   }) async {
     final slots = <EcoFireFeedPhotoSlot>[];
     if (kIsWeb) {
@@ -120,6 +129,9 @@ abstract final class EcoFireFeedPublishService {
             postId: postId,
             slotIndex: startSlotIndex + i,
             bytes: images[i],
+            onProgress: onProgress == null
+                ? null
+                : (p) => onProgress((i + p) / images.length),
           ),
         );
       }
@@ -143,6 +155,9 @@ abstract final class EcoFireFeedPublishService {
           postId: postId,
           slotIndex: startSlotIndex + i,
           localPath: paths[i],
+          onProgress: onProgress == null
+              ? null
+              : (p) => onProgress((i + p) / paths.length),
         ),
       );
     }

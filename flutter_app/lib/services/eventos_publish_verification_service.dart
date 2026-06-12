@@ -90,12 +90,22 @@ abstract final class EventosPublishVerificationService {
   static Future<void> verifyStorageMetadata({
     Iterable<String> photoPaths = const [],
     String? videoPath,
+    Duration timeout = ChurchStorageMetadataVerify.kDefaultTimeout,
+    int maxAttempts = ChurchStorageMetadataVerify.kMaxAttempts,
   }) async {
     try {
-      await ChurchStorageMetadataVerify.assertAllExist(photoPaths);
+      await ChurchStorageMetadataVerify.assertAllExist(
+        photoPaths,
+        timeout: timeout,
+        maxAttempts: maxAttempts,
+      );
       final vp = videoPath?.trim() ?? '';
       if (vp.isNotEmpty) {
-        await ChurchStorageMetadataVerify.assertExists(vp);
+        await ChurchStorageMetadataVerify.assertExists(
+          vp,
+          timeout: timeout,
+          maxAttempts: maxAttempts,
+        );
       }
     } catch (e) {
       rememberLastError(kStorageVerifyFailedMessage);

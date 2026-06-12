@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -13,7 +14,7 @@ abstract final class TenantStaleWhileRevalidate {
   TenantStaleWhileRevalidate._();
 
   static Duration _networkAttemptTimeout(int attempt) {
-    return Duration(seconds: 20 + attempt * 4);
+    return ChurchPanelReadTimeouts.attempt + Duration(seconds: attempt * 4);
   }
 
   /// Retorna cache Hive imediato (se existir) e dispara [networkFetch] em background.
@@ -100,9 +101,7 @@ abstract final class TenantStaleWhileRevalidate {
             .timeout(const Duration(seconds: 6))
             .catchError((_) {});
       }
-      final snap = await networkFetch().timeout(
-        kIsWeb ? const Duration(seconds: 16) : const Duration(seconds: 22),
-      );
+      final snap = await networkFetch().timeout(ChurchPanelReadTimeouts.warmCap);
       if (snap.docs.isNotEmpty) {
         await TenantModuleHiveCache.saveFromQuerySnapshot(
           tenantId,
@@ -132,9 +131,7 @@ abstract final class TenantStaleWhileRevalidate {
       await TenantModuleHiveCache.clearModule(tid, module);
     }
     try {
-      final snap = await networkFetch().timeout(
-        kIsWeb ? const Duration(seconds: 22) : const Duration(seconds: 28),
-      );
+      final snap = await networkFetch().timeout(ChurchPanelReadTimeouts.queryCap);
       if (tid.isNotEmpty && snap.docs.isNotEmpty) {
         await TenantModuleHiveCache.saveFromQuerySnapshot(tid, module, snap);
       }
@@ -154,9 +151,7 @@ abstract final class TenantStaleWhileRevalidate {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final snap = await networkFetch().timeout(
-        kIsWeb ? const Duration(seconds: 16) : const Duration(seconds: 22),
-      );
+      final snap = await networkFetch().timeout(ChurchPanelReadTimeouts.warmCap);
       if (snap.docs.isNotEmpty) {
         await TenantModuleHiveCache.saveFromQuerySnapshot(
           tenantId,

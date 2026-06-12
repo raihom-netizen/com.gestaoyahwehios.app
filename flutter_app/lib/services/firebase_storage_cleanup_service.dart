@@ -920,10 +920,12 @@ class FirebaseStorageCleanupService {
 
     for (final k in const [
       'foto_url',
+      'FOTO_URL_DB',
       'FOTO_URL_OU_ID',
       'fotoUrl',
       'photoURL',
       'photoUrl',
+      'avatarUrl',
       'assinaturaUrl',
       'carteirinhaAssinaturaUrl',
       'imagemDigitalUrl',

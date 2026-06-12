@@ -189,11 +189,13 @@ Future<XFile> _mobilePreparePickedForCrop(XFile picked) async {
 /// Android Photo Picker: path pode não existir — lê do disco ou [XFile.readAsBytes].
 Future<Uint8List?> _readPickedImageBytes(XFile picked) async {
   try {
-    final trimmed = picked.path.trim();
-    if (trimmed.isNotEmpty) {
-      final f = File(trimmed);
-      if (await f.exists() && await f.length() > 0) {
-        return await f.readAsBytes();
+    if (!kIsWeb) {
+      final trimmed = picked.path.trim();
+      if (trimmed.isNotEmpty) {
+        final f = File(trimmed);
+        if (await f.exists() && await f.length() > 0) {
+          return await f.readAsBytes();
+        }
       }
     }
     final bytes = await picked.readAsBytes();
@@ -206,13 +208,15 @@ Future<Uint8List?> _readPickedImageBytes(XFile picked) async {
 
 /// Materializa galeria (content:// / Google Fotos) e codifica para feed.
 Future<XFile?> _encodeFeedImageFromXFile(XFile picked) async {
-  final path = await FeedEditorMediaService.persistXFileToTemp(
-    picked,
-    prefix: 'gy_feed_enc',
-  );
-  if (path != null) {
-    final encoded = await _encodeFeedImageFile(path);
-    if (encoded != null) return encoded;
+  if (!kIsWeb) {
+    final path = await FeedEditorMediaService.persistXFileToTemp(
+      picked,
+      prefix: 'gy_feed_enc',
+    );
+    if (path != null) {
+      final encoded = await _encodeFeedImageFile(path);
+      if (encoded != null) return encoded;
+    }
   }
   try {
     final rawBytes = await picked.readAsBytes();
@@ -287,6 +291,7 @@ Future<Uint8List> _downscaleBytesForFeedCropUi(Uint8List raw) async {
 
 /// Codifica mural no disco (sem carregar 10MB+ em RAM no iPhone).
 Future<XFile?> _encodeFeedImageFile(String pathIn) async {
+  if (kIsWeb || pathIn.trim().isEmpty) return null;
   final f = File(pathIn);
   if (!f.existsSync()) return null;
   try {

@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart'
     show YahwehUploadModule;
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'church_chat_album_utils.dart';
 import 'church_chat_attachment_utils.dart';
 import 'church_chat_media_storage.dart';
@@ -1771,9 +1772,11 @@ class ChurchChatService {
     )) {
       return (messageId: '', allowed: false);
     }
-    await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
-      tenantId: tid,
-      threadId: threadId,
+    unawaited(
+      ChurchChatMemberPrefs.revealDmThreadOnOutbound(
+        tenantId: tid,
+        threadId: threadId,
+      ),
     );
     final uid = firebaseDefaultAuth.currentUser!.uid;
     final expiresAt =
@@ -2292,9 +2295,8 @@ class ChurchChatService {
     int albumCount = 1,
   }) async {
     await ensureFirebaseReadyForChatSend();
-    final resolvedTenant =
-        await ChatPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: tenantId,
+    final resolvedTenant = ChurchPublishContext.churchIdForPublish(
+      tenantId.trim(),
     );
     if (!await ChurchChatMemberPrefs.canSendToDmThread(
       tenantId: resolvedTenant,
@@ -2302,9 +2304,11 @@ class ChurchChatService {
     )) {
       throw StateError('Envio bloqueado para este contacto.');
     }
-    await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
-      tenantId: resolvedTenant,
-      threadId: threadId,
+    unawaited(
+      ChurchChatMemberPrefs.revealDmThreadOnOutbound(
+        tenantId: resolvedTenant,
+        threadId: threadId,
+      ),
     );
     final uid = firebaseDefaultAuth.currentUser!.uid;
     final storagePath = buildChatMediaStoragePath(
@@ -2644,13 +2648,16 @@ class ChurchChatService {
     String? thumbStoragePath,
     int? fileSize,
     int maxAttempts = 5,
+    bool skipStorageVerify = false,
   }) async {
     await ensureFirebaseReadyForChatSend();
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
+    if (!skipStorageVerify) {
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
+    }
     Object? last;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        if (attempt > 2) {
+        if (attempt > 2 && !skipStorageVerify) {
           await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
           await ensureFirebaseReadyForChatSend();
         }
@@ -2662,6 +2669,8 @@ class ChurchChatService {
           fileName: fileName,
           thumbStoragePath: thumbStoragePath,
           fileSize: fileSize,
+          skipStorageVerify: skipStorageVerify,
+          skipServerRecheck: skipStorageVerify,
         );
         return true;
       } catch (e) {

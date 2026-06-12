@@ -26,7 +26,7 @@ abstract final class ChurchChatInstantSendService {
     void Function(bool ok)? onComplete,
     void Function(String message)? onError,
   }) {
-    unawaited(_sendTextDirect(
+    unawaited(sendTextNow(
       tenantId: tenantId,
       threadId: threadId,
       text: text,
@@ -38,6 +38,30 @@ abstract final class ChurchChatInstantSendService {
       onError: onError,
     ));
   }
+
+  /// Envio awaitable — usado pelo pipeline WhatsApp-fast.
+  static Future<void> sendTextNow({
+    required String tenantId,
+    required String threadId,
+    required String text,
+    Map<String, dynamic>? replyTo,
+    Map<String, dynamic>? forwardedFrom,
+    String? senderDisplayName,
+    List<String>? mentionedUids,
+    void Function(bool ok)? onComplete,
+    void Function(String message)? onError,
+  }) =>
+      _sendTextDirect(
+        tenantId: tenantId,
+        threadId: threadId,
+        text: text,
+        replyTo: replyTo,
+        forwardedFrom: forwardedFrom,
+        senderDisplayName: senderDisplayName,
+        mentionedUids: mentionedUids,
+        onComplete: onComplete,
+        onError: onError,
+      );
 
   static Future<void> _sendTextDirect({
     required String tenantId,
@@ -51,6 +75,7 @@ abstract final class ChurchChatInstantSendService {
     void Function(String message)? onError,
   }) async {
     try {
+      await ensureFirebaseReadyForChatSend();
       final r = await ChurchChatService.writeTextMessageFirestoreOnce(
         tenantId: tenantId,
         threadId: threadId,

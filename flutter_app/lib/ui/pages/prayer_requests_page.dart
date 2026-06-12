@@ -4,9 +4,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/services/church_pedidos_oracao_load_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -109,8 +111,11 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _pedidosFuture;
   String _effectiveTenantId = '';
 
-  String get _tid =>
-      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
+  String get _tid => ChurchPanelTenant.resolve(
+        _effectiveTenantId.isNotEmpty
+            ? _effectiveTenantId
+            : widget.tenantId,
+      );
 
   String _filtroCacheSuffix() {
     if (_filtroStatus == 'Respondidas') return 'respondidas';
@@ -127,54 +132,44 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     return null;
   }
 
-  Query<Map<String, dynamic>> _getQuery() {
-    Query<Map<String, dynamic>> q = _col.orderBy('createdAt', descending: true);
-    if (_filtroStatus == 'Respondidas') {
-      q = q.where('respondida', isEqualTo: true);
-    } else if (_filtroStatus == 'Não Respondidas') {
-      q = q.where('respondida', isEqualTo: false);
-    }
-    return q;
-  }
-
   Future<QuerySnapshot<Map<String, dynamic>>> _loadPedidos({
-    bool forceServer = false,
+    bool forceRefresh = false,
   }) async {
     final tid = _tid.trim();
     if (tid.isEmpty) {
-      return _col.limit(1).get();
+      return const MergedFirestoreQuerySnapshot([]);
     }
-    final filter = _respondidaFilterFromStatus();
-    if (forceServer) {
-      final op = ChurchRepository.churchId(tid);
-      final col = ChurchUiCollections.pedidosOracao(op);
-      final snap = await FirestoreReadResilience.getQuery(
-        col.limit(300),
-        cacheKey: _pedidosMemKey(tid, _filtroCacheSuffix()),
-      );
-      if (snap.docs.isNotEmpty) {
-        _PedidosOracaoRamCache.put(tid, _filtroCacheSuffix(), snap.docs);
-      }
-      return snap;
-    }
-    return ChurchTenantResilientReads.pedidosOracao(
-      tid,
-      respondidaFilter: filter,
+    final result = await ChurchPedidosOracaoLoadService.load(
+      seedTenantId: tid,
+      respondidaFilter: _respondidaFilterFromStatus(),
+      forceRefresh: forceRefresh,
     );
+    if (result.docs.isNotEmpty) {
+      _PedidosOracaoRamCache.put(tid, _filtroCacheSuffix(), result.docs);
+    }
+    return result.snapshot;
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadPedidos() {
-    final seed = widget.tenantId.trim();
-    if (seed.isEmpty) return _loadPedidos();
+    final tid = _tid.trim();
+    if (tid.isEmpty) return _loadPedidos();
 
     final suffix = _filtroCacheSuffix();
-    final ram = _PedidosOracaoRamCache.peek(seed, suffix);
+    final ram = ChurchPedidosOracaoLoadService.peekRam(
+      tid,
+      respondidaFilter: _respondidaFilterFromStatus(),
+    );
     if (ram != null && ram.isNotEmpty) {
       return Future.value(MergedFirestoreQuerySnapshot(ram));
     }
 
+    final cached = _PedidosOracaoRamCache.peek(tid, suffix);
+    if (cached != null && cached.isNotEmpty) {
+      return Future.value(MergedFirestoreQuerySnapshot(cached));
+    }
+
     final mem = FirestoreReadResilience.peekLastGoodQuery(
-      _pedidosMemKey(seed, suffix),
+      _pedidosMemKey(tid, suffix),
     );
     if (mem != null && mem.docs.isNotEmpty) {
       return Future.value(mem);
@@ -183,75 +178,39 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     return _loadPedidos();
   }
 
-  Future<void> _openPedidosFast() async {
-    final seed = widget.tenantId.trim();
-    if (seed.isEmpty) return;
-
-    try {
-      final snap = await ChurchTenantResilientReads.pedidosOracao(
-        seed,
-        respondidaFilter: _respondidaFilterFromStatus(),
-      ).timeout(const Duration(milliseconds: 1800));
-      if (mounted && snap.docs.isNotEmpty) {
-        _PedidosOracaoRamCache.put(seed, _filtroCacheSuffix(), snap.docs);
-        setState(() {
-          _pedidosFuture = Future.value(snap);
-        });
-      }
-    } catch (_) {}
-
-    try {
-      final op = ChurchRepository.churchId(seed).isNotEmpty
-          ? ChurchRepository.churchId(seed)
-          : (_effectiveTenantId.isNotEmpty ? _effectiveTenantId : seed);
-      if (!mounted) return;
-      if (op.isNotEmpty && op != _tid) {
-        setState(() => _effectiveTenantId = op);
-        final alt = await ChurchTenantResilientReads.pedidosOracao(
-          op,
-          respondidaFilter: _respondidaFilterFromStatus(),
-        ).timeout(const Duration(seconds: 12));
-        if (!mounted) return;
-        if (alt.docs.isNotEmpty) {
-          _PedidosOracaoRamCache.put(op, _filtroCacheSuffix(), alt.docs);
-          setState(() => _pedidosFuture = Future.value(alt));
-        }
-      }
-    } catch (_) {}
-
-    unawaited(_refreshPedidosBackground());
-  }
-
   Future<void> _refreshPedidosBackground() async {
     try {
-      final snap = await _loadPedidos();
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final snap = await _loadPedidos(forceRefresh: true);
       if (!mounted || snap.docs.isEmpty) return;
       _PedidosOracaoRamCache.put(_tid, _filtroCacheSuffix(), snap.docs);
       setState(() => _pedidosFuture = Future.value(snap));
     } catch (_) {}
   }
 
-  void _refreshPedidos({bool forceServer = false}) {
+  void _refreshPedidos({bool forceRefresh = false}) {
     setState(() {
-      _pedidosFuture = _loadPedidos(forceServer: forceServer);
+      _pedidosFuture = _loadPedidos(forceRefresh: forceRefresh);
     });
   }
 
   @override
   void initState() {
     super.initState();
-    _effectiveTenantId = widget.tenantId;
+    _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
     _pedidosFuture = _seedOrLoadPedidos();
-    unawaited(_openPedidosFast());
+    unawaited(_refreshPedidosBackground());
   }
 
   @override
   void didUpdateWidget(covariant PrayerRequestsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _effectiveTenantId = widget.tenantId;
+      _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
       _pedidosFuture = _seedOrLoadPedidos();
-      unawaited(_openPedidosFast());
+      unawaited(_refreshPedidosBackground());
     }
   }
 
@@ -339,13 +298,13 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
         'orandoCount': FieldValue.increment(1),
       });
     }
-    if (mounted) _refreshPedidos();
+    if (mounted) _refreshPedidos(forceRefresh: true);
   }
 
   Future<void> _marcarRespondida(String docId) async {
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
     await _col.doc(docId).update({'respondida': true});
-    if (mounted) _refreshPedidos();
+    if (mounted) _refreshPedidos(forceRefresh: true);
   }
 
   Future<void> _deletar(String docId) async {
@@ -371,7 +330,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
         await FirebaseAuth.instance.currentUser?.getIdToken(true);
         await _col.doc(docId).delete();
         if (mounted) {
-          _refreshPedidos();
+          _refreshPedidos(forceRefresh: true);
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pedido excluído.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
         }
       } catch (e) {
@@ -678,7 +637,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                                           'destinatariosEmails': dest,
                                         });
                                         if (ctx.mounted) {
-                                          _refreshPedidos();
+                                          _refreshPedidos(forceRefresh: true);
                                           Navigator.pop(ctx);
                                           ScaffoldMessenger.of(ctx)
                                               .showSnackBar(const SnackBar(
@@ -956,7 +915,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                                           'respondida': false,
                                         });
                                         if (ctx.mounted) {
-                                          _refreshPedidos();
+                                          _refreshPedidos(forceRefresh: true);
                                           Navigator.pop(ctx);
                                           ScaffoldMessenger.of(ctx).showSnackBar(
                                               const SnackBar(
@@ -1395,7 +1354,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                           _filtroStatus = s;
                           _pedidosFuture = _seedOrLoadPedidos();
                         });
-                        unawaited(_openPedidosFast());
+                        unawaited(_refreshPedidosBackground());
                       },
                     );
                   },
@@ -1406,7 +1365,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
               child: ResilientPanelQueryFutureBuilder(
                 future: _pedidosFuture,
                 errorTitle: 'Não foi possível carregar os pedidos de oração',
-                onRetry: _refreshPedidos,
+                onRetry: () => _refreshPedidos(forceRefresh: true),
                 builder: (context, snap, {required bool showingStaleCache}) {
                   final docs = snap.docs;
                   final visibleDocs =

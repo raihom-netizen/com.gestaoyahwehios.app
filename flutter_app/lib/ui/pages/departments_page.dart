@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
+import 'package:gestao_yahweh/services/church_departments_load_service.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -17,10 +18,10 @@ import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show
         churchDepartmentDocHasExplicitNameField,
@@ -66,41 +67,6 @@ class DepartmentsPage extends StatefulWidget {
   State<DepartmentsPage> createState() => _DepartmentsPageState();
 }
 
-/// Cache RAM — lista de departamentos instantânea ao reabrir o módulo.
-abstract final class _DepartmentsRamCache {
-  _DepartmentsRamCache._();
-
-  static final Map<
-      String,
-      ({
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-        DateTime at,
-      })> _byTenant = {};
-
-  static const Duration _ttl = Duration(minutes: 20);
-
-  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(String tenantId) {
-    final key = tenantId.trim();
-    if (key.isEmpty) return null;
-    final hit = _byTenant[key];
-    if (hit == null) return null;
-    if (DateTime.now().difference(hit.at) > _ttl) {
-      _byTenant.remove(key);
-      return null;
-    }
-    return hit.docs;
-  }
-
-  static void put(
-    String tenantId,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final key = tenantId.trim();
-    if (key.isEmpty || docs.isEmpty) return;
-    _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
-  }
-}
-
 class _DepartmentsPageState extends State<DepartmentsPage> {
   /// Carregamento explícito: na web + IndexedStack o FutureBuilder às vezes não reconstrói após o .get() — área ficava em branco.
   bool _deptLoading = true;
@@ -139,6 +105,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       const {};
 
   Timer? _webLoadCap;
+  int _deptLoadRetryGen = 0;
 
   String get _tid =>
       _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
@@ -163,16 +130,99 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   void _startWebLoadingCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
-    _webLoadCap = Timer(const Duration(seconds: 10), () {
+    _webLoadCap = Timer(const Duration(seconds: 105), () {
       if (!mounted || !_deptLoading) return;
+      final mem = FirestoreReadResilience.peekLastGoodQuery(
+        ChurchDepartmentsLoadService.cacheKey(_loadChurchId),
+      );
       setState(() {
         _deptLoading = false;
-        _hydratedDeptDocs ??= const [];
-        _deptError ??= TimeoutException(
-          'Tempo esgotado (10s) ao carregar departamentos.',
-        );
+        if (mem != null && mem.docs.isNotEmpty) {
+          _hydratedDeptDocs =
+              List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(mem.docs);
+          _deptError = null;
+        } else if (_hydratedDeptDocs == null || _hydratedDeptDocs!.isEmpty) {
+          _hydratedDeptDocs ??= const [];
+          _deptError ??= TimeoutException(
+            'Tempo esgotado ao carregar departamentos. Toque em atualizar.',
+          );
+          _scheduleDepartmentsRetry();
+        }
       });
     });
+  }
+
+  void _scheduleDepartmentsRetry() {
+    final gen = ++_deptLoadRetryGen;
+    for (final delay in const [2, 6, 14]) {
+      Future<void>.delayed(Duration(seconds: delay), () async {
+        if (!mounted || gen != _deptLoadRetryGen) return;
+        if (_hydratedDeptDocs != null && _hydratedDeptDocs!.isNotEmpty) return;
+        await _refreshDepartmentsBackground(forceRefresh: delay >= 6);
+      });
+    }
+  }
+
+  void _applyDepartmentsLoadResult(ChurchDepartmentsLoadResult result) {
+    if (!mounted) return;
+    if (result.docs.isNotEmpty) {
+      ChurchDepartmentsLoadService.putRam(result.churchId, result.docs);
+      unawaited(ChurchDepartmentsLoadService.persistAfterLoad(result));
+    }
+    setState(() {
+      _deptLoading = false;
+      _effectiveTenantId = result.churchId.isNotEmpty
+          ? result.churchId
+          : _effectiveTenantId;
+      if (result.docs.isNotEmpty) {
+        _hydratedDeptDocs =
+            List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(result.docs);
+        _deptError = null;
+      } else if (_hydratedDeptDocs == null || _hydratedDeptDocs!.isEmpty) {
+        _deptError = result.softError != null
+            ? TimeoutException(result.softError!)
+            : StateError('Nenhum departamento encontrado.');
+        _scheduleDepartmentsRetry();
+      }
+    });
+    if (result.docs.isNotEmpty) {
+      unawaited(_loadMemberCpfLookup());
+    } else if (_canWrite && result.churchId.isNotEmpty) {
+      unawaited(_bootstrapDefaultDepartmentsIfAllowed(result.churchId));
+    }
+  }
+
+  /// RAM + último snapshot Firestore — mesmo 1.º frame que Cargos/Android.
+  void _hydrateDepartmentsFromInstantCache() {
+    final seed = _loadChurchId;
+    if (seed.isEmpty) return;
+
+    final ram = ChurchDepartmentsLoadService.peekRam(seed);
+    if (ram != null && ram.isNotEmpty) {
+      _deptLoading = false;
+      _hydratedDeptDocs = List.from(ram);
+      return;
+    }
+
+    final mem =
+        FirestoreReadResilience.peekLastGoodQuery(
+            ChurchDepartmentsLoadService.cacheKey(seed));
+    if (mem != null && mem.docs.isNotEmpty) {
+      _deptLoading = false;
+      _hydratedDeptDocs =
+          List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(mem.docs);
+    }
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadDepartments({
+    bool forceServer = false,
+  }) async {
+    final result = await ChurchDepartmentsLoadService.load(
+      seedTenantId: widget.tenantId.trim(),
+      forceRefresh: forceServer,
+      forceServer: forceServer,
+    );
+    return result.snapshot;
   }
 
   @override
@@ -182,6 +232,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     if (_effectiveTenantId.isEmpty) {
       _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId);
     }
+    _hydrateDepartmentsFromInstantCache();
     _startWebLoadingCap();
     unawaited(_bootstrapDepartmentsPage());
   }
@@ -199,7 +250,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
 
   void _ensureReadTenantResolved() => _bindPanelChurchId();
 
-  /// 1.º frame: leitura directa igrejas/{churchId}/departamentos (igual Android).
+  /// 1.º frame: cache RAM/memória; rede via [ChurchRepository.listCacheFirst] (igual Android/iOS).
   Future<void> _openDepartmentsFast() async {
     _ensureReadTenantResolved();
     final seed = _loadChurchId;
@@ -208,45 +259,43 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       return;
     }
 
-    final ram = _DepartmentsRamCache.peek(seed);
-    if (ram != null && ram.isNotEmpty && mounted) {
-      setState(() {
-        _deptLoading = false;
-        _hydratedDeptDocs = List.from(ram);
-      });
-    }
-
     try {
       await _prepareDeptRead();
-      final snap = await _loadDepartments().timeout(
-        kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 24),
+      final result = await ChurchDepartmentsLoadService.load(
+        seedTenantId: widget.tenantId.trim(),
+        forceRefresh: false,
       );
       if (!mounted) return;
-      _DepartmentsRamCache.put(seed, snap.docs);
-      setState(() {
-        _deptLoading = false;
-        _deptError = null;
-        _hydratedDeptDocs =
-            List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-          snap.docs,
-        );
-      });
-      if (snap.docs.isNotEmpty) {
-        unawaited(_loadMemberCpfLookup());
-      } else if (_canWrite) {
-        unawaited(_bootstrapDefaultDepartmentsIfAllowed(seed));
-      }
+      _applyDepartmentsLoadResult(result);
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _deptLoading = false;
         if (_hydratedDeptDocs == null || _hydratedDeptDocs!.isEmpty) {
           _deptError = e;
+          _scheduleDepartmentsRetry();
         }
       });
     } finally {
       _webLoadCap?.cancel();
     }
+
+    unawaited(_refreshDepartmentsBackground());
+  }
+
+  Future<void> _refreshDepartmentsBackground({bool forceRefresh = false}) async {
+    try {
+      final result = await ChurchDepartmentsLoadService.load(
+        seedTenantId: widget.tenantId.trim(),
+        forceRefresh: forceRefresh,
+        forceServer: forceRefresh,
+      );
+      if (!mounted || result.docs.isEmpty) return;
+      _applyDepartmentsLoadResult(result);
+      if (!_memberLookupDone) {
+        unawaited(_loadMemberCpfLookup());
+      }
+    } catch (_) {}
   }
 
   @override
@@ -278,31 +327,15 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       });
     }
     try {
-      final loaded = await _resolveTenantAndLoad(forceServer: forceServer)
-          .timeout(
-        kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 18),
-        onTimeout: () async {
-          debugPrint(
-            'DepartmentsPage: timeout — leitura directa igrejas/{churchId}/departamentos.',
-          );
-          return _loadDepartments(forceServer: true);
-        },
+      _bindPanelChurchId();
+      final result = await ChurchDepartmentsLoadService.load(
+        seedTenantId: widget.tenantId.trim(),
+        forceRefresh: forceServer,
+        forceServer: forceServer,
       );
       if (!mounted) return;
-      if (loaded.docs.isNotEmpty) {
-        _DepartmentsRamCache.put(_tid, loaded.docs);
-      }
-      setState(() {
-        _deptLoading = false;
-        _deptError = null;
-        if (loaded.docs.isNotEmpty) {
-          _hydratedDeptDocs =
-              List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-            loaded.docs,
-          );
-        }
-      });
-      if (_memberLookupDone == false) {
+      _applyDepartmentsLoadResult(result);
+      if (_memberLookupDone == false && result.docs.isNotEmpty) {
         unawaited(_loadMemberCpfLookup());
       }
     } catch (e, st) {
@@ -314,54 +347,56 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
           _deptError = null;
         } else {
           _deptError = e;
+          _scheduleDepartmentsRetry();
         }
       });
     }
   }
 
-  /// Leitura directa — sem tenant/alias resolver (mesmo fluxo Android).
-  Future<QuerySnapshot<Map<String, dynamic>>> _resolveTenantAndLoad(
-      {bool forceServer = false}) async {
+  /// Leitura directa `igrejas/{churchId}/departamentos` — mesmo path Android/iOS.
+  Future<QuerySnapshot<Map<String, dynamic>>> _resolveTenantAndLoad({
+    bool forceServer = false,
+  }) async {
     _bindPanelChurchId();
+    var result = await ChurchDepartmentsLoadService.load(
+      seedTenantId: widget.tenantId.trim(),
+      forceRefresh: forceServer,
+      forceServer: forceServer,
+    );
 
-    var loaded = await _loadDepartments(forceServer: forceServer);
-
-    if (loaded.docs.isEmpty && _churchId.isNotEmpty && !forceServer) {
-      try {
-        loaded = await _loadDepartments(forceServer: true);
-      } catch (e) {
-        debugPrint('DepartmentsPage fallback servidor (cache vazio): $e');
-      }
+    if (result.docs.isEmpty && _churchId.isNotEmpty && !forceServer) {
+      result = await ChurchDepartmentsLoadService.load(
+        seedTenantId: widget.tenantId.trim(),
+        forceRefresh: true,
+        forceServer: true,
+      );
     }
 
-    if (loaded.docs.isEmpty &&
+    if (result.docs.isEmpty &&
         _churchId.isNotEmpty &&
         AppPermissions.canEditDepartments(widget.role,
             permissions: widget.permissions)) {
       unawaited(_bootstrapAndReloadDepartments(_churchId));
-    } else if (loaded.docs.isNotEmpty &&
+    } else if (result.docs.isNotEmpty &&
         AppPermissions.canEditDepartments(widget.role,
             permissions: widget.permissions)) {
       unawaited(_bootstrapDefaultDepartmentsIfAllowed(_churchId));
     }
 
-    return loaded;
+    return result.snapshot;
   }
 
   Future<void> _bootstrapAndReloadDepartments(String tid) async {
     await _bootstrapDefaultDepartmentsIfAllowed(tid);
     if (!mounted) return;
     try {
-      final retry = await _loadDepartments(forceServer: true);
-      if (!mounted || retry.docs.isEmpty) return;
-      _DepartmentsRamCache.put(tid, retry.docs);
-      setState(() {
-        _hydratedDeptDocs =
-            List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-          retry.docs,
-        );
-        _deptLoading = false;
-      });
+      final result = await ChurchDepartmentsLoadService.load(
+        seedTenantId: tid,
+        forceRefresh: true,
+        forceServer: true,
+      );
+      if (!mounted || result.docs.isEmpty) return;
+      _applyDepartmentsLoadResult(result);
     } catch (e) {
       debugPrint('DepartmentsPage._bootstrapAndReloadDepartments: $e');
     }
@@ -432,60 +467,6 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     } catch (_) {}
     return ChurchDepartmentsBootstrap.ensureMissingPresetDocuments(_col,
         refreshToken: false);
-  }
-
-  static String _deptMemKey(String tenantId) =>
-      '${tenantId.trim()}_departamentos_120';
-
-  /// API única — leitura directa `igrejas/{id}/departamentos` + retry web.
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadDepartments(
-      {bool forceServer = false}) async {
-    final churchId = _loadChurchId;
-    final path = 'igrejas/$churchId/departamentos';
-    if (churchId.isEmpty) {
-      return const MergedFirestoreQuerySnapshot([]);
-    }
-
-    await _prepareDeptRead();
-
-    Future<QuerySnapshot<Map<String, dynamic>>> run() async {
-      if (forceServer) {
-        final col = ChurchRepository.collection(
-          'departamentos',
-          churchIdHint: churchId,
-        ).limit(120);
-        return firestoreQueryGetReliable(col);
-      }
-      return IgrejaDirectFirestoreReads.listSubcollection(
-        churchId,
-        'departamentos',
-        moduleLabel: 'Departamentos',
-        limit: 120,
-        cacheKey: _deptMemKey(churchId),
-      );
-    }
-
-    try {
-      final result = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(run, maxAttempts: 4)
-          : await run();
-      ChurchModuleQueryProbe.logSuccess(
-        module: 'Departamentos',
-        churchId: churchId,
-        path: path,
-        totalDocs: result.docs.length,
-      );
-      return result;
-    } catch (e, st) {
-      ChurchModuleQueryProbe.logError(
-        module: 'Departamentos',
-        churchId: churchId,
-        path: path,
-        error: e,
-        stackTrace: st,
-      );
-      rethrow;
-    }
   }
 
   /// União stream + hidratação: evita lista só com o banner “Hub” quando o cache do stream vem vazio ou parcial.
@@ -617,22 +598,14 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final tid = _loadChurchId;
     if (tid.isEmpty) return;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    } catch (_) {}
-    try {
       await _prepareDeptRead();
-      final s = await firestoreQueryGetReliable(_col.limit(120))
-          .timeout(const Duration(seconds: 18));
-      if (!mounted) return;
-      if (s.docs.isNotEmpty) {
-        _DepartmentsRamCache.put(tid, s.docs);
-        setState(() {
-          _deptLoading = false;
-          _deptError = null;
-          _hydratedDeptDocs =
-              List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(s.docs);
-        });
-      }
+      final result = await ChurchDepartmentsLoadService.load(
+        seedTenantId: tid,
+        forceRefresh: true,
+        forceServer: true,
+      );
+      if (!mounted || result.docs.isEmpty) return;
+      _applyDepartmentsLoadResult(result);
     } catch (e) {
       debugPrint('DepartmentsPage._fetchDepartmentsFromServerOnce: $e');
       if (!mounted) return;
@@ -650,18 +623,19 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     if (!mounted || _tid.trim().isEmpty || _deptStreamRecoveryInFlight) return;
     _deptStreamRecoveryInFlight = true;
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    } catch (_) {}
-    try {
-      final s = await _col
-          .get(const GetOptions(source: Source.server))
-          .timeout(const Duration(seconds: 28));
+      await _prepareDeptRead();
+      final result = await ChurchDepartmentsLoadService.load(
+        seedTenantId: _loadChurchId,
+        forceRefresh: true,
+        forceServer: true,
+      );
       if (!mounted) return;
-      setState(() {
-        _hydratedDeptDocs =
-            List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(s.docs);
-        _streamRecoveryFailed = false;
-      });
+      if (result.docs.isNotEmpty) {
+        _applyDepartmentsLoadResult(result);
+        setState(() => _streamRecoveryFailed = false);
+      } else {
+        setState(() => _streamRecoveryFailed = true);
+      }
     } catch (e, st) {
       debugPrint('DepartmentsPage._recoverDeptStreamFailure: $e\n$st');
       if (mounted) {

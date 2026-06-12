@@ -1,8 +1,9 @@
-import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
@@ -11,7 +12,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Patrimônio — upload validado → Firestore → confirmação (sem falso sucesso).
+/// Patrimônio — Storage validado → Firestore → confirmação (sem falso sucesso).
 abstract final class PatrimonioStrictPublishService {
   PatrimonioStrictPublishService._();
 
@@ -19,7 +20,7 @@ abstract final class PatrimonioStrictPublishService {
       EntityPublishStatus.photoUploadStateField;
   static const String statePublished = EntityPublishStatus.published;
 
-  /// Upload fotos → validar Storage → gravar Firestore → confirmar doc.
+  /// Upload fotos (sequencial) → validar Storage → gravar Firestore → confirmar doc.
   static Future<void> publish({
     required String seedTenantId,
     required String itemId,
@@ -30,9 +31,14 @@ abstract final class PatrimonioStrictPublishService {
     List<String> existingPaths = const [],
     List<String> existingUrls = const [],
     String? userUid,
+    void Function(double progress)? onUploadProgress,
   }) async {
-    final igrejaId = await PatrimonioPublishVerificationService
-        .resolveTenantForPublish(
+    await ensureFirebaseCore(requireAuth: true);
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+    }
+
+    final igrejaId = PatrimonioPublishVerificationService.resolveTenantForPublish(
       seedTenantId: seedTenantId,
       userUid: userUid,
     );
@@ -56,46 +62,30 @@ abstract final class PatrimonioStrictPublishService {
         .toList();
 
     if (newImages.isNotEmpty) {
-      await Future.wait(
-        List.generate(
-          newImages.length,
-          (j) => FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
-            tenantId: igrejaId,
-            itemDocId: itemId,
-            slot: startSlot + j,
-          ),
-        ),
-      );
-
-      const uploadConcurrency = 3;
-      for (var batchStart = 0;
-          batchStart < newImages.length;
-          batchStart += uploadConcurrency) {
-        final batchEnd =
-            math.min(batchStart + uploadConcurrency, newImages.length);
-        final chunk = await Future.wait(
-          List.generate(batchEnd - batchStart, (k) {
-            final j = batchStart + k;
-            final slot = startSlot + j;
-            final path = PatrimonioPublishVerificationService.photoStoragePath(
-              igrejaId: igrejaId,
-              itemId: itemId,
-              slot: slot,
-            );
-            return PatrimonioMediaUpload.uploadGalleryPhoto(
-              storagePath: path,
-              rawBytes: newImages[j],
-            );
-          }),
+      for (var j = 0; j < newImages.length; j++) {
+        final slot = startSlot + j;
+        await FirebaseStorageCleanupService.deletePatrimonioSlotArtifacts(
+          tenantId: igrejaId,
+          itemDocId: itemId,
+          slot: slot,
         );
-        for (final r in chunk) {
-          allPaths.add(r.storagePath);
-          allUrls.add(sanitizeImageUrl(r.downloadUrl));
-        }
+        final r = await PatrimonioMediaUpload.uploadGalleryPhoto(
+          churchId: igrejaId,
+          itemDocId: itemId,
+          slotIndex: slot,
+          rawBytes: newImages[j],
+          onProgress: (p) {
+            onUploadProgress?.call((j + p) / newImages.length);
+          },
+        );
+        allPaths.add(r.storagePath);
+        allUrls.add(sanitizeImageUrl(r.downloadUrl));
       }
 
       await PatrimonioPublishVerificationService.verifyStorageMetadata(
-        photoPaths: allPaths.skip(existingPaths.length),
+        photoPaths: allPaths.sublist(existingPaths.length),
+        timeout: const Duration(seconds: 10),
+        maxAttempts: 3,
       );
     }
 
@@ -140,8 +130,12 @@ abstract final class PatrimonioStrictPublishService {
     List<String> existingUrls = const [],
     String? userUid,
   }) async {
-    final igrejaId = await PatrimonioPublishVerificationService
-        .resolveTenantForPublish(
+    await ensureFirebaseCore(requireAuth: true);
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
+    }
+
+    final igrejaId = PatrimonioPublishVerificationService.resolveTenantForPublish(
       seedTenantId: seedTenantId,
       userUid: userUid,
     );

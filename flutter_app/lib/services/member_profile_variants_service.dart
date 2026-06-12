@@ -22,7 +22,7 @@ abstract final class MemberProfileVariantsService {
   })> encodeProfileTiers(Uint8List raw) =>
       YahwehUnifiedImagePipeline.encodeMemberProfileTiers(raw);
 
-  /// Grava **só** `foto_perfil.jpg` na pasta do membro (sobrescreve ao trocar).
+  /// Full `foto_perfil.jpg` + thumb `membros/thumbs/{id}.webp` (sobrescreve ao trocar).
   static Future<({
     String photoThumb,
     String photoFull,
@@ -36,7 +36,11 @@ abstract final class MemberProfileVariantsService {
     void Function(double progress)? onProgress,
     bool requireAuth = true,
   }) async {
-    final path = ChurchStorageLayout.memberProfilePhotoPath(
+    final fullPath = ChurchStorageLayout.memberProfilePhotoPath(
+      tenantId,
+      storageFolderId,
+    );
+    final thumbPath = ChurchStorageLayout.memberProfileThumbPathFlatWebpLegacy(
       tenantId,
       storageFolderId,
     );
@@ -48,18 +52,42 @@ abstract final class MemberProfileVariantsService {
       FirebaseBootstrapService.refreshCachedApp();
     }
 
-    final url = await FeedPostMediaUpload.uploadFeedPhotoBytes(
-      storagePath: path,
+    void report(double p) => onProgress?.call(p * 0.85);
+
+    final fullUrl = await FeedPostMediaUpload.uploadFeedPhotoBytes(
+      storagePath: fullPath,
       bytes: fullBytes,
-      onProgress: onProgress,
+      onProgress: report,
       requireAuth: requireAuth,
     );
+    if (fullUrl.trim().isEmpty) {
+      throw StateError('Upload da foto concluiu sem URL de download.');
+    }
+
+    var thumbUrl = fullUrl;
+    var thumbPathResolved = fullPath;
+    final tb = thumbBytes;
+    if (tb != null && tb.isNotEmpty) {
+      try {
+        thumbUrl = await FeedPostMediaUpload.uploadFeedPhotoBytes(
+          storagePath: thumbPath,
+          bytes: tb,
+          onProgress: (p) => onProgress?.call(0.85 + p * 0.15),
+          requireAuth: requireAuth,
+        );
+        thumbPathResolved = thumbPath;
+      } catch (_) {
+        thumbUrl = fullUrl;
+        thumbPathResolved = fullPath;
+      }
+    }
+    onProgress?.call(1.0);
 
     return (
-      photoThumb: url,
-      photoFull: url,
-      fullStoragePath: path,
-      thumbStoragePath: path,
+      photoThumb: thumbUrl,
+      photoFull: fullUrl,
+      fullStoragePath: fullPath,
+      thumbStoragePath: thumbPathResolved,
     );
   }
 

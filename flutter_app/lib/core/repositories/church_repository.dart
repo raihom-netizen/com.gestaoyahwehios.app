@@ -28,6 +28,7 @@ export 'package:gestao_yahweh/core/chat_engine/chat_models.dart';
 export 'package:gestao_yahweh/core/chat_engine/chat_engine_paths.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_data_audit.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
@@ -45,8 +46,8 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 abstract final class ChurchRepository {
   ChurchRepository._();
 
-  /// Timeout padrão de leituras do painel (Firestore).
-  static const Duration panelQueryTimeout = Duration(seconds: 10);
+  /// Timeout padrão de leituras do painel (Firestore) — 90s web / 28s mobile.
+  static Duration get panelQueryTimeout => ChurchPanelReadTimeouts.queryCap;
 
   // ─── Contexto ───────────────────────────────────────────────────────────────
   static String? get currentChurchId => ChurchContext.currentChurchId;
@@ -184,8 +185,13 @@ abstract final class ChurchRepository {
     required ChurchModuleRepositoryBase module,
     String? churchIdHint,
     int limit = 120,
+    String? firestoreCacheKey,
   }) =>
-      module.listCacheFirst(churchIdHint: churchIdHint, limit: limit);
+      module.listCacheFirst(
+        churchIdHint: churchIdHint,
+        limit: limit,
+        firestoreCacheKey: firestoreCacheKey,
+      );
 
   static void cancelAllListeners() =>
       data.ChurchDataRepository.cancelAllListeners();

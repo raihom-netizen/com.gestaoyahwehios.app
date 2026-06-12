@@ -4,12 +4,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_firestore_collection_migration_service.dart';
+import 'package:gestao_yahweh/services/church_panel_module_prefetch_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Pré-carrega leituras frequentes no **cache do Firestore** (mobile/web)
 /// após o login — painel, mural, membros, finanças, etc. (padrão Controle Total).
@@ -81,15 +81,8 @@ class ChurchTenantOfflineWarmupService {
       FirebaseBootstrapService.refreshCachedApp();
       await FirestoreWebGuard.ensurePanelReadReady();
 
-      String tenantId = tenantIdRaw;
-      try {
-        final uid = firebaseDefaultAuth.currentUser?.uid;
-        final r = await TenantResolverService.resolveOperationalChurchDocId(
-          tenantIdRaw,
-          userUid: uid,
-        );
-        if (r.trim().isNotEmpty) tenantId = r.trim();
-      } catch (_) {}
+      final tenantId = ChurchPanelTenant.resolve(tenantIdRaw);
+      if (tenantId.isEmpty) return;
 
       Future<void> safe(String label, Future<void> Function() fn) async {
         try {
@@ -175,6 +168,9 @@ class ChurchTenantOfflineWarmupService {
       }
 
       await Future.wait(tasks);
+      if (!light) {
+        ChurchPanelModulePrefetchService.scheduleFullPrefetch(tenantId);
+      }
     } finally {
       _setWarmupRunning(false);
     }

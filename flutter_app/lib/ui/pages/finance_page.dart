@@ -11,7 +11,6 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:fl_chart/fl_chart.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
@@ -20,6 +19,7 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -54,10 +54,14 @@ import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
+import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/services/panel_finance_accounts_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_premium_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_premium_lancamento_ui.dart';
+import 'package:gestao_yahweh/ui/widgets/church_signatory_picker_sheet.dart';
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Categorias padrão (seed quando coleções vazias)
@@ -265,20 +269,6 @@ Future<List<({String id, String nome})>> _financeContasAtivasTenant(
   }
 }
 
-class _FinancePdfSignerOption {
-  final String memberId;
-  final String nome;
-  final String cargo;
-  final String assinaturaUrl;
-
-  const _FinancePdfSignerOption({
-    required this.memberId,
-    required this.nome,
-    required this.cargo,
-    required this.assinaturaUrl,
-  });
-}
-
 class _FinancePdfSignerSelection {
   final String leftName;
   final String rightName;
@@ -310,160 +300,38 @@ Future<_FinancePdfSignerSelection?> _pickFinancePdfSigners(
   BuildContext context, {
   required String tenantId,
 }) async {
-  final op = ChurchRepository.churchId(tenantId);
-  final snap = await ChurchUiCollections.membros(op)
-      .get();
-
-  final opts = snap.docs.map((d) {
-    final m = d.data();
-    final nome = (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
-        .toString()
-        .trim();
-    final cargo =
-        (m['CARGO'] ?? m['FUNCAO'] ?? m['funcao'] ?? m['cargo'] ?? '')
-            .toString()
-            .trim();
-    final assinaturaUrl =
-        (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim();
-    return _FinancePdfSignerOption(
-      memberId: d.id,
-      nome: nome,
-      cargo: cargo,
-      assinaturaUrl: assinaturaUrl,
-    );
-  }).where((e) => e.nome.isNotEmpty).toList()
-    ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
-
+  final signers = await ChurchSignatoryLoadService.loadEligible(
+    seedTenantId: tenantId,
+  );
   if (!context.mounted) return null;
 
-  String? leftId;
-  String? rightId;
-  bool showDigital = true;
-
-  final result = await showDialog<_FinancePdfSignerSelection>(
-    context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setDlg) {
-        DropdownButtonFormField<String> signerField({
-          required String label,
-          required String? value,
-          required ValueChanged<String?> onChanged,
-        }) {
-          return DropdownButtonFormField<String>(
-            value: value,
-            isExpanded: true,
-            decoration: InputDecoration(
-              labelText: label,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              filled: true,
-              fillColor: const Color(0xFFF8FAFC),
-            ),
-            items: [
-              const DropdownMenuItem<String>(
-                value: null,
-                child: Text('— Não definido —'),
-              ),
-              ...opts.map(
-                (e) => DropdownMenuItem<String>(
-                  value: e.memberId,
-                  child: Text(
-                    e.cargo.isEmpty ? e.nome : '${e.nome} — ${e.cargo}',
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-            ],
-            onChanged: onChanged,
-          );
-        }
-
-        return AlertDialog(
-          title: const Text('Assinaturas do PDF financeiro'),
-          content: SizedBox(
-            width: 520,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                signerField(
-                  label: 'Nome da caixa esquerda',
-                  value: leftId,
-                  onChanged: (v) => setDlg(() => leftId = v),
-                ),
-                const SizedBox(height: 10),
-                signerField(
-                  label: 'Nome da caixa direita',
-                  value: rightId,
-                  onChanged: (v) => setDlg(() => rightId = v),
-                ),
-                const SizedBox(height: 10),
-                SwitchListTile.adaptive(
-                  value: showDigital,
-                  onChanged: (v) => setDlg(() => showDigital = v),
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Carregar assinatura digital'),
-                  subtitle: const Text(
-                    'Desative para deixar apenas linhas para assinatura manual.',
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                _FinancePdfSignerOption? pickById(String? id) {
-                  if (id == null || id.isEmpty) return null;
-                  for (final e in opts) {
-                    if (e.memberId == id) return e;
-                  }
-                  return null;
-                }
-
-                final leftOpt = pickById(leftId);
-                final rightOpt = pickById(rightId);
-
-                Uint8List? leftSig;
-                Uint8List? rightSig;
-                if (showDigital) {
-                  if (leftOpt != null && leftOpt.assinaturaUrl.isNotEmpty) {
-                    leftSig =
-                        await _financeTryLoadSignatureBytes(leftOpt.assinaturaUrl);
-                  }
-                  if (rightOpt != null && rightOpt.assinaturaUrl.isNotEmpty) {
-                    rightSig =
-                        await _financeTryLoadSignatureBytes(rightOpt.assinaturaUrl);
-                  }
-                }
-                if (!ctx.mounted) return;
-                Navigator.pop(
-                  ctx,
-                  _FinancePdfSignerSelection(
-                    leftName:
-                        leftOpt?.nome ?? (leftId == null ? 'Tesoureiro(a)' : ''),
-                    rightName:
-                        rightOpt?.nome ?? (rightId == null ? 'Pastor Presidente' : ''),
-                    leftSignatureBytes: leftSig,
-                    rightSignatureBytes: rightSig,
-                    showDigitalSignatures: showDigital,
-                  ),
-                );
-              },
-              child: const Text('Aplicar'),
-            ),
-          ],
-        );
-      },
-    ),
+  final picked = await showChurchDualSignatoryDialog(
+    context,
+    title: 'Assinaturas do PDF financeiro',
+    signers: signers,
   );
-  return result;
+  if (picked == null || !context.mounted) return null;
+
+  Uint8List? leftSig;
+  Uint8List? rightSig;
+  if (picked.digital) {
+    final leftUrl = (picked.left?.assinaturaUrl ?? '').trim();
+    if (leftUrl.isNotEmpty) {
+      leftSig = await _financeTryLoadSignatureBytes(leftUrl);
+    }
+    final rightUrl = (picked.right?.assinaturaUrl ?? '').trim();
+    if (rightUrl.isNotEmpty) {
+      rightSig = await _financeTryLoadSignatureBytes(rightUrl);
+    }
+  }
+
+  return _FinancePdfSignerSelection(
+    leftName: picked.left?.nome ?? 'Tesoureiro(a)',
+    rightName: picked.right?.nome ?? 'Pastor Presidente',
+    leftSignatureBytes: leftSig,
+    rightSignatureBytes: rightSig,
+    showDigitalSignatures: picked.digital,
+  );
 }
 
 /// PDF Super Premium — lançamentos financeiros (lista completa ou filtrada).
@@ -1142,7 +1010,9 @@ class _FinancePageState extends State<FinancePage>
     final bound = ChurchContext.currentChurchId?.trim() ?? '';
     final initial = bound.isNotEmpty
         ? bound
-        : ChurchContextService.panelChurchId(hint);
+        : (ChurchPanelTenant.resolve(hint).isNotEmpty
+            ? ChurchPanelTenant.resolve(hint)
+            : ChurchContextService.panelChurchId(hint));
     setState(() {
       _firestoreTenantId = initial.isEmpty ? null : initial;
       _financeBootstrapDone = true;
@@ -1150,6 +1020,11 @@ class _FinancePageState extends State<FinancePage>
     _startFinanceRealtimeSync();
     unawaited(_probeFinanceCollection());
     unawaited(_resolveOperationalTenantInBackground());
+    unawaited(ChurchFinanceLoadService.loadLancamentos(
+      seedTenantId: _tid,
+      limit: YahwehPerformanceV4.financeChartsSampleLimit,
+    ));
+    unawaited(ChurchFinanceLoadService.loadContas(seedTenantId: _tid));
   }
 
   Future<void> _probeFinanceCollection() async {
@@ -2217,6 +2092,8 @@ class _ResumoTabState extends State<_ResumoTab> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _futureContas;
   late Future<FinanceTenantSettings> _futureSettings;
   late Future<List<dynamic>> _combinedFuture;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedFinanceDocs;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedContasDocs;
   String _periodFilter = 'mes_atual';
   DateTime? _periodStart;
   DateTime? _periodEnd;
@@ -2291,27 +2168,84 @@ class _ResumoTabState extends State<_ResumoTab> {
     _reloadFutures();
   }
 
+  Future<List<dynamic>> _loadFinanceBundle({required bool forceFresh}) async {
+    final tid = widget.tenantId;
+    final limit = YahwehPerformanceV4.financeChartsSampleLimit;
+    final l = await (forceFresh
+        ? ChurchFinanceLoadService.loadLancamentos(
+            seedTenantId: tid,
+            limit: limit,
+            forceRefresh: true,
+            forceServer: true,
+          )
+        : ChurchFinanceLoadService.loadLancamentos(
+            seedTenantId: tid,
+            limit: limit,
+          ));
+    final c = await (forceFresh
+        ? ChurchFinanceLoadService.loadContas(
+            seedTenantId: tid,
+            forceRefresh: true,
+            forceServer: true,
+          )
+        : ChurchFinanceLoadService.loadContas(seedTenantId: tid));
+    final s = await FinanceTenantSettings.load(tid);
+    return [l.snapshot, c.snapshot, s];
+  }
+
   void _reloadFutures({bool forceFresh = false}) {
-    if (forceFresh) {
-      _future = ChurchFinanceRealtimeService.fetchFinanceFresh(
-        widget.tenantId,
-        limit: YahwehPerformanceV4.financeChartsSampleLimit,
-      );
-      _futureContas =
-          ChurchFinanceRealtimeService.fetchContasFresh(widget.tenantId);
-    } else {
-      _future = ChurchTenantResilientReads.financeRecent(
-        widget.tenantId,
-        limit: YahwehPerformanceV4.financeChartsSampleLimit,
-      );
-      _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
+    final tid = widget.tenantId;
+    final limit = YahwehPerformanceV4.financeChartsSampleLimit;
+
+    if (!forceFresh) {
+      _seedFinanceDocs =
+          ChurchFinanceLoadService.peekLancamentosRam(tid, limit: limit);
+      _seedContasDocs = ChurchFinanceLoadService.peekContasRam(tid);
     }
-    _futureSettings = FinanceTenantSettings.load(widget.tenantId);
-    _combinedFuture = Future.wait([
-      _future.catchError((_) => const MergedFirestoreQuerySnapshot([])),
-      _futureContas.catchError((_) => const MergedFirestoreQuerySnapshot([])),
-      _futureSettings.catchError((_) => const FinanceTenantSettings()),
-    ]);
+
+    Future<List<dynamic>> loadAll() => _loadFinanceBundle(forceFresh: forceFresh)
+        .timeout(
+      ChurchPanelReadTimeouts.queryCap,
+      onTimeout: () => [
+        MergedFirestoreQuerySnapshot(_seedFinanceDocs ?? const []),
+        MergedFirestoreQuerySnapshot(_seedContasDocs ?? const []),
+        const FinanceTenantSettings(),
+      ],
+    );
+
+    final hasSeed = !forceFresh &&
+        ((_seedFinanceDocs?.isNotEmpty ?? false) ||
+            (_seedContasDocs?.isNotEmpty ?? false));
+
+    if (hasSeed) {
+      _combinedFuture = Future.value([
+        MergedFirestoreQuerySnapshot(_seedFinanceDocs ?? const []),
+        MergedFirestoreQuerySnapshot(_seedContasDocs ?? const []),
+        const FinanceTenantSettings(),
+      ]);
+      unawaited(loadAll().then((fresh) {
+        if (!mounted) return;
+        setState(() {
+          final fs = fresh[0] as QuerySnapshot<Map<String, dynamic>>;
+          final cs = fresh[1] as QuerySnapshot<Map<String, dynamic>>;
+          _seedFinanceDocs = fs.docs;
+          _seedContasDocs = cs.docs;
+          _combinedFuture = Future.value(fresh);
+        });
+      }));
+    } else {
+      _combinedFuture = loadAll();
+    }
+
+    _future = _combinedFuture.then(
+      (v) => v[0] as QuerySnapshot<Map<String, dynamic>>,
+    );
+    _futureContas = _combinedFuture.then(
+      (v) => v[1] as QuerySnapshot<Map<String, dynamic>>,
+    );
+    _futureSettings = _combinedFuture.then(
+      (v) => v[2] as FinanceTenantSettings,
+    );
   }
 
   @override
@@ -4143,27 +4077,82 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
   late Future<QuerySnapshot<Map<String, dynamic>>> _futureContas;
   late Future<List<dynamic>> _combinedFuture;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedFinanceDocs;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedContasDocs;
   int _financeFetchLimit = YahwehPerformanceV4.financeListInitialLimit;
 
+  Future<List<dynamic>> _loadLancamentosBundle({required bool forceFresh}) async {
+    final tid = widget.tenantId;
+    final l = await (forceFresh
+        ? ChurchFinanceLoadService.loadLancamentos(
+            seedTenantId: tid,
+            limit: _financeFetchLimit,
+            forceRefresh: true,
+            forceServer: true,
+          )
+        : ChurchFinanceLoadService.loadLancamentos(
+            seedTenantId: tid,
+            limit: _financeFetchLimit,
+          ));
+    final c = await (forceFresh
+        ? ChurchFinanceLoadService.loadContas(
+            seedTenantId: tid,
+            forceRefresh: true,
+            forceServer: true,
+          )
+        : ChurchFinanceLoadService.loadContas(seedTenantId: tid));
+    return [l.snapshot, c.snapshot];
+  }
+
   void _reloadFutures({bool forceFresh = false}) {
-    if (forceFresh) {
-      _future = ChurchFinanceRealtimeService.fetchFinanceFresh(
-        widget.tenantId,
+    final tid = widget.tenantId;
+
+    if (!forceFresh) {
+      _seedFinanceDocs = ChurchFinanceLoadService.peekLancamentosRam(
+        tid,
         limit: _financeFetchLimit,
       );
-      _futureContas =
-          ChurchFinanceRealtimeService.fetchContasFresh(widget.tenantId);
-    } else {
-      _future = ChurchTenantResilientReads.financeRecent(
-        widget.tenantId,
-        limit: _financeFetchLimit,
-      );
-      _futureContas = ChurchTenantResilientReads.contas(widget.tenantId);
+      _seedContasDocs = ChurchFinanceLoadService.peekContasRam(tid);
     }
-    _combinedFuture = Future.wait([
-      _future.catchError((_) => const MergedFirestoreQuerySnapshot([])),
-      _futureContas.catchError((_) => const MergedFirestoreQuerySnapshot([])),
-    ]);
+
+    Future<List<dynamic>> loadAll() => _loadLancamentosBundle(forceFresh: forceFresh)
+        .timeout(
+      ChurchPanelReadTimeouts.queryCap,
+      onTimeout: () => [
+        MergedFirestoreQuerySnapshot(_seedFinanceDocs ?? const []),
+        MergedFirestoreQuerySnapshot(_seedContasDocs ?? const []),
+      ],
+    );
+
+    final hasSeed = !forceFresh &&
+        ((_seedFinanceDocs?.isNotEmpty ?? false) ||
+            (_seedContasDocs?.isNotEmpty ?? false));
+
+    if (hasSeed) {
+      _combinedFuture = Future.value([
+        MergedFirestoreQuerySnapshot(_seedFinanceDocs ?? const []),
+        MergedFirestoreQuerySnapshot(_seedContasDocs ?? const []),
+      ]);
+      unawaited(loadAll().then((fresh) {
+        if (!mounted) return;
+        setState(() {
+          final fs = fresh[0] as QuerySnapshot<Map<String, dynamic>>;
+          final cs = fresh[1] as QuerySnapshot<Map<String, dynamic>>;
+          _seedFinanceDocs = fs.docs;
+          _seedContasDocs = cs.docs;
+          _combinedFuture = Future.value(fresh);
+        });
+      }));
+    } else {
+      _combinedFuture = loadAll();
+    }
+
+    _future = _combinedFuture.then(
+      (v) => v[0] as QuerySnapshot<Map<String, dynamic>>,
+    );
+    _futureContas = _combinedFuture.then(
+      (v) => v[1] as QuerySnapshot<Map<String, dynamic>>,
+    );
   }
 
   void _loadMoreFinanceLancamentos() {
@@ -4973,13 +4962,8 @@ class _LancamentoCard extends StatelessWidget {
     final dt = _parseDate(data['createdAt'] ?? data['date']);
     final dataStr =
         '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-    final comprovanteUrlRaw = (data['comprovanteUrl'] ?? '').toString();
-    final comprovantePathRaw =
-        (data['comprovanteStoragePath'] ?? '').toString().trim();
-    final hasComprovanteAnexo = comprovanteUrlRaw.isNotEmpty ||
-        comprovantePathRaw.isNotEmpty ||
-        (data['comprovanteUploadState'] ?? '').toString() ==
-            EntityPublishStatus.published;
+    final hasComprovanteAnexo =
+        FinanceComprovanteAttachService.hasComprovanteInDoc(data);
     final pendenteRecorrencia = data['pendenteConciliacaoRecorrencia'] == true;
     final pendenteAprovacao = data['aprovacaoPendente'] == true;
     final conciliadoOk = data['conciliado'] == true;
@@ -7588,7 +7572,9 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   var pagamentoConfirmado =
       isEdit ? (data?['pagamentoConfirmado'] != false) : true;
   var conciliado = isEdit ? (data?['conciliado'] == true) : false;
-  XFile? comprovanteFile;
+  FinanceComprovanteAttachment? comprovanteAnexo;
+  final comprovanteExistente =
+      isEdit && FinanceComprovanteAttachService.hasComprovanteInDoc(data ?? {});
   String nomeConta(String? id) {
     if (id == null) return '';
     for (final c in contas) {
@@ -8093,83 +8079,72 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                     children: [
                 OutlinedButton.icon(
                   onPressed: () async {
-                    final source = await showDialog<ImageSource>(
-                      context: ctx,
-                      builder: (c) => SimpleDialog(
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusLg)),
-                        title: const Text('Anexar comprovante'),
-                        children: [
-                          SimpleDialogOption(
-                            onPressed: () =>
-                                Navigator.pop(c, ImageSource.camera),
-                            child: const Row(children: [
-                              Icon(Icons.camera_alt_rounded),
-                              SizedBox(width: 12),
-                              Text('Câmera')
-                            ]),
-                          ),
-                          SimpleDialogOption(
-                            onPressed: () =>
-                                Navigator.pop(c, ImageSource.gallery),
-                            child: const Row(children: [
-                              Icon(Icons.photo_library_rounded),
-                              SizedBox(width: 12),
-                              Text('Galeria / Arquivo')
-                            ]),
-                          ),
-                        ],
-                      ),
+                    final picked =
+                        await FinanceComprovanteAttachService.showPickSheet(
+                      ctx,
+                      title: comprovanteAnexo != null || comprovanteExistente
+                          ? 'Trocar comprovante'
+                          : 'Anexar comprovante',
                     );
-                    if (source == null) return;
-                    final picker = ImagePicker();
-                    final xfile = await picker.pickImage(
-                        source: source, maxWidth: 1200, imageQuality: 80);
-                    if (xfile != null) {
-                      comprovanteFile = xfile;
-                      setDlgState(() {});
-                      if (ctx.mounted) {
-                        ImmediateMediaAttachFeedback.showArquivoAnexado(
-                          ctx,
-                          xfile.name,
-                        );
-                      }
+                    if (picked == null) return;
+                    comprovanteAnexo = picked;
+                    setDlgState(() {});
+                    if (ctx.mounted) {
+                      ImmediateMediaAttachFeedback.showArquivoAnexado(
+                        ctx,
+                        picked.fileName,
+                      );
                     }
                   },
                   icon: Icon(
-                      comprovanteFile != null
+                      comprovanteAnexo != null || comprovanteExistente
                           ? Icons.check_circle_rounded
                           : Icons.add_photo_alternate_rounded,
                       size: 20),
-                  label: Text(comprovanteFile != null
-                      ? 'Comprovante anexado'
-                      : 'Anexar comprovante'),
+                  label: Text(
+                    comprovanteAnexo != null
+                        ? 'Comprovante anexado'
+                        : (comprovanteExistente
+                            ? 'Comprovante já gravado'
+                            : 'Anexar comprovante'),
+                  ),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: comprovanteFile != null
+                    foregroundColor: comprovanteAnexo != null || comprovanteExistente
                         ? ThemeCleanPremium.success
                         : null,
                   ),
                 ),
-                if (comprovanteFile != null)
+                if (comprovanteAnexo != null)
                   TextButton.icon(
                     onPressed: () => setDlgState(() {
-                      comprovanteFile = null;
+                      comprovanteAnexo = null;
                     }),
                     icon: const Icon(Icons.close, size: 18),
-                    label: const Text('Remover'),
+                    label: const Text('Remover novo anexo'),
                     style: TextButton.styleFrom(
                         foregroundColor: ThemeCleanPremium.error),
                   ),
                 if (isEdit &&
-                    (data?['comprovanteUrl'] ?? '').toString().isNotEmpty &&
-                    comprovanteFile == null)
+                    comprovanteExistente &&
+                    comprovanteAnexo == null) ...[
                   Padding(
                     padding: const EdgeInsets.only(top: 6),
-                    child: Text('Comprovante atual já anexado.',
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade600)),
+                    child: Text(
+                      FinanceComprovanteAttachService.displayNameFromDoc(
+                          data ?? {}),
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.grey.shade700),
+                    ),
                   ),
+                  TextButton.icon(
+                    onPressed: () => FinanceComprovanteAttachService.viewFromDoc(
+                      ctx,
+                      data ?? {},
+                    ),
+                    icon: const Icon(Icons.visibility_outlined, size: 18),
+                    label: const Text('Ver comprovante atual'),
+                  ),
+                ],
                     ],
                   ),
                 ),
@@ -8210,19 +8185,23 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   try {
     unawaited(_ensureFinanceWriteReady());
     Uint8List? pendingComprovanteBytes;
+    String? pendingComprovanteMime;
+    String? pendingComprovanteFileName;
     if (isEdit) {
-      final novoComp = comprovanteFile;
+      final novoComp = comprovanteAnexo;
       if (novoComp != null) {
-        final bytes = await novoComp.readAsBytes();
-        pendingComprovanteBytes = await ImageHelper.compressImage(
-          bytes,
-          minWidth: 800,
-          minHeight: 600,
-          quality: 80,
-        );
+        final prepared =
+            await FinanceComprovanteAttachService.prepareUploadBytes(novoComp);
+        pendingComprovanteBytes = prepared.bytes;
+        pendingComprovanteMime = prepared.mimeType;
+        pendingComprovanteFileName = novoComp.fileName;
         result.remove('comprovanteUrl');
-      } else if ((data?['comprovanteUrl'] ?? '').toString().isNotEmpty) {
+      } else if (FinanceComprovanteAttachService.hasComprovanteInDoc(data ?? {})) {
         result['comprovanteUrl'] = data?['comprovanteUrl'];
+        result['comprovanteStoragePath'] = data?['comprovanteStoragePath'];
+        result['comprovanteMimeType'] = data?['comprovanteMimeType'];
+        result['comprovanteFileName'] = data?['comprovanteFileName'];
+        result['hasComprovante'] = data?['hasComprovante'] ?? true;
       }
       final patch = Map<String, dynamic>.from(result);
       if (pendingComprovanteBytes != null) {
@@ -8267,7 +8246,8 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         existingRef: existingDoc.reference,
         hasNewComprovante: pendingComprovanteBytes != null,
       );
-      if (pendingComprovanteBytes != null) {
+      if (pendingComprovanteBytes != null &&
+          pendingComprovanteMime != null) {
         final refDate = patch['createdAt'] is Timestamp
             ? (patch['createdAt'] as Timestamp).toDate()
             : (data?['createdAt'] is Timestamp
@@ -8277,6 +8257,8 @@ Future<bool> showFinanceLancamentoEditorForTenant(
           tenantId: tenantId,
           docRef: existingDoc.reference,
           rawBytes: pendingComprovanteBytes,
+          mimeType: pendingComprovanteMime,
+          fileName: pendingComprovanteFileName,
           referenceDate: refDate,
           previousStoragePath: (data?['comprovanteStoragePath'] ?? '').toString(),
           previousDownloadUrl: (data?['comprovanteUrl'] ?? '').toString(),
@@ -8286,16 +8268,17 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         showFinanceSaveSnackBar(context, message: 'Lançamento atualizado!');
       }
     } else {
-      final novoCompAdd = comprovanteFile;
+      final novoCompAdd = comprovanteAnexo;
       Uint8List? pendingAddBytes;
+      String? pendingAddMime;
+      String? pendingAddFileName;
       if (novoCompAdd != null) {
-        final bytesNew = await novoCompAdd.readAsBytes();
-        pendingAddBytes = await ImageHelper.compressImage(
-          bytesNew,
-          minWidth: 800,
-          minHeight: 600,
-          quality: 80,
-        );
+        final prepared =
+            await FinanceComprovanteAttachService.prepareUploadBytes(
+                novoCompAdd);
+        pendingAddBytes = prepared.bytes;
+        pendingAddMime = prepared.mimeType;
+        pendingAddFileName = novoCompAdd.fileName;
         result.remove('comprovanteUrl');
       }
       final docRef = await FinanceComprovantePublishService.saveLancamentoFirst(
@@ -8304,7 +8287,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
         isEdit: false,
         hasNewComprovante: pendingAddBytes != null,
       );
-      if (pendingAddBytes != null) {
+      if (pendingAddBytes != null && pendingAddMime != null) {
         final refDate = result['createdAt'] is Timestamp
             ? (result['createdAt'] as Timestamp).toDate()
             : null;
@@ -8312,6 +8295,8 @@ Future<bool> showFinanceLancamentoEditorForTenant(
           tenantId: tenantId,
           docRef: docRef,
           rawBytes: pendingAddBytes,
+          mimeType: pendingAddMime,
+          fileName: pendingAddFileName,
           referenceDate: refDate,
         );
       }
@@ -8345,55 +8330,21 @@ Future<void> uploadFinanceComprovanteForLancamento(
   required String tenantId,
   required DocumentSnapshot<Map<String, dynamic>> doc,
 }) async {
-  final picker = ImagePicker();
   final docData = doc.data() ?? {};
-  final jaTemUrl =
-      (docData['comprovanteUrl'] ?? '').toString().trim().isNotEmpty;
-  final jaTemPath =
-      (docData['comprovanteStoragePath'] ?? '').toString().trim().isNotEmpty;
-  final jaTem = jaTemUrl || jaTemPath;
-  final source = await showDialog<ImageSource>(
-    context: context,
-    builder: (ctx) => SimpleDialog(
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-      title: Text(jaTem ? 'Trocar comprovante' : 'Anexar comprovante'),
-      children: [
-        if (!kIsWeb)
-          SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, ImageSource.camera),
-              child: const Row(children: [
-                Icon(Icons.camera_alt_rounded),
-                SizedBox(width: 12),
-                Text('Câmera')
-              ])),
-        SimpleDialogOption(
-            onPressed: () => Navigator.pop(ctx, ImageSource.gallery),
-            child: const Row(children: [
-              Icon(Icons.photo_library_rounded),
-              SizedBox(width: 12),
-              Text('Galeria / Arquivo')
-            ])),
-      ],
-    ),
-  );
-  if (source == null) return;
+  final jaTem = FinanceComprovanteAttachService.hasComprovanteInDoc(docData);
 
-  final xfile = await picker.pickImage(
-      source: source, maxWidth: 1200, imageQuality: 80);
-  if (xfile == null) return;
+  final picked = await FinanceComprovanteAttachService.showPickSheet(
+    context,
+    title: jaTem ? 'Trocar comprovante' : 'Anexar comprovante',
+  );
+  if (picked == null) return;
 
   if (!context.mounted) return;
-  ImmediateMediaAttachFeedback.showArquivoAnexado(context, xfile.name);
+  ImmediateMediaAttachFeedback.showArquivoAnexado(context, picked.fileName);
 
   try {
-    final bytes = await xfile.readAsBytes();
-    final compressed = await ImageHelper.compressImage(
-      bytes,
-      minWidth: 800,
-      minHeight: 600,
-      quality: 80,
-    );
+    final prepared =
+        await FinanceComprovanteAttachService.prepareUploadBytes(picked);
     final data = doc.data() ?? {};
     final ts = data['createdAt'] ?? data['date'];
     DateTime? refDate;
@@ -8404,7 +8355,9 @@ Future<void> uploadFinanceComprovanteForLancamento(
     await FinanceComprovantePublishService.uploadComprovanteNow(
       tenantId: tenantId,
       docRef: doc.reference,
-      rawBytes: compressed,
+      rawBytes: prepared.bytes,
+      mimeType: prepared.mimeType,
+      fileName: picked.fileName,
       referenceDate: refDate,
       previousStoragePath: (data['comprovanteStoragePath'] ?? '').toString(),
       previousDownloadUrl: (data['comprovanteUrl'] ?? '').toString(),
@@ -8618,7 +8571,8 @@ void showFinanceLancamentoDetailsBottomSheet(
               ],
             ),
           ],
-          if (comprovanteUrl.isNotEmpty) ...[
+          if (comprovanteUrl.isNotEmpty ||
+              FinanceComprovanteAttachService.hasComprovanteInDoc(data)) ...[
             const SizedBox(height: 16),
             Text('Comprovante',
                 style: TextStyle(
@@ -8626,14 +8580,35 @@ void showFinanceLancamentoDetailsBottomSheet(
                     fontWeight: FontWeight.w600,
                     color: Colors.grey.shade600)),
             const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: SafeNetworkImage(
-                  imageUrl: comprovanteUrl,
-                  height: 200,
-                  fit: BoxFit.cover,
-                  errorWidget: const Text('Erro ao carregar imagem')),
-            ),
+            if (FinanceComprovanteAttachService.mimeFromDoc(data)
+                .contains('pdf'))
+              OutlinedButton.icon(
+                onPressed: () => FinanceComprovanteAttachService.viewFromDoc(
+                  ctx,
+                  data,
+                ),
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+                label: Text(FinanceComprovanteAttachService.displayNameFromDoc(
+                    data)),
+              )
+            else if (comprovanteUrl.isNotEmpty)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SafeNetworkImage(
+                    imageUrl: comprovanteUrl,
+                    height: 200,
+                    fit: BoxFit.cover,
+                    errorWidget: const Text('Erro ao carregar imagem')),
+              )
+            else
+              OutlinedButton.icon(
+                onPressed: () => FinanceComprovanteAttachService.viewFromDoc(
+                  ctx,
+                  data,
+                ),
+                icon: const Icon(Icons.visibility_outlined),
+                label: const Text('Ver comprovante'),
+              ),
           ],
           const SizedBox(height: 20),
         ],

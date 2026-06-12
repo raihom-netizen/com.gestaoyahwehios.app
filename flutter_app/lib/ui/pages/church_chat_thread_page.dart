@@ -52,8 +52,8 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
 import 'package:gestao_yahweh/services/church_chat_diagnostic_service.dart';
+import 'package:gestao_yahweh/services/church_chat_fast_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
-import 'package:gestao_yahweh/services/church_chat_sync_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
@@ -272,6 +272,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       ),
     );
     unawaited(ensureFirebaseReadyForChatSend().catchError((_) {}));
+    unawaited(ChurchChatFastSendService.warmSendPipeline().catchError((_) {}));
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
     WidgetsBinding.instance.addObserver(this);
@@ -285,12 +286,15 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _bindChatFirestoreStreams(_tid);
     unawaited(_primeRecentMessagesFromCacheOrServer());
     unawaited(_initChatThreadTenantAndStreams());
-    unawaited(
-      ChurchChatDiagnosticService.runOnChatOpen(
-        tenantIdHint: _tid,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
-      ),
-    );
+    Future<void>.delayed(const Duration(seconds: 18), () {
+      if (!mounted) return;
+      unawaited(
+        ChurchChatDiagnosticService.runOnChatOpen(
+          tenantIdHint: _tid,
+          userUid: firebaseDefaultAuth.currentUser?.uid,
+        ),
+      );
+    });
     _messagesPrimeFallbackTimer = Timer(const Duration(seconds: 3), () {
       if (!mounted) return;
       if (_latestRecentDocs.isEmpty) {
@@ -867,41 +871,47 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
     _enqueuePending(pending);
     _setPendingProgress(localId, 0.12);
-    ChurchChatInstantSendService.enqueueText(
-      tenantId: _tid,
-      threadId: widget.threadId,
-      text: t,
-      replyTo: replyPayload,
-      senderDisplayName: ChatThreadOperations.senderDisplayNameForNewMessage(),
-      mentionedUids: mentions,
-      onComplete: (ok) {
-        if (!mounted) return;
-        if (ok) {
-          _removePending(localId);
-          unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
-        } else {
-          final i =
-              _pendingOutbound.indexWhere((p) => p.localId == localId);
+    unawaited(
+      ChurchChatFastSendService.sendText(
+        tenantId: _tid,
+        threadId: widget.threadId,
+        text: t,
+        replyTo: replyPayload,
+        senderDisplayName:
+            ChatThreadOperations.senderDisplayNameForNewMessage(),
+        mentionedUids: mentions,
+        onComplete: (ok) {
+          if (!mounted) return;
+          if (ok) {
+            _removePending(localId);
+            unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
+          } else {
+            final i =
+                _pendingOutbound.indexWhere((p) => p.localId == localId);
+            if (i >= 0) {
+              _pendingOutbound[i].failed = true;
+              _pendingOutbound[i].errorMessage =
+                  'Não foi possível enviar. Toque para tentar de novo.';
+              setState(() {});
+            }
+          }
+        },
+        onError: (msg) {
+          if (!mounted) return;
+          final i = _pendingOutbound.indexWhere((p) => p.localId == localId);
           if (i >= 0) {
             _pendingOutbound[i].failed = true;
-            _pendingOutbound[i].errorMessage =
-                'Não foi possível enviar. Toque para tentar de novo.';
+            _pendingOutbound[i].errorMessage = msg;
             setState(() {});
           }
-        }
-      },
-      onError: (msg) {
-        if (!mounted) return;
-        final i = _pendingOutbound.indexWhere((p) => p.localId == localId);
-        if (i >= 0) {
-          _pendingOutbound[i].failed = true;
-          _pendingOutbound[i].errorMessage = msg;
-          setState(() {});
-        }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg), backgroundColor: ThemeCleanPremium.error),
-        );
-      },
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(msg),
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -912,30 +922,33 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     p.errorMessage = null;
     _setPendingProgress(p.localId, 0.12);
     if (mounted) setState(() {});
-    ChurchChatInstantSendService.enqueueText(
-      tenantId: _tid,
-      threadId: widget.threadId,
-      text: t,
-      replyTo: p.replyToData,
-      senderDisplayName: ChatThreadOperations.senderDisplayNameForNewMessage(),
-      mentionedUids: p.mentionedUids,
-      onComplete: (ok) {
-        if (!mounted) return;
-        if (ok) {
-          _removePending(p.localId);
-          unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
-        } else if (mounted) {
+    unawaited(
+      ChurchChatFastSendService.sendText(
+        tenantId: _tid,
+        threadId: widget.threadId,
+        text: t,
+        replyTo: p.replyToData,
+        senderDisplayName:
+            ChatThreadOperations.senderDisplayNameForNewMessage(),
+        mentionedUids: p.mentionedUids,
+        onComplete: (ok) {
+          if (!mounted) return;
+          if (ok) {
+            _removePending(p.localId);
+            unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
+          } else if (mounted) {
+            p.failed = true;
+            p.errorMessage = 'Não foi possível enviar.';
+            setState(() {});
+          }
+        },
+        onError: (msg) {
+          if (!mounted) return;
           p.failed = true;
-          p.errorMessage = 'Não foi possível enviar.';
+          p.errorMessage = msg;
           setState(() {});
-        }
-      },
-      onError: (msg) {
-        if (!mounted) return;
-        p.failed = true;
-        p.errorMessage = msg;
-        setState(() {});
-      },
+        },
+      ),
     );
   }
 
@@ -2035,14 +2048,14 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     final path = localPath?.trim() ?? pending.localPath?.trim() ?? '';
     if (path.isNotEmpty) {
       pending.localPath ??= path;
-      // Mobile: Storage por [putFile] — não ler vídeo/PDF inteiro na RAM.
       if (pending.kind == 'image') {
         try {
           pending.previewBytes = await SafeImageBytes.fromPath(
             path,
-            maxEdge: 480,
-            quality: 68,
+            maxEdge: 320,
+            quality: 62,
           );
+          if (mounted) setState(() {});
         } catch (_) {}
       }
       return null;
@@ -2085,9 +2098,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     required List<int>? bytes,
     required String? localPath,
   }) async {
-    await _awaitOperationalTenantId();
     _enqueuePending(pending);
     _setPendingProgress(pending.localId, 0.02);
+    unawaited(_runPendingMediaUpload(
+      pending: pending,
+      bytes: bytes,
+      localPath: localPath,
+    ));
+  }
+
+  Future<void> _runPendingMediaUpload({
+    required ChurchChatOutboundPending pending,
+    required List<int>? bytes,
+    required String? localPath,
+  }) async {
+    await _awaitOperationalTenantId();
     final replyTo =
         pending.albumIndex == 0 ? _replyDraft?.toReplyPayload() : null;
     unawaited(
@@ -2097,6 +2122,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           bytes: bytes,
           localPath: localPath,
         );
+        if (mounted &&
+            pending.kind == 'image' &&
+            pending.previewBytes != null &&
+            pending.previewBytes!.isNotEmpty) {
+          setState(() {});
+        }
         if (kIsWeb &&
             uploadBytes != null &&
             uploadBytes.isNotEmpty &&
@@ -2114,7 +2145,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             ),
           );
         }
-        await ChurchChatSyncSendService.sendMedia(
+        await ChurchChatFastSendService.sendMedia(
           tenantId: _tid,
           threadId: widget.threadId,
           pending: pending,
@@ -2138,7 +2169,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             }
           },
         );
-      }, debugLabel: 'chat_media_sync').catchError((Object e, StackTrace st) {
+      }, debugLabel: 'chat_media_whatsapp').catchError((Object e, StackTrace st) {
         YahwehFlowLog.error('CHAT', e, st);
         final i =
             _pendingOutbound.indexWhere((p) => p.localId == pending.localId);
@@ -2182,7 +2213,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       _showChatAttachmentError(kindBlocked);
       return;
     }
-    await _awaitOperationalTenantId();
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChatThreadOperations.clearTypingForMe(
@@ -2300,7 +2330,6 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       _showChatAttachmentError(kindBlocked);
       return;
     }
-    await _awaitOperationalTenantId();
     _typingDebounce?.cancel();
     _typingIdleTimer?.cancel();
     unawaited(ChatThreadOperations.clearTypingForMe(
@@ -2565,7 +2594,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   p.storagePath = null;
                   if (mounted) setState(() {});
                   unawaited(() async {
-                    await ChurchChatSyncSendService.sendMedia(
+                    await ChurchChatFastSendService.sendMedia(
                       tenantId: _tid,
                       threadId: widget.threadId,
                       pending: p,

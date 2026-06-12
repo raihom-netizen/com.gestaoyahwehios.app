@@ -3,6 +3,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/chat_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Chat mídia — Storage confirmado → Firestore `sent` → verificação (sem falso sucesso).
@@ -18,35 +19,42 @@ abstract final class ChatStrictPublishService {
     String? fileName,
     String? thumbStoragePath,
     int? fileSize,
+    bool skipStorageVerify = false,
+    bool skipServerRecheck = false,
   }) async {
     await ensureFirebaseReadyForChatSend();
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
+    if (!skipStorageVerify) {
+      await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
+    }
 
-    final resolvedTenant =
-        await ChatPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: tenantId,
+    final resolvedTenant = ChurchPublishContext.churchIdForPublish(
+      tenantId.trim(),
     );
 
-    await ChatPublishVerificationService.logPublishPhase(
-      phase: 'storage_verify',
-      igrejaId: resolvedTenant,
-      threadId: threadId,
-      messageId: messageId,
-      storagePath: storagePath,
-    );
+    if (!skipStorageVerify) {
+      await ChatPublishVerificationService.logPublishPhase(
+        phase: 'storage_verify',
+        igrejaId: resolvedTenant,
+        threadId: threadId,
+        messageId: messageId,
+        storagePath: storagePath,
+      );
 
-    await ChatPublishVerificationService.verifyStorageMetadata(
-      storagePath: storagePath,
-      thumbStoragePath: thumbStoragePath,
-    );
+      await ChatPublishVerificationService.verifyStorageMetadata(
+        storagePath: storagePath,
+        thumbStoragePath: thumbStoragePath,
+      );
+    }
 
-    await ChatPublishVerificationService.logPublishPhase(
-      phase: 'before',
-      igrejaId: resolvedTenant,
-      threadId: threadId,
-      messageId: messageId,
-      storagePath: storagePath,
-    );
+    if (!skipStorageVerify) {
+      await ChatPublishVerificationService.logPublishPhase(
+        phase: 'before',
+        igrejaId: resolvedTenant,
+        threadId: threadId,
+        messageId: messageId,
+        storagePath: storagePath,
+      );
+    }
 
     await ChurchChatService.completeMediaUploadMessageDirect(
       resolvedTenant: resolvedTenant,
@@ -58,20 +66,24 @@ abstract final class ChatStrictPublishService {
       fileSize: fileSize,
     );
 
-    final ref = ChatPublishVerificationService.messageDocRef(
-      igrejaId: resolvedTenant,
-      threadId: threadId,
-      messageId: messageId,
-    );
-    await _verifyMessageSentOnServer(ref);
+    if (!skipServerRecheck) {
+      final ref = ChatPublishVerificationService.messageDocRef(
+        igrejaId: resolvedTenant,
+        threadId: threadId,
+        messageId: messageId,
+      );
+      await _verifyMessageSentOnServer(ref);
+    }
 
-    await ChatPublishVerificationService.logPublishPhase(
-      phase: 'after',
-      igrejaId: resolvedTenant,
-      threadId: threadId,
-      messageId: messageId,
-      storagePath: storagePath,
-    );
+    if (!skipStorageVerify) {
+      await ChatPublishVerificationService.logPublishPhase(
+        phase: 'after',
+        igrejaId: resolvedTenant,
+        threadId: threadId,
+        messageId: messageId,
+        storagePath: storagePath,
+      );
+    }
   }
 
   /// Mensagem com ficheiro no Storage mas Firestore ainda em `uploading` — tenta finalizar.

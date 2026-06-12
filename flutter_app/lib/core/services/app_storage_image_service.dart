@@ -119,11 +119,26 @@ class AppStorageImageService {
     return refreshed ?? norm;
   }
 
+  static String? _storagePathCandidate(String? raw) {
+    final t = _norm(raw);
+    if (t.isEmpty) return null;
+    if (t.toLowerCase().startsWith('http://') ||
+        t.toLowerCase().startsWith('https://')) {
+      return null;
+    }
+    return StorageMediaService.storageObjectPathFromPathOrUrl(t);
+  }
+
   Future<String?> _resolveUncached({
     String? storagePath,
     String? imageUrl,
     String? gsUrl,
   }) async {
+    var pathNorm = _norm(storagePath);
+    if (pathNorm.isEmpty) {
+      pathNorm = _storagePathCandidate(imageUrl) ?? '';
+    }
+
     final urlImmediate = _norm(imageUrl);
     if (urlImmediate.isNotEmpty) {
       final s0 = sanitizeImageUrl(urlImmediate);
@@ -159,10 +174,9 @@ class AppStorageImageService {
       if (out != null) return out;
     }
 
-    final p = _norm(storagePath);
-    if (p.isNotEmpty) {
+    if (pathNorm.isNotEmpty) {
       final out = await _twice(() async {
-        final ref = FirebaseStorage.instance.ref(p);
+        final ref = FirebaseStorage.instance.ref(pathNorm);
         final u =
             await ref.getDownloadURL().timeout(const Duration(seconds: 15));
         final s = sanitizeImageUrl(u);
@@ -250,7 +264,7 @@ class AppStorageImageService {
     return fut;
   }
 
-  /// Logo da igreja — delega a [ChurchBrandService] (`logoPath` → URL dinâmica).
+  /// Logo da igreja — path canónico `configuracoes/logo_igreja.png` → URL https exibível.
   Future<String?> resolveChurchTenantLogoUrl({
     required String tenantId,
     Map<String, dynamic>? tenantData,
@@ -272,11 +286,14 @@ class AppStorageImageService {
     final inflight = _churchLogoPending[cacheKey];
     if (inflight != null) return inflight;
 
-    final fut = ChurchBrandService.getLogoUrl(
-      churchId: tenantId,
+    final fut = _resolveChurchLogoUncached(
+      tenantId: tenantId,
       tenantData: tenantData,
+      preferImageUrl: preferImageUrl,
+      preferStoragePath: preferStoragePath,
+      preferGsUrl: preferGsUrl,
     )
-        .timeout(const Duration(seconds: 28), onTimeout: () => null)
+        .timeout(const Duration(seconds: 14), onTimeout: () => null)
         .then((url) {
       _churchLogoPending.remove(cacheKey);
       if (url != null && url.isNotEmpty) {
@@ -291,6 +308,60 @@ class AppStorageImageService {
 
     _churchLogoPending[cacheKey] = fut;
     return fut;
+  }
+
+  Future<String?> _resolveChurchLogoUncached({
+    required String tenantId,
+    Map<String, dynamic>? tenantData,
+    String? preferImageUrl,
+    String? preferStoragePath,
+    String? preferGsUrl,
+  }) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return null;
+
+    if (kIsWeb) {
+      await PublicSiteMediaAuth.ensureWebAnonymousForStorage();
+      try {
+        await FirebaseAuth.instance.currentUser?.getIdToken();
+      } catch (_) {}
+    }
+
+    final pathCandidates = <String>[];
+    void pushPath(String? raw) {
+      final p = _storagePathCandidate(raw);
+      if (p != null && p.isNotEmpty && !pathCandidates.contains(p)) {
+        pathCandidates.add(p);
+      }
+    }
+
+    pushPath(preferStoragePath);
+    pushPath(ChurchImageFields.logoStoragePath(tenantData));
+    pushPath(preferImageUrl);
+    pushPath(ChurchBrandService.canonicalLogoPath(tid));
+
+    for (final path in pathCandidates) {
+      final u = await resolveImageUrl(storagePath: path);
+      if (u != null && u.isNotEmpty) return u;
+    }
+
+    final prefUrl = sanitizeImageUrl(preferImageUrl ?? '');
+    if (prefUrl.isNotEmpty &&
+        isValidImageUrl(prefUrl) &&
+        (prefUrl.startsWith('http://') || prefUrl.startsWith('https://'))) {
+      final u = await resolveImageUrl(imageUrl: prefUrl);
+      if (u != null && u.isNotEmpty) return u;
+    }
+
+    if (_norm(preferGsUrl).toLowerCase().startsWith('gs://')) {
+      final u = await resolveImageUrl(gsUrl: preferGsUrl);
+      if (u != null && u.isNotEmpty) return u;
+    }
+
+    return ChurchBrandService.getLogoUrl(
+      churchId: tid,
+      tenantData: tenantData,
+    );
   }
 
   void invalidate({

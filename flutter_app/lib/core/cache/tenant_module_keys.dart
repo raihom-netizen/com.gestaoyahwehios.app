@@ -16,6 +16,7 @@ abstract final class TenantModuleKeys {
   static const visitantes = 'visitantes';
   static const cargos = 'cargos';
   static const fornecedores = 'fornecedores';
+  static const pedidosOracao = 'pedidos_oracao';
 
   static const preloadOrder = <String>[
     dashboard,

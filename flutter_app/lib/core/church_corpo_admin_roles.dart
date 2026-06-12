@@ -5,6 +5,9 @@ abstract final class ChurchCorpoAdminRoles {
   static const List<String> defaultRoleKeys = [
     'pastor',
     'pastora',
+    'gestor',
+    'administrador',
+    'admin',
     'secretario',
     'secretaria',
     'tesoureiro',
@@ -87,10 +90,12 @@ abstract final class ChurchCorpoAdminRoles {
     return out;
   }
 
-  /// Pastor → secretário → tesoureiro → outros (config).
+  /// Pastor → gestor/admin → secretário → tesoureiro → outros (config).
   static int sortRank(String foldedKey) {
     final k = foldFuncaoKey(foldedKey);
     if (k.startsWith('pastor')) return 300;
+    if (k.startsWith('gestor')) return 250;
+    if (k.startsWith('admin')) return 240;
     if (k.startsWith('secretar')) return 200;
     if (k.startsWith('tesour')) return 100;
     return 50;

@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Foto de perfil — upload validado → Firestore → confirmação (sem falso sucesso).
@@ -59,6 +60,7 @@ abstract final class MembroStrictPublishService {
       tenantId: igrejaId,
       storageFolderId: storageFolderId,
       fullBytes: tiers.full,
+      thumbBytes: tiers.thumb,
       requireAuth: requireAuth,
     );
 
@@ -68,11 +70,26 @@ abstract final class MembroStrictPublishService {
     );
 
     final revision = DateTime.now().millisecondsSinceEpoch;
+    final photoUrl = uploaded.photoFull.trim();
+    final thumbUrl = sanitizeImageUrl(uploaded.photoThumb.trim());
     final updates = <String, dynamic>{
       'photoStoragePath': uploaded.fullStoragePath,
       'photoThumbStoragePath': uploaded.thumbStoragePath,
       'fotoPath': uploaded.fullStoragePath,
       'fotoThumbPath': uploaded.thumbStoragePath,
+      if (photoUrl.isNotEmpty) ...{
+        'FOTO_URL_DB': photoUrl,
+        'avatarUrl': photoUrl,
+        'fotoUrl': photoUrl,
+        'FOTO_URL_OU_ID': photoUrl,
+        'photoURL': photoUrl,
+        'photoUrl': photoUrl,
+        'foto_url': photoUrl,
+      },
+      if (thumbUrl.isNotEmpty && thumbUrl != photoUrl) ...{
+        'fotoThumbUrl': thumbUrl,
+        'photoThumbUrl': thumbUrl,
+      },
       MemberProfilePhotoUpdateService.photoUploadStateField:
           EntityPublishStatus.published,
       'photoUploadError': FieldValue.delete(),

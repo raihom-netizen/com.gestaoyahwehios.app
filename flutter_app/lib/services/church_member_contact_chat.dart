@@ -2,14 +2,17 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/tenant/church_context.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+
 /// Contato por chat da igreja ou WhatsApp — web, iOS e Android.
 abstract final class ChurchMemberContactChat {
   ChurchMemberContactChat._();
@@ -65,7 +68,22 @@ abstract final class ChurchMemberContactChat {
         .replaceAll(RegExp(r'\D'), '');
   }
 
-  /// Resolve `authUid` do destinatário — mapa leve do painel, doc `membros` ou e-mail.
+  static Future<DocumentSnapshot<Map<String, dynamic>>?> _readMemberDoc(
+    String churchId,
+    String docId,
+  ) async {
+    final id = docId.trim();
+    if (churchId.trim().isEmpty || id.isEmpty) return null;
+    Future<DocumentSnapshot<Map<String, dynamic>>> read() =>
+        ChurchUiCollections.membros(churchId).doc(id).get();
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      return FirestoreWebGuard.runWithWebRecovery(read, maxAttempts: 4);
+    }
+    return read();
+  }
+
+  /// Resolve `authUid` do destinatário — doc directo `igrejas/{churchId}/membros`.
   static Future<
       ({
         Map<String, dynamic> data,
@@ -91,53 +109,57 @@ abstract final class ChurchMemberContactChat {
       return (data: data, memberDocId: docId, peerUid: peer);
     }
 
-    final tid = tenantId.trim();
-    if (tid.isEmpty) {
-      return (data: data, memberDocId: docId, peerUid: null);
+    final churchId = ChurchRepository.churchId(tenantId.trim());
+    if (churchId.isEmpty) {
+      return (data: data, memberDocId: docId, peerUid: peerFromData());
     }
 
-    final viewerUid = FirebaseAuth.instance.currentUser?.uid?.trim();
+    Future<void> mergeSnap(DocumentSnapshot<Map<String, dynamic>> snap) async {
+      if (!snap.exists) return;
+      docId = snap.id;
+      final fresh = snap.data();
+      if (fresh != null && fresh.isNotEmpty) {
+        data = {...data, ...fresh};
+      }
+    }
 
     try {
       await ChurchTenantResilientReads.preparePanelRead();
-      var operational = tid;
-      try {
-        operational = await TenantResolverService.resolveOperationalChurchDocId(
-          tid,
-          userUid: viewerUid,
-        );
-      } catch (_) {}
-
-      Future<void> mergeSnap(DocumentSnapshot<Map<String, dynamic>> snap) async {
-        if (!snap.exists) return;
-        docId = snap.id;
-        final fresh = snap.data();
-        if (fresh != null && fresh.isNotEmpty) {
-          data = {...data, ...fresh};
-        }
-      }
-
-      final hints = <String>{
-        if (docId.isNotEmpty) docId,
-        if (cpf.length == 11) cpf,
-        (data['EMAIL'] ?? data['email'] ?? '').toString().trim(),
-      }..removeWhere((h) => h.isEmpty);
-
-      for (final hint in hints) {
-        try {
-          final snap = await ChurchTenantResilientReads.membroByHint(
-            operational,
-            hint,
-            cpfDigits: cpf.length == 11 ? cpf : null,
-            userUid: viewerUid,
-          );
-          if (snap == null || !snap.exists) continue;
+      if (docId.isNotEmpty) {
+        final snap = await _readMemberDoc(churchId, docId);
+        if (snap != null) {
           await mergeSnap(snap);
           peer = peerFromData();
           if (peer != null && peer.isNotEmpty) {
             return (data: data, memberDocId: docId, peerUid: peer);
           }
-        } catch (_) {}
+        }
+      }
+      if (cpf.length == 11 && cpf != docId) {
+        final snap = await _readMemberDoc(churchId, cpf);
+        if (snap != null) {
+          await mergeSnap(snap);
+          peer = peerFromData();
+          if (peer != null && peer.isNotEmpty) {
+            return (data: data, memberDocId: docId, peerUid: peer);
+          }
+        }
+      }
+      final auth = authUidFromMember(data);
+      if (auth != null && auth.isNotEmpty) {
+        Future<QuerySnapshot<Map<String, dynamic>>> query() =>
+            ChurchUiCollections.membros(churchId)
+                .where('authUid', isEqualTo: auth)
+                .limit(1)
+                .get();
+        final q = kIsWeb
+            ? await FirestoreWebGuard.runWithWebRecovery(query, maxAttempts: 4)
+            : await query();
+        if (q.docs.isNotEmpty) {
+          await mergeSnap(q.docs.first);
+          peer = auth;
+          return (data: data, memberDocId: docId, peerUid: peer);
+        }
       }
     } catch (_) {}
 
@@ -231,19 +253,11 @@ abstract final class ChurchMemberContactChat {
     required Map<String, dynamic> memberData,
   }) async {
     if (phoneDigitsFromMember(memberData).length >= 10) return memberData;
-    final tid = tenantId.trim();
+    final churchId = ChurchRepository.churchId(tenantId.trim());
     final mid = memberDocId.trim();
-    if (tid.isEmpty || mid.isEmpty) return memberData;
+    if (churchId.isEmpty || mid.isEmpty) return memberData;
     try {
-      var operational = tid;
-      try {
-        operational = await ChurchTenantResilientReads.operationalTenantId(tid);
-      } catch (_) {}
-      final snap = await ChurchTenantResilientReads.membroByHint(
-        operational,
-        mid,
-        cpfDigits: _cpfDigitsFromMemberData(memberData),
-      );
+      final snap = await _readMemberDoc(churchId, mid);
       if (snap == null || !snap.exists) return memberData;
       final fresh = snap.data();
       if (fresh == null || fresh.isEmpty) return memberData;
@@ -290,13 +304,9 @@ abstract final class ChurchMemberContactChat {
       return;
     }
 
-    var operationalTenant = tenantId.trim();
-    try {
-      operationalTenant = await TenantResolverService.resolveOperationalChurchDocId(
-        tenantId,
-        userUid: myUid,
-      );
-    } catch (_) {}
+    final churchId = ChurchRepository.churchId(tenantId.trim());
+    final operationalTenant =
+        churchId.isNotEmpty ? churchId : tenantId.trim();
 
     final resolved = await resolvePeerForChat(
       tenantId: operationalTenant,
@@ -343,16 +353,10 @@ abstract final class ChurchMemberContactChat {
 
     final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
     final draft = draftText.trim();
-    final bridgeTenant = ChurchContext.currentChurchId?.trim() ??
-        ChurchContext.resolveChurchId(operationalTenant);
-    final bridgeTenantArg =
-        bridgeTenant.isEmpty ? operationalTenant : bridgeTenant;
 
-    // Abre o módulo Chat e deixa a conversa pendente para [ChurchChatHubPage].
-    // Não usar push no root navigator — na web embutida no shell isso não abre a thread.
     ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
       threadId: threadId,
-      tenantId: bridgeTenantArg,
+      tenantId: operationalTenant,
       peerUid: peerUid,
       displayName: titulo,
       initialDraftText: draft.isEmpty ? null : draft,

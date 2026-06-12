@@ -1,7 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 
 /// Configurações do financeiro por igreja — doc `igrejas/{id}/config/finance_settings`.
 class FinanceTenantSettings {
@@ -41,13 +42,13 @@ class FinanceTenantSettings {
       s.limiteAprovacaoDespesa > 0 || s.orcamentosDespesa.isNotEmpty;
 
   static Future<FinanceTenantSettings> load(String tenantId) async {
-    final primary = ChurchContextService.panelChurchId(tenantId);
+    final primary = ChurchPanelTenant.resolve(tenantId.trim());
     if (primary.isEmpty) return const FinanceTenantSettings();
 
     try {
-      final d = await docRef(primary).get(
-        const GetOptions(source: Source.serverAndCache),
-      );
+      final d = await docRef(primary)
+          .get(const GetOptions(source: Source.serverAndCache))
+          .timeout(ChurchPanelReadTimeouts.attempt);
       if (!d.exists) return const FinanceTenantSettings();
       return _fromDocData(d.data());
     } catch (_) {

@@ -3,10 +3,13 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/schedule_swap_service.dart';
 import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -767,36 +770,43 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   }
 
   Future<void> _openMySchedulesFast() async {
-    final seed = _effectiveTenantId.isNotEmpty
-        ? _effectiveTenantId
-        : widget.tenantId.trim();
-    if (seed.isEmpty) return;
+    final seed = ChurchPanelTenant.resolve(
+      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+    );
+    if (seed.isEmpty) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
 
-    final ram = _MySchedulesRamCache.peek(seed, _cpfDigits);
+    final ram = ChurchSchedulesLoadService.peekEscalasRam(seed, limit: 200) ??
+        _MySchedulesRamCache.peek(seed, _cpfDigits);
     if (ram != null && ram.isNotEmpty && mounted) {
+      final filtered = await _filterAndSortSchedulesForUser(seed, ram);
       setState(() {
-        _allDocs = ram;
+        _allDocs = filtered;
         _loading = false;
       });
     }
 
     try {
-      final snap = await ChurchTenantResilientReads.escalasRecent(
-        seed,
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final result = await ChurchSchedulesLoadService.loadEscalas(
+        seedTenantId: seed,
         limit: 200,
-      ).timeout(const Duration(milliseconds: 1800));
-      if (!mounted) return;
-      final docs = await _filterAndSortSchedulesForUser(
-        seed,
-        snap.docs,
       );
-      if (docs.isEmpty) return;
+      if (!mounted) return;
+      await ChurchSchedulesLoadService.persistEscalas(result);
+      final docs = await _filterAndSortSchedulesForUser(seed, result.docs);
       _MySchedulesRamCache.put(seed, _cpfDigits, docs);
       setState(() {
         _allDocs = docs;
         _loading = false;
       });
-    } catch (_) {}
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<String> _tenantIdForOperations() async {
@@ -950,7 +960,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     try {
       final hint = widget.tenantId.trim();
       var tid = ChurchRepository.churchId(hint);
-      if (tid.isEmpty) tid = _effectiveTenantId.isNotEmpty ? _effectiveTenantId : hint;
+      if (tid.isEmpty) {
+        tid = _effectiveTenantId.isNotEmpty ? _effectiveTenantId : hint;
+      }
+      tid = ChurchPanelTenant.resolve(tid);
       if (mounted && tid != _effectiveTenantId) {
         setState(() => _effectiveTenantId = tid);
       }
@@ -959,13 +972,16 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         unawaited(_hydrateCpfFromMemberRecord());
       }
 
-      QuerySnapshot<Map<String, dynamic>> snap;
-      if (_isAdmin) {
-        snap = await ChurchTenantResilientReads.escalasRecent(tid, limit: 200);
-      } else {
-        snap = await ChurchTenantResilientReads.escalasRecent(tid, limit: 200);
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final docs = await _filterAndSortSchedulesForUser(tid, snap.docs);
+      final result = await ChurchSchedulesLoadService.loadEscalas(
+        seedTenantId: tid,
+        limit: 200,
+        forceRefresh: !silent,
+      );
+      await ChurchSchedulesLoadService.persistEscalas(result);
+      final docs = await _filterAndSortSchedulesForUser(tid, result.docs);
       _MySchedulesRamCache.put(tid, _cpfDigits, docs);
       if (mounted) {
         setState(() {
@@ -974,7 +990,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         });
       }
     } catch (_) {
-      if (mounted && _allDocs.isEmpty) setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 

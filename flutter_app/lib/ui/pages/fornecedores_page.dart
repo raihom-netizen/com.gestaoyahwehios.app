@@ -17,10 +17,11 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
-import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart'
     show excluirLancamentoFinanceiroComAuditoria, showFinanceLancamentoEditorForTenant;
@@ -77,10 +78,12 @@ Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
   String? fornecedorIdFilter,
   bool descending = false,
 }) async {
-  final tid = tenantId.trim();
-  if (tid.isEmpty) return const MergedFirestoreQuerySnapshot([]);
-  final op = ChurchContextService.panelChurchId(tid);
-  final col = ChurchUiCollections.churchDoc(op)
+  final churchId = ChurchPanelTenant.resolve(tenantId.trim());
+  if (churchId.isEmpty) return const MergedFirestoreQuerySnapshot([]);
+  if (kIsWeb) {
+    await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+  }
+  final col = ChurchUiCollections.churchDoc(churchId)
       .collection('fornecedor_compromissos');
   final f = (fornecedorIdFilter ?? '').trim();
   final Query<Map<String, dynamic>> q = f.isNotEmpty
@@ -90,9 +93,10 @@ Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
           .limit(200)
       : col.orderBy('dataVencimento', descending: descending).limit(limit);
   try {
-    return await q
-        .get(const GetOptions(source: Source.serverAndCache))
-        .timeout(const Duration(seconds: 12));
+    return await FirestoreWebGuard.runWithWebRecovery(
+      () => q.get(const GetOptions(source: Source.serverAndCache)),
+      maxAttempts: 4,
+    ).timeout(ChurchPanelReadTimeouts.queryCap);
   } catch (_) {
     return const MergedFirestoreQuerySnapshot([]);
   }
@@ -1044,23 +1048,28 @@ class _FornecedoresPageState extends State<FornecedoresPage>
 
   Future<void> _bootstrapTenant() async {
     await ChurchTenantResilientReads.preparePanelRead();
-    final bound = ChurchContext.currentChurchId?.trim() ?? '';
-    final panel = ChurchContextService.panelChurchId(widget.tenantId);
-    final tid = bound.isNotEmpty
-        ? bound
-        : (panel.isNotEmpty ? panel : widget.tenantId.trim());
+    final resolved = ChurchPanelTenant.resolve(widget.tenantId).trim();
+    if (resolved.isEmpty) return;
     if (!mounted) return;
-    final cached = tid.isNotEmpty ? _FornecedoresRamCache.peek(tid) : null;
-    if (cached != null && cached.docs.isNotEmpty) {
-      setState(() {
-        _resolvedTenantId = tid;
-        _fornecedoresCacheSnap = cached;
-        _fornecedoresFuture = Future.value(cached);
-      });
+    setState(() => _resolvedTenantId = resolved);
+    _seedFornecedoresFirstPaint(resolved);
+  }
+
+  void _seedFornecedoresFirstPaint(String tid) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? cachedDocs =
+        ChurchFornecedoresLoadService.peekRam(
+      tid,
+      limit: _fornecedoresListLimit,
+    );
+    cachedDocs ??= _FornecedoresRamCache.peek(tid)?.docs
+        .cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
+    if (cachedDocs != null && cachedDocs.isNotEmpty) {
+      final snap = MergedFirestoreQuerySnapshot(cachedDocs);
+      _fornecedoresCacheSnap = snap;
+      _fornecedoresFuture = Future.value(snap);
       _refreshFornecedoresBackground();
       return;
     }
-    setState(() => _resolvedTenantId = tid);
     _reloadFornecedoresList();
   }
 
@@ -1071,32 +1080,41 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           Future.value(const MergedFirestoreQuerySnapshot([]));
       return;
     }
-    _fornecedoresFuture = ChurchTenantResilientReads.fornecedores(
-      tid,
+    _fornecedoresFuture = ChurchFornecedoresLoadService.load(
+      seedTenantId: tid,
       limit: _fornecedoresListLimit,
-    ).timeout(
-      const Duration(seconds: 28),
-      onTimeout: () => const MergedFirestoreQuerySnapshot([]),
-    ).then((snap) {
+    ).then((result) {
+      final snap = result.snapshot;
       if (snap.docs.isNotEmpty) {
         _FornecedoresRamCache.store(tid, snap);
         _fornecedoresCacheSnap = snap;
       }
       return snap;
-    }).catchError((_) => const MergedFirestoreQuerySnapshot([]));
+    }).catchError((_) {
+      final fallback = ChurchFornecedoresLoadService.peekRam(
+        tid,
+        limit: _fornecedoresListLimit,
+      );
+      if (fallback != null && fallback.isNotEmpty) {
+        return MergedFirestoreQuerySnapshot(fallback);
+      }
+      return _fornecedoresCacheSnap ?? const MergedFirestoreQuerySnapshot([]);
+    });
   }
 
   void _refreshFornecedoresBackground() {
     final tid = _effectiveTenantId;
+    if (tid.isEmpty) return;
     unawaited(() async {
       try {
-        final snap = await ChurchTenantResilientReads.fornecedores(
-          tid,
+        final result = await ChurchFornecedoresLoadService.load(
+          seedTenantId: tid,
           limit: _fornecedoresListLimit,
+          forceRefresh: true,
         );
-        if (snap.docs.isNotEmpty) {
-          _FornecedoresRamCache.store(tid, snap);
-        }
+        if (result.docs.isEmpty) return;
+        final snap = result.snapshot;
+        _FornecedoresRamCache.store(tid, snap);
         if (!mounted) return;
         setState(() {
           _fornecedoresCacheSnap = snap;
@@ -1128,8 +1146,14 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     _tabMain.addListener(() {
       if (!_tabMain.indexIsChanging && mounted) setState(() {});
     });
-    _fornecedoresFuture =
-        Future.value(const MergedFirestoreQuerySnapshot([]));
+    final resolved = ChurchPanelTenant.resolve(widget.tenantId).trim();
+    if (resolved.isNotEmpty) _resolvedTenantId = resolved;
+    if (resolved.isNotEmpty) {
+      _seedFornecedoresFirstPaint(resolved);
+    } else {
+      _fornecedoresFuture =
+          Future.value(const MergedFirestoreQuerySnapshot([]));
+    }
     unawaited(_bootstrapTenant());
   }
 
@@ -3054,12 +3078,21 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
         'status': _status,
         'updatedAt': FieldValue.serverTimestamp(),
       };
-      if (_isEdit) {
-        await widget.col.doc(widget.docId).update(payload);
-      } else {
-        payload['createdAt'] = FieldValue.serverTimestamp();
-        await widget.col.add(payload);
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForCriticalWrite();
       }
+      await FirestoreWebGuard.runWithWebRecovery(
+        () async {
+          if (_isEdit) {
+            await widget.col.doc(widget.docId).update(payload);
+          } else {
+            payload['createdAt'] = FieldValue.serverTimestamp();
+            await widget.col.add(payload);
+          }
+        },
+        maxAttempts: 4,
+      );
+      unawaited(ChurchFornecedoresLoadService.invalidate(widget.tenantId));
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(

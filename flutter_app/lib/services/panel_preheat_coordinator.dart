@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
+import 'package:gestao_yahweh/services/church_panel_module_prefetch_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 
 /// Um único pré-aquecimento por sessão/tenant — evita callables duplicados (login + splash + AuthGate).
@@ -43,5 +44,6 @@ abstract final class PanelPreheatCoordinator {
     _inFlightTenant = null;
     _inFlight = null;
     ChurchTenantOfflineWarmupService.instance.resetForNewSession();
+    ChurchPanelModulePrefetchService.resetForAccountSwitch();
   }
 }

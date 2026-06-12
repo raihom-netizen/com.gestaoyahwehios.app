@@ -742,6 +742,7 @@ String imageUrlFromMap(Map<String, dynamic>? data, {String? baseUrl}) {
   }
 
   const keys = [
+    'FOTO_URL_DB',
     'foto_url',
     'FOTO_URL_OU_ID',
     'FOTO',

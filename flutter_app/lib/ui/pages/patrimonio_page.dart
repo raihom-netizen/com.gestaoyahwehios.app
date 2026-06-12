@@ -21,10 +21,11 @@ import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
-    show formatFirebaseErrorForUser, isFirebaseNoAppError;
+    show formatFirebaseErrorForUser;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
@@ -38,14 +39,17 @@ import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/church_patrimonio_load_service.dart';
+import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
+import 'package:gestao_yahweh/services/patrimonio_categoria_service.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:gestao_yahweh/services/immediate_patrimonio_photo_attach.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
-import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
-import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
-import 'package:gestao_yahweh/services/patrimonio_strict_publish_service.dart';
+import 'package:gestao_yahweh/services/app_resume_state_service.dart';
+import 'package:gestao_yahweh/services/patrimonio_save_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
     show kMaxPatrimonioPhotosPerItem;
@@ -56,6 +60,7 @@ import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
+import 'package:gestao_yahweh/ui/widgets/church_signatory_picker_sheet.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -339,120 +344,73 @@ Future<({
   BuildContext context, {
   required String tenantId,
 }) async {
-  final op = ChurchContextService.panelChurchId(tenantId);
-  final snap = await ChurchUiCollections.membros(op)
-      .get();
-  final options = snap.docs
-      .map((d) {
-        final m = d.data();
-        return (
-          id: d.id,
-          nome: (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
-              .toString()
-              .trim(),
-          assinatura:
-              (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim(),
-        );
-      })
-      .where((e) => e.nome.isNotEmpty)
-      .toList()
-    ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
-
+  final signers = await ChurchSignatoryLoadService.loadEligible(
+    seedTenantId: tenantId,
+  );
   if (!context.mounted) return null;
-  String? signerId;
+
+  final picked = await showChurchSignatoryPickerSheet(
+    context,
+    title: 'Assinatura do relatório de patrimônio',
+    tenantId: tenantId,
+    signers: signers,
+  );
+  if (picked == null || !context.mounted) return null;
+
   var useDigital = false;
-  return showDialog<
-      ({
-        String signerName,
-        Uint8List? signerSignatureBytes,
-        bool showDigitalSignature
-      })>(
+  final useDigitalConfirmed = await showDialog<bool>(
     context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setDlg) => AlertDialog(
-        title: const Text('Assinatura do relatório de patrimônio'),
-        content: SizedBox(
-          width: 500,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              DropdownButtonFormField<String>(
-                value: signerId,
-                isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: 'Assinante principal',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                ),
-                items: [
-                  const DropdownMenuItem<String>(
-                    value: null,
-                    child: Text('— Não definido —'),
-                  ),
-                  ...options.map((e) => DropdownMenuItem<String>(
-                        value: e.id,
-                        child: Text(e.nome, overflow: TextOverflow.ellipsis),
-                      )),
-                ],
-                onChanged: (v) => setDlg(() => signerId = v),
-              ),
-              const SizedBox(height: 10),
-              SwitchListTile.adaptive(
-                value: useDigital,
-                onChanged: (v) => setDlg(() => useDigital = v),
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Carregar assinatura digital'),
-                subtitle: const Text(
-                  'Desative para assinatura manual no impresso.',
-                ),
-              ),
-            ],
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text(
+        'Assinatura digital',
+        style: TextStyle(fontWeight: FontWeight.w800),
+      ),
+      content: StatefulBuilder(
+        builder: (ctx, setDlg) => SwitchListTile.adaptive(
+          value: useDigital,
+          onChanged: (v) => setDlg(() => useDigital = v),
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Carregar assinatura digital'),
+          subtitle: Text(
+            picked.nome,
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              ({String id, String nome, String assinatura})? selected;
-              for (final e in options) {
-                if (e.id == signerId) {
-                  selected = e;
-                  break;
-                }
-              }
-              Uint8List? sigBytes;
-              if (useDigital && selected != null && selected.assinatura.isNotEmpty) {
-                final url = sanitizeImageUrl(selected.assinatura);
-                if (url.isNotEmpty) {
-                  sigBytes = await ImageHelper.getBytesFromUrlOrNull(
-                    url,
-                    timeout: const Duration(seconds: 14),
-                  );
-                }
-              }
-              if (!ctx.mounted) return;
-              Navigator.pop(
-                ctx,
-                (
-                  signerName: selected?.nome ?? '',
-                  signerSignatureBytes: sigBytes,
-                  showDigitalSignature: useDigital,
-                ),
-              );
-            },
-            child: const Text('Aplicar'),
-          ),
-        ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Continuar'),
+        ),
+      ],
     ),
+  );
+  if (useDigitalConfirmed != true || !context.mounted) return null;
+
+  Uint8List? sigBytes;
+  if (useDigital) {
+    final raw = (picked.assinaturaUrl ?? '').trim();
+    if (raw.isNotEmpty) {
+      final url = sanitizeImageUrl(raw);
+      if (url.isNotEmpty) {
+        sigBytes = await ImageHelper.getBytesFromUrlOrNull(
+          url,
+          timeout: const Duration(seconds: 14),
+        );
+      }
+    }
+  }
+
+  return (
+    signerName: picked.nome,
+    signerSignatureBytes: sigBytes,
+    showDigitalSignature: useDigital,
   );
 }
 
@@ -800,45 +758,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   CollectionReference<Map<String, dynamic>> get _col =>
                 ChurchUiCollections.patrimonio(_effectiveTenantId);
 
-  /// Categorias principais do inventário (ERP) + legado para dados antigos.
-  /// Extras por igreja: `igrejas/{id}/config/patrimonio` → `categoriasExtras`.
-  static const List<String> _categoriasBase = [
-    'Som',
-    'Móveis',
-    'Instrumentos',
-    'Imóveis',
-    'Veículo',
-    'Eletrônico',
-    'Equipamento',
-    'Outro',
-    // Legado (mantém seleção ao editar docs antigos)
-    'Móvel',
-    'Imóvel',
-    'Instrumento Musical',
-    'Som e Mídia',
-  ];
-
-  /// Base + extras do Firestore, sem duplicar por nome (ignora maiúsculas), em ordem alfabética.
-  static List<String> _mergeAndSortCategorias(Iterable<String> base,
-      [dynamic categoriasExtras]) {
-    final map = <String, String>{};
-    for (final b in base) {
-      final t = b.trim();
-      if (t.isEmpty) continue;
-      map[t.toLowerCase()] = t;
-    }
-    if (categoriasExtras is List) {
-      for (final e in categoriasExtras) {
-        final s = e.toString().trim();
-        if (s.isEmpty) continue;
-        final k = s.toLowerCase();
-        if (!map.containsKey(k)) map[k] = s;
-      }
-    }
-    final list = map.values.toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    return list;
-  }
+  /// Canónicas + extras, sem duplicar legado — filtros e formulário.
+  static List<String> _mergeCategorias(dynamic categoriasExtras) =>
+      PatrimonioCategoriaService.mergeExtras(categoriasExtras);
 
   static const _statusList = [
     {'key': 'novo', 'label': 'Novo'},
@@ -892,7 +814,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   @override
   void initState() {
     super.initState();
-    _categoriasEfetivas = _mergeAndSortCategorias(_categoriasBase);
+    _categoriasEfetivas = _mergeCategorias(null);
+    final resolved = ChurchPanelTenant.resolve(widget.tenantId).trim();
+    if (resolved.isNotEmpty) _operationalTenantId = resolved;
     _tabCtrl = TabController(length: 4, vsync: this);
     _searchCtrl = TextEditingController();
     if (widget.initialSearchQuery != null &&
@@ -955,13 +879,10 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
   Future<void> _loadCategoriasExtras() async {
     try {
-      final snap =
-          await ChurchTenantResilientReads.patrimonioConfig(_effectiveTenantId);
-      final extra = snap.data()?['categoriasExtras'];
+      final list =
+          await PatrimonioCategoriaService.loadCategorias(_effectiveTenantId);
       if (!mounted) return;
-      setState(() {
-        _categoriasEfetivas = _mergeAndSortCategorias(_categoriasBase, extra);
-      });
+      setState(() => _categoriasEfetivas = list);
     } catch (_) {
       /* mantém lista local */
     }
@@ -2437,9 +2358,17 @@ class _BensTabState extends State<_BensTab> {
   void initState() {
     super.initState();
     final tid = _tenantId;
-    final cached = _PatrimonioRamCache.peek(tid);
-    if (cached != null && cached.docs.isNotEmpty) {
-      _future = Future.value(cached);
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? cachedDocs =
+        ChurchPatrimonioLoadService.peekRam(tid, limit: _pageSize);
+    cachedDocs ??= _PatrimonioRamCache.peek(tid)?.docs
+        .cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
+    if (cachedDocs != null && cachedDocs.isNotEmpty) {
+      _loadedDocs
+        ..clear()
+        ..addAll(cachedDocs);
+      _lastCursor = cachedDocs.last;
+      _hasMorePages = cachedDocs.length >= _pageSize;
+      _future = Future.value(MergedFirestoreQuerySnapshot(_loadedDocs));
       unawaited(_refreshBensFromServer());
     } else {
       _future = _loadBensFirstPaint();
@@ -2453,15 +2382,11 @@ class _BensTabState extends State<_BensTab> {
     if (tid.isEmpty) {
       return const MergedFirestoreQuerySnapshot([]);
     }
-    final snap = await FirestoreWebGuard.runWithWebRecovery(
-      () => ChurchTenantResilientReads.patrimonio(
-        tid.trim(),
-        limit: _pageSize,
-      ),
-      maxAttempts: 4,
+    final result = await ChurchPatrimonioLoadService.load(
+      seedTenantId: tid.trim(),
+      limit: _pageSize,
     );
-    final docs =
-        snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
+    final docs = result.docs;
     _loadedDocs
       ..clear()
       ..addAll(docs);
@@ -2512,22 +2437,52 @@ class _BensTabState extends State<_BensTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadBensFirstPaint() async {
-    final snap = await _loadPatrimonioResilient()
-        .timeout(const Duration(seconds: 14));
-    if (snap.docs.isNotEmpty) {
-      _PatrimonioRamCache.store(_tenantId, snap);
+    final tid = _tenantId.trim();
+    final ram = ChurchPatrimonioLoadService.peekRam(tid, limit: _pageSize);
+    if (ram != null && ram.isNotEmpty) {
+      _loadedDocs
+        ..clear()
+        ..addAll(ram);
+      _lastCursor = ram.last;
+      _hasMorePages = ram.length >= _pageSize;
       unawaited(_refreshBensFromServer());
+      return MergedFirestoreQuerySnapshot(_loadedDocs);
     }
-    return snap;
+    try {
+      final snap = await _loadPatrimonioResilient()
+          .timeout(ChurchPanelReadTimeouts.queryCap);
+      if (snap.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(_tenantId, snap);
+        unawaited(_refreshBensFromServer());
+      }
+      return snap;
+    } on TimeoutException {
+      final fallback = ChurchPatrimonioLoadService.peekRam(tid, limit: _pageSize);
+      if (fallback != null && fallback.isNotEmpty) {
+        _loadedDocs
+          ..clear()
+          ..addAll(fallback);
+        return MergedFirestoreQuerySnapshot(_loadedDocs);
+      }
+      return const MergedFirestoreQuerySnapshot([]);
+    }
   }
 
   Future<void> _refreshBensFromServer() async {
     try {
-      final server = await _loadPatrimonioResilient()
-          .timeout(const Duration(seconds: 14));
-      if (server.docs.isNotEmpty) {
-        _PatrimonioRamCache.store(_tenantId, server);
-      }
+      final result = await ChurchPatrimonioLoadService.load(
+        seedTenantId: _tenantId.trim(),
+        limit: _pageSize,
+        forceRefresh: true,
+      );
+      if (result.docs.isEmpty) return;
+      _loadedDocs
+        ..clear()
+        ..addAll(result.docs);
+      _lastCursor = result.docs.last;
+      _hasMorePages = result.docs.length >= _pageSize;
+      final server = MergedFirestoreQuerySnapshot(_loadedDocs);
+      _PatrimonioRamCache.store(_tenantId, server);
       if (!mounted) return;
       setState(() => _future = Future.value(server));
     } catch (_) {}
@@ -4657,29 +4612,52 @@ class _DashboardTabState extends State<_DashboardTab> {
     }
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() =>
-      FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchTenantResilientReads.patrimonioAll(widget.tenantId.trim()),
-        maxAttempts: 4,
-      );
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() async {
+    final result = await ChurchPatrimonioLoadService.loadAll(
+      seedTenantId: widget.tenantId.trim(),
+    );
+    return result.snapshot;
+  }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadDashboardFirstPaint() async {
-    final snap = await _loadPatrimonioAllResilient()
-        .timeout(const Duration(seconds: 14));
-    if (snap.docs.isNotEmpty) {
-      _PatrimonioRamCache.store(widget.tenantId.trim(), snap);
+    final tid = widget.tenantId.trim();
+    final ram = ChurchPatrimonioLoadService.peekRam(
+      tid,
+      limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
+    );
+    if (ram != null && ram.isNotEmpty) {
       unawaited(_refreshDashboardInBackground());
+      return MergedFirestoreQuerySnapshot(ram);
     }
-    return snap;
+    try {
+      final snap = await _loadPatrimonioAllResilient()
+          .timeout(ChurchPanelReadTimeouts.queryCap);
+      if (snap.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(tid, snap);
+        unawaited(_refreshDashboardInBackground());
+      }
+      return snap;
+    } on TimeoutException {
+      final fallback = ChurchPatrimonioLoadService.peekRam(
+        tid,
+        limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
+      );
+      if (fallback != null && fallback.isNotEmpty) {
+        return MergedFirestoreQuerySnapshot(fallback);
+      }
+      return const MergedFirestoreQuerySnapshot([]);
+    }
   }
 
   Future<void> _refreshDashboardInBackground() async {
     try {
-      final server = await _loadPatrimonioAllResilient()
-          .timeout(const Duration(seconds: 14));
-      if (server.docs.isNotEmpty) {
-        _PatrimonioRamCache.store(widget.tenantId, server);
-      }
+      final result = await ChurchPatrimonioLoadService.loadAll(
+        seedTenantId: widget.tenantId.trim(),
+        forceRefresh: true,
+      );
+      if (result.docs.isEmpty) return;
+      final server = result.snapshot;
+      _PatrimonioRamCache.store(widget.tenantId, server);
       if (!mounted) return;
       setState(() => _future = Future.value(server));
     } catch (_) {}
@@ -5549,30 +5527,53 @@ class _InventarioTabState extends State<_InventarioTab> {
     }
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() =>
-      FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchTenantResilientReads.patrimonioAll(widget.tenantId.trim()),
-        maxAttempts: 4,
-      );
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() async {
+    final result = await ChurchPatrimonioLoadService.loadAll(
+      seedTenantId: widget.tenantId.trim(),
+    );
+    return result.snapshot;
+  }
 
   Future<QuerySnapshot<Map<String, dynamic>>>
       _loadInventarioFirstPaint() async {
-    final snap = await _loadPatrimonioAllResilient()
-        .timeout(const Duration(seconds: 14));
-    if (snap.docs.isNotEmpty) {
-      _PatrimonioRamCache.store(widget.tenantId.trim(), snap);
+    final tid = widget.tenantId.trim();
+    final ram = ChurchPatrimonioLoadService.peekRam(
+      tid,
+      limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
+    );
+    if (ram != null && ram.isNotEmpty) {
       unawaited(_refreshInventarioInBackground());
+      return MergedFirestoreQuerySnapshot(ram);
     }
-    return snap;
+    try {
+      final snap = await _loadPatrimonioAllResilient()
+          .timeout(ChurchPanelReadTimeouts.queryCap);
+      if (snap.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(tid, snap);
+        unawaited(_refreshInventarioInBackground());
+      }
+      return snap;
+    } on TimeoutException {
+      final fallback = ChurchPatrimonioLoadService.peekRam(
+        tid,
+        limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
+      );
+      if (fallback != null && fallback.isNotEmpty) {
+        return MergedFirestoreQuerySnapshot(fallback);
+      }
+      return const MergedFirestoreQuerySnapshot([]);
+    }
   }
 
   Future<void> _refreshInventarioInBackground() async {
     try {
-      final server = await _loadPatrimonioAllResilient()
-          .timeout(const Duration(seconds: 14));
-      if (server.docs.isNotEmpty) {
-        _PatrimonioRamCache.store(widget.tenantId, server);
-      }
+      final result = await ChurchPatrimonioLoadService.loadAll(
+        seedTenantId: widget.tenantId.trim(),
+        forceRefresh: true,
+      );
+      if (result.docs.isEmpty) return;
+      final server = result.snapshot;
+      _PatrimonioRamCache.store(widget.tenantId, server);
       if (!mounted) return;
       setState(() => _future = Future.value(server));
     } catch (_) {}
@@ -7226,9 +7227,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
   late List<String> _categoriasOpcoes;
   late final DocumentReference<Map<String, dynamic>> _itemRef;
   bool _itemStubEnsured = false;
-  int _inFlightPhotoUploads = 0;
   bool _saving = false;
   double _uploadProgress = 0;
+  String _uploadProgressLabel = '';
 
   static const _statusOptions = [
     {'key': 'novo', 'label': 'Novo', 'icon': Icons.fiber_new_rounded},
@@ -7279,7 +7280,8 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         text: (data['codigoPatrimonio'] ?? data['codigo_patrimonio'] ?? '')
             .toString());
     _categoriasOpcoes = List<String>.from(widget.categorias);
-    var cat = (data['categoria'] ?? 'Som').toString();
+    var cat = PatrimonioCategoriaService.normalizar(
+        (data['categoria'] ?? 'Som').toString());
     if (!_categoriasOpcoes.contains(cat)) {
       cat = _categoriasOpcoes.contains('Outro')
           ? 'Outro'
@@ -7301,59 +7303,13 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     _existingUrls.addAll(
         urls.length > _maxFotosPorItem ? urls.sublist(0, _maxFotosPorItem) : urls);
     unawaited(ImmediateMediaWarm.warmPatrimonio());
+    unawaited(
+      FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false),
+    );
   }
 
-  void _removePendingPatrimonioBytes(Uint8List bytes) {
-    final i = _newImages.indexOf(bytes);
-    if (i >= 0) {
-      _newImages.removeAt(i);
-      if (i < _newNames.length) _newNames.removeAt(i);
-    }
-  }
-
-  Future<void> _uploadPatrimonioPhotoInBackground(Uint8List bytes) async {
-    if (!mounted) return;
-    final slot = _existingUrls.length + _inFlightPhotoUploads;
-    _inFlightPhotoUploads++;
-    try {
-      final tenantId = widget.col.parent!.id;
-      if (widget.doc == null && !_itemStubEnsured) {
-        await ImmediatePatrimonioPhotoAttach.ensureItemStub(
-          itemRef: _itemRef,
-          isNewItem: true,
-          nome: _nome.text,
-          categoria: _categoria,
-          status: _status,
-        );
-        _itemStubEnsured = true;
-      }
-      final url = await ImmediatePatrimonioPhotoAttach.uploadSingleSlot(
-        tenantId: tenantId,
-        itemDocId: _itemRef.id,
-        slotIndex: slot,
-        rawBytes: bytes,
-        itemRef: _itemRef,
-        existingUrls: List<String>.from(_existingUrls),
-        existingPaths: _existingStoragePaths(),
-      );
-      if (!mounted) return;
-      if (url != null && url.isNotEmpty) {
-        setState(() {
-          _removePendingPatrimonioBytes(bytes);
-          _existingUrls.add(url);
-        });
-        if (mounted) {
-          ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
-        }
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _inFlightPhotoUploads--);
-      } else {
-        _inFlightPhotoUploads--;
-      }
-    }
-  }
+  String get _churchIdForPublish =>
+      ChurchPublishContext.churchIdForPublish(widget.col.parent!.id);
 
   @override
   void dispose() {
@@ -7459,13 +7415,34 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
           ),
-          title: const Text('Nova categoria'),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.category_rounded,
+                    color: ThemeCleanPremium.primary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(child: Text('Nova categoria')),
+            ],
+          ),
           content: TextField(
             controller: ctrl,
             autofocus: true,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Nome da categoria',
-              hintText: 'Ex.: Ferramentas',
+              hintText: 'Ex.: Ferramentas, Eletrodomésticos',
+              filled: true,
+              fillColor: ThemeCleanPremium.surfaceVariant,
+              border: OutlineInputBorder(
+                borderRadius:
+                    BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                borderSide: BorderSide.none,
+              ),
             ),
             textCapitalization: TextCapitalization.sentences,
           ),
@@ -7474,9 +7451,10 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               onPressed: () => Navigator.pop(ctx, false),
               child: const Text('Cancelar'),
             ),
-            FilledButton(
+            FilledButton.icon(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Salvar'),
+              icon: const Icon(Icons.check_rounded, size: 18),
+              label: const Text('Salvar'),
             ),
           ],
         ),
@@ -7489,8 +7467,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         );
         return;
       }
+      final normalizado = PatrimonioCategoriaService.normalizar(nomeDigitado);
       for (final c in _categoriasOpcoes) {
-        if (c.toLowerCase() == nomeDigitado.toLowerCase()) {
+        if (c.toLowerCase() == normalizado.toLowerCase()) {
           setState(() => _categoria = c);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('A categoria "$c" já está na lista.')),
@@ -7498,22 +7477,15 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           return;
         }
       }
-      final tenantId = widget.col.parent!.id;
-      final op = ChurchContextService.panelChurchId(tenantId);
-      await ChurchUiCollections.config(op)
-          .doc('patrimonio')
-          .set(
-        {
-          'categoriasExtras': FieldValue.arrayUnion([nomeDigitado]),
-          'atualizadoEm': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
+      await PatrimonioCategoriaService.addCategoria(
+        seedTenantId: _churchIdForPublish,
+        nome: normalizado,
       );
       if (!mounted) return;
       setState(() {
-        _categoriasOpcoes = {..._categoriasOpcoes, nomeDigitado}.toList()
+        _categoriasOpcoes = {..._categoriasOpcoes, normalizado}.toList()
           ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-        _categoria = nomeDigitado;
+        _categoria = normalizado;
       });
       final f = widget.onCategoriasChanged;
       if (f != null) await f();
@@ -7524,10 +7496,86 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao salvar categoria: $e')),
+        SnackBar(
+          content: Text(
+            'Erro ao salvar categoria: ${formatFirebaseErrorForUser(e)}',
+          ),
+        ),
       );
     } finally {
       ctrl.dispose();
+    }
+  }
+
+  Future<void> _openCategoriaPicker() async {
+    if (_saving) return;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final bottom = MediaQuery.paddingOf(ctx).bottom;
+        return Container(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          padding: EdgeInsets.fromLTRB(20, 20, 20, 16 + bottom),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Categoria',
+                  style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      )),
+              const SizedBox(height: 4),
+              Text(
+                'Escolha ou cadastre uma categoria para o bem.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: ThemeCleanPremium.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final c in _categoriasOpcoes)
+                    ChoiceChip(
+                      label: Text(c),
+                      selected: _categoria == c,
+                      onSelected: (_) => Navigator.pop(ctx, c),
+                      selectedColor:
+                          _PatrimonioPageState._catColor(c).withValues(alpha: 0.2),
+                      labelStyle: TextStyle(
+                        fontWeight: _categoria == c
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        color: _PatrimonioPageState._catColor(c),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  unawaited(_cadastrarNovaCategoria());
+                },
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Cadastrar nova categoria'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (picked != null && mounted) {
+      setState(() => _categoria = picked);
     }
   }
 
@@ -7564,9 +7612,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _newImages.addAll(novosBytes);
       _newNames.addAll(novosNomes);
     });
-    for (final bytes in novosBytes) {
-      unawaited(_uploadPatrimonioPhotoInBackground(bytes));
-    }
     if (mounted) {
       ImmediateMediaAttachFeedback.showArquivoAnexado(
         context,
@@ -7593,7 +7638,6 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         _newImages.add(bytes);
         _newNames.add(file.name.isNotEmpty ? file.name : 'camera.webp');
       });
-      unawaited(_uploadPatrimonioPhotoInBackground(bytes));
       if (mounted) {
         ImmediateMediaAttachFeedback.showArquivoAnexado(
           context,
@@ -7611,6 +7655,13 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_categoria.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecione a categoria do bem.')),
+      );
+      return;
+    }
     if (_dataAquisicao == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -7622,27 +7673,11 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     setState(() {
       _saving = true;
       _uploadProgress = 0;
+      _uploadProgressLabel = 'A preparar…';
     });
     try {
       YahwehFlowLog.patrimonioStart();
-      await ImmediateMediaWarm.drainInFlight(() => _inFlightPhotoUploads);
-      unawaited(ImmediateMediaWarm.warmPatrimonio());
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-      try {
-        await ensureFirebaseReadyForPublishUpload()
-            .timeout(const Duration(seconds: 8))
-            .catchError((_) {});
-      } catch (e, st) {
-        if (isFirebaseNoAppError(e)) {
-          await FirebaseBootstrapService.ensureAlwaysOn(
-            refreshAuthToken: false,
-          );
-          await FastMediaPublishBootstrap.warmForPatrimonioSave();
-        } else {
-          YahwehCatchLog.logAndRethrow(e, st, tag: 'patrimonio_warm');
-        }
-      }
-      final tenantId = widget.col.parent!.id;
+      final tenantId = _churchIdForPublish;
       final itemRef = _itemRef;
       final itemId = itemRef.id;
       final isNewItem = widget.doc == null && !_itemStubEnsured;
@@ -7702,33 +7737,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         };
       }
 
-      if (nBatch > 0) {
-        if (mounted) setState(() => _uploadProgress = 0.35);
-        final imagesCopy = List<Uint8List>.from(_newImages.take(nBatch));
-        await PatrimonioStrictPublishService.publish(
-          seedTenantId: tenantId,
-          itemId: itemId,
-          corePayload: buildCorePayload(),
-          isNewDoc: isNewItem,
-          newImages: imagesCopy,
-          startSlot: startSlot,
-          existingPaths: List<String>.from(allPaths),
-          existingUrls: List<String>.from(allUrls),
-        );
-        _itemStubEnsured = true;
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            widget.doc == null
-                ? 'Bem cadastrado com sucesso!'
-                : 'Patrimônio atualizado com sucesso!',
-          ),
-        );
-        Navigator.pop(context, true);
-        return;
-      }
-
-      if (widget.doc != null && prev != null) {
+      if (nBatch == 0 && widget.doc != null && prev != null) {
         final oldList = _fotoUrlsFromData(prev)
             .map((e) => sanitizeImageUrl(e))
             .where((e) => e.isNotEmpty)
@@ -7754,29 +7763,42 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         }
       }
 
-
-      if (mounted) setState(() => _uploadProgress = 0.85);
-      await PatrimonioStrictPublishService.publishMetadataOnly(
-        seedTenantId: tenantId,
+      await PatrimonioSaveService.save(
+        churchIdHint: tenantId,
         itemId: itemId,
         corePayload: buildCorePayload(),
         isNewDoc: isNewItem,
+        newImages: nBatch > 0
+            ? List<Uint8List>.from(_newImages.take(nBatch))
+            : const [],
+        startSlot: startSlot,
         existingPaths: allPaths,
         existingUrls: allUrls,
+        onProgress: (p, label) {
+          if (mounted) {
+            setState(() {
+              _uploadProgress = p;
+              _uploadProgressLabel = label;
+            });
+          }
+        },
       );
+
       _itemStubEnsured = true;
-      YahwehFlowLog.patrimonioFirestoreOk();
-      FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(
-        tenantId: tenantId,
-        itemDocId: itemId,
-      );
-      unawaited(_cleanupUnusedPatrimonioSlots(tenantId, itemId, allPaths));
+      if (nBatch == 0) {
+        YahwehFlowLog.patrimonioFirestoreOk();
+        unawaited(_cleanupUnusedPatrimonioSlots(tenantId, itemId, allPaths));
+      }
       if (!mounted) return;
       YahwehFlowLog.patrimonioSuccess();
+      unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
       ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(widget.doc == null
-              ? 'Bem cadastrado!'
-              : 'Patrimônio atualizado!'));
+        ThemeCleanPremium.successSnackBar(
+          widget.doc == null
+              ? 'Bem cadastrado com sucesso!'
+              : 'Patrimônio atualizado com sucesso!',
+        ),
+      );
       Navigator.pop(context, true);
     } catch (e, st) {
       YahwehCatchLog.log(e, st, tag: 'patrimonio_save');
@@ -7789,6 +7811,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         setState(() {
           _saving = false;
           _uploadProgress = 0;
+          _uploadProgressLabel = '';
         });
       }
     }
@@ -7949,7 +7972,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           ),
           title: nome,
           subtitle:
-              '${_formatBytesPat(_newImages[idx].length)} · ${_inFlightPhotoUploads > 0 ? 'A enviar…' : 'aguardando envio'}',
+              '${_formatBytesPat(_newImages[idx].length)} · será enviado ao salvar',
           onRemove: () => setState(() {
             _newImages.removeAt(idx);
             _newNames.removeAt(idx);
@@ -8206,29 +8229,30 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                     validator: (v) =>
                         (v == null || v.trim().isEmpty) ? 'Obrigatório' : null),
                 const SizedBox(height: 14),
-                DropdownButtonFormField<String>(
-                    value: _categoriasOpcoes.contains(_categoria)
-                        ? _categoria
-                        : (_categoriasOpcoes.isNotEmpty
-                            ? _categoriasOpcoes.first
-                            : null),
+                InkWell(
+                  onTap: _saving ? null : _openCategoriaPicker,
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  child: InputDecorator(
                     decoration: const InputDecoration(
-                        labelText: 'Categoria *',
-                        prefixIcon: Icon(Icons.category_rounded)),
-                    items: _categoriasOpcoes
-                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                        .toList(),
-                    validator: (v) =>
-                        (v == null || v.isEmpty) ? 'Selecione a categoria' : null,
-                    onChanged: (v) =>
-                        setState(() => _categoria = v ?? _categoria)),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    onPressed: _saving ? null : _cadastrarNovaCategoria,
-                    icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
-                    label: const Text('Cadastrar categoria'),
+                      labelText: 'Categoria *',
+                      prefixIcon: Icon(Icons.category_rounded),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _categoria,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        Icon(Icons.expand_more_rounded,
+                            color: ThemeCleanPremium.onSurfaceVariant),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 14),
@@ -8432,7 +8456,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Upload: ${(_uploadProgress * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                  _uploadProgressLabel.isNotEmpty
+                      ? '${_uploadProgressLabel} (${(_uploadProgress * 100).clamp(0, 100).toStringAsFixed(0)}%)'
+                      : 'Enviando: ${(_uploadProgress * 100).clamp(0, 100).toStringAsFixed(0)}%',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey.shade700,

@@ -311,6 +311,7 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
                           role: 'membro',
                           memberId: widget.memberId,
                           cpf: cpfForPhoto,
+                          memberSeedData: data,
                         ),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(

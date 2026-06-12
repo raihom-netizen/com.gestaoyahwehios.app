@@ -16,11 +16,10 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/pages/members_page.dart' show MembersPage;
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
-import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/services/church_cargos_load_service.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 
@@ -143,46 +142,12 @@ class CargosPage extends StatefulWidget {
   State<CargosPage> createState() => _CargosPageState();
 }
 
-/// Cache RAM — lista de cargos instantânea ao reabrir o módulo.
-abstract final class _CargosRamCache {
-  _CargosRamCache._();
-
-  static final Map<
-      String,
-      ({
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-        DateTime at,
-      })> _byTenant = {};
-
-  static const Duration _ttl = Duration(minutes: 20);
-
-  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(String tenantId) {
-    final key = tenantId.trim();
-    if (key.isEmpty) return null;
-    final hit = _byTenant[key];
-    if (hit == null) return null;
-    if (DateTime.now().difference(hit.at) > _ttl) {
-      _byTenant.remove(key);
-      return null;
-    }
-    return hit.docs;
-  }
-
-  static void put(
-    String tenantId,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final key = tenantId.trim();
-    if (key.isEmpty || docs.isEmpty) return;
-    _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
-  }
-}
-
 class _CargosPageState extends State<CargosPage> {
   String? _resolvedTenantId;
   late Future<QuerySnapshot<Map<String, dynamic>>> _cargosFuture;
   /// Evita loop ao criar cargos padrão automaticamente.
   bool _triedAutoSeed = false;
+  int _cargosLoadRetryGen = 0;
 
   /// Módulos “binários” (um chip) — [Membros], [Mural], [Eventos/Feed], [Agenda] e [Relatórios] têm secções dedicadas.
   static const List<(String key, String label)> _kCargoSimpleChips = [
@@ -659,8 +624,17 @@ class _CargosPageState extends State<CargosPage> {
   void _startWebLoadingCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
-    _webLoadCap = Timer(const Duration(seconds: 14), () {
+    _webLoadCap = Timer(const Duration(seconds: 105), () {
       if (!mounted) return;
+      final mem = FirestoreReadResilience.peekLastGoodQuery(
+        ChurchCargosLoadService.cacheKey(_loadChurchId),
+      );
+      if (mem != null && mem.docs.isNotEmpty) {
+        setState(() {
+          _cargosFuture = Future.value(mem);
+        });
+        return;
+      }
       setState(() {
         _cargosFuture = Future.error(
           TimeoutException(
@@ -668,7 +642,24 @@ class _CargosPageState extends State<CargosPage> {
           ),
         );
       });
+      _scheduleCargosRetry();
     });
+  }
+
+  void _scheduleCargosRetry() {
+    final gen = ++_cargosLoadRetryGen;
+    for (final delay in const [2, 6, 14]) {
+      Future<void>.delayed(Duration(seconds: delay), () async {
+        if (!mounted || gen != _cargosLoadRetryGen) return;
+        try {
+          final snap = await _loadCargos(forceServer: delay >= 6);
+          if (!mounted || gen != _cargosLoadRetryGen) return;
+          if (snap.docs.isNotEmpty) {
+            setState(() => _cargosFuture = Future.value(snap));
+          }
+        } catch (_) {}
+      });
+    }
   }
 
   Future<void> _prepareCargosRead() async {
@@ -676,9 +667,6 @@ class _CargosPageState extends State<CargosPage> {
     await ensureFirebaseReadyForPanelRead().catchError((_) {});
     await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
   }
-
-  static String _cargosMemKey(String tenantId) =>
-      '${tenantId.trim()}_cargos_120';
 
   bool get _canWrite =>
       AppPermissions.canEditAnyChurchMember(widget.role) ||
@@ -695,80 +683,58 @@ class _CargosPageState extends State<CargosPage> {
 
     await _prepareCargosRead();
 
-    Future<QuerySnapshot<Map<String, dynamic>>> run() async {
-      if (forceServer) {
-        final col = ChurchRepository.collection(
-          'cargos',
-          churchIdHint: churchId,
-        ).limit(120);
-        return firestoreQueryGetReliable(col);
-      }
-      return IgrejaDirectFirestoreReads.listSubcollection(
-        churchId,
-        'cargos',
-        moduleLabel: 'Cargos',
-        limit: 120,
-        cacheKey: _cargosMemKey(churchId),
-      );
-    }
+    final result = await ChurchCargosLoadService.load(
+      seedTenantId: churchId,
+      forceServer: forceServer,
+      forceRefresh: forceServer,
+    );
 
-    try {
-      final snap = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(run, maxAttempts: 4)
-          : await run();
+    if (result.docs.isNotEmpty) {
       ChurchModuleQueryProbe.logSuccess(
         module: 'Cargos',
-        churchId: churchId,
+        churchId: result.churchId,
         path: path,
-        totalDocs: snap.docs.length,
+        totalDocs: result.docs.length,
       );
-      if (snap.docs.isNotEmpty) {
-        _CargosRamCache.put(churchId, snap.docs);
-      }
-      return snap;
-    } catch (e, st) {
+      return result.snapshot;
+    }
+
+    if (result.softError != null) {
       ChurchModuleQueryProbe.logError(
         module: 'Cargos',
         churchId: churchId,
         path: path,
-        error: e,
-        stackTrace: st,
+        error: result.softError!,
       );
-      rethrow;
+      throw TimeoutException(result.softError!);
     }
-  }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadCargosWithTimeout({
-    bool forceServer = false,
-  }) {
-    return _loadCargos(forceServer: forceServer).timeout(
-      Duration(seconds: kIsWeb ? 14 : 24),
-      onTimeout: () {
-        final mem =
-            FirestoreReadResilience.peekLastGoodQuery(_cargosMemKey(_loadChurchId));
-        if (mem != null && mem.docs.isNotEmpty) return mem;
-        throw TimeoutException(
-          'Tempo esgotado ao carregar cargos. Toque em atualizar.',
-        );
-      },
+    ChurchModuleQueryProbe.logSuccess(
+      module: 'Cargos',
+      churchId: churchId,
+      path: path,
+      totalDocs: 0,
     );
+    return result.snapshot;
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadCargos() {
+  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadCargos() async {
     final seed = _loadChurchId;
-    if (seed.isEmpty) return _loadCargosWithTimeout();
+    if (seed.isEmpty) return _loadCargos();
 
-    final ram = _CargosRamCache.peek(seed);
+    final ram = ChurchCargosLoadService.peekRam(seed);
     if (ram != null && ram.isNotEmpty) {
-      return Future.value(MergedFirestoreQuerySnapshot(ram));
+      return MergedFirestoreQuerySnapshot(ram);
     }
 
-    final mem = FirestoreReadResilience.peekLastGoodQuery(_cargosMemKey(seed));
+    final mem = FirestoreReadResilience.peekLastGoodQuery(
+      ChurchCargosLoadService.cacheKey(seed),
+    );
     if (mem != null && mem.docs.isNotEmpty) {
-      return Future.value(mem);
+      return mem;
     }
 
-    return _loadCargosWithTimeout();
+    return _loadCargos();
   }
 
   /// 1.º frame: RAM / memória; rede resiliente em background.
@@ -779,9 +745,8 @@ class _CargosPageState extends State<CargosPage> {
     await _prepareCargosRead();
 
     try {
-      final snap = await _loadCargosWithTimeout();
+      final snap = await _loadCargos();
       if (mounted && snap.docs.isNotEmpty) {
-        _CargosRamCache.put(seed, snap.docs);
         setState(() {
           _cargosFuture = Future.value(snap);
         });
@@ -795,9 +760,8 @@ class _CargosPageState extends State<CargosPage> {
 
   Future<void> _refreshCargosBackground() async {
     try {
-      final snap = await _loadCargosWithTimeout();
+      final snap = await _loadCargos();
       if (!mounted || snap.docs.isEmpty) return;
-      _CargosRamCache.put(_loadChurchId, snap.docs);
       setState(() {
         _cargosFuture = Future.value(snap);
       });
@@ -862,7 +826,7 @@ class _CargosPageState extends State<CargosPage> {
       debugPrint('CargosPage _seedPadroes: $e');
     }
     if (mounted) {
-      setState(() => _cargosFuture = _loadCargosWithTimeout());
+      setState(() => _cargosFuture = _loadCargos());
     }
   }
 
@@ -908,7 +872,7 @@ class _CargosPageState extends State<CargosPage> {
   Future<void> _refresh({bool forceServer = false}) async {
     if (!mounted) return;
     setState(() {
-      _cargosFuture = _loadCargosWithTimeout(forceServer: forceServer);
+      _cargosFuture = _loadCargos(forceServer: forceServer);
     });
     try {
       await _cargosFuture;

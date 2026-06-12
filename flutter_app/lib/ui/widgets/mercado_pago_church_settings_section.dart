@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -11,11 +13,39 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+
+/// Cache RAM — config MP por igreja (Configurações + Doação).
+abstract final class _MpConfigRamCache {
+  _MpConfigRamCache._();
+
+  static final Map<String, ({Map<String, dynamic> data, DateTime at})> _byTenant =
+      {};
+  static const Duration _ttl = Duration(minutes: 30);
+
+  static Map<String, dynamic>? peek(String tenantId) {
+    final key = tenantId.trim();
+    if (key.isEmpty) return null;
+    final hit = _byTenant[key];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _byTenant.remove(key);
+      return null;
+    }
+    return Map<String, dynamic>.from(hit.data);
+  }
+
+  static void put(String tenantId, Map<String, dynamic> data) {
+    final key = tenantId.trim();
+    if (key.isEmpty || data.isEmpty) return;
+    _byTenant[key] = (data: Map<String, dynamic>.from(data), at: DateTime.now());
+  }
+}
 
 /// Bloco em Configurações: Mercado Pago da igreja + conta tesouraria modelo.
 class MercadoPagoChurchSettingsSection extends StatefulWidget {
@@ -58,33 +88,53 @@ class _MercadoPagoChurchSettingsSectionState
   @override
   void initState() {
     super.initState();
-    _load();
+    final churchId = ChurchPanelTenant.resolve(widget.tenantId.trim());
+    if (churchId.isNotEmpty) {
+      _operationalTenantId = churchId;
+      final cached = _MpConfigRamCache.peek(churchId);
+      if (cached != null && cached.isNotEmpty) {
+        _cfg = cached;
+        _applyConfigToFields(cached);
+        _loading = false;
+      }
+    }
+    unawaited(_load(refreshInBackground: _cfg != null));
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
+  void _applyConfigToFields(Map<String, dynamic> data) {
+    _publicKeyCtrl.text = (data['publicKey'] ?? '').toString();
+    _clientIdCtrl.text = (data['clientId'] ?? '').toString();
+    _webhookCtrl.text = (data['notificationWebhookUrl'] ?? '').toString();
+  }
+
+  Future<void> _load({bool refreshInBackground = false}) async {
+    if (!refreshInBackground && mounted) {
+      setState(() => _loading = true);
+    }
     try {
-      final seed = widget.tenantId.trim();
+      final churchId = _effectiveTenantId;
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
       final hit = await IgrejaDirectFirestoreReads.readIgrejaConfig(
-        seed,
+        churchId,
         'mercado_pago',
       );
       if (hit != null) {
         _operationalTenantId = hit.docId;
         _cfg = hit.data;
+        _MpConfigRamCache.put(hit.docId, hit.data);
       } else {
         _cfg = null;
       }
-      _publicKeyCtrl.text = (_cfg?['publicKey'] ?? '').toString();
-      _clientIdCtrl.text = (_cfg?['clientId'] ?? '').toString();
-      _webhookCtrl.text = (_cfg?['notificationWebhookUrl'] ?? '').toString();
+      _applyConfigToFields(_cfg ?? const {});
       AgentDebugLog.log(
         location: 'mercado_pago_church_settings_section.dart:load',
         message: 'mp_config_loaded',
         hypothesisId: 'E',
         data: {
           'seed': widget.tenantId,
-          'operational': _operationalTenantId ?? seed,
+          'operational': _operationalTenantId ?? _effectiveTenantId,
           'exists': _cfg != null && _cfg!.isNotEmpty,
           'hasPublicKey': (_cfg?['publicKey'] ?? '').toString().isNotEmpty,
           'hasClientId': (_cfg?['clientId'] ?? '').toString().isNotEmpty,

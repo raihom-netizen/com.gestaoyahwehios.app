@@ -42,6 +42,7 @@ abstract final class ChurchChatMediaResolver {
     String? tenantId,
     String? messageId,
     bool forceRefresh = false,
+    bool fastPreview = false,
   }) async {
     final path = normalizePath(storagePath);
     if (path.isEmpty) return null;
@@ -57,8 +58,12 @@ abstract final class ChurchChatMediaResolver {
         await PublicSiteMediaAuth.ensureWebAnonymousForStorage().catchError((_) {});
       }
       final ref = _ref(path);
-      await ref.getMetadata().timeout(mediaTimeout);
-      final url = await ref.getDownloadURL().timeout(mediaTimeout);
+      if (!fastPreview) {
+        await ref.getMetadata().timeout(mediaTimeout);
+      }
+      final url = await ref.getDownloadURL().timeout(
+            fastPreview ? const Duration(seconds: 8) : mediaTimeout,
+          );
       if (url.trim().isEmpty) return null;
       _urlCache[path] = _CachedUrl(url.trim(), DateTime.now());
       return url.trim();

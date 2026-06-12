@@ -16,6 +16,10 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 
 /// Patrimônio: Firestore primeiro → UI fecha → fotos em background.
+///
+/// **Legado** — usar [PatrimonioSaveService] + [PatrimonioStrictPublishService]
+/// (upload antes do Firestore, barra de progresso no Salvar).
+@Deprecated('Use PatrimonioSaveService.save — fluxo strict Storage → Firestore.')
 abstract final class PatrimonioPublishService {
   PatrimonioPublishService._();
 
@@ -126,10 +130,10 @@ abstract final class PatrimonioPublishService {
         List.generate(batchEnd - batchStart, (k) {
           final j = batchStart + k;
           final slot = startSlot + j;
-          final path =
-              ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemId, slot);
           return PatrimonioMediaUpload.uploadGalleryPhoto(
-            storagePath: path,
+            churchId: tenantId,
+            itemDocId: itemId,
+            slotIndex: slot,
             rawBytes: newImages[j],
           );
         }),

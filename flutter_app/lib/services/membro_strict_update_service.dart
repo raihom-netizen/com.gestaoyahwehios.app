@@ -6,7 +6,11 @@ import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/cache/tenant_stale_while_revalidate.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -34,12 +38,271 @@ abstract final class MembroStrictUpdateService {
   }
 
   static Future<String> _resolveIgrejaId(String seedTenantId) async {
+    final fromRepo = ChurchRepository.churchId(seedTenantId.trim());
+    if (fromRepo.isNotEmpty) {
+      if (kDebugMode) debugPrint('CHURCH_ID (membro write): $fromRepo');
+      return fromRepo;
+    }
     final resolved = ChurchContextService.panelChurchId(seedTenantId.trim());
     if (resolved.isEmpty) {
       throw StateError('churchId não resolvido para gravar membro.');
     }
     if (kDebugMode) debugPrint('CHURCH_ID (membro write): $resolved');
     return resolved;
+  }
+
+  static bool _looksLikeFirebaseAuthUid(String id) {
+    final s = id.trim();
+    return s.length >= 20 &&
+        s.length <= 36 &&
+        RegExp(r'^[A-Za-z0-9]+$').hasMatch(s);
+  }
+
+  static String _cpfDigitsFromMap(Map<String, dynamic> data) =>
+      (data['CPF'] ?? data['cpf'] ?? '')
+          .toString()
+          .replaceAll(RegExp(r'\D'), '');
+
+  static String? _authUidFromMap(Map<String, dynamic> data) {
+    for (final k in ['authUid', 'auth_uid', 'firebaseUid', 'uid', 'userId']) {
+      final v = (data[k] ?? '').toString().trim();
+      if (v.length >= 8) return v;
+    }
+    return null;
+  }
+
+  /// Todos os docs `membros/{id}` que representam a mesma pessoa (CPF, authUid, id da lista).
+  static Future<List<DocumentReference<Map<String, dynamic>>>>
+      resolveAllMemberDocRefs({
+    required String churchId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+  }) async {
+    final cid = churchId.trim();
+    final ids = <String>{memberDocId.trim()};
+    final cpf = _cpfDigitsFromMap(memberData);
+    if (cpf.length == 11) ids.add(cpf);
+    final authUid = _authUidFromMap(memberData);
+    if (authUid != null && authUid.isNotEmpty) ids.add(authUid);
+    if (_looksLikeFirebaseAuthUid(memberDocId)) ids.add(memberDocId.trim());
+
+    final col = ChurchUiCollections.membros(cid);
+    Future<T> guarded<T>(Future<T> Function() op) {
+      if (kIsWeb) {
+        return FirestoreWebGuard.runWithWebRecovery(op, maxAttempts: 4);
+      }
+      return op();
+    }
+
+    if (authUid != null && authUid.isNotEmpty) {
+      try {
+        final q = await guarded(
+          () => col.where('authUid', isEqualTo: authUid).limit(12).get(),
+        );
+        for (final d in q.docs) {
+          ids.add(d.id);
+        }
+      } catch (_) {}
+    }
+    if (cpf.length == 11) {
+      for (final field in ['CPF', 'cpf']) {
+        try {
+          final q = await guarded(
+            () => col.where(field, isEqualTo: cpf).limit(8).get(),
+          );
+          for (final d in q.docs) {
+            ids.add(d.id);
+          }
+        } catch (_) {}
+      }
+    }
+
+    final refs = <DocumentReference<Map<String, dynamic>>>[];
+    for (final id in ids) {
+      if (id.isEmpty) continue;
+      refs.add(col.doc(id));
+      refs.add(
+        ChurchFirestoreAccess.collectionRef(cid, 'members').doc(id),
+      );
+    }
+    return refs;
+  }
+
+  static Future<void> _deleteDocVerified(
+    DocumentReference<Map<String, dynamic>> docRef,
+  ) async {
+    final before = await docRef.get(const GetOptions(source: Source.server));
+    if (!before.exists) return;
+
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => docRef.delete(),
+      maxAttempts: kIsWeb ? 4 : 2,
+    );
+
+    for (var attempt = 0; attempt < 4; attempt++) {
+      final after = await docRef.get(const GetOptions(source: Source.server));
+      if (!after.exists) return;
+      await Future<void>.delayed(Duration(milliseconds: 120 + attempt * 160));
+      await FirestoreWebGuard.runWithWebRecovery(() => docRef.delete());
+    }
+    throw StateError(
+      '${kDeleteVerifyFailedMessage} (${docRef.path} ainda existe)',
+    );
+  }
+
+  static Future<void> _invalidateMemberCaches(String churchId, String seed) {
+    unawaited(
+      TenantStaleWhileRevalidate.invalidateModule(
+        tenantId: churchId,
+        module: TenantModuleKeys.membros,
+      ),
+    );
+    MembersDirectorySnapshotService.invalidateMemory(churchId);
+    MembersDirectorySnapshotService.invalidateMemory(seed.trim());
+    return Future.value();
+  }
+
+  /// Exclusão total — Storage, todos os docs `membros`, índices e login (Auth via [purgeAuthLogin]).
+  static Future<void> purgeMemberCompletely({
+    required String seedTenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+    Future<void> Function({
+      required String churchId,
+      required String memberDocId,
+      required String? authUid,
+    })? purgeAuthLogin,
+  }) async {
+    final churchId = await _resolveIgrejaId(seedTenantId);
+    final mid = memberDocId.trim();
+    if (mid.isEmpty) {
+      throw StateError('ID do membro vazio.');
+    }
+
+    final authUid = _authUidFromMap(memberData);
+    final cpf = _cpfDigitsFromMap(memberData);
+
+    if (kDebugMode) {
+      debugPrint('PURGE MEMBER churchId=$churchId memberId=$mid authUid=$authUid');
+    }
+
+    await MembroPublishVerificationService.logPublishPhase(
+      phase: 'delete_before',
+      igrejaId: churchId,
+      memberDocId: mid,
+    );
+
+    await _prepareWrite();
+
+    if (purgeAuthLogin != null) {
+      await purgeAuthLogin(
+        churchId: churchId,
+        memberDocId: mid,
+        authUid: authUid,
+      );
+    }
+
+    await FirebaseStorageCleanupService.deleteMemberRelatedFiles(
+      tenantId: churchId,
+      memberId: mid,
+      data: memberData,
+    );
+
+    final membroRefs = await resolveAllMemberDocRefs(
+      churchId: churchId,
+      memberDocId: mid,
+      memberData: memberData,
+    );
+
+    var deletedAny = false;
+    for (final ref in membroRefs) {
+      try {
+        final exists = (await ref.get(const GetOptions(source: Source.server)))
+            .exists;
+        if (!exists) continue;
+        await _deleteDocVerified(ref);
+        deletedAny = true;
+      } catch (e) {
+        if (kDebugMode) debugPrint('purgeMember delete ${ref.path}: $e');
+        rethrow;
+      }
+    }
+
+    if (!deletedAny) {
+      final primary = _membroDocRef(igrejaId: churchId, memberDocId: mid);
+      final exists =
+          (await primary.get(const GetOptions(source: Source.server))).exists;
+      if (exists) {
+        await _deleteDocVerified(primary);
+        deletedAny = true;
+      }
+    }
+
+    if (!deletedAny) {
+      throw StateError(
+        'Membro não encontrado em igrejas/$churchId/membros (já excluído?).',
+      );
+    }
+
+    final db = firebaseDefaultFirestore;
+    final userIds = <String>{};
+    if (authUid != null && authUid.isNotEmpty) userIds.add(authUid);
+    if (_looksLikeFirebaseAuthUid(mid)) userIds.add(mid);
+
+    for (final uid in userIds) {
+      try {
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => db.collection('users').doc(uid).delete(),
+        );
+      } catch (_) {}
+      try {
+        final tokRef = db.collection('users').doc(uid).collection('fcmTokens');
+        final tokSnap = await tokRef.get();
+        for (final d in tokSnap.docs) {
+          await d.reference.delete();
+        }
+      } catch (_) {}
+      try {
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => ChurchUiCollections.tenantUsers(churchId).doc(uid).delete(),
+        );
+      } catch (_) {}
+      try {
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => db
+              .collection('igrejas')
+              .doc(churchId)
+              .collection('chat_peer_profiles')
+              .doc(uid)
+              .delete(),
+        );
+      } catch (_) {}
+    }
+
+    if (cpf.length == 11) {
+      try {
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => ChurchUiCollections.usersIndex(churchId).doc(cpf).delete(),
+        );
+      } catch (_) {}
+    }
+
+    for (final ref in membroRefs) {
+      final still = await ref.get(const GetOptions(source: Source.server));
+      if (still.exists) {
+        throw StateError(
+          '${kDeleteVerifyFailedMessage} Path: ${ref.path}',
+        );
+      }
+    }
+
+    await _invalidateMemberCaches(churchId, seedTenantId);
+
+    await MembroPublishVerificationService.logPublishPhase(
+      phase: 'delete_after',
+      igrejaId: churchId,
+      memberDocId: mid,
+    );
   }
 
   static Future<void> _prepareWrite() async {
@@ -111,62 +374,23 @@ abstract final class MembroStrictUpdateService {
     );
   }
 
-  /// Exclusão real do doc `membros/{id}` com confirmação.
+  /// Exclusão real — delega a [purgeMemberCompletely].
   static Future<void> deleteMember({
     required String seedTenantId,
     required String memberDocId,
+    Map<String, dynamic> memberData = const {},
     String? userUid,
+    Future<void> Function({
+      required String churchId,
+      required String memberDocId,
+      required String? authUid,
+    })? purgeAuthLogin,
   }) async {
-    final igrejaId = await _resolveIgrejaId(seedTenantId);
-    final docRef = _membroDocRef(
-      igrejaId: igrejaId,
+    await purgeMemberCompletely(
+      seedTenantId: seedTenantId,
       memberDocId: memberDocId,
-    );
-
-    if (kDebugMode) {
-      debugPrint('DELETE MEMBER');
-      debugPrint('path=${docRef.path}');
-    }
-
-    await MembroPublishVerificationService.logPublishPhase(
-      phase: 'delete_before',
-      igrejaId: igrejaId,
-      memberDocId: memberDocId,
-    );
-
-    await _prepareWrite();
-
-    final before = await docRef.get(const GetOptions(source: Source.server));
-    if (!before.exists) return;
-
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => docRef.delete(),
-      maxAttempts: kIsWeb ? 3 : 2,
-    );
-
-    for (var attempt = 0; attempt < 3; attempt++) {
-      final after = await docRef.get(const GetOptions(source: Source.server));
-      if (!after.exists) break;
-      if (attempt >= 2) {
-        throw StateError(kDeleteVerifyFailedMessage);
-      }
-      await Future<void>.delayed(Duration(milliseconds: 120 + attempt * 180));
-      await FirestoreWebGuard.runWithWebRecovery(() => docRef.delete());
-    }
-
-    unawaited(
-      TenantStaleWhileRevalidate.invalidateModule(
-        tenantId: igrejaId,
-        module: TenantModuleKeys.membros,
-      ),
-    );
-    MembersDirectorySnapshotService.invalidateMemory(igrejaId);
-    MembersDirectorySnapshotService.invalidateMemory(seedTenantId.trim());
-
-    await MembroPublishVerificationService.logPublishPhase(
-      phase: 'delete_after',
-      igrejaId: igrejaId,
-      memberDocId: memberDocId,
+      memberData: memberData,
+      purgeAuthLogin: purgeAuthLogin,
     );
   }
 

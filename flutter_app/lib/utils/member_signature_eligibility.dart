@@ -1,5 +1,5 @@
-// Regras compartilhadas: campo de assinatura e signatários na carteirinha.
-// Qualquer função além de "membro" exige o bloco de assinatura e habilita a pessoa como signatário no PDF.
+// Regras compartilhadas: campo de assinatura e signatários oficiais (certificados, carteirinha, PDFs).
+// Apenas pastor, gestor, secretário, tesoureiro, administrador ou líder de departamento.
 
 /// Normaliza chave de função para comparação (minúsculas, trim, espaços → `_`).
 String normalizeMemberRoleKey(String raw) {
@@ -65,26 +65,25 @@ List<String> extractMemberFuncoesKeys(Map<String, dynamic> d) {
   return keys;
 }
 
-/// `true` se houver pelo menos uma função que não seja apenas "membro".
-bool memberNeedsAssinaturaFieldFromFuncoes(List<String> funcoes) {
-  for (final f in funcoes) {
-    final n = normalizeMemberRoleKey(f);
-    if (n.isEmpty) continue;
-    if (n != 'membro') return true;
-  }
-  return false;
-}
+/// `true` se o membro pode cadastrar assinatura (mesmos cargos dos documentos oficiais).
+bool memberNeedsAssinaturaFieldFromFuncoes(List<String> funcoes) =>
+    memberHasLeadershipForAssinatura({'FUNCOES': funcoes});
 
-/// Cargos que podem assinar documentos oficiais (carteirinha, certificados, cartas, etc.).
+/// Cargos que podem assinar documentos oficiais (carteirinha, certificados, PDFs).
 const Set<String> kChurchDocumentSignatoryRoleKeys = {
   'gestor',
   'pastor',
   'pastora',
+  'pastor_auxiliar',
+  'pastor_presidente',
+  'pastor_president',
   'secretario',
   'secretaria',
   'tesoureiro',
   'tesouraria',
-  'lider',
+  'administrador',
+  'admin',
+  'adm',
   'lider_departamento',
   'lider_de_departamento',
   'liderdepartamento',
@@ -93,6 +92,10 @@ const Set<String> kChurchDocumentSignatoryRoleKeys = {
 bool _roleKeyCanSignDocuments(String normalizedKey) {
   if (normalizedKey.isEmpty || normalizedKey == 'membro') return false;
   if (kChurchDocumentSignatoryRoleKeys.contains(normalizedKey)) return true;
+  if (normalizedKey.contains('pastor')) return true;
+  if (normalizedKey.contains('gestor')) return true;
+  if (normalizedKey.contains('administr')) return true;
+  if (normalizedKey == 'adm' || normalizedKey == 'admin') return true;
   if (normalizedKey.contains('lider') &&
       (normalizedKey.contains('depart') || normalizedKey.contains('dept'))) {
     return true;
@@ -102,29 +105,28 @@ bool _roleKeyCanSignDocuments(String normalizedKey) {
   return false;
 }
 
-/// Membro pode figurar como signatário na carteirinha (cargo de liderança / não só membro).
-/// Opcional na ficha: `certificadoSignatario` / `podeAssinarCertificado` = true.
-bool memberHasLeadershipForAssinatura(Map<String, dynamic> d) {
-  final ex = d['certificadoSignatario'] ?? d['podeAssinarCertificado'];
-  if (ex == true) return memberCanSignChurchDocuments(d);
-  return memberNeedsAssinaturaFieldFromFuncoes(extractMemberFuncoesKeys(d));
-}
+/// Campo de assinatura na ficha — mesmos cargos elegíveis que documentos oficiais.
+bool memberHasLeadershipForAssinatura(Map<String, dynamic> d) =>
+    memberCanSignChurchDocuments(d);
 
-/// Gestor, pastor, secretário, tesoureiro ou líder de departamento — assina documentos.
+/// Pastor, gestor, secretário, tesoureiro, administrador ou líder de departamento.
 bool memberCanSignChurchDocuments(Map<String, dynamic> d) {
-  final ex = d['certificadoSignatario'] ?? d['podeAssinarCertificado'];
-  if (ex == true) {
-    for (final f in extractMemberFuncoesKeys(d)) {
-      if (_roleKeyCanSignDocuments(normalizeMemberRoleKey(f))) return true;
-    }
-  }
   for (final f in extractMemberFuncoesKeys(d)) {
     if (_roleKeyCanSignDocuments(normalizeMemberRoleKey(f))) return true;
   }
   final cargoSingle = normalizeMemberRoleKey(
     (d['FUNCAO'] ?? d['funcao'] ?? d['CARGO'] ?? d['cargo'] ?? '').toString(),
   );
-  return _roleKeyCanSignDocuments(cargoSingle);
+  if (_roleKeyCanSignDocuments(cargoSingle)) return true;
+
+  final ex = d['certificadoSignatario'] ?? d['podeAssinarCertificado'];
+  if (ex == true) {
+    for (final f in extractMemberFuncoesKeys(d)) {
+      if (_roleKeyCanSignDocuments(normalizeMemberRoleKey(f))) return true;
+    }
+    return _roleKeyCanSignDocuments(cargoSingle);
+  }
+  return false;
 }
 
 String _formatCargoKeyForDisplay(String key) {
@@ -151,6 +153,11 @@ String signatoryCargoDisplayLabel(Map<String, dynamic> d) {
   if (one.isNotEmpty && !list.contains(one)) list.add(one);
 
   if (list.any((s) => s == 'pastor' || s == 'pastora')) return 'Pastor(a)';
+  if (list.contains('administrador') ||
+      list.contains('admin') ||
+      list.contains('adm')) {
+    return 'Administrador(a)';
+  }
   if (list.contains('gestor')) return 'Gestor(a)';
   if (list.contains('secretario')) return 'Secretário(a)';
   if (list.contains('secretaria')) return 'Secretária(o)';
@@ -174,6 +181,7 @@ List<String> signatoryCargoDisplayOptions(Map<String, dynamic> d) {
   for (final f in funcoes) {
     final n = normalizeMemberRoleKey(f);
     if (n.isEmpty || n == 'membro') continue;
+    if (!_roleKeyCanSignDocuments(n)) continue;
     String label;
     if (n == 'pastor') {
       label = 'Pastor';

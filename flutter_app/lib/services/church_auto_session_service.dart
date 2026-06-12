@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_panel_module_prefetch_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_offline_warmup_service.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
@@ -85,6 +86,7 @@ class ChurchAutoSessionService {
     unawaited(
       ChurchTenantOfflineWarmupService.instance.scheduleWarmupAfterLogin(tid),
     );
+    ChurchPanelModulePrefetchService.scheduleFullPrefetch(tid);
     final results = await Future.wait<dynamic>([
       PanelDashboardSnapshotService.warmFromCallableIfStale(tid),
       MembersDirectorySnapshotService.warmFromCallableIfStale(tid),

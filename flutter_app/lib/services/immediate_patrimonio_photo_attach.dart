@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
@@ -61,12 +60,13 @@ abstract final class ImmediatePatrimonioPhotoAttach {
         slot: slotIndex,
       );
 
-      final path =
-          ChurchStorageLayout.patrimonioPhotoPath(tenantId, itemDocId, slotIndex);
       final result = await PatrimonioMediaUpload.uploadGalleryPhoto(
-        storagePath: path,
+        churchId: tenantId,
+        itemDocId: itemDocId,
+        slotIndex: slotIndex,
         rawBytes: rawBytes,
       );
+      final path = result.storagePath;
       final url = sanitizeImageUrl(result.downloadUrl);
       if (url.isEmpty) {
         throw StateError('Upload do património não devolveu URL.');

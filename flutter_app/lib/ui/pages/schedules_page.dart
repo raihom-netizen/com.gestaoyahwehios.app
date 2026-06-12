@@ -6,7 +6,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -19,7 +21,10 @@ import 'package:gestao_yahweh/services/schedule_intel_validators.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_departments_load_service.dart';
+import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
@@ -421,35 +426,70 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   void _refreshAllData(String tid) {
     setState(() {
       _deptsFuture = _loadDepartmentsForTenant(tid);
-      _templatesFuture =
-          ChurchTenantResilientReads.escalaTemplates(tid);
-      _instancesFuture =
-          ChurchTenantResilientReads.escalasRecent(tid, limit: 500);
+      _templatesFuture = _fetchTemplates(tid);
+      _instancesFuture = _fetchEscalas(tid);
       _tenantFuture = _churchDoc(tid).get();
     });
   }
 
+  Future<QuerySnapshot<Map<String, dynamic>>> _fetchTemplates(
+    String tid, {
+    bool forceServer = false,
+  }) async {
+    final r = await ChurchSchedulesLoadService.loadTemplates(
+      seedTenantId: tid,
+      forceServer: forceServer,
+    );
+    await ChurchSchedulesLoadService.persistTemplates(r);
+    return r.snapshot;
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _fetchEscalas(
+    String tid, {
+    bool forceServer = false,
+  }) async {
+    final r = await ChurchSchedulesLoadService.loadEscalas(
+      seedTenantId: tid,
+      limit: 500,
+      forceServer: forceServer,
+    );
+    await ChurchSchedulesLoadService.persistEscalas(r);
+    return r.snapshot;
+  }
+
   Future<void> _openSchedulesFast() async {
-    final seed = widget.tenantId.trim();
+    final seed = ChurchPanelTenant.resolve(widget.tenantId.trim());
     if (seed.isEmpty) return;
 
+    final ramEscalas = ChurchSchedulesLoadService.peekEscalasRam(seed, limit: 500);
+    final ramTemplates =
+        ChurchSchedulesLoadService.peekTemplatesRam(seed, limit: 120);
     final ram = _SchedulesPageRamCache.peek(seed);
-    if (ram != null && mounted) {
+    if (mounted) {
       setState(() {
-        _seedDepts = ram.depts;
-        _seedTemplates = ram.templates;
-        _seedInstances = ram.instances;
+        if (ram != null) {
+          _seedDepts = ram.depts;
+          _seedTemplates = ram.templates;
+          _seedInstances = ram.instances;
+        } else {
+          if (ramTemplates != null && ramTemplates.isNotEmpty) {
+            _seedTemplates = ramTemplates;
+          }
+          if (ramEscalas != null && ramEscalas.isNotEmpty) {
+            _seedInstances = ramEscalas;
+          }
+        }
       });
     }
 
     try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
       final results = await Future.wait<Object>([
-        ChurchTenantResilientReads.escalaTemplates(seed)
-            .timeout(const Duration(milliseconds: 1800)),
-        ChurchTenantResilientReads.escalasRecent(seed, limit: 500)
-            .timeout(const Duration(milliseconds: 1800)),
-        _loadDepartmentsForTenant(seed)
-            .timeout(const Duration(milliseconds: 1800)),
+        _fetchTemplates(seed),
+        _fetchEscalas(seed),
+        _loadDepartmentsForTenant(seed),
       ]);
       if (!mounted) return;
       final templates =
@@ -467,12 +507,18 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         _seedTemplates = templates;
         _seedInstances = instances;
         _seedDepts = depts;
+        _templatesFuture = Future.value(results[0] as QuerySnapshot<Map<String, dynamic>>);
+        _instancesFuture = Future.value(results[1] as QuerySnapshot<Map<String, dynamic>>);
+        _deptsFuture = Future.value(depts);
       });
     } catch (_) {}
   }
 
   Future<List<_DeptItem>> _loadDepartmentsForTenant(String tid) async {
-    final snap = await ChurchTenantResilientReads.departamentos(tid, limit: 120);
+    final result = await ChurchDepartmentsLoadService.load(
+      seedTenantId: tid,
+    );
+    final snap = result.snapshot;
     final deduped = dedupeChurchDepartmentDocuments(snap.docs);
     final list = deduped
         .map(
@@ -493,7 +539,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
   Future<QuerySnapshot<Map<String, dynamic>>> _fetchInstancesForEffectiveTenant() =>
       _effectiveTidFuture.then(
-        (tid) => ChurchTenantResilientReads.escalasRecent(tid, limit: 500),
+        (tid) => _fetchEscalas(tid),
       );
 
   static DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
@@ -644,20 +690,20 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   void _refreshTemplates() {
-    final tid = _effectiveTenantId.isNotEmpty
-        ? _effectiveTenantId
-        : widget.tenantId.trim();
+    final tid = ChurchPanelTenant.resolve(
+      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+    );
     setState(() {
-      _templatesFuture = ChurchTenantResilientReads.escalaTemplates(tid);
+      _templatesFuture = _fetchTemplates(tid, forceServer: true);
     });
   }
 
   void _refreshInstances() {
-    final tid = _effectiveTenantId.isNotEmpty
-        ? _effectiveTenantId
-        : widget.tenantId.trim();
+    final tid = ChurchPanelTenant.resolve(
+      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+    );
     setState(() {
-      _instancesFuture = ChurchTenantResilientReads.escalasRecent(tid, limit: 500);
+      _instancesFuture = _fetchEscalas(tid, forceServer: true);
     });
   }
 
@@ -1283,14 +1329,14 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   void initState() {
     super.initState();
     logYahwehModuleScreen('escalas');
-    _effectiveTenantId = widget.tenantId.trim();
+    _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId.trim());
     _tab = TabController(length: 3, vsync: this);
     unawaited(_openSchedulesFast());
     _effectiveTidFuture = _resolveTenantAndSeedPresets();
     final seed = _effectiveTenantId;
     _deptsFuture = _loadDepartmentsForTenant(seed);
-    _templatesFuture = ChurchTenantResilientReads.escalaTemplates(seed);
-    _instancesFuture = ChurchTenantResilientReads.escalasRecent(seed, limit: 500);
+    _templatesFuture = _fetchTemplates(seed);
+    _instancesFuture = _fetchEscalas(seed);
     _tenantFuture = _churchDoc(seed).get();
     _effectiveTidFuture.then((tid) async {
       try {

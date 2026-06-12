@@ -2,13 +2,15 @@ import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap;
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Signatário de carteirinha / certificado (pastor, gestor, etc.).
 class MemberCardSignatory {
@@ -82,16 +84,19 @@ abstract final class MemberCardDirectoryService {
     'secretario',
     'secretaria',
     'tesoureiro',
-    'lider',
+    'tesouraria',
+    'administrador',
+    'adm',
+    'lider_departamento',
+    'lider_de_departamento',
   ];
 
-  static CollectionReference<Map<String, dynamic>> _membros(String operationalTenantId) =>
-      ChurchOperationalPaths.churchDoc(operationalTenantId.trim())
-          .collection('membros');
+  static CollectionReference<Map<String, dynamic>> _membros(String churchId) =>
+      ChurchUiCollections.membros(churchId.trim());
 
   static DocumentReference<Map<String, dynamic>> _signatoryCacheRef(
-          String operationalTenantId) =>
-      ChurchOperationalPaths.churchDoc(operationalTenantId.trim())
+          String churchId) =>
+      ChurchUiCollections.churchDoc(churchId.trim())
           .collection('config')
           .doc(_signatoryCacheDoc);
 
@@ -169,20 +174,47 @@ abstract final class MemberCardDirectoryService {
       final m = Map<String, dynamic>.from(e);
       final id = (m['memberId'] ?? '').toString();
       final s = MemberCardSignatory.fromMap(id, m);
-      if (s != null) out.add(s);
+      if (s == null) continue;
+      if (!memberCanSignChurchDocuments({
+        'CARGO': s.cargo,
+        'FUNCAO': s.cargo,
+        'FUNCOES': [s.cargo],
+      })) {
+        continue;
+      }
+      out.add(s);
     }
     out.sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
     return out;
   }
 
-  /// Signatários — cache Firestore → Cloud Function → consultas por cargo.
+  static List<MemberCardSignatory> _entriesToSignatories(
+    List<ChurchSignatoryEntry> entries,
+  ) {
+    return entries
+        .map(
+          (e) => MemberCardSignatory(
+            memberId: e.memberId,
+            nome: e.nome,
+            cargo: e.cargo,
+            cpf: e.cpfDigits,
+            assinaturaUrl: e.assinaturaUrl,
+          ),
+        )
+        .toList();
+  }
+
+  /// Signatários — cache Firestore → Cloud Function → consultas por cargo (liderança).
   static Future<List<MemberCardSignatory>> loadSignatories(
     String tenantId, {
     bool forceRefresh = false,
   }) async {
+    final churchId = ChurchPanelTenant.resolve(tenantId.trim());
+    if (churchId.isEmpty) return const [];
+
     if (!forceRefresh) {
       try {
-        final cache = await _signatoryCacheRef(tenantId).get();
+        final cache = await _signatoryCacheRef(churchId).get();
         final data = cache.data();
         if (cache.exists &&
             _cacheFresh(data?['updatedAt'] as Timestamp?)) {
@@ -198,16 +230,25 @@ abstract final class MemberCardDirectoryService {
       final res = await fn.call<Map<dynamic, dynamic>>({'tenantId': tenantId});
       final items = res.data['items'];
       if (items is List && items.isNotEmpty) {
-        return _parseSignatoryCache({'items': items});
+        final parsed = _parseSignatoryCache({'items': items});
+        if (parsed.isNotEmpty) return parsed;
       }
     } catch (_) {}
 
-    return _loadSignatoriesClientFallback(tenantId);
+    final entries = await ChurchSignatoryLoadService.loadEligible(
+      seedTenantId: tenantId,
+    );
+    final list = _entriesToSignatories(entries);
+    if (list.isNotEmpty) {
+      unawaited(_writeSignatoryCache(churchId, list));
+    }
+    return list;
   }
 
   static Future<List<MemberCardSignatory>> _loadSignatoriesClientFallback(
       String tenantId) async {
-    final col = _membros(tenantId);
+    final churchId = ChurchPanelTenant.resolve(tenantId.trim());
+    final col = _membros(churchId);
     final byId = <String, MemberCardSignatory>{};
 
     Future<void> absorb(QuerySnapshot<Map<String, dynamic>> snap) async {
@@ -240,6 +281,13 @@ abstract final class MemberCardDirectoryService {
               .get();
           await absorb(snap);
         } catch (_) {}
+        try {
+          final snap = await col
+              .where('FUNCAO', isEqualTo: role)
+              .limit(YahwehPerformanceV4.memberCardSignatoryQueryLimit)
+              .get();
+          await absorb(snap);
+        } catch (_) {}
       }),
     );
 
@@ -251,20 +299,11 @@ abstract final class MemberCardDirectoryService {
       await absorb(flagged);
     } catch (_) {}
 
-    if (byId.isEmpty) {
-      try {
-        final snap = await col
-            .limit(YahwehPerformanceV4.memberCardSignatoryQueryLimit * 2)
-            .get();
-        await absorb(snap);
-      } catch (_) {}
-    }
-
     final list = byId.values.toList()
       ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
 
     if (list.isNotEmpty) {
-      unawaited(_writeSignatoryCache(tenantId, list));
+      unawaited(_writeSignatoryCache(ChurchPanelTenant.resolve(tenantId), list));
     }
     return list;
   }

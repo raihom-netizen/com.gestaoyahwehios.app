@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/services/evento_strict_publish_service.dart';
+import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
@@ -40,6 +41,7 @@ import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -50,6 +52,7 @@ import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
+import 'package:gestao_yahweh/ui/widgets/feed_editor_local_photo_thumb.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
@@ -495,7 +498,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         ),
       );
     }
-    await ensureFirebaseReadyForPublishUpload().catchError((_) {});
+    await ensureFirebaseReadyForPublishUpload();
     final igrejaId = ChurchRepository.churchId(_tid);
     final noticias = ChurchUiCollections.eventos(igrejaId);
     if (!mounted) return;
@@ -1513,15 +1516,15 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     final tid = widget.tenantId.trim();
     if (tid.isEmpty) return;
     try {
-      final snap = await ChurchTenantResilientReads.noticiasByStartAt(
-        tid,
+      final result = await ChurchEventosLoadService.loadFeed(
+        seedTenantId: tid,
         limit: 250,
       ).timeout(const Duration(milliseconds: 1800));
-      if (!mounted || snap.docs.isEmpty) return;
-      _EventosNoticiasRamCache.put(tid, snap.docs);
+      if (!mounted || result.docs.isEmpty) return;
+      _EventosNoticiasRamCache.put(tid, result.docs);
       setState(() {
-        _lastGoodGallerySnap = snap;
-        _future = Future.value(snap);
+        _lastGoodGallerySnap = result.snapshot;
+        _future = Future.value(result.snapshot);
       });
     } catch (_) {}
   }
@@ -1545,15 +1548,15 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _load() async {
-    final snap = await ChurchTenantResilientReads.noticiasByStartAt(
-      widget.tenantId,
+    final result = await ChurchEventosLoadService.loadFeed(
+      seedTenantId: widget.tenantId,
       limit: 250,
     );
-    if (snap.docs.isNotEmpty) {
-      _EventosNoticiasRamCache.put(widget.tenantId, snap.docs);
-      _lastGoodGallerySnap = snap;
+    if (result.docs.isNotEmpty) {
+      _EventosNoticiasRamCache.put(widget.tenantId, result.docs);
+      _lastGoodGallerySnap = result.snapshot;
     }
-    return snap;
+    return result.snapshot;
   }
 
   Future<void> _refresh() async {
@@ -2827,13 +2830,13 @@ class _FeedTabState extends State<_FeedTab> {
     }
 
     try {
-      final snap = await ChurchTenantResilientReads.noticiasByStartAt(
-        tid,
+      final result = await ChurchEventosLoadService.loadFeed(
+        seedTenantId: tid,
         limit: _feedPageSize,
       ).timeout(const Duration(milliseconds: 1800));
-      if (snap.docs.isNotEmpty) {
-        _EventosNoticiasRamCache.put(tid, snap.docs);
-        applyDocs(snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>());
+      if (result.docs.isNotEmpty) {
+        _EventosNoticiasRamCache.put(tid, result.docs);
+        applyDocs(result.docs);
         return;
       }
     } catch (_) {}
@@ -2883,12 +2886,12 @@ class _FeedTabState extends State<_FeedTab> {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchTenantResilientReads.noticiasByStartAt(
-          widget.tenantId.trim(),
+        () => ChurchEventosLoadService.loadFeed(
+          seedTenantId: widget.tenantId.trim(),
           limit: _feedPageSize,
-        ).timeout(const Duration(seconds: 14)),
+        ).then((r) => r.snapshot),
         maxAttempts: 4,
-      );
+      ).timeout(const Duration(seconds: 14));
       final docs =
           snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
       if (!mounted) return;
@@ -6069,12 +6072,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     if (!mounted) return;
     ImmediateMediaAttachFeedback.showArquivoAnexado(context, displayName);
-    unawaited(
-      _uploadAttachedEventPhotoInBackground(
-        webBytes: webBytes,
-        mobilePath: mobilePath,
-      ),
-    );
   }
 
   void _removePendingEventPhotoFromLists({
@@ -6466,16 +6463,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<({DocumentReference<Map<String, dynamic>> docRef, String igrejaId})>
       _prepareEventoPublishContext() async {
-    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
-    final igrejaId =
-        await EventosPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: widget.tenantId,
-      userUid: uid.isEmpty ? null : uid,
+    final igrejaId = EventoPublishService.resolveChurchId(
+      (_operationalTenantId ?? '').isNotEmpty
+          ? _operationalTenantId!
+          : widget.resolvedTenantId.isNotEmpty
+              ? widget.resolvedTenantId
+              : widget.tenantId,
     );
     if (mounted) setState(() => _operationalTenantId = igrejaId);
     final docId = _eventDocRef.id;
-    final docRef = EventosPublishVerificationService.eventoDocRef(
-      igrejaId: igrejaId,
+    final docRef = EventoPublishService.docRef(
+      churchId: igrejaId,
       docId: docId,
     );
     return (docRef: docRef, igrejaId: igrejaId);
@@ -6620,6 +6618,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   Future<void> _bootstrapEventForm() async {
     try {
+      await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
       final tid = ChurchRepository.churchId(widget.tenantId);
       if (mounted && tid.trim().isNotEmpty) {
         setState(() => _operationalTenantId = tid.trim());
@@ -6738,15 +6737,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _loadCategories() async {
     setState(() => _loadingCategories = true);
     try {
-      final q = await ChurchTenantResilientReads.eventCategories(
-        _editorTenantId,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
+      final list = await ChurchEventosLoadService.loadEventCategories(
+        seedTenantId: _editorTenantId,
       );
-      final list = q.docs.toList()
-        ..sort((a, b) => (a.data()['nome'] ?? '')
-            .toString()
-            .toLowerCase()
-            .compareTo((b.data()['nome'] ?? '').toString().toLowerCase()));
       if (mounted) {
         setState(() {
           _categoryDocs = list;
@@ -6999,7 +6992,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       Uint8List bytes, String postDocId, int slotIndex) async {
     await FeedPostMediaUpload.warmAuthToken();
     final storagePath = FeedTenantStorageMap.feedEventoPhotoPath(
-      widget.tenantId,
+      _editorTenantId,
       postDocId,
       slotIndex,
     );
@@ -7071,7 +7064,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final slot = _hostedVideoStorageSlotFromUrl(videoUrl);
     if (slot != null) {
       await FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
-        tenantId: widget.tenantId,
+        tenantId: _editorTenantId,
         postDocId: _eventDocRef.id,
         videoSlot: slot,
       );
@@ -7134,7 +7127,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         }
         final result = await VideoHandlerService.instance
             .pickCompressAndUpload(
-          tenantId: widget.tenantId,
+          tenantId: _editorTenantId,
           eventPostDocId: _eventDocRef.id,
           videoSlotIndex: slot,
           maxDuration: mediaEventVideoMaxDurationEffective,
@@ -7520,7 +7513,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final publishTenantId = ctx.igrejaId;
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
     await _waitForInFlightPhotoUploads();
-    await _flushPendingEventPhotosBeforePublish(publishTenantId);
+    final pending = _pendingEventPhotosForPublish();
     final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
     double? aspectRatio;
     if (existingUrls.isNotEmpty) {
@@ -7548,8 +7541,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       existingUrls: existingUrls,
       startSlotIndex: existingUrls.length,
       hasVideo: hasVideo,
-      newImagesBytes: null,
-      newImagePaths: null,
+      newImagesBytes: pending.bytes,
+      newImagePaths: pending.paths,
       videoStoragePath: videoPathForPublish,
       publicSite: _publicSite,
       eventStartAt: eventStart,
@@ -7573,28 +7566,23 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
-  Future<void> _flushPendingEventPhotosBeforePublish(String tenantId) async {
-    if (_newPhotoCount <= 0) return;
-    final postId = _eventDocRef.id;
-    final start = _existingUrls.length;
-    final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
-      tenantId: tenantId,
-      postType: 'evento',
-      postId: postId,
-      startSlotIndex: start,
-      bytesList: kIsWeb ? List<Uint8List>.from(_newImages) : null,
-      localPaths: kIsWeb
-          ? null
-          : FeedEditorMediaService.existingValidPaths(_newImagePaths),
-    );
+  /// Fotos pendentes (só enviadas ao clicar em Publicar).
+  ({List<Uint8List>? bytes, List<String>? paths}) _pendingEventPhotosForPublish() {
+    if (kIsWeb) {
+      if (_newImages.isEmpty) return (bytes: null, paths: null);
+      return (bytes: List<Uint8List>.from(_newImages), paths: null);
+    }
+    final paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
+    if (paths.isEmpty) return (bytes: null, paths: null);
+    return (bytes: null, paths: paths);
+  }
+
+  void _clearPendingEventPhotosAfterPublish() {
     if (!mounted) return;
     setState(() {
       _newImages.clear();
       _newImagePaths.clear();
       _newNames.clear();
-      for (final s in slots) {
-        _existingUrls.add(s.fullUrl);
-      }
     });
   }
 
@@ -7669,9 +7657,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final titulo = _title.text.trim();
     try {
-      await AppFinalizeBootstrap.ensureSessionForPublish(
-        logLabel: 'evento_save',
-      );
       ChurchPublishFlowLog.eventoStart();
       final ctx = await _prepareEventoPublishContext();
       final docRef = ctx.docRef;
@@ -7679,7 +7664,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final postId = docRef.id;
 
       await _waitForInFlightPhotoUploads();
-      await _flushPendingEventPhotosBeforePublish(publishTenantId);
+      final pending = _pendingEventPhotosForPublish();
 
       unawaited(
         EventosPublishVerificationService.logPublishPhase(
@@ -7723,8 +7708,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         existingUrls: existingUrls,
         startSlotIndex: existingUrls.length,
         hasVideo: hasVideo,
-        newImagesBytes: null,
-        newImagePaths: null,
+        newImagesBytes: pending.bytes,
+        newImagePaths: pending.paths,
         videoStoragePath: videoPathForPublish,
         publicSite: _publicSite,
         eventStartAt: eventStart,
@@ -7733,6 +7718,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         agendaCategory: _agendaCategoryKeyFromEvent(),
         agendaColorHex: _agendaColorHexForCategory(),
       );
+
+      _clearPendingEventPhotosAfterPublish();
 
       unawaited(
         EventosPublishVerificationService.logPublishPhase(
@@ -7767,7 +7754,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           msg.contains('permission-denied') ||
           msg.contains('WatchChangeAggregator') ||
           msg.contains('PersistentListenStream') ||
-          msg.contains('Unexpected state');
+          msg.contains('Unexpected state') ||
+          msg.contains('core/no-app') ||
+          isFirebaseNoAppError(e);
       final verifyFailed =
           msg.contains('Documento não localizado no Firestore') ||
               msg.contains(EventosPublishVerificationService
@@ -7782,6 +7771,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             verifyCtx.docRef,
           );
           EventosPublishVerificationService.clearLastError();
+          _clearPendingEventPhotosAfterPublish();
           await _showEventoPublishVerifiedSuccess(isNewDoc: isNewDoc);
           unawaited(_applyAgendaSyncAfterSave(_eventDocRef.id));
         } catch (e2, st2) {
@@ -7910,14 +7900,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     for (var i = 0; i < _newPhotoCount; i++) {
       final idx = i;
       final thumbChild = kIsWeb
-          ? Image.memory(
-              _newImages[idx],
-              width: 100,
-              height: 100,
-              fit: BoxFit.cover,
+          ? feedEditorLocalPhotoThumb(
+              webBytes: _newImages[idx],
+              mobilePath: null,
+              size: 100,
             )
-          : IosPublishImagePipeline.fileThumbnail(
-              file: File(_newImagePaths[idx]),
+          : feedEditorLocalPhotoThumb(
+              webBytes: null,
+              mobilePath: _newImagePaths[idx],
               size: 100,
             );
       allPreviews.add(Stack(children: [
