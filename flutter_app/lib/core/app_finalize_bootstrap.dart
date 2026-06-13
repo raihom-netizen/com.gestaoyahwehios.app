@@ -111,6 +111,11 @@ abstract final class AppFinalizeBootstrap {
     try {
       await FirebaseBootstrap.ensureInitialized();
       FirebaseBootstrapService.refreshCachedApp();
+      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+        refreshAuthToken: true,
+      ).catchError((_) async {
+        await FirebaseAuthTokenGuard.refreshIfStale();
+      });
       await FirebaseAuthTokenGuard.refreshIfStale();
       await ChurchAutoSessionService.ensureAutoPainelFlagForPersistedSession();
       if (kIsWeb) {

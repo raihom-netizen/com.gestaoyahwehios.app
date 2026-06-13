@@ -60,6 +60,7 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/membro_strict_update_service.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
@@ -4738,6 +4739,8 @@ class _MembersPageState extends State<MembersPage> {
           .replaceAll(RegExp(r'\D'), ''),
       'SEXO': result['sexo'] ?? sexo,
       'STATUS': result['status'] ?? status,
+      'ativo': status != 'inativo',
+      'active': status != 'inativo',
       'FUNCAO': funcaoFinal,
       'FUNCAO_PERMISSOES': permBaseFinal,
       'FUNCOES': funcoesSelecionadasFinal,
@@ -4930,6 +4933,8 @@ class _MembersPageState extends State<MembersPage> {
             'cargo': funcaoFinal,
             'FUNCOES': funcoesSelecionadasFinal,
             'CARGO': funcaoFinal,
+            'ativo': updates['STATUS'].toString().toLowerCase() != 'inativo',
+            'active': updates['STATUS'].toString().toLowerCase() != 'inativo',
             if (isMoveToOtherChurch) 'tenantId': targetTenantId,
             if (isMoveToOtherChurch) 'igrejaId': targetTenantId,
           }, SetOptions(merge: true));
@@ -9861,26 +9866,18 @@ String _str(Map<String, dynamic> d, String key1,
 }
 
 /// UID do Firebase quando a foto no Storage foi salva com esse id (doc do membro pode ser CPF).
-String? _memberAuthUidFromData(Map<String, dynamic> d) {
-  for (final k in [
-    'authUid',
-    'firebaseUid',
-    'firebase_uid',
-    'firebaseUserId',
-    'userId',
-    'user_id',
-    'uid',
-    'USUARIO_UID',
-    'usuario_uid',
-  ]) {
-    final v = (d[k] ?? '').toString().trim();
-    if (v.isNotEmpty) return v;
-  }
-  return null;
+String? _memberAuthUidFromData(Map<String, dynamic> d, {String? memberDocId}) {
+  return MemberProfilePhotoResolver.authUidFromData(
+    d,
+    memberDocId: memberDocId,
+  );
 }
 
-/// Extrai URL da foto do membro — usa extração centralizada (SafeNetworkImage) para evitar falhas de exibição.
-String _photoUrlFromMemberData(Map<String, dynamic> d) => imageUrlFromMap(d);
+/// Extrai referência da foto — https antes de path Storage desatualizado.
+String _photoUrlFromMemberData(Map<String, dynamic> d) =>
+    MemberProfilePhotoResolver.displayRef(d, preferThumb: true) ??
+    MemberProfilePhotoResolver.displayRef(d) ??
+    imageUrlFromMap(d);
 
 int? _idadeFromBirthMemberEdit(DateTime birth) {
   final now = DateTime.now();

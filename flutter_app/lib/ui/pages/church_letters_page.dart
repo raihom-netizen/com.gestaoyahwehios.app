@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Timer, unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -13,7 +13,6 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
@@ -98,6 +97,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _seedMemberDocs = [];
   int _membersQueryLimit = 600;
   Future<ReportPdfBranding>? _brandingFuture;
+  ReportPdfBranding? _brandingReady;
   final Map<String, Uint8List?> _signatureBytesCache = <String, Uint8List?>{};
 
   /// Ao editar a partir do histórico, atualiza este doc em vez de criar outro.
@@ -136,7 +136,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     unawaited(_openChurchLettersFast());
     unawaited(_bootstrap());
     unawaited(_loadDepartmentsForLetters());
-    unawaited(warmChurchLetterPdfAssets());
+    unawaited(_prewarmPdfEmitAssets());
   }
 
   Future<void> _loadDepartmentsForLetters() async {
@@ -835,8 +835,37 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   }
 
   Future<ReportPdfBranding> _getBrandingCached() {
-    _brandingFuture ??= loadReportPdfBranding(_effectiveTenantId);
+    if (_brandingReady != null) {
+      return Future.value(_brandingReady!);
+    }
+    _brandingFuture ??= loadReportPdfBranding(_effectiveTenantId).then((b) {
+      _brandingReady = b;
+      return b;
+    });
     return _brandingFuture!;
+  }
+
+  /// Emissão expressa — só cache RAM (pré-aquecido ao abrir / trocar assinante).
+  Future<Uint8List?> _signatureBytesForEmit(Map<String, dynamic> signerData) async {
+    if (_signatureMode != _LetterSignatureMode.digital) return null;
+    final url = sanitizeImageUrl(_signatureUrlFromMember(signerData));
+    if (url.isEmpty) return null;
+    return _signatureBytesCache[url];
+  }
+
+  Future<void> _prewarmPdfEmitAssets() async {
+    await warmChurchLetterPdfAssets();
+    try {
+      await _getBrandingCached().timeout(const Duration(seconds: 8));
+    } catch (_) {}
+    final sid = _signer1MemberId;
+    if (sid != null) {
+      final m = _entryById(sid)?.data ??
+          _memberDataById(_seedMemberDocs)[sid];
+      if (m != null) {
+        unawaited(_getSignatureBytesCached(_signatureUrlFromMember(m)));
+      }
+    }
   }
 
   Future<Uint8List?> _getSignatureBytesCached(String rawUrl) async {
@@ -1078,7 +1107,12 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       }
     }
 
-    setState(() => _pdfBusy = true);
+    Timer? pdfOverlayTimer;
+    if (mounted) {
+      pdfOverlayTimer = Timer(const Duration(milliseconds: 160), () {
+        if (mounted) setState(() => _pdfBusy = true);
+      });
+    }
     YahwehFlowLog.cartaStart();
     try {
       final tplEarly = switch (kind) {
@@ -1159,10 +1193,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       }
 
       Uint8List? signatureImageBytes;
-      Future<Uint8List?> signatureFuture() async {
-        if (_signatureMode != _LetterSignatureMode.digital) return null;
-        final rawUrl = _signatureUrlFromMember(m1);
-        return _getSignatureBytesCached(rawUrl);
+      if (_signatureMode == _LetterSignatureMode.digital) {
+        signatureImageBytes = await _signatureBytesForEmit(m1);
       }
 
       final tpl = switch (kind) {
@@ -1192,12 +1224,18 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
             : 'Fraternalmente em Cristo,',
       );
 
-      final futures = await Future.wait<dynamic>([
-        _getBrandingCached(),
-        signatureFuture(),
-      ]);
-      final branding = futures[0] as ReportPdfBranding;
-      signatureImageBytes = futures[1] as Uint8List?;
+      final branding = _brandingReady ??
+          await _getBrandingCached().timeout(
+            const Duration(milliseconds: 400),
+            onTimeout: () => ReportPdfBranding(
+              churchName: _nomeIgreja,
+              logoBytes: null,
+              accent: ReportPdfBranding.defaultAccent,
+            ),
+          );
+
+      unawaited(warmChurchLetterPdfAssets());
+
       final title = switch (kind) {
         _CartaKind.apresentacao => 'Carta de apresentação ministerial',
         _CartaKind.transferencia => 'CARTA DE MUDANÇA',
@@ -1246,6 +1284,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         );
       }
     } finally {
+      pdfOverlayTimer?.cancel();
       if (mounted) setState(() => _pdfBusy = false);
     }
   }
@@ -1985,7 +2024,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                   ),
                                 ),
                                 Text(
-                                  'Seleção múltipla — busca, filtro por departamento ou geral.',
+                                  'Seleção múltipla — busca e filtro por departamento (lista suspensa).',
                                   style: TextStyle(
                                     fontSize: 12.5,
                                     height: 1.35,
@@ -2101,7 +2140,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Quase pronto — histórico grava em segundo plano.',
+                      'Emissão expressa — histórico grava em segundo plano.',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade600,

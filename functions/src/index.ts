@@ -18,6 +18,18 @@ import {
   migrateAllChurchTenants,
   provisionChurchTenant,
 } from "./churchTenantProvisioning";
+import {
+  memberDocIsActive,
+  memberDocIsPending,
+  resolveMemberPanelAccess,
+} from "./memberAccessPolicy";
+import {
+  churchDocRef,
+  churchMembrosRef,
+  churchUsersIndexRef,
+  readChurchRootData,
+  readUsersIndexSnapshot,
+} from "./churchFirestorePaths";
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -418,10 +430,9 @@ function storagePathFromUrl(rawUrl: string): string | null {
 }
 
 async function getTenantFolderLabel(tenantId: string) {
-  const tenantSnap = await db.collection("tenants").doc(tenantId).get();
-  const tData: any = tenantSnap.data() || {};
+  const tData: any = await readChurchRootData(db, tenantId);
   const createdByCpf =
-    String(tData.createdByCpf || tData.ownerCpf || tData.gestorCpf || "").trim();
+    String(tData.createdByCpf || tData.ownerCpf || tData.gestorCpf || tData.cpf || "").trim();
   const folderLabel = createdByCpf ? `${tenantId}_${createdByCpf}` : tenantId;
   const description = createdByCpf ? `createdByCpf: ${createdByCpf}` : undefined;
   return { folderLabel, description };
@@ -580,7 +591,7 @@ async function ensureTenantDriveFolders(tenantId: string) {
     "auditoria"
   );
 
-  await db.collection("tenants").doc(tenantId).set(
+  await churchDocRef(db, tenantId).set(
     {
       drive: {
         rootId,
@@ -757,7 +768,7 @@ function computeGraceBlockDate(from: Date): Date {
 }
 
 /**
- * Atualiza cobrança/licença em `igrejas` e `tenants` (o app usa principalmente `igrejas`).
+ * Atualiza cobrança/licença em `igrejas/{churchId}`.
  * Pagamento aprovado: grava licenseExpiresAt / nextCharge conforme ciclo (mensal/anual) nos metadados do MP.
  */
 async function updateTenantBilling(
@@ -772,17 +783,14 @@ async function updateTenantBilling(
     mpPaymentId?: string;
   }
 ) {
-  const igRef = db.collection("igrejas").doc(tenantId);
-  const tnRef = db.collection("tenants").doc(tenantId);
-  const [igSnap, tnSnap] = await Promise.all([igRef.get(), tnRef.get()]);
-  const igData: any = igSnap.data() || {};
-  const tnData: any = tnSnap.data() || {};
+  const igRef = churchDocRef(db, tenantId);
+  const igData: any = await readChurchRootData(db, tenantId);
 
   const metaPlan = String(extras.metadataPlanId || "").trim();
   const metaCycle = String(extras.billingCycle || "").trim().toLowerCase();
   const planIdRaw =
     metaPlan ||
-    String(igData.planId || tnData.planId || igData.plano || tnData.plan || "inicial");
+    String(igData.planId || igData.plano || "inicial");
   const planId = planIdRaw.replace(/\s/g, "").toLowerCase() || "inicial";
 
   const licenseStatus =
@@ -849,7 +857,7 @@ async function updateTenantBilling(
   const rootPatch: Record<string, unknown> = {
     planId,
     plano: planId,
-    billingCycle: metaCycle || igData.billingCycle || tnData.billingCycle || null,
+    billingCycle: metaCycle || igData.billingCycle || null,
     license: licensePatch,
     billing: billingPatch,
     status_assinatura:
@@ -869,10 +877,8 @@ async function updateTenantBilling(
   if (dataBloqueioTs) rootPatch.data_bloqueio = dataBloqueioTs;
 
   await igRef.set(rootPatch, { merge: true });
-  await tnRef.set(rootPatch, { merge: true });
 
-  const pendingTrialEnds =
-    igData.trialEndsAt || tnData.trialEndsAt || null;
+  const pendingTrialEnds = igData.trialEndsAt || null;
 
   await upsertSubscription(
     tenantId,
@@ -1060,36 +1066,12 @@ async function resolveFromPublicIndex(cpf: string) {
   ).replace(/"/g, "").trim();
   if (!tenantId) return null;
 
-  let tenant: any = {};
-  const tenantSnap = await db.collection("tenants").doc(tenantId).get();
-  if (tenantSnap.exists) {
-    tenant = tenantSnap.data() || {};
-  } else {
-    const igrejaSnap = await db.collection("igrejas").doc(tenantId).get();
-    if (igrejaSnap.exists) {
-      tenant = igrejaSnap.data() || {};
-    }
-  }
+  let tenant: any = await readChurchRootData(db, tenantId);
 
   let userData: any = {};
-  const userDocTenant = await db
-    .collection("tenants")
-    .doc(tenantId)
-    .collection("usersIndex")
-    .doc(cpf)
-    .get();
-  if (userDocTenant.exists) {
-    userData = userDocTenant.data() || {};
-  } else {
-    const userDocIgreja = await db
-      .collection("igrejas")
-      .doc(tenantId)
-      .collection("usersIndex")
-      .doc(cpf)
-      .get();
-    if (userDocIgreja.exists) {
-      userData = userDocIgreja.data() || {};
-    }
+  const userDocIgreja = await readUsersIndexSnapshot(db, tenantId, cpf);
+  if (userDocIgreja.exists) {
+    userData = userDocIgreja.data() || {};
   }
 
   const name =
@@ -1113,7 +1095,7 @@ async function resolveFromPublicIndex(cpf: string) {
 
 /**
  * ✅ CPF → PERFIL DA IGREJA (CALLABLE)
- * Procura em tenants/{tenantId}/usersIndex/{cpf} (docId ou campo cpf)
+ * Procura em igrejas/{churchId}/usersIndex/{cpf} (docId ou campo cpf)
  */
 export const resolveCpfToChurchPublic = functions
   .region("us-central1")
@@ -1166,16 +1148,7 @@ export const resolveCpfToChurchPublic = functions
         throw new functions.https.HttpsError("internal", "tenantId ausente");
       }
 
-      let tenant: any = {};
-      const tenantSnap = await db.collection("tenants").doc(tenantId).get();
-      if (tenantSnap.exists) {
-        tenant = tenantSnap.data() || {};
-      } else {
-        const igrejaSnap = await db.collection("igrejas").doc(tenantId).get();
-        if (igrejaSnap.exists) {
-          tenant = igrejaSnap.data() || {};
-        }
-      }
+      const tenant: any = await readChurchRootData(db, tenantId);
 
       return {
         tenantId,
@@ -1191,22 +1164,22 @@ export const resolveCpfToChurchPublic = functions
     }
   });
 
-// ✅ Cria pastas do Drive quando uma igreja e criada
-export const onTenantCreate = functions
+// ✅ Cria pastas do Drive quando uma igreja é criada em igrejas/{churchId}
+export const onIgrejaCreate = functions
   .region("us-central1")
-  .firestore.document("tenants/{tenantId}")
+  .firestore.document("igrejas/{churchId}")
   .onCreate(async (_, context) => {
-    const tenantId = context.params.tenantId;
+    const tenantId = context.params.churchId;
     await ensureTenantDriveFolders(tenantId);
     try {
       await ensureChurchWelcomeSeed(db, tenantId);
     } catch (e) {
-      console.error("onTenantCreate ensureChurchWelcomeSeed:", e);
+      console.error("onIgrejaCreate ensureChurchWelcomeSeed:", e);
     }
     try {
-      await provisionChurchTenant(tenantId, { source: "onTenantCreate" });
+      await provisionChurchTenant(tenantId, { source: "onIgrejaCreate" });
     } catch (e) {
-      console.error("onTenantCreate provisionChurchTenant:", e);
+      console.error("onIgrejaCreate provisionChurchTenant:", e);
     }
   });
 
@@ -1254,9 +1227,16 @@ export const provisionChurchTenantCallable = functions
     }
 
     try {
-      return await provisionChurchTenant(tenantId, {
+      const provision = await provisionChurchTenant(tenantId, {
         source: String(data?.source || "provisionChurchTenantCallable"),
       });
+      let welcome = null;
+      try {
+        welcome = await ensureChurchWelcomeSeed(db, tenantId);
+      } catch (e) {
+        console.error("provisionChurchTenantCallable ensureChurchWelcomeSeed:", e);
+      }
+      return { ...provision, welcomeSeed: welcome };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       throw new functions.https.HttpsError("internal", msg);
@@ -1362,6 +1342,11 @@ export const onIgrejaTenantProvision = functions
     } catch (e) {
       console.error("onIgrejaTenantProvision:", tenantId, e);
     }
+    try {
+      await ensureChurchWelcomeSeed(db, tenantId);
+    } catch (e) {
+      console.error("onIgrejaTenantProvision ensureChurchWelcomeSeed:", tenantId, e);
+    }
   });
 
 // ✅ Endpoint manual para recriar pastas no Drive
@@ -1461,32 +1446,20 @@ export const backupDailyToDrive = functions
       "GESTAO_YAHWEH_BKPS_DIARIOS"
     );
     const dailyFolder = await findOrCreateFolder(drive, backupRoot, ymdFolder(new Date()));
-    const tenantsSnap = await db.collection("tenants").get();
+    const tenantsSnap = await db.collection("igrejas").get();
 
     for (const t of tenantsSnap.docs) {
       const tenantId = t.id;
-      const membersSnap = await db
-        .collection("tenants")
-        .doc(tenantId)
-        .collection("members")
-        .get();
-      const usersSnap = await db
-        .collection("tenants")
-        .doc(tenantId)
-        .collection("usersIndex")
-        .get();
+      const membersSnap = await churchDocRef(db, tenantId).collection("membros").get();
+      const usersSnap = await churchDocRef(db, tenantId).collection("usersIndex").get();
 
       const members = membersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const usersIndex = usersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      const fleetVehiclesSnap = await db
-        .collection("tenants")
-        .doc(tenantId)
+      const fleetVehiclesSnap = await churchDocRef(db, tenantId)
         .collection("fleet_vehicles")
         .get();
-      const fleetFuelingsSnap = await db
-        .collection("tenants")
-        .doc(tenantId)
+      const fleetFuelingsSnap = await churchDocRef(db, tenantId)
         .collection("fleet_fuelings")
         .get();
 
@@ -1736,9 +1709,9 @@ export const getChurchStorageUsage = functions
 
     try {
       const [membersSnap, noticiasSnap, usersSnap] = await Promise.all([
-        db.collection("tenants").doc(tenantId).collection("members").count().get(),
+        churchDocRef(db, tenantId).collection("membros").count().get(),
         db.collection("igrejas").doc(tenantId).collection("eventos").count().get(),
-        db.collection("tenants").doc(tenantId).collection("usersIndex").count().get(),
+        churchDocRef(db, tenantId).collection("usersIndex").count().get(),
       ]);
       firestoreCounts.members = membersSnap.data().count ?? 0;
       firestoreCounts.eventos = noticiasSnap.data().count ?? 0;
@@ -2339,12 +2312,10 @@ export const resolveEmailToChurchPublic = functions
           userData.tenantId || userDoc.ref.parent.parent?.id || ""
         );
         if (tenantId) {
-          let churchSnap = await db.collection("igrejas").doc(tenantId).get();
-          if (!churchSnap.exists) {
-            churchSnap = await db.collection("tenants").doc(tenantId).get();
+          const ch: any = await readChurchRootData(db, tenantId);
+          if (Object.keys(ch).length > 0) {
+            return outPayload(tenantId, ch, String(userData.role || "user"));
           }
-          const ch: any = churchSnap.data() || {};
-          return outPayload(tenantId, ch, String(userData.role || "user"));
         }
       }
 
@@ -2361,14 +2332,11 @@ export const resolveEmailToChurchPublic = functions
             u.igrejaId || u.tenantId || u.churchId || ""
           ).trim();
           if (tenantId) {
-            let churchSnap = await db.collection("igrejas").doc(tenantId).get();
-            if (!churchSnap.exists) {
-              churchSnap = await db.collection("tenants").doc(tenantId).get();
-            }
-            if (churchSnap.exists) {
+            const ch: any = await readChurchRootData(db, tenantId);
+            if (Object.keys(ch).length > 0) {
               return outPayload(
                 tenantId,
-                churchSnap.data() || {},
+                ch,
                 String(u.role || "gestor")
               );
             }
@@ -2391,14 +2359,11 @@ export const resolveEmailToChurchPublic = functions
           tenantId = String(claims.igrejaId || claims.tenantId || "").trim();
         }
         if (tenantId) {
-          let churchSnap = await db.collection("igrejas").doc(tenantId).get();
-          if (!churchSnap.exists) {
-            churchSnap = await db.collection("tenants").doc(tenantId).get();
-          }
-          if (churchSnap.exists) {
+          const ch: any = await readChurchRootData(db, tenantId);
+          if (Object.keys(ch).length > 0) {
             return outPayload(
               tenantId,
-              churchSnap.data() || {},
+              ch,
               String(u.role || claims.role || "user")
             );
           }
@@ -2452,10 +2417,7 @@ export const resolveEmailToChurchPublic = functions
         const parent = mq.docs[0].ref.parent.parent;
         const tid = parent ? String(parent.id) : "";
         if (tid) {
-          let churchSnap = await db.collection("igrejas").doc(tid).get();
-          if (!churchSnap.exists) {
-            churchSnap = await db.collection("tenants").doc(tid).get();
-          }
+          const churchSnap = await db.collection("igrejas").doc(tid).get();
           if (churchSnap.exists) {
             return outPayload(tid, churchSnap.data() || {}, "membro");
           }
@@ -2798,12 +2760,8 @@ export const syncMemberRoleClaims = functions
       return { ok: true, skipped: true, reason: "no_authUid" };
     }
 
-    const status = String(
-      memberData.STATUS || memberData.status || ""
-    ).toLowerCase();
-    const reallyAtivo =
-      status === "ativo" || (status !== "pendente" && status !== "reprovado");
-    const pendingApproval = status === "pendente";
+    const reallyAtivo = memberDocIsActive(memberData as Record<string, unknown>);
+    const pendingApproval = memberDocIsPending(memberData as Record<string, unknown>);
 
     const panelRole = await computeEffectivePanelRoleFromMembroServer(
       tenantId,
@@ -2887,18 +2845,7 @@ export const syncMemberRoleClaims = functions
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     if (cpf.length === 11) {
-      await db
-        .collection("tenants")
-        .doc(tenantId)
-        .collection("usersIndex")
-        .doc(cpf)
-        .set(indexPayload, { merge: true });
-      await db
-        .collection("igrejas")
-        .doc(tenantId)
-        .collection("usersIndex")
-        .doc(cpf)
-        .set(indexPayload, { merge: true });
+      await churchUsersIndexRef(db, tenantId, cpf).set(indexPayload, { merge: true });
     }
 
     return {
@@ -3034,13 +2981,9 @@ export const setUserRole = functions
       );
     }
 
-    const userIndexRef = db
-      .collection("tenants")
-      .doc(tenantId)
-      .collection("usersIndex")
-      .doc(cpf);
+    const userIndexRef = churchUsersIndexRef(db, tenantId, cpf);
 
-    const userIndexSnap = await userIndexRef.get();
+    const userIndexSnap = await readUsersIndexSnapshot(db, tenantId, cpf);
     if (!userIndexSnap.exists) {
       throw new functions.https.HttpsError("not-found", "Usuario nao encontrado");
     }
@@ -3116,13 +3059,9 @@ export const setUserActive = functions
       );
     }
 
-    const userIndexRef = db
-      .collection("tenants")
-      .doc(tenantId)
-      .collection("usersIndex")
-      .doc(cpf);
+    const userIndexRef = churchUsersIndexRef(db, tenantId, cpf);
 
-    const userIndexSnap = await userIndexRef.get();
+    const userIndexSnap = await readUsersIndexSnapshot(db, tenantId, cpf);
     if (!userIndexSnap.exists) {
       throw new functions.https.HttpsError("not-found", "Usuário não encontrado");
     }
@@ -3277,12 +3216,7 @@ export const upsertTenantUser = functions
       );
     }
 
-    await db
-      .collection("tenants")
-      .doc(tenantId)
-      .collection("usersIndex")
-      .doc(cpf)
-      .set(
+    await churchUsersIndexRef(db, tenantId, cpf).set(
         {
           uid,
           cpf,
@@ -3350,13 +3284,9 @@ export const createUserSignupInvite = functions
       );
     }
 
-    const userIndexRef = db
-      .collection("tenants")
-      .doc(tenantId)
-      .collection("usersIndex")
-      .doc(cpf);
+    const userIndexRef = churchUsersIndexRef(db, tenantId, cpf);
 
-    const userIndexSnap = await userIndexRef.get();
+    const userIndexSnap = await readUsersIndexSnapshot(db, tenantId, cpf);
     if (!userIndexSnap.exists) {
       throw new functions.https.HttpsError(
         "not-found",
@@ -3384,9 +3314,7 @@ export const createUserSignupInvite = functions
       nowMs + expiresInDays * 24 * 60 * 60 * 1000
     );
 
-    const inviteRef = db
-      .collection("tenants")
-      .doc(tenantId)
+    const inviteRef = churchDocRef(db, tenantId)
       .collection("userSignupInvites")
       .doc(token);
 
@@ -3559,11 +3487,7 @@ export const consumeUserSignupInvite = functions
       throw new functions.https.HttpsError("deadline-exceeded", "Convite expirado");
     }
 
-    const userIndexRef = db
-      .collection("tenants")
-      .doc(tenantId)
-      .collection("usersIndex")
-      .doc(cpf);
+    const userIndexRef = churchUsersIndexRef(db, tenantId, cpf);
     const userIndexSnap = await userIndexRef.get();
     if (!userIndexSnap.exists) {
       throw new functions.https.HttpsError(
@@ -3756,27 +3680,15 @@ async function finalizeNewChurchForGestorCore(params: {
     tenantId,
     churchId: tenantId,
     cnpjCpf: igrejaDoc || null,
+    cpf: cpfRaw,
+    email,
+    registrationComplete: false,
     ativa: true,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
 
-  await db.collection("igrejas").doc(tenantId).set(igrejaPayload, { merge: true });
-  // Padrão tenant: alias, cpf, email, name, nome, slug, updatedAt (logo não obrigatório no começo).
-  // registrationComplete: false → exige completar cadastro da igreja no painel antes de qualquer lançamento.
-  await db.collection("tenants").doc(tenantId).set(
-    {
-      name: igrejaNome,
-      nome: igrejaNome,
-      slug,
-      alias: slug,
-      cpf: cpfRaw,
-      email,
-      registrationComplete: false,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
+  await churchDocRef(db, tenantId).set(igrejaPayload, { merge: true });
 
   await db.collection("subscriptions").add({
     igrejaId: tenantId,
@@ -3813,7 +3725,7 @@ async function finalizeNewChurchForGestorCore(params: {
     { merge: true }
   );
 
-  const usersIndexRef = db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpfRaw);
+  const usersIndexRef = churchDocRef(db, tenantId).collection("usersIndex").doc(cpfRaw);
   await usersIndexRef.set(
     {
       uid,
@@ -4146,7 +4058,7 @@ export const seedGestorBrasilParaCristo = functions
       isDriver: false,
     });
 
-    const usersIndexRef = db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpf);
+    const usersIndexRef = churchDocRef(db, tenantId).collection("usersIndex").doc(cpf);
     await usersIndexRef.set(
       {
         uid: authUser.uid,
@@ -4168,7 +4080,7 @@ export const seedGestorBrasilParaCristo = functions
     );
 
     // Já existe cadastro em members — só acrescentar perfil gestor (merge para não sobrescrever)
-    const membersRef = db.collection("tenants").doc(tenantId).collection("members").doc(cpf);
+    const membersRef = churchDocRef(db, tenantId).collection("membros").doc(cpf);
     await membersRef.set(
       {
         role,
@@ -4249,7 +4161,7 @@ export const syncGestorBrasilParaCristo = functions
       { merge: true }
     );
 
-    const usersIndexRef = db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpf);
+    const usersIndexRef = churchDocRef(db, tenantId).collection("usersIndex").doc(cpf);
     await usersIndexRef.set(
       {
         uid,
@@ -4301,8 +4213,8 @@ async function applyMemberAuthSideEffects(
   memberData: DocumentData,
   authUser: admin.auth.UserRecord
 ): Promise<void> {
-  const status = String(memberData.STATUS || memberData.status || "").toLowerCase();
-  const reallyAtivo = status === "ativo" || (status !== "pendente" && status !== "reprovado");
+  const reallyAtivo = memberDocIsActive(memberData as Record<string, unknown>);
+  const pendingApproval = memberDocIsPending(memberData as Record<string, unknown>);
   const cpf = String(memberData.CPF || memberData.cpf || "").replace(/\D/g, "");
   const nome = String(memberData.NOME_COMPLETO || memberData.nome || memberData.name || "").trim();
   await admin.auth().setCustomUserClaims(authUid, {
@@ -4312,7 +4224,7 @@ async function applyMemberAuthSideEffects(
     active: reallyAtivo,
     isUser: true,
     isDriver: false,
-    pendingApproval: status === "pendente",
+    pendingApproval,
     // Firestore rules: troca de escala / confirmação usam CPF quando users/{uid}.cpf ainda vazio
     ...(cpf.length === 11 ? { cpf } : {}),
   });
@@ -4329,6 +4241,7 @@ async function applyMemberAuthSideEffects(
       displayName: nome,
       nomeCompleto: nome,
       ativo: reallyAtivo,
+      active: reallyAtivo,
     },
     { merge: true }
   );
@@ -4343,22 +4256,12 @@ async function applyMemberAuthSideEffects(
     tenantId,
     role: "membro",
     active: reallyAtivo,
-    pendingApproval: status === "pendente",
+    ativo: reallyAtivo,
+    pendingApproval,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
   if (cpf.length === 11) {
-    await db
-      .collection("tenants")
-      .doc(tenantId)
-      .collection("usersIndex")
-      .doc(cpf)
-      .set(indexPayload, { merge: true });
-    await db
-      .collection("igrejas")
-      .doc(tenantId)
-      .collection("usersIndex")
-      .doc(cpf)
-      .set(indexPayload, { merge: true });
+    await churchUsersIndexRef(db, tenantId, cpf).set(indexPayload, { merge: true });
   }
 }
 
@@ -4400,7 +4303,7 @@ async function findMemberDocumentInTenant(
 
   const legacy = [
     db.collection("igrejas").doc(tid).collection("members").doc(mid),
-    db.collection("tenants").doc(tid).collection("members").doc(mid),
+    churchDocRef(db, tid).collection("members").doc(mid),
   ];
   for (const ref of legacy) {
     const snap = await ref.get();
@@ -4976,7 +4879,7 @@ export const recreateMemberAuthForNewEmail = functions
         pendingApproval: status === "pendente",
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       };
-      await db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpf).set(idx, {
+      await churchDocRef(db, tenantId).collection("usersIndex").doc(cpf).set(idx, {
         merge: true,
       });
       await db.collection("igrejas").doc(tenantId).collection("usersIndex").doc(cpf).set(idx, {
@@ -5233,7 +5136,7 @@ export const purgeMemberFirebaseLogin = functions.region("us-central1").https.on
 
   if (cpf.length === 11) {
     try {
-      await db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpf).delete();
+      await churchDocRef(db, tenantId).collection("usersIndex").doc(cpf).delete();
     } catch (_) {}
     try {
       await db.collection("igrejas").doc(tenantId).collection("usersIndex").doc(cpf).delete();
@@ -5437,18 +5340,7 @@ export const setMemberApproved = functions
     const cpf = String(d.CPF || d.cpf || "").replace(/\D/g, "");
     if (cpf.length === 11) {
       const idx = { active: true, pendingApproval: false };
-      await db
-        .collection("tenants")
-        .doc(tenantId)
-        .collection("usersIndex")
-        .doc(cpf)
-        .set(idx, { merge: true });
-      await db
-        .collection("igrejas")
-        .doc(tenantId)
-        .collection("usersIndex")
-        .doc(cpf)
-        .set(idx, { merge: true });
+      await churchUsersIndexRef(db, tenantId, cpf).set(idx, { merge: true });
     }
     return {
       ok: true,
@@ -5563,7 +5455,7 @@ export const getMemberEmailForReset = functions
         q = await db.collection("igrejas").doc(tenantId).collection("membros").where("cpf", "==", cpfDigits).limit(1).get();
       }
       if (q.empty) {
-        q = await db.collection("tenants").doc(tenantId).collection("members").where("CPF", "==", cpfDigits).limit(1).get();
+        q = await churchDocRef(db, tenantId).collection("membros").where("CPF", "==", cpfDigits).limit(1).get();
       }
       if (!q.empty && q.docs[0].data()?.authUid) {
         email = (q.docs[0].data()?.EMAIL as string) || (q.docs[0].data()?.email as string) || null;
@@ -5577,7 +5469,7 @@ export const getMemberEmailForReset = functions
 
 /**
  * ✅ Garante acesso completo ao banco para o gestor Brasil para Cristo (CPF 94536368191, raihom@gmail.com).
- * Cria/atualiza: igrejas, tenants, usersIndex, users, publicCpfIndex, subscription e custom claims.
+ * Cria/atualiza: igrejas, usersIndex, users, publicCpfIndex, subscription e custom claims.
  * Chamar uma vez (como MASTER ou logado como raihom@gmail.com) para corrigir o acesso.
  */
 export const ensureBrasilParaCristoAccess = functions
@@ -5611,21 +5503,11 @@ export const ensureBrasilParaCristoAccess = functions
       email: email.toLowerCase(),
       gestorEmail: email.toLowerCase(),
       emailGestor: email.toLowerCase(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-    await db.collection("igrejas").doc(tenantId).set(igrejaPayload, { merge: true });
-
-    const tenantPayload = {
-      name,
-      nome: name,
-      slug: tenantId,
-      alias: tenantId,
-      email: email.toLowerCase(),
       cpf,
       gestorNome: gestorName,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
-    await db.collection("tenants").doc(tenantId).set(tenantPayload, { merge: true });
+    await churchDocRef(db, tenantId).set(igrejaPayload, { merge: true });
 
     await db.doc(`publicCpfIndex/${cpf}`).set(
       {
@@ -5649,7 +5531,7 @@ export const ensureBrasilParaCristoAccess = functions
     }
 
     // Sempre grava usersIndex para CPF e e-mail encontrarem o perfil (resolveCpfToChurchPublic / resolveEmailToChurchPublic)
-    const usersIndexRef = db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpf);
+    const usersIndexRef = churchDocRef(db, tenantId).collection("usersIndex").doc(cpf);
     await usersIndexRef.set(
       {
         ...(authUser ? { uid: authUser.uid } : {}),
@@ -6126,22 +6008,47 @@ export const getUserProfile = functions
         memberData = (memberSnap.data() || {}) as Record<string, unknown>;
       }
       if (!memberSnap.exists && authEmail) {
-        for (const field of ["email", "EMAIL", "mail"]) {
-          try {
-            const byEmail = await db
-              .collection("igrejas")
-              .doc(igrejaId)
-              .collection("membros")
-              .where(field, "==", authEmail)
-              .limit(1)
-              .get();
-            if (!byEmail.empty) {
-              memberData = byEmail.docs[0].data() as Record<string, unknown>;
-              break;
+        const emailRaw = String((context.auth.token?.email as string) || "").trim();
+        const emailCandidates =
+          emailRaw.toLowerCase() === emailRaw
+            ? [authEmail]
+            : [authEmail, emailRaw.toLowerCase(), emailRaw];
+        for (const emailVal of emailCandidates) {
+          if (!emailVal) continue;
+          for (const field of ["email", "EMAIL", "mail"]) {
+            try {
+              const byEmail = await db
+                .collection("igrejas")
+                .doc(igrejaId)
+                .collection("membros")
+                .where(field, "==", emailVal)
+                .limit(1)
+                .get();
+              if (!byEmail.empty) {
+                memberData = byEmail.docs[0].data() as Record<string, unknown>;
+                break;
+              }
+            } catch (_) {
+              /* índice ausente */
             }
-          } catch (_) {
-            /* índice ausente */
           }
+          if (memberData) break;
+        }
+      }
+      if (!memberData) {
+        try {
+          const byAuthUid = await db
+            .collection("igrejas")
+            .doc(igrejaId)
+            .collection("membros")
+            .where("authUid", "==", uid)
+            .limit(1)
+            .get();
+          if (!byAuthUid.empty) {
+            memberData = byAuthUid.docs[0].data() as Record<string, unknown>;
+          }
+        } catch (_) {
+          /* índice ausente */
         }
       }
       if (!memberData && cpfDigits.length === 11) {
@@ -6155,12 +6062,6 @@ export const getUserProfile = functions
       }
 
       if (memberData) {
-        const status = String(memberData.STATUS || memberData.status || "").toLowerCase();
-        if (status === "ativo") active = true;
-        if (status === "pendente") {
-          active = false;
-          memberStatusPending = true;
-        }
         podeVerFinanceiro = memberData.podeVerFinanceiro === true;
         podeVerPatrimonio = memberData.podeVerPatrimonio === true;
         podeVerFornecedores = memberData.podeVerFornecedores === true;
@@ -6173,21 +6074,18 @@ export const getUserProfile = functions
         if (!role) role = String(memberData.role || memberData.ROLE || "").trim();
       }
 
-      const roleNorm = String(role || "").trim().toLowerCase();
-      const gestorRoles = new Set([
-        "gestor",
-        "master",
-        "admin",
-        "adm",
-        "administrador",
-        "pastor",
-        "lider",
-        "líder",
-      ]);
-      if (isProductMaster || gestorRoles.has(roleNorm)) {
-        active = true;
-        memberStatusPending = false;
-      } else if (authEmail && churchData) {
+      const access = resolveMemberPanelAccess({
+        userAtivo: userData.ativo === true,
+        userActive: userData.active === true,
+        claimsActive: context.auth.token?.active === true,
+        role,
+        memberData,
+        isProductMaster,
+      });
+      active = access.active;
+      memberStatusPending = access.memberStatusPending;
+
+      if (!active && authEmail && churchData) {
         for (const k of [
           "gestorEmail",
           "emailGestor",
@@ -6719,17 +6617,7 @@ export const autoGenerateEvents = functions
  * Resolve tenant ID por slug ou nome (ex.: "brasil-para-cristo" ou "Brasil para Cristo").
  */
 async function resolveTenantIdBySlugOrName(slugOrName: string): Promise<string | null> {
-  const s = String(slugOrName || "").trim().toLowerCase();
-  if (!s) return null;
-  const sAsName = s.replace(/-/g, " ");
-  const tenantsSnap = await db.collection("tenants").get();
-  for (const doc of tenantsSnap.docs) {
-    const d = doc.data();
-    const slug = String(d.slug ?? d.alias ?? "").trim().toLowerCase();
-    const name = String(d.name ?? d.nome ?? "").trim().toLowerCase();
-    if (slug === s || slug === sAsName || name.includes(s) || name.includes(sAsName) || s.includes(name) || sAsName.includes(name)) return doc.id;
-  }
-  return null;
+  return resolveIgrejaIdBySlugOrName(slugOrName);
 }
 
 /** Resolve ID do documento em igrejas por slug, nome ou id (ex.: brasil-para-cristo). */
@@ -6753,13 +6641,8 @@ async function resolveChurchIdForMigration(
   targetSlugParam: string
 ): Promise<string | null> {
   if (targetTenantIdParam) {
-    const ig = await db.collection("igrejas").doc(targetTenantIdParam).get();
+    const ig = await churchDocRef(db, targetTenantIdParam).get();
     if (ig.exists) return targetTenantIdParam;
-    const tn = await db.collection("tenants").doc(targetTenantIdParam).get();
-    if (tn.exists) {
-      const ig2 = await db.collection("igrejas").doc(targetTenantIdParam).get();
-      if (ig2.exists) return targetTenantIdParam;
-    }
   }
   if (targetSlugParam) {
     let id = await resolveIgrejaIdBySlugOrName(targetSlugParam);

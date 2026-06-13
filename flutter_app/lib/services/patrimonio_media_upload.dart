@@ -2,30 +2,17 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_media_upload.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
-
-/// Resultado de upload de galeria — um ficheiro por slot na pasta do bem.
-class PatrimonioGalleryUploadResult {
-  const PatrimonioGalleryUploadResult({
-    required this.downloadUrl,
-    required this.storagePath,
-    required this.slotIndex,
-  });
-
-  final String downloadUrl;
-  final String storagePath;
-  final int slotIndex;
-}
+import 'package:gestao_yahweh/services/upload_bytes_core.dart';
 
 /// Upload patrimônio — `igrejas/{churchId}/patrimonio/{itemId}/galeria_XX.webp`.
+/// Retry directo (sem fila bloqueante) — evita travar em ~28% na 2.ª foto.
 abstract final class PatrimonioMediaUpload {
   PatrimonioMediaUpload._();
 
-  static const Duration uploadTimeout = Duration(seconds: 45);
-  static const Duration batchTimeout = Duration(minutes: 3);
+  static const Duration uploadTimeout = Duration(seconds: 60);
 
-  /// Fotos já comprimidas no picker (WebP ~1024px) — evita reprocessar no save.
   static Future<PatrimonioGalleryUploadResult> uploadGalleryPhoto({
     required String churchId,
     required String itemDocId,
@@ -48,26 +35,18 @@ abstract final class PatrimonioMediaUpload {
       );
     }
 
+    await FirebaseBootstrapService.ensureStorageAlwaysLinked(refreshAuthToken: true);
+
     final path = ChurchStorageLayout.patrimonioPhotoPath(cid, iid, slotIndex);
 
-    final Future<String> uploadFuture;
-    if (skipPrepare) {
-      uploadFuture = EcoFireMediaUpload.uploadPreparedWebp(
-        storagePath: path,
-        bytes: rawBytes,
-        onProgress: onProgress,
-      );
-    } else {
-      uploadFuture = EcoFireMediaUpload.uploadBytes(
-        storagePath: path,
-        bytes: rawBytes,
-        contentType: 'image/webp',
-        profile: EcoFireMediaProfile.patrimonio,
-        onProgress: onProgress,
-      );
-    }
-
-    final url = await uploadFuture.timeout(
+    final url = await uploadStoragePutDataWithRetry(
+      storagePath: path,
+      bytes: rawBytes,
+      contentType: 'image/webp',
+      maxAttempts: 4,
+      useOfflineQueue: false,
+      onProgress: onProgress,
+    ).timeout(
       uploadTimeout,
       onTimeout: () => throw TimeoutException(
         'Upload da foto ${slotIndex + 1} demorou demais. Verifique a rede.',
@@ -81,7 +60,6 @@ abstract final class PatrimonioMediaUpload {
     );
   }
 
-  /// Até 4 fotos em sequência — evita deadlock do 5.º slot e garante conclusão.
   static Future<List<PatrimonioGalleryUploadResult>> uploadGalleryPhotosSequential({
     required String churchId,
     required String itemDocId,
@@ -113,4 +91,17 @@ abstract final class PatrimonioMediaUpload {
     onBatchProgress?.call(1.0);
     return results;
   }
+}
+
+/// Resultado de upload de galeria — um ficheiro por slot na pasta do bem.
+class PatrimonioGalleryUploadResult {
+  const PatrimonioGalleryUploadResult({
+    required this.downloadUrl,
+    required this.storagePath,
+    required this.slotIndex,
+  });
+
+  final String downloadUrl;
+  final String storagePath;
+  final int slotIndex;
 }

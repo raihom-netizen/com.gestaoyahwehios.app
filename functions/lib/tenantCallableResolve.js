@@ -35,9 +35,8 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveTenantIdForCallable = resolveTenantIdForCallable;
 exports.userCanAccessTenant = userCanAccessTenant;
-const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
-const db = admin.firestore();
+const adminDb_1 = require("./adminDb");
 /** Resolve igreja do utilizador (claims → body → users → membros). Mobile costuma falhar só com claims. */
 async function resolveTenantIdForCallable(auth, dataTenantId) {
     const uid = auth.uid;
@@ -46,16 +45,16 @@ async function resolveTenantIdForCallable(auth, dataTenantId) {
         .toLowerCase();
     const fromBody = String(dataTenantId || "").trim();
     if (fromBody && (await userCanAccessTenant(uid, email, fromBody))) {
-        const ig = await db.collection("igrejas").doc(fromBody).get();
+        const ig = await (0, adminDb_1.fs)().collection("igrejas").doc(fromBody).get();
         if (ig.exists)
             return fromBody;
     }
     try {
-        const tokenUser = await admin.auth().getUser(uid);
+        const tokenUser = await adminDb_1.admin.auth().getUser(uid);
         const claims = (tokenUser.customClaims || {});
         const fromClaims = String(claims.igrejaId || claims.tenantId || "").trim();
         if (fromClaims) {
-            const ig = await db.collection("igrejas").doc(fromClaims).get();
+            const ig = await (0, adminDb_1.fs)().collection("igrejas").doc(fromClaims).get();
             if (ig.exists)
                 return fromClaims;
         }
@@ -63,17 +62,17 @@ async function resolveTenantIdForCallable(auth, dataTenantId) {
     catch (e) {
         functions.logger.warn("resolveTenantIdForCallable: claims", { uid, e });
     }
-    const userSnap = await db.collection("users").doc(uid).get();
+    const userSnap = await (0, adminDb_1.fs)().collection("users").doc(uid).get();
     if (userSnap.exists) {
         const d = userSnap.data() || {};
         const tid = String(d.igrejaId || d.tenantId || "").trim();
         if (tid) {
-            const ig = await db.collection("igrejas").doc(tid).get();
+            const ig = await (0, adminDb_1.fs)().collection("igrejas").doc(tid).get();
             if (ig.exists)
                 return tid;
         }
     }
-    const membrosCg = await db
+    const membrosCg = await (0, adminDb_1.fs)()
         .collectionGroup("membros")
         .where("authUid", "==", uid)
         .limit(8)
@@ -83,13 +82,13 @@ async function resolveTenantIdForCallable(auth, dataTenantId) {
         if (parts[0] !== "igrejas" || parts[2] !== "membros")
             continue;
         const tid = parts[1];
-        const ig = await db.collection("igrejas").doc(tid).get();
+        const ig = await (0, adminDb_1.fs)().collection("igrejas").doc(tid).get();
         if (ig.exists)
             return tid;
     }
     if (email) {
         for (const field of ["email", "gestorEmail", "emailGestor"]) {
-            const q = await db
+            const q = await (0, adminDb_1.fs)()
                 .collection("igrejas")
                 .where(field, "==", email)
                 .limit(1)
@@ -104,10 +103,10 @@ async function userCanAccessTenant(uid, email, tenantId) {
     const tid = String(tenantId || "").trim();
     if (!tid)
         return false;
-    const ig = await db.collection("igrejas").doc(tid).get();
+    const ig = await (0, adminDb_1.fs)().collection("igrejas").doc(tid).get();
     if (!ig.exists)
         return false;
-    const byUid = await db
+    const byUid = await (0, adminDb_1.fs)()
         .collection("igrejas")
         .doc(tid)
         .collection("membros")
@@ -115,7 +114,7 @@ async function userCanAccessTenant(uid, email, tenantId) {
         .get();
     if (byUid.exists)
         return true;
-    const tenantUser = await db
+    const tenantUser = await (0, adminDb_1.fs)()
         .collection("igrejas")
         .doc(tid)
         .collection("users")
@@ -123,13 +122,13 @@ async function userCanAccessTenant(uid, email, tenantId) {
         .get();
     if (tenantUser.exists)
         return true;
-    const rootUser = await db.collection("users").doc(uid).get();
+    const rootUser = await (0, adminDb_1.fs)().collection("users").doc(uid).get();
     if (rootUser.exists) {
         const d = rootUser.data() || {};
         if (String(d.igrejaId || d.tenantId || "").trim() === tid)
             return true;
     }
-    const cg = await db
+    const cg = await (0, adminDb_1.fs)()
         .collectionGroup("membros")
         .where("authUid", "==", uid)
         .limit(4)

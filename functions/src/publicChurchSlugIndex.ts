@@ -48,6 +48,15 @@ export async function syncPublicChurchSlugIndexForChurch(
 
   const churchName = pickString(data, ["nome", "name", "NOME_IGREJA", "nomeIgreja"]);
   const logoUrl = pickString(data, ["logoUrl", "logo_url", "churchLogoUrl"]);
+  const endereco = pickString(data, ["endereco", "address", "ENDERECO"]);
+  const rua = pickString(data, ["rua", "logradouro"]);
+  const bairro = pickString(data, ["bairro"]);
+  const cidade = pickString(data, ["cidade", "city"]);
+  const estado = pickString(data, ["estado", "uf"]);
+  const cep = pickString(data, ["cep"]);
+  const churchAddress =
+    endereco ||
+    [rua, bairro, cidade, estado, cep].filter(Boolean).join(", ");
 
   const batch = db.batch();
   for (const key of slugKeys) {
@@ -55,11 +64,15 @@ export async function syncPublicChurchSlugIndexForChurch(
     batch.set(
       db.collection("public_church_slugs").doc(key),
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         churchId: tid,
         slug: key,
         churchName,
         logoUrl: logoUrl || null,
+        churchAddress: churchAddress || null,
+        endereco: endereco || null,
+        cidade: cidade || null,
+        estado: estado || null,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true },

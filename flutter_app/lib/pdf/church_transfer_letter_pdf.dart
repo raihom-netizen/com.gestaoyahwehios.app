@@ -36,11 +36,15 @@ Future<pw.Font?> _loadSerifBodyFont() async {
 }
 
 /// Pré-aquece fontes PDF (Roboto + serif) — chamar ao abrir Cartas.
+bool _churchLetterPdfAssetsWarmed = false;
+
 Future<void> warmChurchLetterPdfAssets() async {
+  if (_churchLetterPdfAssetsWarmed) return;
   await Future.wait([
     PdfSuperPremiumTheme.loadRobotoPdfTheme(),
     _loadSerifBodyFont(),
   ]);
+  _churchLetterPdfAssetsWarmed = true;
 }
 
 /// Gera PDF de carta de apresentação ou transferência (cabeçalho premium + logo).
@@ -52,10 +56,11 @@ Future<Uint8List> buildChurchTransferLetterPdf({
   Uint8List? signatureImageBytes,
   bool reserveManualSignatureSpace = false,
 }) async {
-  await PdfSuperPremiumTheme.loadRobotoPdfTheme();
+  if (!_churchLetterPdfAssetsWarmed) {
+    await warmChurchLetterPdfAssets();
+  }
   final doc = await PdfSuperPremiumTheme.newPdfDocument();
-
-  final serifBody = await _loadSerifBodyFont();
+  final serifBody = _cachedSerifBodyFont ?? await _loadSerifBodyFont();
 
   final extra = _churchHeaderExtraLines(churchData);
   final ink = PdfColor.fromInt(0xFF1E293B);

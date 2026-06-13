@@ -167,7 +167,9 @@ abstract final class ChurchProfileLoader {
     } catch (_) {}
 
     final directScore = TenantResolverService.churchProfileRichnessScore(data);
-    if (directScore < 6) {
+    // Web: cache IndexedDB pode estar incompleto — sempre tentar servidor.
+    final needsServerRead = kIsWeb || directScore < 6;
+    if (needsServerRead) {
       try {
         Future<DocumentSnapshot<Map<String, dynamic>>> readServer() =>
             FirestoreReadResilience.getDocument(
@@ -190,9 +192,12 @@ abstract final class ChurchProfileLoader {
           docConfirmedMissing = true;
         } else if (snap.data() != null) {
           final fresh = Map<String, dynamic>.from(snap.data()!);
-          if (TenantResolverService.churchProfileRichnessScore(fresh) >
-                  directScore ||
-              data.isEmpty) {
+          final freshScore =
+              TenantResolverService.churchProfileRichnessScore(fresh);
+          if (kIsWeb) {
+            data = fresh;
+            readSource = snap.metadata.isFromCache ? 'cache' : 'server';
+          } else if (freshScore > directScore || data.isEmpty) {
             data = fresh;
             readSource = snap.metadata.isFromCache ? 'cache' : 'server';
           }

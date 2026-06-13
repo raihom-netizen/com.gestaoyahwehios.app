@@ -365,6 +365,15 @@ abstract final class ChurchFinanceLoadService {
     }
 
     Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
+      if (kIsWeb) {
+        final plain = await FirestoreReadResilience.getQuery(
+          plainQuery(reference),
+          cacheKey: '${cacheKey}_plain',
+          maxAttempts: 4,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        );
+        if (plain.docs.isNotEmpty) return plain;
+      }
       try {
         return await FirestoreReadResilience.getQuery(
           orderedQuery(reference),

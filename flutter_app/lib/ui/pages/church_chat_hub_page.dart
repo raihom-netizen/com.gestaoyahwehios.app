@@ -1174,17 +1174,24 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       final docs = await ChurchChatHubDepartmentsService.loadDocs(
         seedTenantId: seed,
       );
-      if (!mounted || docs.isEmpty) return;
-      _ChatHubDepartmentsRamCache.put(ChurchPanelTenant.resolve(seed), docs);
-      setState(() {
-        _departments = _entriesFromDeptDocs(docs);
-        _departmentsLoading = false;
-      });
-      final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
-      if (uid.isNotEmpty) {
-        unawaited(_ensureDeptThreadsBackground(seed, uid, _departments));
+      if (!mounted) return;
+      if (docs.isNotEmpty) {
+        _ChatHubDepartmentsRamCache.put(ChurchPanelTenant.resolve(seed), docs);
+        setState(() {
+          _departments = _entriesFromDeptDocs(docs);
+          _departmentsLoading = false;
+        });
+        final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+        if (uid.isNotEmpty) {
+          unawaited(_ensureDeptThreadsBackground(seed, uid, _departments));
+        }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (!mounted) return;
+      if (_departments.isEmpty) {
+        setState(() => _departmentsLoading = false);
+      }
+    }
   }
 
   Future<void> _syncAllDepartmentsForLeadership(String tid, String uid) async {

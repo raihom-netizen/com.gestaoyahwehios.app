@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
@@ -1047,12 +1048,20 @@ class _FornecedoresPageState extends State<FornecedoresPage>
       );
 
   Future<void> _bootstrapTenant() async {
-    await ChurchTenantResilientReads.preparePanelRead();
-    final resolved = ChurchPanelTenant.resolve(widget.tenantId).trim();
+    final resolved = ChurchRepository.churchId(widget.tenantId).trim().isNotEmpty
+        ? ChurchRepository.churchId(widget.tenantId)
+        : ChurchPanelTenant.resolve(widget.tenantId).trim();
     if (resolved.isEmpty) return;
     if (!mounted) return;
-    setState(() => _resolvedTenantId = resolved);
+    if (_resolvedTenantId != resolved) {
+      setState(() => _resolvedTenantId = resolved);
+    }
     _seedFornecedoresFirstPaint(resolved);
+    if (kIsWeb) {
+      unawaited(
+        FirestoreWebGuard.ensurePanelReadReady().catchError((_) {}),
+      );
+    }
   }
 
   void _seedFornecedoresFirstPaint(String tid) {

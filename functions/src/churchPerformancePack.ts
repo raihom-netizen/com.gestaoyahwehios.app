@@ -5,13 +5,10 @@
  * Modelo real: `igrejas/{tenant}/avisos|noticias|membros|chat_media/…`
  * (não `posts` / `members` genéricos da spec de referência).
  */
-import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
 import sharp from "sharp";
+import { admin, fs, storageBucket } from "./adminDb";
 import { resolveTenantIdForCallable } from "./tenantCallableResolve";
-
-const db = admin.firestore();
-const bucket = admin.storage().bucket();
 
 const WEBP_Q = 70;
 const TIERS = [
@@ -34,7 +31,7 @@ function isVariantPath(name: string): boolean {
 }
 
 async function saveWebp(destPath: string, buffer: Buffer): Promise<string> {
-  const file = bucket.file(destPath);
+  const file = storageBucket().file(destPath);
   const token = admin.firestore().collection("_meta").doc().id;
   await file.save(buffer, {
     metadata: {
@@ -45,7 +42,7 @@ async function saveWebp(destPath: string, buffer: Buffer): Promise<string> {
     resumable: false,
   });
   const encoded = encodeURIComponent(destPath);
-  return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encoded}?alt=media&token=${token}`;
+  return `https://firebasestorage.googleapis.com/v0/b/${storageBucket().name}/o/${encoded}?alt=media&token=${token}`;
 }
 
 async function processMemberProfile(
@@ -53,7 +50,7 @@ async function processMemberProfile(
   memberId: string,
   srcPath: string,
 ): Promise<void> {
-  const [buf] = await bucket.file(srcPath).download();
+  const [buf] = await storageBucket().file(srcPath).download();
   if (!buf || buf.length < 32) return;
 
   const fullPath = `igrejas/${tenantId}/membros/fotos/${memberId}.webp`;
@@ -66,7 +63,7 @@ async function processMemberProfile(
     saveWebp(fullPath, fullBuf),
     saveWebp(thumbPath, thumbBuf),
   ]);
-  await db
+  await fs()
     .collection("igrejas")
     .doc(tenantId)
     .collection("membros")
@@ -93,7 +90,7 @@ async function processFeedImage(
   baseName: string,
   srcPath: string,
 ): Promise<void> {
-  const [buf] = await bucket.file(srcPath).download();
+  const [buf] = await storageBucket().file(srcPath).download();
   if (!buf || buf.length < 32) return;
 
   const folder = collection === "avisos" ? "avisos" : "eventos";
@@ -112,7 +109,7 @@ async function processFeedImage(
   const primary = await saveWebp(dest, out);
 
   const col = collection === "avisos" ? "avisos" : "eventos";
-  const ref = db.collection("igrejas").doc(tenantId).collection(col).doc(postId);
+  const ref = fs().collection("igrejas").doc(tenantId).collection(col).doc(postId);
   const snap = await ref.get();
   if (!snap.exists) return;
 
@@ -264,7 +261,7 @@ export const compressVideo = functions
     const slot = Number(m[3]);
     const thumbPath = `igrejas/${tenantId}/eventos/thumbs/${postId}_v${slot}.webp`;
 
-    await db
+    await fs()
       .collection("igrejas")
       .doc(tenantId)
       .collection("eventos")
@@ -282,7 +279,7 @@ export const compressVideo = functions
 
 async function listActiveTenantIds(limit = 40): Promise<string[]> {
   try {
-    const snap = await db
+    const snap = await fs()
       .collection("igrejas")
       .orderBy("updatedAt", "desc")
       .limit(limit)
@@ -291,7 +288,7 @@ async function listActiveTenantIds(limit = 40): Promise<string[]> {
   } catch (_) {
     /* índice updatedAt pode não existir em todas as bases */
   }
-  const fallback = await db.collection("igrejas").limit(limit).get();
+  const fallback = await fs().collection("igrejas").limit(limit).get();
   return fallback.docs.map((d) => d.id);
 }
 
@@ -326,7 +323,7 @@ export const generateBirthdayCache = functions
 
     for (const tenantId of tenantIds) {
       try {
-        const snap = await db
+        const snap = await fs()
           .collection("igrejas")
           .doc(tenantId)
           .collection("membros")
@@ -348,7 +345,7 @@ export const generateBirthdayCache = functions
           });
         }
 
-        await db
+        await fs()
           .collection("igrejas")
           .doc(tenantId)
           .collection("_performance_cache")
@@ -391,7 +388,7 @@ function lightPublicPost(
 export async function refreshPublicFeedCacheForTenant(
   tenantId: string,
 ): Promise<void> {
-  const churchRef = db.collection("igrejas").doc(tenantId);
+  const churchRef = fs().collection("igrejas").doc(tenantId);
   const [avisosSnap, noticiasSnap] = await Promise.all([
     churchRef
       .collection("avisos")

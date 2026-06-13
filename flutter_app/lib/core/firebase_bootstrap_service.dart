@@ -208,12 +208,71 @@ abstract final class FirebaseBootstrapService {
   static FirebaseHealthReport? _lastHealth;
   static FirebaseBootstrapException? _lastFailure;
 
-  /// App [DEFAULT] inicializado (não exige health check recente — evita «core/no-app» após resume).
+  /// App [DEFAULT] inicializado — **não** garante Storage ligado após resume Android.
+  /// Para upload use [probeStorageLinked] ou [ensureStorageAlwaysLinked].
   static bool isReady() {
     if (!_hasApp()) return false;
     final inflight = _initCompleter;
     if (inflight != null && !inflight.isCompleted) return false;
     return true;
+  }
+
+  /// Prova síncrona — bucket Storage acessível no app [DEFAULT] (evita falso positivo de [isReady]).
+  static void probeStorageLinked() {
+    _assertFirebaseAppAvailable();
+    final app = defaultApp;
+    final bucket = FirebaseStorage.instanceFor(app: app).bucket;
+    if (bucket.isEmpty) {
+      throw StateError('Firebase Storage indisponível (core/no-app, bucket vazio).');
+    }
+  }
+
+  /// Firebase + Storage sempre ligados — reinit suave se o nativo sumiu após background.
+  static Future<void> ensureStorageAlwaysLinked({
+    bool refreshAuthToken = false,
+    int maxAttempts = 3,
+  }) async {
+    Object? last;
+    StackTrace? lastSt;
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        if (!_hasApp()) {
+          await _softReinit();
+        } else {
+          await FirebaseBootstrap.ensureInitialized();
+          refreshCachedApp();
+        }
+        await ensureAlwaysOn(refreshAuthToken: refreshAuthToken);
+        probeStorageLinked();
+        _storageUploadBootstrapAt = DateTime.now();
+        if (kDebugMode && attempt > 0) {
+          debugPrint(
+            'FirebaseBootstrapService: Storage relinked após tentativa $attempt',
+          );
+        }
+        return;
+      } catch (e, st) {
+        last = e;
+        lastSt = st;
+        if (kDebugMode) {
+          debugPrint(
+            'FirebaseBootstrapService.ensureStorageAlwaysLinked $attempt: $e',
+          );
+        }
+        if (attempt < maxAttempts - 1) {
+          await _softReinit();
+          await Future.delayed(
+            Duration(milliseconds: 120 + 180 * (attempt + 1)),
+          );
+        }
+      }
+    }
+    if (last != null && _isNoFirebaseApp(last)) {
+      return;
+    }
+    if (last != null) {
+      throw FirebaseBootstrapException.from(last, lastSt);
+    }
   }
 
   /// Sincroniza cache do app após [FirebaseBootstrap.ensureInitialized].
@@ -410,6 +469,16 @@ abstract final class FirebaseBootstrapService {
     }
   }
 
+  /// Reset leve antes de publicar (Ecofire) — permite re-init se o app sumiu.
+  static void resetPublishWarmState() {
+    invalidateStorageUploadBootstrap();
+    _ensureOnceFuture = null;
+    if (!_hasApp()) {
+      _cachedApp = null;
+      _healthOkAt = null;
+    }
+  }
+
   /// Legado — preferir [ensureFirebaseCore] no barrel `firebase_bootstrap.dart`.
   static Future<void> ensureReadyForStorageUpload({
     bool requireAuth = true,
@@ -423,6 +492,7 @@ abstract final class FirebaseBootstrapService {
         code: 'no_firebase_app',
       );
     }
+    probeStorageLinked();
     if (!requireAuth) {
       _storageUploadBootstrapAt = DateTime.now();
       return;

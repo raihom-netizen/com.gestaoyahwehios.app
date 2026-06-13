@@ -28,6 +28,8 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatFirebaseErrorForUser;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
@@ -50,6 +52,7 @@ import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_save_service.dart';
+import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart'
     show kMaxPatrimonioPhotosPerItem;
@@ -75,6 +78,9 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 /// Extrai URLs de fotos do patrimônio — lista + campos simples + strings dinâmicas do Firestore.
 /// Unifica duplicatas e normaliza URLs do Storage (incl. host *.firebasestorage.app).
 List<String> _fotoUrlsFromData(Map<String, dynamic> m) {
+  final canonical = PatrimonioPhotoFields.urlsFromData(m);
+  if (canonical.isNotEmpty) return canonical;
+
   final out = <String>[];
   bool looksLikeStoragePath(String s) {
     if (s.isEmpty) return false;
@@ -7302,6 +7308,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     final urls = _fotoUrlsFromData(data);
     _existingUrls.addAll(
         urls.length > _maxFotosPorItem ? urls.sublist(0, _maxFotosPorItem) : urls);
+    unawaited(_maybeRepairStuckPhotos(data));
     unawaited(ImmediateMediaWarm.warmPatrimonio());
     unawaited(
       FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false),
@@ -7310,6 +7317,32 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
   String get _churchIdForPublish =>
       ChurchPublishContext.churchIdForPublish(widget.col.parent!.id);
+
+  /// Repara docs presos (`uploading`) quando Storage já tem galeria_01…04.
+  Future<void> _maybeRepairStuckPhotos(Map<String, dynamic> data) async {
+    if (_existingUrls.isNotEmpty) return;
+    final state = (data['photoUploadState'] ?? '').toString().trim();
+    if (state != 'uploading' && state != 'pending_sync') return;
+    try {
+      await PatrimonioPublishService.repairFromStorage(
+        churchId: _churchIdForPublish,
+        itemId: _itemRef.id,
+        corePayload: data,
+      );
+      if (!mounted) return;
+      final snap = await _itemRef.get();
+      final repaired = _fotoUrlsFromData(snap.data() ?? {});
+      if (repaired.isNotEmpty && mounted) {
+        setState(() {
+          _existingUrls
+            ..clear()
+            ..addAll(repaired.length > _maxFotosPorItem
+                ? repaired.sublist(0, _maxFotosPorItem)
+                : repaired);
+        });
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -7801,6 +7834,20 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       );
       Navigator.pop(context, true);
     } catch (e, st) {
+      if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
+        _itemStubEnsured = true;
+        if (!mounted) return;
+        unawaited(ChurchPatrimonioLoadService.invalidate(_churchIdForPublish));
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            widget.doc == null
+                ? 'Bem cadastrado — sincroniza em background.'
+                : 'Patrimônio guardado — sincroniza em background.',
+          ),
+        );
+        Navigator.pop(context, true);
+        return;
+      }
       YahwehCatchLog.log(e, st, tag: 'patrimonio_save');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

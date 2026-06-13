@@ -8,7 +8,9 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/public_church_site_bootstrap.dart';
 import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
+import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
@@ -277,9 +279,25 @@ class _ChurchPublicMuralStreamSliverState
     extends State<_ChurchPublicMuralStreamSliver> {
   StreamSubscription<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _sub;
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _items;
+  List<Map<String, dynamic>> _cachedRows = const [];
   Object? _error;
   bool _didWarmup = false;
   int _skeletonPlaceholderCount = 0;
+
+  bool _mapIsAviso(Map<String, dynamic> m) {
+    final col = (m['collection'] ?? '').toString().trim();
+    if (col == 'avisos') return true;
+    return (m['type'] ?? '').toString() == 'aviso';
+  }
+
+  bool _mapIsEvento(Map<String, dynamic> m) {
+    final col = (m['collection'] ?? '').toString().trim();
+    if (col == 'eventos') return true;
+    return (m['type'] ?? '').toString() == 'evento';
+  }
+
+  String _mapPostId(Map<String, dynamic> m) =>
+      (m['id'] ?? m['postId'] ?? m['docId'] ?? '').toString().trim();
 
   @override
   void initState() {
@@ -289,23 +307,37 @@ class _ChurchPublicMuralStreamSliverState
   }
 
   Future<void> _primeInstantFeedHint() async {
-    final cached = await YahwehPublicFeedRepository.readInstantFeed(
-      widget.igrejaId,
-      refreshServerCacheInBackground: true,
-    );
-    if (!mounted || cached.isEmpty) return;
-    if (_items == null) {
+    final results = await Future.wait([
+      YahwehPublicFeedRepository.readInstantFeed(
+        widget.igrejaId,
+        refreshServerCacheInBackground: true,
+      ),
+      PanelPublicSiteSnapshotService.readOnce(widget.igrejaId),
+    ]);
+    final cached = results[0] as List<Map<String, dynamic>>;
+    final panel = results[1] as PanelPublicSiteSnapshot;
+    final panelRows = panel.feedData.isNotEmpty
+        ? panel.feedData
+        : panel.feedPreview;
+    final seedRows = cached.isNotEmpty ? cached : panelRows;
+    if (!mounted) return;
+    if (seedRows.isNotEmpty && _items == null) {
       setState(() {
-        _skeletonPlaceholderCount = cached.length.clamp(
+        _cachedRows = seedRows;
+        _skeletonPlaceholderCount = seedRows.length.clamp(
           1,
           YahwehPublicFeedRepository.pageSize,
         );
       });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(scheduleFeedMediaWarmup(context, seedRows, maxDocs: 8));
+      });
+    } else if (_items == null && seedRows.isEmpty) {
+      setState(() {
+        _skeletonPlaceholderCount = 3;
+      });
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      unawaited(scheduleFeedMediaWarmup(context, cached, maxDocs: 8));
-    });
   }
 
   void _subscribe() {
@@ -349,8 +381,10 @@ class _ChurchPublicMuralStreamSliverState
     if (oldWidget.igrejaId != widget.igrejaId) {
       _didWarmup = false;
       _items = null;
+      _cachedRows = const [];
       _error = null;
       _subscribe();
+      unawaited(_primeInstantFeedHint());
     }
   }
 
@@ -358,6 +392,97 @@ class _ChurchPublicMuralStreamSliverState
   void dispose() {
     _sub?.cancel();
     super.dispose();
+  }
+
+  SliverList _buildMuralFromCachedMaps(BuildContext context) {
+    final mem = churchPublicCoverMemCache(context);
+    final memW = mem.$1;
+    final memH = mem.$2;
+    final avisos =
+        _cachedRows.where(_mapIsAviso).where((m) => m['publicSite'] != false).toList();
+    final eventos =
+        _cachedRows.where(_mapIsEvento).where((m) => m['publicSite'] != false).toList();
+    const avisosAccent = Color(0xFF7C3AED);
+
+    Widget feedTile(Map<String, dynamic> post) {
+      final postId = _mapPostId(post);
+      return RepaintBoundary(
+        child: churchPublicSocialFeedTileFromMap(
+          context: context,
+          postId: postId.isNotEmpty ? postId : 'cached',
+          post: post,
+          igrejaId: widget.igrejaId,
+          churchSlug: widget.slugClean,
+          accent: widget.accent,
+          memCacheW: memW,
+          memCacheH: memH,
+          onOpenHostedVideo: (ctx, p, __) async {
+            await widget.onOpenHostedVideoFromMap(ctx, p);
+          },
+        ),
+      );
+    }
+
+    return SliverList(
+      delegate: SliverChildListDelegate([
+        KeyedSubtree(
+          key: widget.sectionAvisosKey,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 22),
+            child: ChurchPublicFeedItemWidth(
+              child: ChurchPublicPremiumSection(
+                kicker: 'Comunicação',
+                title: 'Avisos',
+                subtitle:
+                    'Comunicados oficiais da igreja. Conteúdo separado do mural de eventos com fotos e vídeos.',
+                icon: Icons.campaign_rounded,
+                accentColor: avisosAccent,
+                child: avisos.isEmpty
+                    ? const _ChurchPublicEmptySubsection(
+                        icon: Icons.notifications_none_rounded,
+                        message:
+                            'Nenhum aviso público no momento. Volte em breve ou fale com a secretaria.',
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (var i = 0; i < avisos.length; i++) ...[
+                            if (i > 0) const SizedBox(height: 18),
+                            feedTile(avisos[i]),
+                          ],
+                        ],
+                      ),
+              ),
+            ),
+          ),
+        ),
+        ChurchPublicFeedItemWidth(
+          child: ChurchPublicPremiumSection(
+            kicker: 'Eventos',
+            title: 'Fotos e vídeos',
+            subtitle:
+                'Mural com mídia: cultos especiais, confraternizações e campanhas.',
+            icon: Icons.photo_library_rounded,
+            accentColor: widget.accent,
+            child: eventos.isEmpty
+                ? const _ChurchPublicEmptySubsection(
+                    icon: Icons.perm_media_outlined,
+                    message:
+                        'Nenhum evento com mídia público ainda. O gestor publica pelo painel em Mural de eventos.',
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var j = 0; j < eventos.length; j++) ...[
+                        if (j > 0) const SizedBox(height: 18),
+                        feedTile(eventos[j]),
+                      ],
+                    ],
+                  ),
+          ),
+        ),
+      ]),
+    );
   }
 
   @override
@@ -376,6 +501,9 @@ class _ChurchPublicMuralStreamSliverState
       );
     }
     if (_items == null) {
+      if (_cachedRows.isNotEmpty) {
+        return _buildMuralFromCachedMaps(context);
+      }
       final skCount = _skeletonPlaceholderCount > 0
           ? _skeletonPlaceholderCount.clamp(1, 3)
           : 3;
@@ -1434,27 +1562,32 @@ class _PublicSocialProofStats {
 Future<_PublicSocialProofStats> _loadPublicSocialProofStats(
     String igrejaId) async {
   try {
+    final snap = await PanelPublicSiteSnapshotService.readOnce(igrejaId.trim());
+    if (snap.hasData) {
+      return _PublicSocialProofStats(
+        activeMembers: 0,
+        monthPosts: snap.publicAvisosCount + snap.publicEventosCount,
+      );
+    }
+  } catch (_) {}
+  try {
     final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
-    final membersAgg = await         ChurchUiCollections.membros(op)
-        .where('status', isEqualTo: 'ativo')
-        .count()
-        .get();
     final from =
         Timestamp.fromDate(DateTime.now().subtract(const Duration(days: 30)));
-    final postsNoticias = await         ChurchUiCollections.churchDoc(op)
+    final postsNoticias = await ChurchUiCollections.churchDoc(op)
         .collection(ChurchTenantPostsCollections.eventos)
         .where('publicSite', isEqualTo: true)
         .where('createdAt', isGreaterThanOrEqualTo: from)
         .count()
         .get();
-    final postsAvisos = await         ChurchUiCollections.churchDoc(op)
+    final postsAvisos = await ChurchUiCollections.churchDoc(op)
         .collection(ChurchTenantPostsCollections.avisos)
         .where('publicSite', isEqualTo: true)
         .where('createdAt', isGreaterThanOrEqualTo: from)
         .count()
         .get();
     return _PublicSocialProofStats(
-      activeMembers: membersAgg.count ?? 0,
+      activeMembers: 0,
       monthPosts: (postsNoticias.count ?? 0) + (postsAvisos.count ?? 0),
     );
   } catch (_) {
@@ -1517,18 +1650,15 @@ class _ChurchPublicTenantResolved {
 
 Stream<_ChurchPublicTenantResolved?> _churchPublicTenantBySlugStream(
   String slugClean,
-) =>
-    Stream.fromFuture(_resolveChurchPublicTenantBySlug(slugClean));
-
-Future<_ChurchPublicTenantResolved?> _resolveChurchPublicTenantBySlug(
-  String slugClean,
-) async {
-  final resolved = await PublicChurchSlugResolver.resolve(slugClean);
-  if (resolved == null) return null;
-  return _ChurchPublicTenantResolved(
-    id: resolved.churchId,
-    data: resolved.profile,
-  );
+) {
+  return PublicChurchSiteBootstrap.watchTenantBySlug(slugClean).map(
+        (resolved) => resolved == null
+            ? null
+            : _ChurchPublicTenantResolved(
+                id: resolved.churchId,
+                data: resolved.profile,
+              ),
+      );
 }
 
 /// Pré-resolve a URL da logo (memoizada em [AppStorageImageService]) para o badge aparecer mais cedo.
@@ -2238,23 +2368,24 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                                   spacing: 10,
                                                   runSpacing: 10,
                                                   children: [
-                                                    _ProofChip(
-                                                      icon: Icons
-                                                          .groups_2_rounded,
-                                                      text:
-                                                          '${stats.activeMembers} membros ativos',
-                                                    ),
-                                                    _ProofChip(
-                                                      icon: Icons
-                                                          .campaign_rounded,
-                                                      text:
-                                                          '${stats.monthPosts} publicações no mês',
-                                                    ),
+                                                    if (stats.monthPosts > 0)
+                                                      _ProofChip(
+                                                        icon: Icons
+                                                            .campaign_rounded,
+                                                        text:
+                                                            '${stats.monthPosts} publicações recentes',
+                                                      ),
                                                     const _ProofChip(
                                                       icon: Icons
                                                           .verified_rounded,
                                                       text:
                                                           'Comunidade online ativa',
+                                                    ),
+                                                    const _ProofChip(
+                                                      icon: Icons
+                                                          .favorite_rounded,
+                                                      text:
+                                                          'Partilhe e convide',
                                                     ),
                                                   ],
                                                 );

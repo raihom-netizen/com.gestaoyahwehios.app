@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/church_corpo_admin_roles.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/services/church_panel_leadership_load_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
@@ -14,8 +15,6 @@ import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart'
     show memberPhotoDisplayCacheRevision;
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show imageUrlFromMap, isValidImageUrl;
 import 'package:gestao_yahweh/ui/widgets/yahweh_super_premium_action_button.dart';
 
 /// Cards do painel — líderes de departamento e corpo administrativo (cache-first + Chat/WhatsApp).
@@ -178,7 +177,10 @@ class _ChurchPanelLeadershipCardSectionState
               memberDocId: e.memberDocId,
               memberData: data,
               cpfDigits: cpf.length == 11 ? cpf : null,
-              authUid: _memberAuthUid(data),
+              authUid: MemberProfilePhotoResolver.authUidFromData(
+                data,
+                memberDocId: e.memberDocId,
+              ),
             );
           }),
         ),
@@ -235,8 +237,8 @@ class ChurchPanelLeaderTile extends StatelessWidget {
     final data = entry.memberData;
     final nome = entry.displayName;
     final subtitle = entry.subtitleLine;
-    final foto = imageUrlFromMap(data);
-    final hasFoto = isValidImageUrl(foto);
+    final foto = MemberProfilePhotoResolver.displayRef(data, preferThumb: true);
+    final hasFoto = MemberProfilePhotoResolver.hasPhotoRef(data, preferThumb: true);
     final avatarColor = avatarColorForMember(data, hasPhoto: hasFoto);
     final avatarSize = narrow ? 52.0 : 72.0;
     final memPx = (avatarSize * MediaQuery.devicePixelRatioOf(context))
@@ -246,12 +248,15 @@ class ChurchPanelLeaderTile extends StatelessWidget {
         .toString()
         .replaceAll(RegExp(r'\D'), '');
     final avatarWidget = FotoMembroWidget(
-      imageUrl: hasFoto ? foto : null,
+      imageUrl: foto,
       memberData: data,
       tenantId: tenantId,
       memberId: entry.memberDocId,
       cpfDigits: cpf.length == 11 ? cpf : null,
-      authUid: _memberAuthUid(data),
+      authUid: MemberProfilePhotoResolver.authUidFromData(
+        data,
+        memberDocId: entry.memberDocId,
+      ),
       size: avatarSize,
       memCacheWidth: memPx,
       memCacheHeight: memPx,
@@ -565,13 +570,4 @@ Widget _layoutPremiumLeaderGallery({
     runSpacing: 14,
     children: tiles.map((w) => SizedBox(width: 160, child: w)).toList(),
   );
-}
-
-String? _memberAuthUid(Map<String, dynamic>? data) {
-  if (data == null) return null;
-  for (final k in ['authUid', 'uid', 'userId', 'firebaseUid', 'USER_ID']) {
-    final v = (data[k] ?? '').toString().trim();
-    if (v.length >= 8) return v;
-  }
-  return null;
 }

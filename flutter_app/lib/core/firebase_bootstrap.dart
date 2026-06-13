@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase/firebase_bootstrap.dart' as fb_core;
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
@@ -30,15 +31,21 @@ export 'firebase_publish_guard.dart' show ensureFirebaseReadyToPublish;
 Future<void> ensureFirebaseInitialized() =>
     fb_core.FirebaseBootstrap.ensureInitialized();
 
-/// Núcleo Firebase — sem reiniciar o app nem renovar JWT em cada clique.
+/// Núcleo Firebase — Ecofire: init único antes de Storage/Firestore.
 Future<void> ensureFirebaseCore({bool requireAuth = false}) async {
-  await fb_core.FirebaseBootstrap.ensureInitialized();
-  FirebaseBootstrapService.refreshCachedApp();
   if (requireAuth) {
-    await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
-  } else if (!FirebaseBootstrapService.isReady()) {
-    await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
+    await EcoFirePublishBootstrap.ensureHard(logLabel: 'ensureFirebaseCore');
+    return;
   }
+  if (!FirebaseBootstrapService.isReady()) {
+    await FirebaseBootstrapService.ensureInitializedOnce();
+  } else {
+    await fb_core.FirebaseBootstrap.ensureInitialized();
+  }
+  FirebaseBootstrapService.refreshCachedApp();
+  await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+    refreshAuthToken: requireAuth,
+  ).catchError((_) {});
   if (!requireAuth) return;
   final user = FirebaseBootstrapService.auth.currentUser;
   if (user == null || user.isAnonymous) {

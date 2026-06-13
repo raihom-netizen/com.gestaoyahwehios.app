@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/services/church_visitantes_load_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -126,11 +128,14 @@ Future<void> openChurchVisitorFichaFromDashboard(
   required String role,
   required String visitorDocId,
 }) async {
-  await FirebaseAuth.instance.currentUser?.getIdToken(true);
   final op = ChurchRepository.churchId(tenantId.trim());
-  final snap = await       ChurchUiCollections.visitantes(op)
-      .doc(visitorDocId)
-      .get();
+  if (kIsWeb) {
+    await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+  }
+  final snap = await FirestoreWebGuard.runWithWebRecovery(
+    () => ChurchUiCollections.visitantes(op).doc(visitorDocId).get(),
+    maxAttempts: 4,
+  );
   if (!context.mounted) return;
   if (!snap.exists || snap.data() == null) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -177,38 +182,33 @@ Future<void> openChurchVisitorFichaFromDashboard(
   }
 }
 
-/// Cache RAM — lista de visitantes instantânea ao reabrir o módulo.
-abstract final class _VisitorsRamCache {
-  _VisitorsRamCache._();
+/// Cores premium do módulo Visitantes (laranja / âmbar).
+abstract final class _VisitorsPremiumTheme {
+  _VisitorsPremiumTheme._();
 
-  static final Map<
-      String,
-      ({
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-        DateTime at,
-      })> _byTenant = {};
+  static const orange = Color(0xFFF97316);
+  static const amber = Color(0xFFFBBF24);
+  static const deepOrange = Color(0xFFEA580C);
 
-  static const Duration _ttl = Duration(minutes: 20);
+  static const heroGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFFF97316), Color(0xFFFBBF24), Color(0xFFFB923C)],
+  );
 
-  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(String tenantId) {
-    final key = tenantId.trim();
-    if (key.isEmpty) return null;
-    final hit = _byTenant[key];
-    if (hit == null) return null;
-    if (DateTime.now().difference(hit.at) > _ttl) {
-      _byTenant.remove(key);
-      return null;
+  static Color statusAccent(String status) {
+    switch (status) {
+      case 'Novo':
+        return const Color(0xFF3B82F6);
+      case 'Em acompanhamento':
+        return deepOrange;
+      case 'Convertido':
+        return const Color(0xFF16A34A);
+      case 'Desistente':
+        return const Color(0xFF94A3B8);
+      default:
+        return orange;
     }
-    return hit.docs;
-  }
-
-  static void put(
-    String tenantId,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final key = tenantId.trim();
-    if (key.isEmpty || docs.isEmpty) return;
-    _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
   }
 }
 
@@ -251,50 +251,48 @@ class _VisitorsPageState extends State<VisitorsPage> {
 
   bool get _canManage => churchVisitorManagementRole(widget.role);
 
-  String get _tid =>
-      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
+  String get _tid => ChurchPanelTenant.resolve(
+        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+      );
+
+  String get _churchId => ChurchRepository.churchId(_tid);
 
   CollectionReference<Map<String, dynamic>> get _visitantesRef =>
-                ChurchUiCollections.visitantes(_tid);
+      ChurchUiCollections.visitantes(_churchId);
 
   CollectionReference<Map<String, dynamic>> get _membersRef =>
-                ChurchUiCollections.membros(_tid);
-
-  static String _visitantesMemKey(String tenantId) =>
-      '${tenantId.trim()}_visitantes_400';
+      ChurchUiCollections.membros(_churchId);
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadVisitantes({
+    bool forceRefresh = false,
     bool forceServer = false,
   }) async {
     final tid = _tid.trim();
     if (tid.isEmpty) {
-      return _visitantesRef.limit(1).get();
+      return const MergedFirestoreQuerySnapshot([]);
     }
-    if (forceServer) {
-      final op = ChurchRepository.churchId(tid.trim());
-      final snap = await FirestoreReadResilience.getQuery(
-        ChurchUiCollections.visitantes(op)
-            .limit(400),
-        cacheKey: _visitantesMemKey(tid),
-      );
-      if (snap.docs.isNotEmpty) {
-        _VisitorsRamCache.put(tid, snap.docs);
-      }
-      return snap;
-    }
-    return ChurchTenantResilientReads.visitantes(tid);
+    final result = await ChurchVisitantesLoadService.load(
+      seedTenantId: tid,
+      forceRefresh: forceRefresh,
+      forceServer: forceServer,
+    );
+    return result.snapshot;
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadVisitantes() {
-    final seed = widget.tenantId.trim();
-    if (seed.isEmpty) return _loadVisitantes();
+    final tid = _tid.trim();
+    if (tid.isEmpty) return _loadVisitantes();
 
-    final ram = _VisitorsRamCache.peek(seed);
+    final ram = ChurchVisitantesLoadService.peekRam(tid);
     if (ram != null && ram.isNotEmpty) {
       return Future.value(MergedFirestoreQuerySnapshot(ram));
     }
 
-    final mem = FirestoreReadResilience.peekLastGoodQuery(_visitantesMemKey(seed));
+    final memKey = ChurchVisitantesLoadService.cacheKey(
+      _churchId,
+      ChurchVisitantesLoadService.kDefaultLimit,
+    );
+    final mem = FirestoreReadResilience.peekLastGoodQuery(memKey);
     if (mem != null && mem.docs.isNotEmpty) {
       return Future.value(mem);
     }
@@ -302,85 +300,38 @@ class _VisitorsPageState extends State<VisitorsPage> {
     return _loadVisitantes();
   }
 
-  /// 1.º frame: RAM / memória; tenant operacional + rede em background.
-  Future<void> _openVisitantesFast() async {
-    final seed = widget.tenantId.trim();
-    if (seed.isEmpty) return;
-
-    try {
-      final snap = await ChurchTenantResilientReads.visitantes(seed).timeout(
-        const Duration(milliseconds: 1800),
-      );
-      if (!mounted || snap.docs.isEmpty) {
-        // continua para resolver tenant
-      } else {
-        _VisitorsRamCache.put(seed, snap.docs);
-        setState(() {
-          _visitantesFuture = Future.value(snap);
-        });
-      }
-    } catch (_) {}
-
-    try {
-      final op = ChurchRepository.churchId(
-        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : seed,
-      );
-      if (!mounted) return;
-      if (op.isNotEmpty && op != _effectiveTenantId) {
-        _effectiveTenantId = op;
-      }
-      final tid = _tid.trim();
-      if (tid.isEmpty || tid == seed) {
-        unawaited(_refreshVisitantesBackground());
-        return;
-      }
-      final alt = await ChurchTenantResilientReads.visitantes(tid).timeout(
-        const Duration(seconds: 12),
-      );
-      if (!mounted) return;
-      if (alt.docs.isNotEmpty) {
-        _VisitorsRamCache.put(tid, alt.docs);
-        setState(() {
-          _visitantesFuture = Future.value(alt);
-        });
-      }
-    } catch (_) {}
-
-    unawaited(_refreshVisitantesBackground());
-  }
-
   Future<void> _refreshVisitantesBackground() async {
     try {
-      final snap = await _loadVisitantes();
-      if (!mounted || snap.docs.isEmpty) return;
-      _VisitorsRamCache.put(_tid, snap.docs);
-      setState(() {
-        _visitantesFuture = Future.value(snap);
-      });
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final snap = await _loadVisitantes(forceRefresh: true);
+      if (!mounted) return;
+      setState(() => _visitantesFuture = Future.value(snap));
     } catch (_) {}
   }
 
   void _refresh() {
     setState(() {
-      _visitantesFuture = _loadVisitantes(forceServer: true);
+      _visitantesFuture = _loadVisitantes(forceRefresh: true, forceServer: true);
     });
   }
 
   @override
   void initState() {
     super.initState();
-    _effectiveTenantId = widget.tenantId;
+    _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
     _visitantesFuture = _seedOrLoadVisitantes();
-    unawaited(_openVisitantesFast());
+    unawaited(_refreshVisitantesBackground());
   }
 
   @override
   void didUpdateWidget(covariant VisitorsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _effectiveTenantId = widget.tenantId;
+      _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
       _visitantesFuture = _seedOrLoadVisitantes();
-      unawaited(_openVisitantesFast());
+      unawaited(_refreshVisitantesBackground());
     }
   }
 
@@ -427,17 +378,12 @@ class _VisitorsPageState extends State<VisitorsPage> {
               decoration: BoxDecoration(
                 borderRadius:
                     BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                gradient: LinearGradient(
-                  colors: [
-                    ThemeCleanPremium.primary,
-                    ThemeCleanPremium.primaryLight,
-                  ],
-                ),
+                gradient: _VisitorsPremiumTheme.heroGradient,
                 boxShadow: [
                   BoxShadow(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
-                    blurRadius: 18,
-                    offset: const Offset(0, 8),
+                    color: _VisitorsPremiumTheme.orange.withValues(alpha: 0.42),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
                   ),
                   ...ThemeCleanPremium.softUiCardShadow,
                 ],
@@ -475,6 +421,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
             final filtered = _filteredVisitors(allVisitors);
 
             return RefreshIndicator(
+              color: _VisitorsPremiumTheme.orange,
               onRefresh: () async => _refresh(),
               child: CustomScrollView(
                 slivers: [
@@ -482,6 +429,25 @@ class _VisitorsPageState extends State<VisitorsPage> {
                     padding: ThemeCleanPremium.pagePadding(context),
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
+                        if (showingStaleCache) ...[
+                          const ChurchPanelOfflineStaleBanner(
+                            message:
+                                'Exibindo últimos visitantes guardados — puxe para atualizar.',
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
+                        ],
+                        _VisitorsHeroHeader(
+                          totalCount: allVisitors.length,
+                          novosHoje: allVisitors.where((v) {
+                            final d = v.createdAt;
+                            if (d == null) return false;
+                            final now = DateTime.now();
+                            return d.year == now.year &&
+                                d.month == now.month &&
+                                d.day == now.day;
+                          }).length,
+                        ),
+                        const SizedBox(height: ThemeCleanPremium.spaceLg),
                         if (isMobile && !widget.embeddedInShell) ...[
                           Text(
                             'Visitantes',
@@ -576,53 +542,37 @@ class _VisitorsPageState extends State<VisitorsPage> {
   }
 
   Widget _buildTabBar(BuildContext context) {
-    return Material(
-      color: ThemeCleanPremium.cardBackground,
-      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-      elevation: 0,
+    return Container(
+      decoration: BoxDecoration(
+        color: ThemeCleanPremium.cardBackground,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+        border: Border.all(
+          color: _VisitorsPremiumTheme.orange.withValues(alpha: 0.12),
+        ),
+      ),
+      padding: const EdgeInsets.all(4),
       child: Row(
         children: [
           Expanded(
-            child: Material(
-              color: _tab == _TabVisitante.doDia ? ThemeCleanPremium.primary : Colors.transparent,
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-              child: InkWell(
-                onTap: () => setState(() => _tab = _TabVisitante.doDia),
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.today_rounded, size: 20, color: _tab == _TabVisitante.doDia ? Colors.white : ThemeCleanPremium.onSurfaceVariant),
-                      const SizedBox(width: 8),
-                      Text('Do Dia', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: _tab == _TabVisitante.doDia ? Colors.white : ThemeCleanPremium.onSurfaceVariant)),
-                    ],
-                  ),
-                ),
-              ),
+            child: _VisitorTabChip(
+              selected: _tab == _TabVisitante.doDia,
+              icon: Icons.wb_sunny_rounded,
+              label: 'Do Dia',
+              gradient: _VisitorsPremiumTheme.heroGradient,
+              onTap: () => setState(() => _tab = _TabVisitante.doDia),
             ),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 6),
           Expanded(
-            child: Material(
-              color: _tab == _TabVisitante.historico ? ThemeCleanPremium.primary : Colors.transparent,
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-              child: InkWell(
-                onTap: () => setState(() => _tab = _TabVisitante.historico),
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.history_rounded, size: 20, color: _tab == _TabVisitante.historico ? Colors.white : ThemeCleanPremium.onSurfaceVariant),
-                      const SizedBox(width: 8),
-                      Text('Histórico', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: _tab == _TabVisitante.historico ? Colors.white : ThemeCleanPremium.onSurfaceVariant)),
-                    ],
-                  ),
-                ),
+            child: _VisitorTabChip(
+              selected: _tab == _TabVisitante.historico,
+              icon: Icons.history_rounded,
+              label: 'Histórico',
+              gradient: const LinearGradient(
+                colors: [Color(0xFF8B5CF6), Color(0xFFA78BFA)],
               ),
+              onTap: () => setState(() => _tab = _TabVisitante.historico),
             ),
           ),
         ],
@@ -759,23 +709,66 @@ class _VisitorsPageState extends State<VisitorsPage> {
           : 'Adicione o primeiro visitante com o botão +';
     }
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.people_outline_rounded, size: 72, color: Colors.grey.shade300),
-          const SizedBox(height: ThemeCleanPremium.spaceMd),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: tt.titleMedium?.copyWith(color: ThemeCleanPremium.onSurfaceVariant),
-          ),
-          const SizedBox(height: ThemeCleanPremium.spaceXs),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: tt.bodySmall?.copyWith(color: Colors.grey),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(ThemeCleanPremium.spaceXl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    _VisitorsPremiumTheme.orange.withValues(alpha: 0.14),
+                    _VisitorsPremiumTheme.amber.withValues(alpha: 0.08),
+                  ],
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: _VisitorsPremiumTheme.orange.withValues(alpha: 0.18),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.handshake_rounded,
+                size: 56,
+                color: _VisitorsPremiumTheme.deepOrange.withValues(alpha: 0.85),
+              ),
+            ),
+            const SizedBox(height: ThemeCleanPremium.spaceLg),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: tt.titleMedium?.copyWith(
+                color: ThemeCleanPremium.onSurface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: ThemeCleanPremium.spaceXs),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: tt.bodySmall?.copyWith(color: ThemeCleanPremium.onSurfaceVariant),
+            ),
+            if (_canManage && !hasFilters && !hasKpi) ...[
+              const SizedBox(height: ThemeCleanPremium.spaceLg),
+              FilledButton.icon(
+                onPressed: () => _openVisitorForm(context),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _VisitorsPremiumTheme.orange,
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                ),
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text('Cadastrar primeiro visitante'),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -944,8 +937,14 @@ class _VisitorsPageState extends State<VisitorsPage> {
       ),
     );
     if (confirmed == true && context.mounted) {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      await _visitantesRef.doc(visitor.id).delete();
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => _visitantesRef.doc(visitor.id).delete(),
+        maxAttempts: 4,
+      );
+      await ChurchVisitantesLoadService.invalidate(widget.tenantId);
       if (context.mounted) {
         _refresh();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -978,6 +977,164 @@ class _VisitorData {
     final ts = data['createdAt'];
     if (ts is Timestamp) return ts.toDate();
     return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Summary Cards
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Hero + tabs premium
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _VisitorsHeroHeader extends StatelessWidget {
+  const _VisitorsHeroHeader({
+    required this.totalCount,
+    required this.novosHoje,
+  });
+
+  final int totalCount;
+  final int novosHoje;
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+      decoration: BoxDecoration(
+        gradient: _VisitorsPremiumTheme.heroGradient,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        boxShadow: [
+          BoxShadow(
+            color: _VisitorsPremiumTheme.orange.withValues(alpha: 0.35),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.groups_rounded,
+              color: Colors.white,
+              size: 32,
+            ),
+          ),
+          const SizedBox(width: ThemeCleanPremium.spaceMd),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Primeiro Contato',
+                  style: tt.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Acompanhe visitantes, follow-ups e conversões',
+                  style: tt.bodySmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.92),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$totalCount',
+                style: tt.headlineMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                novosHoje > 0 ? '+$novosHoje hoje' : 'total',
+                style: tt.labelSmall?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VisitorTabChip extends StatelessWidget {
+  const _VisitorTabChip({
+    required this.selected,
+    required this.icon,
+    required this.label,
+    required this.gradient,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final IconData icon;
+  final String label;
+  final Gradient gradient;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          decoration: BoxDecoration(
+            gradient: selected ? gradient : null,
+            color: selected ? null : Colors.transparent,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: _VisitorsPremiumTheme.orange.withValues(alpha: 0.25),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: selected ? Colors.white : ThemeCleanPremium.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                  color: selected ? Colors.white : ThemeCleanPremium.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -1072,7 +1229,6 @@ class _SummaryCards extends StatelessWidget {
   Widget _buildCard(
       BuildContext context, _SummaryCardData c, _VisitorKpiDrill drill) {
     final selected = selectedDrill == drill;
-    final primary = ThemeCleanPremium.primary;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1083,20 +1239,27 @@ class _SummaryCards extends StatelessWidget {
           curve: Curves.easeOutCubic,
           padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
           decoration: BoxDecoration(
-            color: ThemeCleanPremium.cardBackground,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                c.color.withValues(alpha: selected ? 0.22 : 0.12),
+                ThemeCleanPremium.cardBackground,
+              ],
+            ),
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
             border: Border.all(
               color: selected
-                  ? primary.withValues(alpha: 0.55)
-                  : ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                  ? c.color.withValues(alpha: 0.65)
+                  : c.color.withValues(alpha: 0.18),
               width: selected ? 2.2 : 1,
             ),
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: primary.withValues(alpha: 0.22),
-                      blurRadius: 14,
-                      offset: const Offset(0, 6),
+                      color: c.color.withValues(alpha: 0.28),
+                      blurRadius: 16,
+                      offset: const Offset(0, 8),
                     ),
                     ...ThemeCleanPremium.softUiCardShadow,
                   ]
@@ -1561,46 +1724,70 @@ class _VisitorCard extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
     final badge = _statusBadge(visitor.status);
     final dateStr = _formatDate(visitor.createdAt);
+    final accent = _VisitorsPremiumTheme.statusAccent(visitor.status);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
       child: Material(
-        color: ThemeCleanPremium.cardBackground,
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         child: InkWell(
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
           onTap: onTap,
           child: Container(
-            padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              border: Border.all(
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  accent.withValues(alpha: 0.08),
+                  ThemeCleanPremium.cardBackground,
+                ],
+                stops: const [0.0, 0.35],
               ),
+              border: Border.all(color: accent.withValues(alpha: 0.16)),
               boxShadow: ThemeCleanPremium.softUiCardShadow,
             ),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _avatar(visitor.nome),
-                const SizedBox(width: ThemeCleanPremium.spaceMd),
+                Container(
+                  width: 5,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    borderRadius: const BorderRadius.horizontal(
+                      left: Radius.circular(ThemeCleanPremium.radiusMd),
+                    ),
+                  ),
+                ),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              visitor.nome,
-                              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: ThemeCleanPremium.spaceXs),
-                          badge,
-                        ],
-                      ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+                    child: Row(
+                      children: [
+                        _avatar(visitor.nome, accent),
+                        const SizedBox(width: ThemeCleanPremium.spaceMd),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      visitor.nome,
+                                      style: tt.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: ThemeCleanPremium.spaceXs),
+                                  badge,
+                                ],
+                              ),
                       const SizedBox(height: 4),
                       if (visitor.telefone.isNotEmpty)
                         Wrap(
@@ -1717,6 +1904,10 @@ class _VisitorCard extends StatelessWidget {
                       const PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete_outline_rounded, size: 18, color: ThemeCleanPremium.error), SizedBox(width: 8), Text('Excluir', style: TextStyle(color: ThemeCleanPremium.error))])),
                     ],
                   ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1725,17 +1916,36 @@ class _VisitorCard extends StatelessWidget {
     );
   }
 
-  Widget _avatar(String name) {
+  Widget _avatar(String name, Color accent) {
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
-    return CircleAvatar(
-      radius: 22,
-      backgroundColor: ThemeCleanPremium.primaryLight.withOpacity(0.12),
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            accent.withValues(alpha: 0.85),
+            accent.withValues(alpha: 0.45),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.25),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
       child: Text(
         initial,
         style: const TextStyle(
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w800,
           fontSize: 18,
-          color: ThemeCleanPremium.primary,
+          color: Colors.white,
         ),
       ),
     );
@@ -1852,15 +2062,20 @@ class _VisitorFormSheetState extends State<_VisitorFormSheet> {
     };
 
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      if (_isEdit) {
-        await ref.doc(widget.visitor!.id).update(payload);
-      } else {
-        payload['status'] = 'Novo';
-        payload['createdAt'] = FieldValue.serverTimestamp();
-        payload['followupCount'] = 0;
-        await ref.add(payload);
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
+      await FirestoreWebGuard.runWithWebRecovery(() async {
+        if (_isEdit) {
+          await ref.doc(widget.visitor!.id).update(payload);
+        } else {
+          payload['status'] = 'Novo';
+          payload['createdAt'] = FieldValue.serverTimestamp();
+          payload['followupCount'] = 0;
+          await ref.add(payload);
+        }
+      }, maxAttempts: 4);
+      await ChurchVisitantesLoadService.invalidate(widget.tenantId);
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
@@ -2012,32 +2227,21 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _followupsFuture;
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadFollowups() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      await Future.delayed(const Duration(milliseconds: 400));
-      if (FirebaseAuth.instance.currentUser == null) {
-        throw Exception('Faça login para ver os follow-ups.');
-      }
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    await Future.delayed(const Duration(milliseconds: 150));
-    try {
-      return await _followupsRef.orderBy('data', descending: true).get();
-    } catch (e) {
-      if (e.toString().contains('permission-denied') || e.toString().contains('PERMISSION_DENIED')) {
-        await Future.delayed(const Duration(milliseconds: 300));
-        await FirebaseAuth.instance.currentUser?.getIdToken(true);
-        return await _followupsRef.orderBy('data', descending: true).get();
-      }
-      rethrow;
-    }
+    return FirestoreWebGuard.runWithWebRecovery(
+      () => _followupsRef.orderBy('data', descending: true).get(),
+      maxAttempts: 4,
+    );
   }
 
   @override
   void initState() {
     super.initState();
-    _visitorDoc =         ChurchUiCollections.visitantes(widget.tenantId)
-        .doc(widget.visitor.id);
+    _visitorDoc = ChurchUiCollections.visitantes(
+      ChurchRepository.churchId(widget.tenantId),
+    ).doc(widget.visitor.id);
     _followupsRef = _visitorDoc.collection('followups');
     _followupsFuture = _loadFollowups();
   }

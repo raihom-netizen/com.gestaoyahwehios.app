@@ -1,7 +1,9 @@
-import 'dart:async';
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
@@ -9,6 +11,7 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
+import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
@@ -54,8 +57,47 @@ abstract final class MemberProfilePhotoSaveService {
     void Function(String phaseLabel)? onPhase,
     bool requireAuth = true,
   }) async {
+    final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
+    final docId = memberDocId.trim();
+    if (churchId.isEmpty || docId.isEmpty) {
+      throw StateError('Igreja ou membro inválido para gravar a foto.');
+    }
+    final docRef = ChurchUiCollections.membros(churchId).doc(docId);
+    return EcoFireResilientPublish.runOrQueue(
+      logLabel: 'membro_foto',
+      optimisticResult: MemberProfilePhotoUpdateResult(
+        downloadUrl: '',
+        storagePath: '',
+        cacheRevision: DateTime.now().millisecondsSinceEpoch,
+      ),
+      onQueue: () => EcoFireResilientPublish.queueMemberPhotoPublish(
+        churchId: churchId,
+        memberDocId: docId,
+        docRef: docRef,
+        memberData: memberData,
+        rawBytes: rawBytes,
+      ),
+      action: () => _saveOnline(
+        tenantId: tenantId,
+        memberDocId: memberDocId,
+        memberData: memberData,
+        rawBytes: rawBytes,
+        onPhase: onPhase,
+        requireAuth: requireAuth,
+      ),
+    );
+  }
+
+  static Future<MemberProfilePhotoUpdateResult> _saveOnline({
+    required String tenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+    required Uint8List rawBytes,
+    void Function(String phaseLabel)? onPhase,
+    bool requireAuth = true,
+  }) async {
     onPhase?.call('A preparar Firebase…');
-    await ensureFirebaseReadyForPublishUpload();
+    await EcoFirePublishBootstrap.ensureHard(logLabel: 'membro_foto');
 
     final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
     final docId = memberDocId.trim();
@@ -147,6 +189,13 @@ abstract final class MemberProfilePhotoSaveService {
     MemberProfilePhotoUpdateService.invalidateDisplayCaches(
       storagePath: uploaded.fullStoragePath,
       newDownloadUrl: uploaded.photoFull,
+    );
+
+    unawaited(
+      ModuleMediaOutboxService.clearMemberPhoto(
+        tenantId: churchId,
+        memberDocId: docId,
+      ),
     );
 
     return MemberProfilePhotoUpdateResult(

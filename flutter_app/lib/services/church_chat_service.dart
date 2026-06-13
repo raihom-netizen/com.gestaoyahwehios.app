@@ -36,6 +36,7 @@ import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'analytics_service.dart';
 import 'media_upload_service.dart';
@@ -603,11 +604,14 @@ class ChurchChatService {
     required String tenantId,
     required String uid,
   }) async {
+    final op = ChurchPanelTenant.resolve(tenantId.trim());
+    if (op.isEmpty) {
+      return const MergedFirestoreQuerySnapshot([]);
+    }
     final peerUids = <String>{};
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
       final profiles = await firestoreQueryGetReliable(
-        ChurchOperationalPaths.churchDoc(op)
+        ChurchUiCollections.churchDoc(op)
             .collection('chat_peer_profiles')
             .limit(YahwehPerformanceV4.chatThreadsFallbackLimit),
       );
@@ -644,7 +648,7 @@ class ChurchChatService {
     }
 
     final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-    final col = ChurchOperationalPaths.churchDoc(tenantId).collection('chats');
+    final col = ChurchUiCollections.chats(op);
     for (final id in threadIds) {
       try {
         final snap = await firestoreQueryGetReliable(

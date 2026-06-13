@@ -45,58 +45,8 @@ import '../core/app_constants.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/auth_gate_panel_role.dart';
-
-/// Gestor/liderança: acesso ao painel mesmo se `users.ativo` estiver ausente ou membro desalinhado.
-bool authGateResolvePanelActive({
-  required bool activeFromMemberOrUser,
-  required String role,
-  Map<String, dynamic>? memberData,
-  Map<String, dynamic>? churchData,
-  String? userEmail,
-  String? cpfDigitsOrRaw,
-}) {
-  if (AppConstants.isProductMasterAccount(
-    email: userEmail,
-    cpfDigitsOrRaw: cpfDigitsOrRaw,
-  )) {
-    return true;
-  }
-  final roleNorm = ChurchRolePermissions.normalize(role);
-  if (ChurchRolePermissions.snapshotFor(roleNorm).editChurchProfile ||
-      roleNorm == ChurchRoleKeys.master) {
-    return true;
-  }
-  if (memberData != null) {
-    final funcoes = memberData['FUNCOES'] ?? memberData['funcoes'];
-    if (funcoes is List) {
-      for (final f in funcoes) {
-        final fk = ChurchRolePermissions.normalize(f.toString());
-        if (ChurchRolePermissions.snapshotFor(fk).editChurchProfile) {
-          return true;
-        }
-      }
-    }
-    final cargo = (memberData['CARGO'] ?? memberData['cargo'] ?? '').toString();
-    if (ChurchRolePermissions.snapshotFor(
-      ChurchRolePermissions.normalize(cargo),
-    ).editChurchProfile) {
-      return true;
-    }
-  }
-  final emailLower = (userEmail ?? '').trim().toLowerCase();
-  if (emailLower.isNotEmpty && churchData != null) {
-    for (final k in const [
-      'gestorEmail',
-      'emailGestor',
-      'gestor_email',
-      'email',
-    ]) {
-      final v = (churchData[k] ?? '').toString().trim().toLowerCase();
-      if (v.isNotEmpty && v == emailLower) return true;
-    }
-  }
-  return activeFromMemberOrUser;
-}
+import 'package:gestao_yahweh/services/auth_gate_member_active.dart';
+import 'package:gestao_yahweh/services/auth_gate_panel_access_service.dart';
 
 /// Reaplica regras de gestor/master num perfil já em cache (evita «conta desativada» stale).
 Map<String, dynamic> authGateNormalizeProfile(
@@ -115,20 +65,22 @@ Map<String, dynamic> authGateNormalizeProfile(
     userEmail: userEmail,
     cpfDigitsOrRaw: (profile['cpf'] ?? '').toString(),
   );
-  final active = authGateResolvePanelActive(
-    activeFromMemberOrUser: profile['active'] == true,
+  final access = AuthGatePanelAccessService.resolve(
+    activeFromMemberOrUser:
+        profile['active'] == true || profile['ativo'] == true,
     role: resolvedRole,
     churchData: church,
     userEmail: userEmail,
     cpfDigitsOrRaw: (profile['cpf'] ?? '').toString(),
+    userDocAtivo: profile['ativo'] == true,
+    claimsActive: profile['claimsActive'] == true,
   );
-  final roleChanged = resolvedRole != roleRaw.trim().toLowerCase();
-  if (!roleChanged && active == (profile['active'] == true)) return profile;
+  final active = access.active;
   return {
     ...profile,
     'role': resolvedRole,
     'active': active,
-    if (active) 'memberStatusPending': false,
+    'memberStatusPending': active ? false : access.memberStatusPending,
   };
 }
 
@@ -374,8 +326,25 @@ class _ContaDesativadaPage extends StatefulWidget {
 
 class _ContaDesativadaPageState extends State<_ContaDesativadaPage> {
   bool _repairing = false;
+  bool _autoRepairAttempted = false;
 
-  Future<void> _repairAccess() async {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_autoRepairIfStale());
+    });
+  }
+
+  /// Cache antigo com `active: false` — tenta reparar uma vez antes de bloquear de vez.
+  Future<void> _autoRepairIfStale() async {
+    if (_autoRepairAttempted || _repairing) return;
+    _autoRepairAttempted = true;
+    if (!AppConnectivityService.instance.isOnline) return;
+    await _repairAccess(silent: true);
+  }
+
+  Future<void> _repairAccess({bool silent = false}) async {
     setState(() => _repairing = true);
     try {
       final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
@@ -387,18 +356,22 @@ class _ContaDesativadaPageState extends State<_ContaDesativadaPage> {
       await AuthProfileCacheService.instance.clear(widget.user.uid);
       await widget.user.getIdToken(true);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Acesso reparado. Recarregando painel…'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Acesso reparado. Recarregando painel…'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
       Navigator.pushNamedAndRemoveUntil(context, '/painel', (_) => false);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Não foi possível reparar: $e')),
-      );
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Não foi possível reparar: $e')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _repairing = false);
     }
@@ -447,14 +420,13 @@ class _ContaDesativadaPageState extends State<_ContaDesativadaPage> {
                     Text(
                       isGestorEmail
                           ? 'Seu perfil de gestor existe, mas o vínculo ativo não foi reconhecido. Use «Reparar acesso» ou saia e entre de novo.'
-                          : 'Entre em contato com o administrador da igreja para reativar seu acesso.',
+                          : 'Se o cadastro está ativo na igreja, toque em «Reparar acesso» para sincronizar. Caso contrário, fale com o administrador.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade700, height: 1.4),
                     ),
                     const SizedBox(height: 24),
-                    if (isGestorEmail)
-                      FilledButton.icon(
-                        onPressed: _repairing ? null : _repairAccess,
+                    FilledButton.icon(
+                        onPressed: _repairing ? null : () => _repairAccess(),
                         icon: _repairing
                             ? const SizedBox(
                                 width: 20,
@@ -468,7 +440,7 @@ class _ContaDesativadaPageState extends State<_ContaDesativadaPage> {
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                       ),
-                    if (isGestorEmail) const SizedBox(height: 10),
+                    const SizedBox(height: 10),
                     FilledButton.icon(
                       onPressed: () => FirebaseAuth.instance.signOut().then((_) {
                         Navigator.pushNamedAndRemoveUntil(context, '/igreja/login', (_) => false);
@@ -632,10 +604,20 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         cached != null &&
         (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
       final normalized = authGateNormalizeProfile(cached, userEmail: user.email);
-      if (normalized['active'] != cached['active']) {
-        unawaited(AuthProfileCacheService.instance.save(user.uid, normalized));
+      if (normalized['active'] == true) {
+        if (normalized['active'] != cached['active']) {
+          unawaited(AuthProfileCacheService.instance.save(user.uid, normalized));
+        }
+        return normalized;
       }
-      return normalized;
+      if (AppConnectivityService.instance.isOnline) {
+        final claimsFast = await _loadProfileFromClaimsFast(user, cached);
+        if (claimsFast != null && claimsFast['active'] == true) {
+          await AuthProfileCacheService.instance.save(user.uid, claimsFast);
+          unawaited(_enrichProfileWithMemberAsync(user, claimsFast));
+          return claimsFast;
+        }
+      }
     }
     if (repairDepth == 0 && AppConnectivityService.instance.isOnline) {
       final claimsFast = await _loadProfileFromClaimsFast(user, cached);
@@ -844,64 +826,19 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       Map<String, dynamic>? memberData;
       if (igrejaId.isNotEmpty) {
         try {
-          final membersCol = ChurchUiCollections.membros(igrejaId);
-          final byDocId = await membersCol.doc(user.uid).get();
-          if (byDocId.exists) {
-            memberData = byDocId.data() ?? {};
-            final status = (memberData['STATUS'] ?? memberData['status'] ?? '').toString().toLowerCase();
-            if (status == 'ativo') active = true;
-            if (status == 'pendente') { active = false; memberStatusPending = true; }
-          }
-          if (memberData == null) {
-            final byAuthUid = await membersCol.where('authUid', isEqualTo: user.uid).limit(1).get();
-            if (byAuthUid.docs.isNotEmpty) {
-              memberData = byAuthUid.docs.first.data();
-              final status = (memberData['STATUS'] ?? memberData['status'] ?? '').toString().toLowerCase();
-              if (status == 'ativo') active = true;
-              if (status == 'pendente') { active = false; memberStatusPending = true; }
-            }
-          }
-          if (memberData == null) {
-            final cpfDigits =
-                (userData['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
-            if (cpfDigits.length == 11) {
-              final byCpf = await membersCol.doc(cpfDigits).get();
-              if (byCpf.exists) {
-                memberData = byCpf.data() ?? {};
-                final status =
-                    (memberData['STATUS'] ?? memberData['status'] ?? '').toString().toLowerCase();
-                if (status == 'ativo') active = true;
-                if (status == 'pendente') {
-                  active = false;
-                  memberStatusPending = true;
-                }
-              }
-            }
-          }
-          if (memberData == null) {
-            final emailLower = (user.email ?? '').trim().toLowerCase();
-            if (emailLower.isNotEmpty) {
-              for (final field in const ['email', 'EMAIL', 'e-mail']) {
-                try {
-                  final byEmail = await membersCol
-                      .where(field, isEqualTo: emailLower)
-                      .limit(1)
-                      .get();
-                  if (byEmail.docs.isNotEmpty) {
-                    memberData = byEmail.docs.first.data();
-                    final status = (memberData['STATUS'] ?? memberData['status'] ?? '')
-                        .toString()
-                        .toLowerCase();
-                    if (status == 'ativo') active = true;
-                    if (status == 'pendente') {
-                      active = false;
-                      memberStatusPending = true;
-                    }
-                    break;
-                  }
-                } catch (_) {}
-              }
-            }
+          final binding = await AuthGatePanelAccessService.findMemberForUser(
+            igrejaId: igrejaId,
+            user: user,
+            userData: userData,
+          );
+          memberData = binding.memberData;
+          active = authGateMergeMemberUserActive(
+            activeFromUser: active,
+            memberData: memberData,
+          );
+          if (authGateMemberDocIsPending(memberData)) {
+            active = false;
+            memberStatusPending = true;
           }
           if (memberData != null) {
             podeVerFinanceiro = memberData['podeVerFinanceiro'] == true;
@@ -950,19 +887,18 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         }
       }
 
-      active = authGateResolvePanelActive(
+      final access = AuthGatePanelAccessService.resolve(
         activeFromMemberOrUser: active,
         role: role,
         memberData: memberData,
         churchData: churchData,
         userEmail: user.email,
         cpfDigitsOrRaw: (userData['cpf'] ?? cached?['cpf'] ?? '').toString(),
+        claimsActive: claims['active'] == true,
+        userDocAtivo: userData['ativo'] == true || userData['active'] == true,
       );
-      if (ChurchRolePermissions.snapshotFor(
-        ChurchRolePermissions.normalize(role),
-      ).editChurchProfile) {
-        memberStatusPending = false;
-      }
+      active = access.active;
+      memberStatusPending = access.memberStatusPending;
       if (active && userDoc.exists) {
         unawaited(
           db.collection('users').doc(user.uid).set(
@@ -1000,12 +936,14 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         } catch (_) {}
       }
 
-      final result = {
+      final result = AuthGateProfileCachePolicy.stampVerified(
+        {
         'igrejaId': igrejaId,
         'role': role,
         'cpf': (userData['cpf'] ?? cached?['cpf'] ?? '').toString(),
         'active': active,
         'memberStatusPending': memberStatusPending,
+        'claimsActive': claims['active'] == true,
         'mustChangePass': userData.containsKey('mustChangePass')
             ? userData['mustChangePass'] == true
             : (cached?['mustChangePass'] == true),
@@ -1019,7 +957,9 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         'podeVerFornecedores': podeVerFornecedores,
         'podeEmitirRelatoriosCompletos': podeEmitirRelatoriosCompletos,
         'permissions': permissions,
-      };
+        },
+        source: 'server',
+      );
       await AuthProfileCacheService.instance.save(user.uid, result);
       return result;
     } catch (_) {
@@ -1192,20 +1132,28 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         cpfDigitsOrRaw: (cached?['cpf'] ?? '').toString(),
       );
 
-      return authGateNormalizeProfile(
+      final access = AuthGatePanelAccessService.resolve(
+        activeFromMemberOrUser: cached?['active'] == true ||
+            cached?['ativo'] == true ||
+            claims['active'] == true,
+        role: resolvedRole,
+        churchData: churchData,
+        userEmail: user.email,
+        cpfDigitsOrRaw: (cached?['cpf'] ?? '').toString(),
+        claimsActive: claims['active'] == true,
+        userDocAtivo: cached?['ativo'] == true,
+      );
+      if (!access.active) return null;
+
+      return AuthGateProfileCachePolicy.stampVerified(
+        authGateNormalizeProfile(
         {
           'igrejaId': igrejaId,
           'role': resolvedRole,
           'cpf': (cached?['cpf'] ?? '').toString(),
-          'active': authGateResolvePanelActive(
-            activeFromMemberOrUser: cached?['active'] != false ||
-                claims['active'] == true,
-            role: resolvedRole,
-            churchData: churchData,
-            userEmail: user.email,
-            cpfDigitsOrRaw: (cached?['cpf'] ?? '').toString(),
-          ),
-          'memberStatusPending': cached?['memberStatusPending'] == true,
+          'active': true,
+          'claimsActive': claims['active'] == true,
+          'memberStatusPending': access.memberStatusPending,
           'mustChangePass': cached?['mustChangePass'] == true,
           'mustCompleteRegistration':
               cached?['mustCompleteRegistration'] == true,
@@ -1218,6 +1166,8 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
           ),
         },
         userEmail: user.email,
+      ),
+        source: 'claims',
       );
     } catch (e) {
       if (FirebaseAuthTokenGuard.isQuotaExceeded(e)) {
@@ -1271,22 +1221,23 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         p['permissions'] ?? cached?['permissions'],
       );
       final roleTxt = (p['role'] ?? cached?['role'] ?? '').toString();
-      final active = authGateResolvePanelActive(
-        activeFromMemberOrUser: p['active'] == true || cached?['active'] == true,
+      final access = AuthGatePanelAccessService.resolve(
+        activeFromMemberOrUser: p['active'] == true ||
+            cached?['active'] == true ||
+            cached?['ativo'] == true,
         role: roleTxt,
         churchData: churchData,
         userEmail: user.email,
         cpfDigitsOrRaw: (p['cpf'] ?? cached?['cpf'] ?? '').toString(),
+        claimsActive: p['active'] == true,
       );
-      return {
+      return AuthGateProfileCachePolicy.stampVerified(
+        {
         'igrejaId': igrejaId,
         'role': roleTxt,
         'cpf': (p['cpf'] ?? cached?['cpf'] ?? '').toString(),
-        'active': active,
-        'memberStatusPending': active
-            ? false
-            : (p['memberStatusPending'] == true ||
-                cached?['memberStatusPending'] == true),
+        'active': access.active,
+        'memberStatusPending': access.memberStatusPending,
         'mustChangePass': p['mustChangePass'] == true,
         'mustCompleteRegistration': p['mustCompleteRegistration'] == true,
         'subscription': p['subscription'] is Map
@@ -1300,7 +1251,9 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         'podeEmitirRelatoriosCompletos': p['podeEmitirRelatoriosCompletos'] ??
             cached?['podeEmitirRelatoriosCompletos'],
         'permissions': permissions,
-      };
+        },
+        source: 'callable',
+      );
     } catch (_) {
       return null;
     }
@@ -1536,6 +1489,29 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
         cached,
         userEmail: widget.user.email,
       );
+      if (normalized['active'] == true) {
+        if (normalized['active'] != cached['active']) {
+          unawaited(
+            AuthProfileCacheService.instance.save(widget.user.uid, normalized),
+          );
+        }
+        unawaited(_silentRefreshProfileCache());
+        unawaited(
+          ChurchAutoSessionService.preheatPanelCachesCoordinated(
+            tenantIdHint: (cached['igrejaId'] ?? '').toString(),
+          ),
+        );
+        return normalized;
+      }
+      if (AppConnectivityService.instance.isOnline) {
+        try {
+          final fresh = await widget.loadProfile();
+          if (fresh != null && fresh['active'] == true) {
+            await AuthProfileCacheService.instance.save(widget.user.uid, fresh);
+            return fresh;
+          }
+        } catch (_) {}
+      }
       if (normalized['active'] != cached['active']) {
         unawaited(
           AuthProfileCacheService.instance.save(widget.user.uid, normalized),
@@ -1592,18 +1568,21 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
           churchData = Map<String, dynamic>.from(chData);
         }
       } catch (_) {}
-      final stub = authGateNormalizeProfile(
+      final access = AuthGatePanelAccessService.resolve(
+        activeFromMemberOrUser: userData['ativo'] == true || userData['active'] == true,
+        role: (userData['role'] ?? '').toString(),
+        churchData: churchData,
+        userEmail: widget.user.email,
+      );
+      if (!access.active) return;
+      final stub = AuthGateProfileCachePolicy.stampVerified(
+        authGateNormalizeProfile(
         {
           'igrejaId': igrejaId,
           'role': (userData['role'] ?? '').toString(),
           'cpf': (userData['cpf'] ?? '').toString(),
-          'active': authGateResolvePanelActive(
-            activeFromMemberOrUser: userData['ativo'] == true,
-            role: (userData['role'] ?? '').toString(),
-            churchData: churchData,
-            userEmail: widget.user.email,
-          ),
-          'memberStatusPending': false,
+          'active': true,
+          'memberStatusPending': access.memberStatusPending,
           'mustChangePass': userData['mustChangePass'] == true,
           'mustCompleteRegistration':
               userData['mustCompleteRegistration'] == true,
@@ -1613,6 +1592,8 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
           ),
         },
         userEmail: widget.user.email,
+      ),
+        source: 'local_cache',
       );
       await AuthProfileCacheService.instance.save(widget.user.uid, stub);
       if (mounted) setState(() => _bootstrapProfile = stub);
@@ -1632,19 +1613,27 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     unawaited(PersistentAuthSessionService.currentPersistedUser());
     final peek = AuthProfileCacheService.instance.peek(widget.user.uid);
     if (peek != null && (peek['igrejaId'] ?? '').toString().trim().isNotEmpty) {
-      _bootstrapProfile = authGateNormalizeProfile(
+      final normalized = authGateNormalizeProfile(
         peek,
         userEmail: widget.user.email,
       );
+      if (normalized['active'] == true ||
+          normalized[AuthGateProfileMeta.accessVerified] == true) {
+        _bootstrapProfile = normalized;
+      }
     }
     unawaited(() async {
       final c = await AuthProfileCacheService.instance.load(widget.user.uid);
       if (!mounted) return;
       if (c != null && (c['igrejaId'] ?? '').toString().trim().isNotEmpty) {
-        setState(() => _bootstrapProfile = authGateNormalizeProfile(
-              c,
-              userEmail: widget.user.email,
-            ));
+        final normalized = authGateNormalizeProfile(
+          c,
+          userEmail: widget.user.email,
+        );
+        if (normalized['active'] == true ||
+            normalized[AuthGateProfileMeta.accessVerified] == true) {
+          setState(() => _bootstrapProfile = normalized);
+        }
       }
     }());
     unawaited(_tryEmergencyBootstrapFromLocalFirestore());
@@ -1682,6 +1671,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
   String _roleRelevantSignature(Map<String, dynamic>? d) {
     if (d == null) return '';
     final r = (d['role'] ?? '').toString();
+    final ativo = d['ativo'] == true || d['active'] == true;
     final roles = d['roles'];
     final rs = roles is List
         ? roles.map((e) => e.toString()).join('\u001f')
@@ -1690,7 +1680,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     final fs = fn is List
         ? fn.map((e) => e.toString()).join('\u001f')
         : '';
-    return '$r|$rs|$fs';
+    return '$r|$ativo|$rs|$fs';
   }
 
   void _onUsersDocSnapshotForRole(
@@ -1888,6 +1878,35 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
         }
 
         if (p != null && (!done || _panelEverShown)) {
+          final mustVerifyOnline = AuthGateProfileCachePolicy.requiresOnlineVerification(p) &&
+              AppConnectivityService.instance.isOnline &&
+              !done;
+          if (mustVerifyOnline) {
+            return Scaffold(
+              backgroundColor: const Color(0xFFF0F4FF),
+              body: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 36,
+                      height: 36,
+                      child: CircularProgressIndicator(strokeWidth: 2.8),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'A confirmar o seu acesso…',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
           final shell = _buildPanelShellFromProfile(p);
           if (!kIsWeb) {
             final bioEnabled = done && (snap.data?.$2 == true);

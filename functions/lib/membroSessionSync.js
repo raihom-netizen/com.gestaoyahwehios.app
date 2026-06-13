@@ -37,6 +37,7 @@ exports.scheduledSyncMembroSessions = exports.onMembroWriteSyncSession = void 0;
 exports.syncSessionFromMembroDoc = syncSessionFromMembroDoc;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
+const memberAccessPolicy_1 = require("./memberAccessPolicy");
 const db = admin.firestore();
 function pickString(data, keys) {
     for (const k of keys) {
@@ -97,9 +98,8 @@ async function syncSessionFromMembroDoc(tenantId, memberId, memberData) {
     const ig = await db.collection("igrejas").doc(tid).get();
     if (!ig.exists)
         return { ok: false, skipped: "church_missing" };
-    const status = String(memberData.STATUS || memberData.status || "").toLowerCase();
-    const pendingApproval = status === "pendente";
-    const activeClaim = status !== "pendente" && status !== "reprovado";
+    const pendingApproval = (0, memberAccessPolicy_1.memberDocIsPending)(memberData);
+    const activeClaim = (0, memberAccessPolicy_1.memberDocIsActive)(memberData);
     const roleRaw = pickString(memberData, ["role", "FUNCAO", "funcao", "CARGO", "cargo"]) || "membro";
     const roleOut = claimRoleFromRaw(roleRaw, muralRoleFromMemberData(memberData) ? "GESTOR" : "membro");
     const cpf = String(memberData.CPF || memberData.cpf || "").replace(/\D/g, "");

@@ -2219,8 +2219,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       tenantId: _tid,
       threadId: widget.threadId,
     ));
-    // Enfileira imediatamente (estilo WhatsApp): evita bloquear envio lendo bytes antes.
     Uint8List? previewBytes;
+    if (kind == 'image' && !kIsWeb) {
+      try {
+        previewBytes = await SafeImageBytes.fromPath(
+          localPath,
+          maxEdge: 480,
+          quality: 72,
+        );
+      } catch (_) {}
+    }
     final pending = ChurchChatOutboundPending(
       localId: 'p_${DateTime.now().millisecondsSinceEpoch}_${albumIndex}',
       kind: kind,

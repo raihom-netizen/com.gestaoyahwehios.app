@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/core/offline/sync_engine.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
+import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
@@ -29,7 +31,7 @@ abstract final class BackgroundUploadWorker {
     unawaited(drainAll(reason: reason));
   }
 
-  /// Processa filas locais: chat (prioridade) → mural → Storage → sync offline.
+  /// Processa filas locais: chat → mural → património/membro/financeiro → Storage → Hive sync.
   static Future<void> drainAll({String reason = 'manual'}) async {
     if (_drainBusy) {
       _drainCoalesce = true;
@@ -38,12 +40,14 @@ abstract final class BackgroundUploadWorker {
     _drainBusy = true;
     YahwehFlowLog.sync('UPLOAD_QUEUE', reason);
     try {
+      await EcoFireResilientPublish.refreshSessionForDrain();
       if (WebPanelStability.allowAutomaticRecovery) {
         await ChurchChatAutoRecoveryService.recoverOnSessionStart();
       }
       await ChurchChatMediaOutboxService.resumeRecoverableNow();
 
       await MuralPublishOutboxService.drainPendingJobs();
+      await ModuleMediaOutboxService.drainPendingJobs();
       if (!kIsWeb) {
         await StorageUploadPersistenceService.resumePendingOnAppStart();
       }
@@ -84,6 +88,7 @@ abstract final class BackgroundUploadWorker {
   /// Arranque / resume — substitui chamadas paralelas dispersas.
   static Future<void> bindOnAppStart() async {
     MuralPublishOutboxService.bindConnectivityResume();
+    ModuleMediaOutboxService.bindConnectivityResume();
     ChurchChatMediaOutboxService.bindConnectivityResume();
     await drainAll(reason: 'cold_start');
   }

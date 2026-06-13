@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
+import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 
 /// Arranque da camada offline-first (Hive + SyncEngine).
@@ -42,7 +43,10 @@ abstract final class OfflineBootstrap {
       ChurchChatMediaOutboxService.resumePendingOnAppStart();
     });
     SyncEngine.registerModuleFlusher('mural', () async {
-      MuralPublishOutboxService.resumePendingOnAppStart();
+      await MuralPublishOutboxService.drainPendingJobs();
+    });
+    SyncEngine.registerModuleFlusher('module_media', () async {
+      await ModuleMediaOutboxService.drainPendingJobs();
     });
     SyncEngine.registerModuleFlusher('storage', () async {
       if (EcoFireFlow.disableUploadQueues) return;

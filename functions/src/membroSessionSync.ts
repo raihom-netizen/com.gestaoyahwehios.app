@@ -1,5 +1,9 @@
 import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
+import {
+  memberDocIsActive,
+  memberDocIsPending,
+} from "./memberAccessPolicy";
 
 const db = admin.firestore();
 
@@ -66,9 +70,8 @@ export async function syncSessionFromMembroDoc(
   const ig = await db.collection("igrejas").doc(tid).get();
   if (!ig.exists) return { ok: false, skipped: "church_missing" };
 
-  const status = String(memberData.STATUS || memberData.status || "").toLowerCase();
-  const pendingApproval = status === "pendente";
-  const activeClaim = status !== "pendente" && status !== "reprovado";
+  const pendingApproval = memberDocIsPending(memberData);
+  const activeClaim = memberDocIsActive(memberData);
 
   const roleRaw = pickString(memberData, ["role", "FUNCAO", "funcao", "CARGO", "cargo"]) || "membro";
   const roleOut = claimRoleFromRaw(roleRaw, muralRoleFromMemberData(memberData) ? "GESTOR" : "membro");

@@ -4,12 +4,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/church_aprovacoes_load_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
@@ -17,6 +19,21 @@ import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+
+/// Cores premium — Aprovações rápidas (esmeralda / teal / âmbar).
+abstract final class _AprovacoesPremiumTheme {
+  _AprovacoesPremiumTheme._();
+
+  static const emerald = Color(0xFF059669);
+  static const teal = Color(0xFF0D9488);
+  static const amber = Color(0xFFF59E0B);
+
+  static const heroGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF059669), Color(0xFF0D9488), Color(0xFF14B8A6)],
+  );
+}
 
 class AprovarMembrosPendentesPage extends StatefulWidget {
   final String tenantId;
@@ -38,143 +55,87 @@ class AprovarMembrosPendentesPage extends StatefulWidget {
       _AprovarMembrosPendentesPageState();
 }
 
-/// Cache RAM — pendentes instantâneos ao reabrir Aprovações rápidas.
-abstract final class _PendentesRamCache {
-  _PendentesRamCache._();
-
-  static final Map<
-      String,
-      ({
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-        DateTime at,
-      })> _byTenant = {};
-
-  static const Duration _ttl = Duration(minutes: 20);
-
-  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(String tenantId) {
-    final key = tenantId.trim();
-    if (key.isEmpty) return null;
-    final hit = _byTenant[key];
-    if (hit == null) return null;
-    if (DateTime.now().difference(hit.at) > _ttl) {
-      _byTenant.remove(key);
-      return null;
-    }
-    return hit.docs;
-  }
-
-  static void put(
-    String tenantId,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final key = tenantId.trim();
-    if (key.isEmpty || docs.isEmpty) return;
-    _byTenant[key] = (docs: List.from(docs), at: DateTime.now());
-  }
-}
-
 class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPage>
     with SingleTickerProviderStateMixin {
   final Set<String> _selecionados = {};
   Map<String, String>? _tenantLinkageCache;
-  int _pendentesStreamKey = 0;
+  int _pendentesLoadKey = 0;
   late TabController _tabCtrl;
   String _effectiveTenantId = '';
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedPendentesDocs;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _pendentesDocs = [];
+  bool _pendentesLoading = true;
+  Object? _pendentesError;
 
   String get _tid =>
       _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
 
-  static String _pendentesMemKey(String tenantId) =>
-      '${tenantId.trim()}_membros_pendente_warm';
+  String get _churchId => ChurchRepository.churchId(_tid);
 
   CollectionReference<Map<String, dynamic>> get _membersCol =>
-                ChurchUiCollections.membros(_tid);
+      ChurchUiCollections.membros(_churchId);
 
-  void _hydratePendentesFromRam() {
-    final ram = _PendentesRamCache.peek(_tid);
+  void _seedPendentesFromCache() {
+    final ram = ChurchAprovacoesLoadService.peekPendentesRam(_churchId);
     if (ram != null && ram.isNotEmpty) {
-      _seedPendentesDocs = ram;
-    } else {
-      final mem = FirestoreReadResilience.peekLastGoodQuery(_pendentesMemKey(_tid));
-      if (mem != null && mem.docs.isNotEmpty) {
-        _seedPendentesDocs = mem.docs;
-      }
+      _pendentesDocs = ram;
+      _pendentesLoading = false;
     }
   }
 
-  Future<void> _openPendentesFast() async {
-    final seed = widget.tenantId.trim();
-    if (seed.isEmpty) return;
-
+  Future<void> _loadPendentes({bool forceRefresh = false}) async {
+    if (!mounted) return;
+    setState(() {
+      _pendentesLoading = _pendentesDocs.isEmpty;
+      _pendentesError = null;
+    });
     try {
-      final op = ChurchRepository.churchId(seed.trim());
-      final snap = await           ChurchUiCollections.membros(op)
-          .where('status', isEqualTo: 'pendente')
-          .limit(120)
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(milliseconds: 1800));
-      if (mounted && snap.docs.isNotEmpty) {
-        _PendentesRamCache.put(seed, snap.docs);
-        setState(() => _seedPendentesDocs = snap.docs);
-      }
-    } catch (_) {}
-
-    try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      final op = ChurchRepository.churchId(seed);
-      if (!mounted || op.isEmpty || op == _tid) return;
+      final result = await ChurchAprovacoesLoadService.loadPendentes(
+        seedTenantId: _churchId,
+        forceRefresh: forceRefresh,
+      );
+      if (!mounted) return;
       setState(() {
-        _effectiveTenantId = op;
-        _tenantLinkageCache = null;
-        _pendentesStreamKey++;
+        _pendentesDocs = result.docs;
+        _pendentesLoading = false;
+        _pendentesError =
+            result.docs.isEmpty ? result.softError : null;
+        _effectiveTenantId = result.churchId.isNotEmpty
+            ? result.churchId
+            : _effectiveTenantId;
       });
-      final alt = await _membersCol
-          .where('status', isEqualTo: 'pendente')
-          .limit(120)
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 10));
-      if (mounted && alt.docs.isNotEmpty) {
-        _PendentesRamCache.put(op, alt.docs);
-        setState(() => _seedPendentesDocs = alt.docs);
-      }
-    } catch (_) {}
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _pendentesLoading = false;
+        _pendentesError = e;
+      });
+    }
   }
 
   @override
   void initState() {
     super.initState();
-    _effectiveTenantId = widget.tenantId;
+    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
     _tabCtrl = TabController(length: 2, vsync: this);
     _tabCtrl.addListener(() {
       if (mounted) setState(() {});
     });
-    _hydratePendentesFromRam();
-    unawaited(_openPendentesFast());
-    unawaited(_warmPendentesCache());
+    _seedPendentesFromCache();
+    unawaited(_loadPendentes());
   }
 
   @override
   void didUpdateWidget(covariant AprovarMembrosPendentesPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _effectiveTenantId = widget.tenantId;
+      _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
       _tenantLinkageCache = null;
-      _seedPendentesDocs = null;
+      _pendentesDocs = [];
       _selecionados.clear();
-      _hydratePendentesFromRam();
-      _pendentesStreamKey++;
-      unawaited(_openPendentesFast());
+      _seedPendentesFromCache();
+      _pendentesLoadKey++;
+      unawaited(_loadPendentes(forceRefresh: true));
     }
-  }
-
-  Future<void> _warmPendentesCache() async {
-    try {
-      await FirestoreReadResilience.getQuery(
-        _membersCol.where('status', isEqualTo: 'pendente').limit(120),
-        cacheKey: _pendentesMemKey(_tid),
-      );
-    } catch (_) {}
   }
 
   @override
@@ -185,11 +146,11 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
 
   Future<Map<String, String>> _getTenantLinkage() async {
     if (_tenantLinkageCache != null) return _tenantLinkageCache!;
-    final snap = await ChurchTenantResilientReads.churchDocument(_tid);
-    final d = snap.data();
-    final id = snap.id;
-    final alias = (d?['alias'] ?? d?['slug'] ?? id).toString().trim();
-    final slug = (d?['slug'] ?? d?['alias'] ?? id).toString().trim();
+    final snap = await ChurchRepository.loadByChurchId(_churchId);
+    final d = snap.data;
+    final id = snap.churchId;
+    final alias = (d['alias'] ?? d['slug'] ?? id).toString().trim();
+    final slug = (d['slug'] ?? d['alias'] ?? id).toString().trim();
     _tenantLinkageCache = {
       'alias': alias.isEmpty ? id : alias,
       'slug': slug.isEmpty ? id : slug,
@@ -212,21 +173,32 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
   Future<void> _invokeSetMemberApproved(String memberId) async {
     await FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('setMemberApproved')
-        .call({'tenantId': _tid, 'memberId': memberId});
+        .call({'tenantId': _churchId, 'memberId': memberId});
+  }
+
+  Future<void> _afterApprovalMutation() async {
+    await ChurchAprovacoesLoadService.invalidate(_churchId);
+    if (mounted) unawaited(_loadPendentes(forceRefresh: true));
   }
 
   Future<void> _aprovarUm(String id) async {
     try {
       final linkage = await _getTenantLinkage();
-      await _membersCol.doc(id).update({
-        'alias': linkage['alias'],
-        'slug': linkage['slug'],
-        'tenantId': _tid,
-        'status': 'ativo',
-        'STATUS': 'ativo',
-        'aprovadoEm': FieldValue.serverTimestamp(),
-      });
+      await runFirestorePublishWithRecovery(
+        () => FirestoreWebGuard.runWithWebRecovery(
+          () => _membersCol.doc(id).update({
+            'alias': linkage['alias'],
+            'slug': linkage['slug'],
+            'tenantId': _churchId,
+            'status': 'ativo',
+            'STATUS': 'ativo',
+            'aprovadoEm': FieldValue.serverTimestamp(),
+          }),
+        ),
+        criticalWrite: true,
+      );
       await _invokeSetMemberApproved(id);
+      await _afterApprovalMutation();
       if (mounted) {
         setState(() => _selecionados.remove(id));
         ScaffoldMessenger.of(context).showSnackBar(
@@ -264,7 +236,13 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     );
     if (ok != true) return;
     try {
-      await _membersCol.doc(id).delete();
+      await runFirestorePublishWithRecovery(
+        () => FirestoreWebGuard.runWithWebRecovery(
+          () => _membersCol.doc(id).delete(),
+        ),
+        criticalWrite: true,
+      );
+      await _afterApprovalMutation();
       if (mounted) {
         setState(() => _selecionados.remove(id));
         ScaffoldMessenger.of(context)
@@ -304,12 +282,17 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       );
       if (ok != true) return;
       try {
-        await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-        final batch = firebaseDefaultFirestore.batch();
-        for (final id in ids) {
-          batch.delete(_membersCol.doc(id));
-        }
-        await batch.commit();
+        await runFirestorePublishWithRecovery(
+          () async {
+            final batch = firebaseDefaultFirestore.batch();
+            for (final id in ids) {
+              batch.delete(_membersCol.doc(id));
+            }
+            await batch.commit();
+          },
+          criticalWrite: true,
+        );
+        await _afterApprovalMutation();
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(
               count == 1 ? 'Cadastro excluído.' : '$count cadastros excluídos.'));
@@ -322,25 +305,30 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     }
 
     try {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final linkage = await _getTenantLinkage();
-      final batch = firebaseDefaultFirestore.batch();
-      for (final id in ids) {
-        batch.update(_membersCol.doc(id), {
-          'alias': linkage['alias'],
-          'slug': linkage['slug'],
-          'tenantId': _tid,
-          'status': newStatus,
-          'STATUS': newStatus,
-          if (newStatus == 'ativo') 'aprovadoEm': FieldValue.serverTimestamp(),
-        });
-      }
-      await batch.commit();
+      await runFirestorePublishWithRecovery(
+        () async {
+          final batch = firebaseDefaultFirestore.batch();
+          for (final id in ids) {
+            batch.update(_membersCol.doc(id), {
+              'alias': linkage['alias'],
+              'slug': linkage['slug'],
+              'tenantId': _churchId,
+              'status': newStatus,
+              'STATUS': newStatus,
+              if (newStatus == 'ativo') 'aprovadoEm': FieldValue.serverTimestamp(),
+            });
+          }
+          await batch.commit();
+        },
+        criticalWrite: true,
+      );
       if (newStatus == 'ativo') {
         for (final id in ids) {
           await _invokeSetMemberApproved(id);
         }
       }
+      await _afterApprovalMutation();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(
             '$count membro(s) aprovado(s).'));
@@ -369,23 +357,28 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     if (ok != true) return;
     final n = docs.length;
     try {
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final linkage = await _getTenantLinkage();
-      final batch = firebaseDefaultFirestore.batch();
-      for (final d in docs) {
-        batch.update(_membersCol.doc(d.id), {
-          'alias': linkage['alias'],
-          'slug': linkage['slug'],
-          'tenantId': _tid,
-          'status': 'ativo',
-          'STATUS': 'ativo',
-          'aprovadoEm': FieldValue.serverTimestamp(),
-        });
-      }
-      await batch.commit();
+      await runFirestorePublishWithRecovery(
+        () async {
+          final batch = firebaseDefaultFirestore.batch();
+          for (final d in docs) {
+            batch.update(_membersCol.doc(d.id), {
+              'alias': linkage['alias'],
+              'slug': linkage['slug'],
+              'tenantId': _churchId,
+              'status': 'ativo',
+              'STATUS': 'ativo',
+              'aprovadoEm': FieldValue.serverTimestamp(),
+            });
+          }
+          await batch.commit();
+        },
+        criticalWrite: true,
+      );
       for (final d in docs) {
         await _invokeSetMemberApproved(d.id);
       }
+      await _afterApprovalMutation();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('$n membro(s) aprovado(s)!'));
@@ -418,7 +411,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
                 controller: _tabCtrl,
                 children: [
                   _buildPendentesTab(isMobile),
-                  _ApprovalHistoryPanel(membersCol: _membersCol),
+                  _ApprovalHistoryPanel(churchId: _churchId),
                 ],
               ),
             ),
@@ -436,19 +429,12 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       padding: EdgeInsets.fromLTRB(pad.left, topGap, pad.right, 8),
       child: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              ThemeCleanPremium.primary,
-              Color.lerp(ThemeCleanPremium.primary, const Color(0xFF1D4ED8), 0.35)!,
-            ],
-          ),
+          gradient: _AprovacoesPremiumTheme.heroGradient,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
           boxShadow: [
             BoxShadow(
-              color: ThemeCleanPremium.primary.withValues(alpha: 0.32),
+              color: _AprovacoesPremiumTheme.emerald.withValues(alpha: 0.35),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -546,11 +532,36 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
   }
 
   Widget _buildPendentesTab(bool isMobile) {
+    final docs = _pendentesDocs;
+    if (_pendentesError != null && docs.isEmpty && !_pendentesLoading) {
+      return Padding(
+        padding: ThemeCleanPremium.pagePadding(context),
+        child: ChurchPanelErrorBody(
+          title: 'Não foi possível carregar os membros pendentes',
+          error: _pendentesError,
+          onRetry: () {
+            _pendentesLoadKey++;
+            unawaited(_loadPendentes(forceRefresh: true));
+          },
+        ),
+      );
+    }
+    if (_pendentesLoading && docs.isEmpty) {
+      return const ChurchPanelLoadingBody();
+    }
+
     return Column(
       children: [
+        Padding(
+          padding: ThemeCleanPremium.pagePadding(context).copyWith(
+            top: 12,
+            bottom: 0,
+          ),
+          child: _AprovacoesHeroHeader(pendentesCount: docs.length),
+        ),
         if (_selecionados.isNotEmpty)
           Container(
-            color: ThemeCleanPremium.primary,
+            color: _AprovacoesPremiumTheme.emerald,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
@@ -577,223 +588,225 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
             ),
           ),
         Expanded(
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            key: ValueKey('pendentes_$_pendentesStreamKey'),
-            stream: ChurchTenantResilientReads.querySnapshotsResilient(
-              _membersCol.where('status', isEqualTo: 'pendente'),
-            ),
-            builder: (context, snap) {
-              if (snap.hasError) {
-                return Padding(
-                  padding: ThemeCleanPremium.pagePadding(context),
-                  child: ChurchPanelErrorBody(
-                    title: 'Não foi possível carregar os membros pendentes',
-                    error: snap.error,
-                    onRetry: () => setState(() => _pendentesStreamKey++),
-                  ),
-                );
-              }
-              var docs = snap.data?.docs ?? [];
-              if (docs.isEmpty &&
-                  _seedPendentesDocs != null &&
-                  _seedPendentesDocs!.isNotEmpty) {
-                docs = _seedPendentesDocs!;
-              }
-              if (snap.hasData && snap.data!.docs.isNotEmpty) {
-                _PendentesRamCache.put(_tid, snap.data!.docs);
-                _seedPendentesDocs = snap.data!.docs;
-              }
-              final isLoading = snap.connectionState == ConnectionState.waiting &&
-                  !snap.hasData &&
-                  docs.isEmpty;
-              if (isLoading) {
-                return const ChurchPanelLoadingBody();
-              }
-              if (docs.isEmpty) {
-                return CustomScrollView(
+          child: docs.isEmpty
+              ? CustomScrollView(
                   primary: false,
                   physics: const AlwaysScrollableScrollPhysics(),
                   slivers: [
                     SliverFillRemaining(
                       hasScrollBody: false,
-                      child: _PremiumEmptyPendentes(onOpenHistorico: () => _tabCtrl.animateTo(1)),
+                      child: _PremiumEmptyPendentes(
+                        onOpenHistorico: () => _tabCtrl.animateTo(1),
+                      ),
                     ),
                   ],
-                );
-              }
-              return ListView(
-                primary: false,
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: ThemeCleanPremium.pagePadding(context),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            ThemeCleanPremium.success,
-                            Color.lerp(ThemeCleanPremium.success, Colors.white, 0.15)!,
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        boxShadow: [
-                          BoxShadow(
-                            color: ThemeCleanPremium.success.withValues(alpha: 0.35),
-                            blurRadius: 14,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                          onTap: () => _aprovarTodos(docs),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(Icons.check_circle_rounded,
-                                    color: Colors.white, size: 22),
-                                const SizedBox(width: 10),
-                                Text(
-                                  'Aprovar todos (${docs.length})',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 15,
-                                    color: Colors.white,
-                                  ),
-                                ),
+                )
+              : RefreshIndicator(
+                  onRefresh: () => _loadPendentes(forceRefresh: true),
+                  color: _AprovacoesPremiumTheme.emerald,
+                  child: ListView(
+                    primary: false,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: ThemeCleanPremium.pagePadding(context),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                _AprovacoesPremiumTheme.emerald,
+                                Color.lerp(
+                                  _AprovacoesPremiumTheme.emerald,
+                                  Colors.white,
+                                  0.12,
+                                )!,
                               ],
+                            ),
+                            borderRadius:
+                                BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                            boxShadow: [
+                              BoxShadow(
+                                color: _AprovacoesPremiumTheme.emerald
+                                    .withValues(alpha: 0.35),
+                                blurRadius: 14,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusMd),
+                              onTap: () => _aprovarTodos(docs),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    vertical: 14, horizontal: 16),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.check_circle_rounded,
+                                        color: Colors.white, size: 22),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      'Aprovar todos (${docs.length})',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 15,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                  ...List.generate(docs.length, (i) {
-                    final d = docs[i];
-                    final data = d.data();
-                    final nome =
-                        (data['NOME_COMPLETO'] ?? data['nome'] ?? 'Membro').toString();
-                    final email = (data['EMAIL'] ?? data['email'] ?? '').toString();
-                    final foto = _photoUrlFromData(data);
-                    final hasFoto = foto.isNotEmpty;
-                    final sel = _selecionados.contains(d.id);
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Colors.white,
-                            ThemeCleanPremium.primary.withValues(alpha: 0.03),
-                          ],
-                        ),
-                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        boxShadow: ThemeCleanPremium.softUiCardShadow,
-                        border: Border.all(
-                          color: sel
-                              ? ThemeCleanPremium.primary.withValues(alpha: 0.35)
-                              : const Color(0xFFE8EEF4),
-                        ),
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              Expanded(
-                                child: InkWell(
-                                  borderRadius:
-                                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                                  onTap: () => setState(() {
-                                    if (sel) {
-                                      _selecionados.remove(d.id);
-                                    } else {
-                                      _selecionados.add(d.id);
-                                    }
-                                  }),
-                                  child: Row(
-                                    children: [
-                                      Checkbox(
-                                        value: sel,
-                                        onChanged: (v) => setState(() {
-                                          if (v == true) {
-                                            _selecionados.add(d.id);
-                                          } else {
-                                            _selecionados.remove(d.id);
-                                          }
-                                        }),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      ClipOval(
-                                        child: SizedBox(
-                                          width: 44,
-                                          height: 44,
-                                          child: hasFoto
-                                              ? SafeNetworkImage(
-                                                  imageUrl: foto,
-                                                  fit: BoxFit.cover,
-                                                  placeholder: _avatarPlaceholder(nome),
-                                                  errorWidget: _avatarPlaceholder(nome),
-                                                )
-                                              : _avatarPlaceholder(nome),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                          child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                            Text(nome,
-                                                style: const TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                    fontSize: 14)),
-                                            if (email.isNotEmpty)
-                                              Text(email,
-                                                  style: TextStyle(
-                                                      fontSize: 12,
-                                                      color: Colors.grey.shade600)),
-                                          ])),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.check_rounded,
-                                    color: ThemeCleanPremium.success),
-                                onPressed: () => _aprovarUm(d.id),
-                                tooltip: 'Aprovar',
-                                style: IconButton.styleFrom(
-                                    minimumSize: const Size(
-                                        ThemeCleanPremium.minTouchTarget,
-                                        ThemeCleanPremium.minTouchTarget)),
-                              ),
-                              IconButton(
-                                icon: Icon(Icons.close_rounded, color: Colors.red.shade400),
-                                onPressed: () => _confirmarExcluirUm(d.id, nome),
-                                tooltip: 'Excluir cadastro',
-                                style: IconButton.styleFrom(
-                                    minimumSize: const Size(
-                                        ThemeCleanPremium.minTouchTarget,
-                                        ThemeCleanPremium.minTouchTarget)),
-                              ),
-                            ],
+                      ...List.generate(docs.length, (i) {
+                        final d = docs[i];
+                        final data = d.data();
+                        final nome = (data['NOME_COMPLETO'] ?? data['nome'] ?? 'Membro')
+                            .toString();
+                        final email =
+                            (data['EMAIL'] ?? data['email'] ?? '').toString();
+                        final foto = _photoUrlFromData(data);
+                        final hasFoto = foto.isNotEmpty;
+                        final sel = _selecionados.contains(d.id);
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Colors.white,
+                                _AprovacoesPremiumTheme.teal
+                                    .withValues(alpha: 0.06),
+                              ],
+                            ),
+                            borderRadius:
+                                BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                            boxShadow: ThemeCleanPremium.softUiCardShadow,
+                            border: Border.all(
+                              color: sel
+                                  ? _AprovacoesPremiumTheme.emerald
+                                      .withValues(alpha: 0.4)
+                                  : const Color(0xFFE8EEF4),
+                            ),
                           ),
-                        ),
-                      ),
-                    );
-                  }),
-                ],
-              );
-            },
-          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Expanded(
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusMd),
+                                      onTap: () => setState(() {
+                                        if (sel) {
+                                          _selecionados.remove(d.id);
+                                        } else {
+                                          _selecionados.add(d.id);
+                                        }
+                                      }),
+                                      child: Row(
+                                        children: [
+                                          Checkbox(
+                                            value: sel,
+                                            activeColor:
+                                                _AprovacoesPremiumTheme.emerald,
+                                            onChanged: (v) => setState(() {
+                                              if (v == true) {
+                                                _selecionados.add(d.id);
+                                              } else {
+                                                _selecionados.remove(d.id);
+                                              }
+                                            }),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          ClipOval(
+                                            child: SizedBox(
+                                              width: 44,
+                                              height: 44,
+                                              child: hasFoto
+                                                  ? SafeNetworkImage(
+                                                      imageUrl: foto,
+                                                      fit: BoxFit.cover,
+                                                      placeholder:
+                                                          _avatarPlaceholder(nome),
+                                                      errorWidget:
+                                                          _avatarPlaceholder(nome),
+                                                    )
+                                                  : _avatarPlaceholder(nome),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  nome,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                if (email.isNotEmpty)
+                                                  Text(
+                                                    email,
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color: Colors.grey.shade600,
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.check_rounded,
+                                        color: _AprovacoesPremiumTheme.emerald),
+                                    onPressed: () => _aprovarUm(d.id),
+                                    tooltip: 'Aprovar',
+                                    style: IconButton.styleFrom(
+                                      minimumSize: const Size(
+                                        ThemeCleanPremium.minTouchTarget,
+                                        ThemeCleanPremium.minTouchTarget,
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: Icon(Icons.close_rounded,
+                                        color: Colors.red.shade400),
+                                    onPressed: () =>
+                                        _confirmarExcluirUm(d.id, nome),
+                                    tooltip: 'Excluir cadastro',
+                                    style: IconButton.styleFrom(
+                                      minimumSize: const Size(
+                                        ThemeCleanPremium.minTouchTarget,
+                                        ThemeCleanPremium.minTouchTarget,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
         ),
       ],
     );
@@ -811,6 +824,85 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
   }
 
   static String _photoUrlFromData(Map<String, dynamic> data) => imageUrlFromMap(data);
+}
+
+class _AprovacoesHeroHeader extends StatelessWidget {
+  const _AprovacoesHeroHeader({required this.pendentesCount});
+
+  final int pendentesCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+      decoration: BoxDecoration(
+        gradient: _AprovacoesPremiumTheme.heroGradient,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: _AprovacoesPremiumTheme.emerald.withValues(alpha: 0.35),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.how_to_reg_rounded,
+                color: Colors.white, size: 28),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Aprovações rápidas',
+                  style: tt.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  'Cadastros públicos aguardando gestor',
+                  style: tt.labelMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$pendentesCount',
+                style: tt.headlineMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                'pendentes',
+                style: tt.labelSmall?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ── Empty state premium ─────────────────────────────────────────────────────
@@ -839,7 +931,8 @@ class _PremiumEmptyPendentes extends StatelessWidget {
               ),
               boxShadow: ThemeCleanPremium.softUiCardShadow,
             ),
-            child: Icon(Icons.check_circle_rounded, size: 72, color: ThemeCleanPremium.success),
+            child: Icon(Icons.check_circle_rounded,
+                size: 72, color: _AprovacoesPremiumTheme.emerald),
           ),
           const SizedBox(height: 24),
           Text(
@@ -864,7 +957,7 @@ class _PremiumEmptyPendentes extends StatelessWidget {
             icon: const Icon(Icons.insights_rounded),
             label: const Text('Ver histórico e gráficos'),
             style: FilledButton.styleFrom(
-              backgroundColor: ThemeCleanPremium.primary,
+              backgroundColor: _AprovacoesPremiumTheme.emerald,
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd)),
@@ -881,9 +974,9 @@ class _PremiumEmptyPendentes extends StatelessWidget {
 enum _HistoryPreset { mesAtual, trimestre, ultimos90, ano, periodo }
 
 class _ApprovalHistoryPanel extends StatefulWidget {
-  final CollectionReference<Map<String, dynamic>> membersCol;
+  final String churchId;
 
-  const _ApprovalHistoryPanel({required this.membersCol});
+  const _ApprovalHistoryPanel({required this.churchId});
 
   @override
   State<_ApprovalHistoryPanel> createState() => _ApprovalHistoryPanelState();
@@ -950,45 +1043,17 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
 
   Future<_HistoryData> _loadHistorico() async {
     final range = _effectiveRange;
-    final t0 = Timestamp.fromDate(range.$1);
-    final t1 = Timestamp.fromDate(range.$2);
-    const getOpts = GetOptions(source: Source.serverAndCache);
-
-    QuerySnapshot<Map<String, dynamic>> approved;
-    QuerySnapshot<Map<String, dynamic>> rejected;
-    try {
-      approved = await widget.membersCol
-          .where('status', isEqualTo: 'ativo')
-          .where('aprovadoEm', isGreaterThanOrEqualTo: t0)
-          .where('aprovadoEm', isLessThanOrEqualTo: t1)
-          .orderBy('aprovadoEm', descending: true)
-          .limit(800)
-          .get(getOpts)
-          .timeout(const Duration(seconds: 10));
-    } catch (_) {
-      approved = await widget.membersCol
-          .where('status', isEqualTo: 'ativo')
-          .limit(400)
-          .get(getOpts);
-    }
-
-    try {
-      rejected = await widget.membersCol
-          .where('status', isEqualTo: 'reprovado')
-          .where('reprovadoEm', isGreaterThanOrEqualTo: t0)
-          .where('reprovadoEm', isLessThanOrEqualTo: t1)
-          .orderBy('reprovadoEm', descending: true)
-          .limit(800)
-          .get(getOpts)
-          .timeout(const Duration(seconds: 10));
-    } catch (_) {
-      rejected = await widget.membersCol
-          .where('status', isEqualTo: 'reprovado')
-          .limit(200)
-          .get(getOpts);
-    }
-
-    return _HistoryData.fromSnapshots(range.$1, range.$2, approved, rejected);
+    final result = await ChurchAprovacoesLoadService.loadHistorico(
+      seedTenantId: widget.churchId,
+      rangeStart: range.$1,
+      rangeEnd: range.$2,
+    );
+    return _HistoryData.fromSnapshots(
+      range.$1,
+      range.$2,
+      MergedFirestoreQuerySnapshot(result.approved),
+      MergedFirestoreQuerySnapshot(result.rejected),
+    );
   }
 
   void _selecionarPresetPeriodo() {

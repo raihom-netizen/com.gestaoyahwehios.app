@@ -42,12 +42,12 @@ function resolveActive(member) {
   return true;
 }
 
-async function backfillTenant(tenantId, tenantData) {
-  const createdByCpf = onlyDigits(tenantData.createdByCpf || tenantData.ownerCpf || tenantData.gestorCpf || "");
+async function backfillChurch(churchId, churchData) {
+  const createdByCpf = onlyDigits(churchData.createdByCpf || churchData.ownerCpf || churchData.gestorCpf || churchData.cpf || "");
   const membersSnap = await db
-    .collection("tenants")
-    .doc(tenantId)
-    .collection("members")
+    .collection("igrejas")
+    .doc(churchId)
+    .collection("membros")
     .get();
 
   let updated = 0;
@@ -65,8 +65,8 @@ async function backfillTenant(tenantId, tenantData) {
     const active = resolveActive(m);
 
     await db
-      .collection("tenants")
-      .doc(tenantId)
+      .collection("igrejas")
+      .doc(churchId)
       .collection("usersIndex")
       .doc(cpf)
       .set(
@@ -75,6 +75,7 @@ async function backfillTenant(tenantId, tenantData) {
           email,
           name,
           role,
+          tenantId: churchId,
           active,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
@@ -87,13 +88,13 @@ async function backfillTenant(tenantId, tenantData) {
       await admin.auth().setCustomUserClaims(user.uid, {
         ...claims,
         role,
-        igrejaId: tenantId,
+        igrejaId: churchId,
       });
 
       await db.collection("users").doc(user.uid).set(
         {
           role,
-          igrejaId: tenantId,
+          igrejaId: churchId,
           cpf,
           ativo: active,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -111,13 +112,13 @@ async function backfillTenant(tenantId, tenantData) {
 }
 
 (async () => {
-  const tenantsSnap = await db.collection("tenants").get();
+  const churchesSnap = await db.collection("igrejas").get();
   let total = 0;
 
-  for (const t of tenantsSnap.docs) {
-    const count = await backfillTenant(t.id, t.data() || {});
+  for (const t of churchesSnap.docs) {
+    const count = await backfillChurch(t.id, t.data() || {});
     total += count;
-    console.log(`Tenant ${t.id}: ${count} usuarios indexados.`);
+    console.log(`Igreja ${t.id}: ${count} usuarios indexados.`);
   }
 
   console.log(`Concluido. Total atualizado: ${total}`);

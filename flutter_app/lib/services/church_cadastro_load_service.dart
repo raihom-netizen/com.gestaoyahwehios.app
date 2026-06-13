@@ -1,18 +1,13 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/core/tenant/church_profile_loader.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
-import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
-import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga do Cadastro da Igreja — leitura directa `igrejas/{churchId}`.
@@ -47,23 +42,30 @@ class ChurchCadastroLoadResult {
       );
 }
 
-/// Carga canónica do Cadastro — **sempre** `igrejas/{churchId}` (sem cluster/resolver).
+/// Carga canónica do Cadastro — **uma** leitura Firestore via [ChurchRepository].
+///
+/// Web = Android = iOS: sessão → cache Hive → `loadByChurchId` (sem leituras triplicadas).
 abstract final class ChurchCadastroLoadService {
   ChurchCadastroLoadService._();
 
   /// Perfil mínimo útil (nome + pelo menos endereço ou gestor).
   static const int kMinProfileScore = 5;
 
+  static Duration get _networkTimeout =>
+      kIsWeb ? const Duration(seconds: 15) : const Duration(seconds: 20);
+
   static String _logoPathFor(String churchId, Map<String, dynamic>? data) {
     return ChurchBrandService.logoPathFromData(data, churchId: churchId) ??
         ChurchStorageLayout.churchIdentityLogoPath(churchId);
   }
 
-  static bool _isUsableProfile(Map<String, dynamic>? data) {
-    if (data == null || data.isEmpty) return false;
-    return TenantResolverService.churchProfileRichnessScore(data) >=
-        kMinProfileScore;
+  static int _profileScore(Map<String, dynamic>? data) {
+    if (data == null || data.isEmpty) return 0;
+    return TenantResolverService.churchProfileRichnessScore(data);
   }
+
+  static bool _isUsableProfile(Map<String, dynamic>? data) =>
+      _profileScore(data) >= kMinProfileScore;
 
   static ChurchCadastroLoadResult _resultFromData({
     required String seed,
@@ -81,69 +83,59 @@ abstract final class ChurchCadastroLoadService {
         softError: softError,
       );
 
-  /// Leitura completa do doc raiz — cache Firestore → servidor (timeout longo na web).
-  static Future<({String docId, Map<String, dynamic> data})?> _readFirestoreDocFull(
-    String churchId,
-  ) async {
-    final id = ChurchPanelTenant.resolve(churchId);
-    if (id.isEmpty) return null;
-
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
-
-    final ref = ChurchFirestoreAccess.churchDoc(id);
-
-    try {
-      final cacheSnap = await ref
-          .get(const GetOptions(source: Source.cache))
-          .timeout(const Duration(seconds: 5));
-      if (cacheSnap.exists && cacheSnap.data() != null) {
-        final data = Map<String, dynamic>.from(cacheSnap.data()!);
-        if (_isUsableProfile(data)) {
-          return (docId: cacheSnap.id, data: data);
-        }
-      }
-    } catch (_) {}
-
-    try {
-      Future<DocumentSnapshot<Map<String, dynamic>>> readServer() =>
-          FirestoreReadResilience.getDocument(
-            ref,
-            cacheKey: 'cadastro_igreja_full_$id',
-            maxAttempts: kIsWeb ? 5 : 3,
-            attemptTimeout: kIsWeb
-                ? const Duration(seconds: 24)
-                : const Duration(seconds: 16),
-          );
-
-      final snap = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(
-              readServer,
-              maxAttempts: 4,
-            ).timeout(const Duration(seconds: 100))
-          : await readServer().timeout(const Duration(seconds: 50));
-
-      if (!snap.exists || snap.data() == null) return null;
-      return (docId: snap.id, data: Map<String, dynamic>.from(snap.data()!));
-    } on TimeoutException {
-      rethrow;
-    } on ChurchRepositoryException {
-      rethrow;
-    } catch (_) {
-      return null;
-    }
+  static String _resolveChurchId(String seedTenantId) {
+    return ChurchPanelTenant.resolve(
+      seedTenantId.trim().isNotEmpty
+          ? seedTenantId.trim()
+          : (ChurchContextService.currentChurchId ?? ''),
+    );
   }
 
-  /// Ordem: sessão (perfil rico) → cache Hive → Firestore cache+servidor → direct read → loadByChurchId.
+  /// Fontes locais instantâneas (sessão + Hive) — sem rede.
+  static Future<ChurchCadastroLoadResult?> tryLocalSources({
+    required String seedTenantId,
+  }) async {
+    final seed = seedTenantId.trim();
+    final churchId = _resolveChurchId(seed);
+    if (churchId.isEmpty) return null;
+
+    final ctxId = ChurchContextService.currentChurchId?.trim() ?? '';
+    final ctxData = ChurchContextService.currentChurchData;
+    if (ctxData != null &&
+        ctxId.isNotEmpty &&
+        ChurchPanelTenant.resolve(ctxId) == churchId &&
+        ctxData.isNotEmpty) {
+      return _resultFromData(
+        seed: seed,
+        churchId: churchId,
+        data: ctxData,
+        readSource: 'session_context',
+      );
+    }
+
+    final cached = await ChurchPanelLocalCache.readMap(
+      churchId: churchId,
+      module: ChurchPanelLocalCache.moduleCadastro,
+    );
+    if (cached != null && cached.isNotEmpty) {
+      return _resultFromData(
+        seed: seed,
+        churchId: churchId,
+        data: cached,
+        readSource: 'local_cache',
+      );
+    }
+
+    return null;
+  }
+
+  /// Ordem: sessão/Hive → **uma** leitura `ChurchRepository.loadByChurchId`.
   static Future<ChurchCadastroLoadResult> load({
     required String seedTenantId,
     bool forceRefresh = false,
   }) async {
     final seed = seedTenantId.trim();
-    final churchId = ChurchPanelTenant.resolve(
-      seed.isNotEmpty ? seed : (ChurchContextService.currentChurchId ?? ''),
-    );
+    final churchId = _resolveChurchId(seed);
 
     if (churchId.isEmpty) {
       throw ChurchRepositoryException(
@@ -154,80 +146,30 @@ abstract final class ChurchCadastroLoadService {
 
     final defaultLogoPath = ChurchStorageLayout.churchIdentityLogoPath(churchId);
 
+    ChurchCadastroLoadResult? paintedLocal;
     if (!forceRefresh) {
-      final ctxId = ChurchContextService.currentChurchId?.trim() ?? '';
-      final ctxData = ChurchContextService.currentChurchData;
-      if (ctxData != null &&
-          ctxId.isNotEmpty &&
-          ChurchPanelTenant.resolve(ctxId) == churchId &&
-          _isUsableProfile(ctxData)) {
-        return _resultFromData(
-          seed: seed,
-          churchId: churchId,
-          data: ctxData,
-          readSource: 'session_context',
-        );
+      final local = await tryLocalSources(seedTenantId: seed);
+      if (local != null && _isUsableProfile(local.data)) {
+        if (!kIsWeb) {
+          return local;
+        }
+        paintedLocal = local;
       }
     }
 
-    if (!forceRefresh) {
-      final cached = await ChurchPanelLocalCache.readMap(
-        churchId: churchId,
-        module: ChurchPanelLocalCache.moduleCadastro,
-      );
-      if (cached != null && _isUsableProfile(cached)) {
-        return _resultFromData(
-          seed: seed,
-          churchId: churchId,
-          data: cached,
-          readSource: 'local_cache',
-        );
-      }
-    }
-
-    Object? directError;
+    Object? loadError;
     try {
-      final full = await _readFirestoreDocFull(churchId);
-      if (full != null && full.data.isNotEmpty) {
-        return _resultFromData(
-          seed: seed,
-          churchId: full.docId,
-          data: full.data,
-          readSource: 'firestore_full_doc',
-        );
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady()
+            .timeout(const Duration(seconds: 2), onTimeout: () {})
+            .catchError((_) {});
       }
-    } on TimeoutException catch (e) {
-      directError = e;
-    } on ChurchRepositoryException catch (e) {
-      directError = e;
-    } catch (e) {
-      directError = e;
-    }
 
-    try {
-      final hit = await IgrejaDirectFirestoreReads.readIgrejaDoc(churchId);
-      if (hit != null && hit.data.isNotEmpty) {
-        return _resultFromData(
-          seed: seed,
-          churchId: hit.docId,
-          data: hit.data,
-          readSource: 'direct_igrejas_doc',
-        );
-      }
-    } on TimeoutException catch (e) {
-      directError ??= e;
-    } on ChurchRepositoryException catch (e) {
-      directError ??= e;
-    } catch (e) {
-      directError ??= e;
-    }
-
-    try {
       final loaded = await ChurchRepository.loadByChurchId(
         churchId,
         seedTenantId: seed.isNotEmpty ? seed : churchId,
-        userUid: null,
-      );
+      ).timeout(_networkTimeout);
+
       if (loaded.data.isNotEmpty) {
         return _resultFromData(
           seed: seed,
@@ -236,13 +178,41 @@ abstract final class ChurchCadastroLoadService {
           readSource: loaded.readSource,
         );
       }
+    } on TimeoutException catch (e) {
+      loadError = e;
+    } on ChurchRepositoryException catch (e) {
+      loadError = e;
     } catch (e) {
-      directError ??= e;
+      loadError = e;
     }
 
-    final errMsg = directError is ChurchRepositoryException
-        ? directError.message
-        : directError?.toString();
+    if (!forceRefresh) {
+      if (paintedLocal != null && paintedLocal.data.isNotEmpty) {
+        final errMsg = _formatSoftError(loadError);
+        return _resultFromData(
+          seed: seed,
+          churchId: churchId,
+          data: paintedLocal.data,
+          readSource: paintedLocal.readSource,
+          softError: errMsg ??
+              'Sincronização parcial. Toque em «Atualizar» para tentar de novo.',
+        );
+      }
+      final local = await tryLocalSources(seedTenantId: seed);
+      if (local != null && local.data.isNotEmpty) {
+        final errMsg = _formatSoftError(loadError);
+        return _resultFromData(
+          seed: seed,
+          churchId: churchId,
+          data: local.data,
+          readSource: local.readSource,
+          softError: errMsg ??
+              'Sincronização parcial. Toque em «Atualizar» para tentar de novo.',
+        );
+      }
+    }
+
+    final errMsg = _formatSoftError(loadError);
 
     return ChurchCadastroLoadResult(
       seedTenantId: seed.isNotEmpty ? seed : churchId,
@@ -253,6 +223,17 @@ abstract final class ChurchCadastroLoadService {
       softError: errMsg ??
           'Não foi possível sincronizar agora. Toque em Atualizar.',
     );
+  }
+
+  static String? _formatSoftError(Object? error) {
+    if (error == null) return null;
+    if (error is ChurchRepositoryException) return error.message;
+    final raw = error.toString();
+    if (FirestoreWebGuard.isInternalAssertionError(error)) {
+      return 'Firestore instável na web. Toque em «Atualizar» em alguns segundos.';
+    }
+    if (raw.length > 280) return '${raw.substring(0, 277)}…';
+    return raw;
   }
 
   /// Persiste perfil completo após leitura bem-sucedida.

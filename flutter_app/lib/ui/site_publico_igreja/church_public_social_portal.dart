@@ -482,6 +482,38 @@ class ChurchPublicSocialFeedGrid extends StatelessWidget {
 }
 
 /// Um cartão do feed público (altura conforme a largura) — para [SliverList] lazy.
+Widget churchPublicSocialFeedTileFromMap({
+  required BuildContext context,
+  required String postId,
+  required Map<String, dynamic> post,
+  required String igrejaId,
+  required String churchSlug,
+  required Color accent,
+  required int memCacheW,
+  required int memCacheH,
+  required Future<void> Function(
+    BuildContext context,
+    Map<String, dynamic> post,
+    String postId,
+  ) onOpenHostedVideo,
+  bool galleryArchivePremiumLayout = false,
+}) {
+  return _SocialGridTile(
+    postId: postId,
+    post: post,
+    igrejaId: igrejaId,
+    churchSlug: churchSlug,
+    accent: accent,
+    memCacheW: memCacheW,
+    memCacheH: memCacheH,
+    galleryArchivePremiumLayout: galleryArchivePremiumLayout,
+    onOpenHostedVideo: onOpenHostedVideo,
+    onOpenDetail: () {},
+    onOpenGalleryFocus: null,
+  );
+}
+
+/// Um cartão do feed público (altura conforme a largura) — para [SliverList] lazy.
 Widget churchPublicSocialFeedTile({
   required BuildContext context,
   required QueryDocumentSnapshot<Map<String, dynamic>> doc,

@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/chat_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
@@ -22,7 +22,7 @@ abstract final class ChatStrictPublishService {
     bool skipStorageVerify = false,
     bool skipServerRecheck = false,
   }) async {
-    await ensureFirebaseReadyForChatSend();
+    await EcoFirePublishBootstrap.ensureHard(logLabel: 'chat_media_finalize');
     if (!skipStorageVerify) {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded();
     }

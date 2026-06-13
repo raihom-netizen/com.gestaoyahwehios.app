@@ -1,7 +1,5 @@
-import * as admin from "firebase-admin";
 import * as functions from "firebase-functions/v1";
-
-const db = admin.firestore();
+import { admin, fs } from "./adminDb";
 
 /** Resolve igreja do utilizador (claims → body → users → membros). Mobile costuma falhar só com claims. */
 export async function resolveTenantIdForCallable(
@@ -15,7 +13,7 @@ export async function resolveTenantIdForCallable(
 
   const fromBody = String(dataTenantId || "").trim();
   if (fromBody && (await userCanAccessTenant(uid, email, fromBody))) {
-    const ig = await db.collection("igrejas").doc(fromBody).get();
+    const ig = await fs().collection("igrejas").doc(fromBody).get();
     if (ig.exists) return fromBody;
   }
 
@@ -24,24 +22,24 @@ export async function resolveTenantIdForCallable(
     const claims = (tokenUser.customClaims || {}) as Record<string, unknown>;
     const fromClaims = String(claims.igrejaId || claims.tenantId || "").trim();
     if (fromClaims) {
-      const ig = await db.collection("igrejas").doc(fromClaims).get();
+      const ig = await fs().collection("igrejas").doc(fromClaims).get();
       if (ig.exists) return fromClaims;
     }
   } catch (e) {
     functions.logger.warn("resolveTenantIdForCallable: claims", { uid, e });
   }
 
-  const userSnap = await db.collection("users").doc(uid).get();
+  const userSnap = await fs().collection("users").doc(uid).get();
   if (userSnap.exists) {
     const d = userSnap.data() || {};
     const tid = String(d.igrejaId || d.tenantId || "").trim();
     if (tid) {
-      const ig = await db.collection("igrejas").doc(tid).get();
+      const ig = await fs().collection("igrejas").doc(tid).get();
       if (ig.exists) return tid;
     }
   }
 
-  const membrosCg = await db
+  const membrosCg = await fs()
     .collectionGroup("membros")
     .where("authUid", "==", uid)
     .limit(8)
@@ -50,13 +48,13 @@ export async function resolveTenantIdForCallable(
     const parts = doc.ref.path.split("/");
     if (parts[0] !== "igrejas" || parts[2] !== "membros") continue;
     const tid = parts[1];
-    const ig = await db.collection("igrejas").doc(tid).get();
+    const ig = await fs().collection("igrejas").doc(tid).get();
     if (ig.exists) return tid;
   }
 
   if (email) {
     for (const field of ["email", "gestorEmail", "emailGestor"]) {
-      const q = await db
+      const q = await fs()
         .collection("igrejas")
         .where(field, "==", email)
         .limit(1)
@@ -75,10 +73,10 @@ export async function userCanAccessTenant(
 ): Promise<boolean> {
   const tid = String(tenantId || "").trim();
   if (!tid) return false;
-  const ig = await db.collection("igrejas").doc(tid).get();
+  const ig = await fs().collection("igrejas").doc(tid).get();
   if (!ig.exists) return false;
 
-  const byUid = await db
+  const byUid = await fs()
     .collection("igrejas")
     .doc(tid)
     .collection("membros")
@@ -86,7 +84,7 @@ export async function userCanAccessTenant(
     .get();
   if (byUid.exists) return true;
 
-  const tenantUser = await db
+  const tenantUser = await fs()
     .collection("igrejas")
     .doc(tid)
     .collection("users")
@@ -94,13 +92,13 @@ export async function userCanAccessTenant(
     .get();
   if (tenantUser.exists) return true;
 
-  const rootUser = await db.collection("users").doc(uid).get();
+  const rootUser = await fs().collection("users").doc(uid).get();
   if (rootUser.exists) {
     const d = rootUser.data() || {};
     if (String(d.igrejaId || d.tenantId || "").trim() === tid) return true;
   }
 
-  const cg = await db
+  const cg = await fs()
     .collectionGroup("membros")
     .where("authUid", "==", uid)
     .limit(4)

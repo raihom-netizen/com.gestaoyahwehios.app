@@ -82,6 +82,10 @@ abstract final class AppSessionStability {
       } else {
         await firebaseDefaultFirestore.enableNetwork().catchError((_) {});
       }
+      // Mantém Storage ligado — evita core/no-app ao publicar após background.
+      await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+        refreshAuthToken: false,
+      ).catchError((_) {});
       await ChurchAutoSessionService.ensureAutoPainelFlagForPersistedSession();
     } catch (e, st) {
       if (kDebugMode) {

@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap, isValidImageUrl, sanitizeImageUrl;
@@ -49,20 +50,26 @@ class ChurchChatPeerProfileService {
       'fotoThumbPath',
       'photoUrl',
       'fotoUrl',
+      'FOTO_URL_OU_ID',
+      'foto_url',
     ]) {
       final v = d[key];
       if (v != null && v.toString().trim().isNotEmpty) {
         memberData[key] = v;
       }
     }
-    var url = sanitizeImageUrl((d['photoUrl'] ?? d['fotoUrl'] ?? '').toString());
-    if (!isValidImageUrl(url)) {
+    var url = sanitizeImageUrl(
+      MemberProfilePhotoResolver.displayRef(memberData, preferThumb: true) ??
+          (d['photoUrl'] ?? d['fotoUrl'] ?? '').toString(),
+    );
+    if (!MemberProfilePhotoResolver.isResolvableRef(url)) {
       url = sanitizeImageUrl(
-        MemberProfileVariantsService.listPhotoUrl(memberData) ??
+        MemberProfilePhotoResolver.displayRef(memberData) ??
+            MemberProfileVariantsService.listPhotoUrl(memberData) ??
             imageUrlFromMap(memberData),
       );
     }
-    if (!isValidImageUrl(url)) url = '';
+    if (!MemberProfilePhotoResolver.isResolvableRef(url)) url = '';
     return ChurchChatMemberRef(
       memberId: memberId,
       data: memberData,

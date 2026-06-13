@@ -7,7 +7,7 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -65,7 +65,7 @@ abstract final class EcoFireFeedPublishService {
     String? localPath,
     void Function(double progress)? onProgress,
   }) async {
-    await ensureFirebaseCore(requireAuth: true);
+    await EcoFirePublishBootstrap.ensureHard(logLabel: 'feed_photo_slot');
     EcoFireFlow.log('FEED_PHOTO slot $postType/$postId#$slotIndex');
 
     Uint8List raw;

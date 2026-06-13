@@ -1,15 +1,62 @@
 /**
- * Kit oficial: 11 departamentos + 6 cargos — espelho de
- * flutter_app/lib/core/department_template.dart e
- * flutter_app/lib/ui/pages/cargos_page.dart (_welcomeCargos).
- * Idempotente: só grava se subcoleções estiverem vazias.
+ * Kit oficial: 11 departamentos + 6 cargos + módulos financeiro/visitantes — espelho de
+ * flutter_app/lib/core/department_template.dart,
+ * flutter_app/lib/ui/pages/cargos_page.dart (_welcomeCargos),
+ * flutter_app/lib/services/finance_despesas_categorias_tenant.dart (categorias).
+ * Idempotente: só grava se subcoleções estiverem vazias / doc ainda não existir.
  */
 import * as admin from "firebase-admin";
-import type { Firestore } from "firebase-admin/firestore";
+import type { DocumentReference, Firestore } from "firebase-admin/firestore";
 import {
   ensureDefaultTreasuryContasForNewChurch,
   ensureMercadoPagoContaForNewChurch,
 } from "./churchMercadoPago";
+import { recomputePanelDashboardSummary } from "./panelDashboardCache";
+import { recomputePanelFinanceSummary } from "./panelFinanceSummary";
+import { writePanelStatisticsCache } from "./panelStatisticsCache";
+
+/** Categorias padrão — alinhadas ao Flutter (`kCategoriasDespesaPadrao`). */
+const CATEGORIAS_DESPESA_PADRAO = [
+  "Água",
+  "Ajuda Social",
+  "Energia Elétrica",
+  "Eventos",
+  "Impostos",
+  "Internet",
+  "Investimentos em Mídia",
+  "Manutenção",
+  "Material de Limpeza",
+  "Oferta Missionária",
+  "Pagamento de Obreiros",
+  "Prebenda",
+  "Salários",
+  "Material de Escritório",
+  "Transporte",
+  "Alimentação",
+  "Outros",
+] as const;
+
+/** Categorias receita — alinhadas a `finance_page.dart` (_categoriasReceitaPadrao). */
+const CATEGORIAS_RECEITA_PADRAO = [
+  "Aluguéis Recebidos",
+  "Dízimos",
+  "Doações",
+  "Inscrições em Eventos",
+  "Ofertas Missionárias",
+  "Ofertas Voluntárias",
+  "Vendas de Produtos",
+  "Campanhas",
+  "Outros",
+] as const;
+
+export type ChurchWelcomeSeedResult = {
+  departmentsCreated: number;
+  cargosCreated: number;
+  financeSettingsCreated: boolean;
+  categoriasDespesaCreated: number;
+  categoriasReceitaCreated: number;
+  tenantModulesRegistered: string[];
+};
 
 const WELCOME_DEPARTMENTS: ReadonlyArray<{
   docId: string;
@@ -50,18 +97,213 @@ const WELCOME_CARGOS: ReadonlyArray<{
   { docId: "welcome_membro", name: "Membro / Congregado", key: "membro", permissionTemplate: "membro", hierarchyLevel: 12, accentColor: 0xff78909c, requiresConsecrationDate: false },
 ];
 
+function categoriaDocId(nome: string): string {
+  return (
+    "welcome_" +
+    String(nome || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 48)
+  );
+}
+
+/** Registo canónico — `igrejas/{id}/_tenant_modules/{modulo}`. */
+async function ensureTenantModuleRegistry(
+  churchRef: DocumentReference,
+  tenantId: string,
+  now: admin.firestore.FieldValue,
+): Promise<string[]> {
+  const registered: string[] = [];
+  const modCol = churchRef.collection("_tenant_modules");
+
+  const modules: ReadonlyArray<{
+    id: string;
+    collection: string;
+    storageSubpath?: string;
+    extra?: Record<string, unknown>;
+  }> = [
+    {
+      id: "finance",
+      collection: "finance",
+      storageSubpath: "financeiro/",
+      extra: {
+        contasCollection: "contas",
+        configDoc: "config/finance_settings",
+        categoriasDespesa: "categorias_despesas",
+        categoriasReceita: "categorias_receitas",
+      },
+    },
+    {
+      id: "visitantes",
+      collection: "visitantes",
+      extra: { followupsSubcollection: "followups" },
+    },
+  ];
+
+  for (const mod of modules) {
+    const ref = modCol.doc(mod.id);
+    const snap = await ref.get();
+    if (snap.exists) continue;
+    await ref.set(
+      {
+        enabled: true,
+        module: mod.id,
+        collection: mod.collection,
+        firestorePath: `igrejas/${tenantId}/${mod.collection}`,
+        storagePath: mod.storageSubpath
+          ? `igrejas/${tenantId}/${mod.storageSubpath}`
+          : "",
+        isWelcomeKit: true,
+        provisionedAt: now,
+        schemaVersion: 1,
+        ...(mod.extra ?? {}),
+      },
+      { merge: true },
+    );
+    registered.push(mod.id);
+  }
+  return registered;
+}
+
+async function ensureFinanceSettingsSeed(
+  churchRef: DocumentReference,
+  now: admin.firestore.FieldValue,
+): Promise<boolean> {
+  const ref = churchRef.collection("config").doc("finance_settings");
+  const snap = await ref.get();
+  if (snap.exists) return false;
+  await ref.set(
+    {
+      limiteAprovacaoDespesa: 0,
+      orcamentosDespesa: {},
+      isWelcomeKit: true,
+      createdAt: now,
+      updatedAt: now,
+    },
+    { merge: true },
+  );
+  return true;
+}
+
+async function seedCategoriasIfEmpty(
+  churchRef: DocumentReference,
+  collectionId: string,
+  nomes: readonly string[],
+  now: admin.firestore.FieldValue,
+): Promise<number> {
+  const col = churchRef.collection(collectionId);
+  const probe = await col.limit(1).get();
+  if (!probe.empty) return 0;
+
+  const batch = churchRef.firestore.batch();
+  let n = 0;
+  for (let i = 0; i < nomes.length; i++) {
+    const nome = nomes[i];
+    batch.set(col.doc(categoriaDocId(nome)), {
+      nome,
+      ordem: i,
+      isWelcomeKit: true,
+      isDefaultPreset: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    n++;
+  }
+  if (n > 0) await batch.commit();
+  return n;
+}
+
+async function ensureChurchModuleDefaults(
+  _firestore: Firestore,
+  tenantId: string,
+  churchRef: DocumentReference,
+  now: admin.firestore.FieldValue,
+): Promise<{
+  financeSettingsCreated: boolean;
+  categoriasDespesaCreated: number;
+  categoriasReceitaCreated: number;
+  tenantModulesRegistered: string[];
+}> {
+  const tenantModulesRegistered = await ensureTenantModuleRegistry(
+    churchRef,
+    tenantId,
+    now,
+  );
+  const financeSettingsCreated = await ensureFinanceSettingsSeed(churchRef, now);
+  const categoriasDespesaCreated = await seedCategoriasIfEmpty(
+    churchRef,
+    "categorias_despesas",
+    CATEGORIAS_DESPESA_PADRAO,
+    now,
+  );
+  const categoriasReceitaCreated = await seedCategoriasIfEmpty(
+    churchRef,
+    "categorias_receitas",
+    CATEGORIAS_RECEITA_PADRAO,
+    now,
+  );
+
+  try {
+    await recomputePanelFinanceSummary(tenantId);
+  } catch (e) {
+    console.warn("ensureChurchModuleDefaults recomputePanelFinanceSummary:", e);
+  }
+  try {
+    await recomputePanelDashboardSummary(tenantId);
+  } catch (e) {
+    console.warn("ensureChurchModuleDefaults recomputePanelDashboardSummary:", e);
+  }
+  try {
+    await writePanelStatisticsCache(tenantId, {
+      membersTotalCount: 0,
+      activeMembersCount: 0,
+      pendingMembersCount: 0,
+      newVisitorsCount: 0,
+      openPrayerRequestsCount: 0,
+      birthdaysTodayCount: 0,
+      birthdaysWeekCount: 0,
+      birthdaysMonthCount: 0,
+      avisosCount: 0,
+      eventsCount: 0,
+      upcomingEventsCount: 0,
+      departmentsCount: 0,
+    });
+  } catch (e) {
+    console.warn("ensureChurchModuleDefaults writePanelStatisticsCache:", e);
+  }
+
+  return {
+    financeSettingsCreated,
+    categoriasDespesaCreated,
+    categoriasReceitaCreated,
+    tenantModulesRegistered,
+  };
+}
+
 export async function ensureChurchWelcomeSeed(
   firestore: Firestore,
-  tenantId: string
-): Promise<{ departmentsCreated: number; cargosCreated: number }> {
+  tenantId: string,
+): Promise<ChurchWelcomeSeedResult> {
+  const empty: ChurchWelcomeSeedResult = {
+    departmentsCreated: 0,
+    cargosCreated: 0,
+    financeSettingsCreated: false,
+    categoriasDespesaCreated: 0,
+    categoriasReceitaCreated: 0,
+    tenantModulesRegistered: [],
+  };
+
   const tid = String(tenantId || "").trim();
-  if (!tid) return { departmentsCreated: 0, cargosCreated: 0 };
+  if (!tid) return empty;
 
   const churchRef = firestore.collection("igrejas").doc(tid);
   const churchSnap = await churchRef.get();
   if (!churchSnap.exists) {
     console.warn(`ensureChurchWelcomeSeed: igrejas/${tid} inexistente — ignorado.`);
-    return { departmentsCreated: 0, cargosCreated: 0 };
+    return empty;
   }
 
   const now = admin.firestore.FieldValue.serverTimestamp();
@@ -143,5 +385,42 @@ export async function ensureChurchWelcomeSeed(
     console.warn("ensureChurchWelcomeSeed ensureDefaultTreasuryContasForNewChurch:", e);
   }
 
-  return { departmentsCreated, cargosCreated };
+  let moduleDefaults = {
+    financeSettingsCreated: false,
+    categoriasDespesaCreated: 0,
+    categoriasReceitaCreated: 0,
+    tenantModulesRegistered: [] as string[],
+  };
+  try {
+    moduleDefaults = await ensureChurchModuleDefaults(firestore, tid, churchRef, now);
+    if (moduleDefaults.tenantModulesRegistered.length > 0) {
+      console.log(
+        `ensureChurchWelcomeSeed: módulos registados ${moduleDefaults.tenantModulesRegistered.join(", ")} em igrejas/${tid}/_tenant_modules`,
+      );
+    }
+    if (moduleDefaults.financeSettingsCreated) {
+      console.log(`ensureChurchWelcomeSeed: config/finance_settings criado em igrejas/${tid}`);
+    }
+    if (moduleDefaults.categoriasDespesaCreated > 0) {
+      console.log(
+        `ensureChurchWelcomeSeed: ${moduleDefaults.categoriasDespesaCreated} categorias_despesas em igrejas/${tid}`,
+      );
+    }
+    if (moduleDefaults.categoriasReceitaCreated > 0) {
+      console.log(
+        `ensureChurchWelcomeSeed: ${moduleDefaults.categoriasReceitaCreated} categorias_receitas em igrejas/${tid}`,
+      );
+    }
+  } catch (e) {
+    console.warn("ensureChurchWelcomeSeed ensureChurchModuleDefaults:", e);
+  }
+
+  return {
+    departmentsCreated,
+    cargosCreated,
+    financeSettingsCreated: moduleDefaults.financeSettingsCreated,
+    categoriasDespesaCreated: moduleDefaults.categoriasDespesaCreated,
+    categoriasReceitaCreated: moduleDefaults.categoriasReceitaCreated,
+    tenantModulesRegistered: moduleDefaults.tenantModulesRegistered,
+  };
 }

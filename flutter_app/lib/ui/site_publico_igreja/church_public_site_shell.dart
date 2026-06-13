@@ -1668,8 +1668,8 @@ class ChurchPublicSiteScaffoldBackground extends StatelessWidget {
   }
 }
 
-/// Loader Super Premium — site público e cadastro membro (shimmer + marca).
-class ChurchPublicSitePremiumLoader extends StatelessWidget {
+/// Loader Super Premium — site público e cadastro membro (gradiente + shimmer).
+class ChurchPublicSitePremiumLoader extends StatefulWidget {
   const ChurchPublicSitePremiumLoader({
     super.key,
     required this.churchLabel,
@@ -1680,76 +1680,174 @@ class ChurchPublicSitePremiumLoader extends StatelessWidget {
   final String subtitle;
 
   @override
+  State<ChurchPublicSitePremiumLoader> createState() =>
+      _ChurchPublicSitePremiumLoaderState();
+}
+
+class _ChurchPublicSitePremiumLoaderState
+    extends State<ChurchPublicSitePremiumLoader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    const violet = Color(0xFF7C3AED);
+    const sky = Color(0xFF0EA5E9);
+    const rose = Color(0xFFF43F5E);
+    const emerald = Color(0xFF10B981);
+
     return SafeArea(
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  width: 88,
-                  height: 88,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: ThemeCleanPremium.softUiCardShadow,
-                    border: Border.all(color: const Color(0xFFE8EDF3)),
-                  ),
-                  child: Icon(
-                    Icons.church_rounded,
-                    size: 40,
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.85),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          AnimatedBuilder(
+            animation: _pulse,
+            builder: (context, _) {
+              final t = _pulse.value;
+              return DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color.lerp(const Color(0xFFF8FAFC), violet.withValues(alpha: 0.08), t)!,
+                      Color.lerp(const Color(0xFFEFF6FF), sky.withValues(alpha: 0.12), t)!,
+                      Color.lerp(const Color(0xFFFFF1F2), rose.withValues(alpha: 0.08), t)!,
+                    ],
                   ),
                 ),
-                const SizedBox(height: 28),
-                SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 3,
-                    color: ThemeCleanPremium.primary,
-                  ),
+              );
+            },
+          ),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 96,
+                      height: 96,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [violet, sky, emerald],
+                        ),
+                        borderRadius: BorderRadius.circular(28),
+                        boxShadow: [
+                          BoxShadow(
+                            color: violet.withValues(alpha: 0.25),
+                            blurRadius: 28,
+                            offset: const Offset(0, 12),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.church_rounded,
+                        size: 44,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                    SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3.2,
+                        color: violet,
+                        backgroundColor: sky.withValues(alpha: 0.15),
+                      ),
+                    ),
+                    const SizedBox(height: 22),
+                    Text(
+                      widget.subtitle,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.grey.shade800,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ShaderMask(
+                      shaderCallback: (bounds) => const LinearGradient(
+                        colors: [violet, sky, rose],
+                      ).createShader(bounds),
+                      child: Text(
+                        widget.churchLabel,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: const [
+                        _LoaderPill(label: 'Ultra rápido', color: emerald),
+                        _LoaderPill(label: 'Super Premium', color: violet),
+                        _LoaderPill(label: 'Gestão YAHWEH', color: sky),
+                      ],
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 22),
-                Text(
-                  subtitle,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.grey.shade800,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  churchLabel,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    color: ThemeCleanPremium.primary,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  'Padrão Super Premium — Gestão YAHWEH',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade500,
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoaderPill extends StatelessWidget {
+  const _LoaderPill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color.withValues(alpha: 0.95),
+          letterSpacing: 0.2,
         ),
       ),
     );

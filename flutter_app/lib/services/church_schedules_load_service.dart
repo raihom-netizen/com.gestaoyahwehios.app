@@ -317,6 +317,15 @@ abstract final class ChurchSchedulesLoadService {
     }
 
     Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
+      if (kIsWeb) {
+        final plain = await FirestoreReadResilience.getQuery(
+          plainQuery(reference),
+          cacheKey: '${cacheKey}_plain',
+          maxAttempts: 4,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        );
+        if (plain.docs.isNotEmpty) return plain;
+      }
       try {
         return await FirestoreReadResilience.getQuery(
           orderedQuery(reference),
@@ -341,7 +350,27 @@ abstract final class ChurchSchedulesLoadService {
           ).timeout(ChurchPanelReadTimeouts.queryCap)
         : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
 
-    return snap.docs;
+    var docs = snap.docs;
+    if (collection == 'escalas') {
+      docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs)
+        ..sort((a, b) {
+          DateTime? da;
+          DateTime? db;
+          try {
+            da = (a.data()['date'] as Timestamp?)?.toDate();
+            db = (b.data()['date'] as Timestamp?)?.toDate();
+          } catch (_) {}
+          if (da == null || db == null) return 0;
+          return db.compareTo(da);
+        });
+    } else if (collection == 'escala_templates') {
+      docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs)
+        ..sort((a, b) => (a.data()['title'] ?? '')
+            .toString()
+            .toLowerCase()
+            .compareTo((b.data()['title'] ?? '').toString().toLowerCase()));
+    }
+    return docs;
   }
 
   static Future<void> persistEscalas(ChurchSchedulesLoadResult result) async {

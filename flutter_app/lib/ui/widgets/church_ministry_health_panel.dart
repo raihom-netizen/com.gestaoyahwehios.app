@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dar
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_query_limits.dart';
 import 'package:gestao_yahweh/core/dashboard/church_ministry_intel.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
@@ -2139,7 +2140,11 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
                           final dataStr =
                               '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
                           final comprovanteUrl =
-                              (data['comprovanteUrl'] ?? '').toString();
+                              (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
+                                  .toString();
+                          final temComprovante =
+                              FinanceComprovanteAttachService.hasComprovanteInDoc(
+                                  data);
                           final efetivado = isTransfer
                               ? true
                               : (isEntrada
@@ -2337,6 +2342,16 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
                                           foregroundColor: const Color(0xFFDC2626),
                                         ),
                                       ),
+                                      if (temComprovante)
+                                        OutlinedButton.icon(
+                                          onPressed: () =>
+                                              FinanceComprovanteAttachService
+                                                  .viewFromDoc(context, data),
+                                          icon: const Icon(
+                                              Icons.visibility_rounded,
+                                              size: 18),
+                                          label: const Text('Ver anexo'),
+                                        ),
                                       OutlinedButton.icon(
                                         onPressed: () =>
                                             uploadFinanceComprovanteForLancamento(
@@ -2346,9 +2361,9 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
                                         ).then((_) => _afterMutation()),
                                         icon: const Icon(Icons.photo_camera_rounded,
                                             size: 18),
-                                        label: Text(comprovanteUrl.isEmpty
-                                            ? 'Anexar'
-                                            : 'Trocar anexo'),
+                                        label: Text(temComprovante
+                                            ? 'Trocar anexo'
+                                            : 'Anexar'),
                                       ),
                                       if (!isTransfer)
                                         FilledButton.tonalIcon(

@@ -4,6 +4,8 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
@@ -14,7 +16,7 @@ import 'package:gestao_yahweh/services/upload_storage_task.dart';
 abstract final class EcoFireStorageUpload {
   EcoFireStorageUpload._();
 
-  static const int _maxAttempts = 2;
+  static const int _maxAttempts = 4;
 
   static Future<String> putData({
     required String storagePath,
@@ -27,7 +29,7 @@ abstract final class EcoFireStorageUpload {
       context: 'EcoFireStorageUpload.putData',
     );
     EcoFireFlow.log('STORAGE putData $storagePath');
-    await ensureFirebaseCore(requireAuth: true);
+    await FirebaseBootstrapService.ensureStorageAlwaysLinked(refreshAuthToken: true);
 
     Object? lastError;
     for (var attempt = 0; attempt < _maxAttempts; attempt++) {
@@ -58,6 +60,11 @@ abstract final class EcoFireStorageUpload {
       } catch (e) {
         lastError = e;
         EcoFireFlow.log('STORAGE retry $attempt: $e');
+        if (attempt < _maxAttempts - 1) {
+          await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+            refreshAuthToken: false,
+          ).catchError((_) {});
+        }
       }
     }
     throw lastError ?? StateError('storage_upload_failed:$storagePath');
@@ -186,7 +193,7 @@ abstract final class EcoFireStorageUpload {
     final p = (storagePath ?? '').trim();
     if (p.isEmpty || p.startsWith('http')) return null;
     try {
-      await ensureFirebaseCore(requireAuth: false);
+      await EcoFirePublishBootstrap.ensureHard(logLabel: 'storage_download_url');
       return await firebaseStorageRef(p).getDownloadURL();
     } catch (_) {}
     return null;

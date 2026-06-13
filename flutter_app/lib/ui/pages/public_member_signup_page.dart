@@ -29,6 +29,7 @@ import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/services/public_church_site_bootstrap.dart';
 import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
@@ -120,6 +121,31 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   /// Wizard: 0 dados pessoais, 1 endereço, 2 família/foto/envio.
   int _signupStep = 0;
 
+  Color get _signupStepAccent {
+    const colors = [
+      Color(0xFF6366F1),
+      Color(0xFF10B981),
+      Color(0xFFF97316),
+    ];
+    return colors[_signupStep.clamp(0, 2)];
+  }
+
+  InputDecoration _signInput({
+    required String label,
+    String? hint,
+    IconData? icon,
+    Widget? suffixIcon,
+    String? counterText,
+  }) =>
+      memberSignupInputDecoration(
+        label: label,
+        hint: hint,
+        icon: icon,
+        suffixIcon: suffixIcon,
+        counterText: counterText,
+        accentColor: _signupStepAccent,
+      );
+
   /// UFs do Brasil para seleção manual (quando não sabe o CEP).
   static const List<String> _ufs = [
     'AC',
@@ -184,10 +210,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     return true;
   }
 
-  /// Auth de visitante + carga da igreja (web, Android e iOS — mesmas regras).
+  /// Auth de visitante + carga da igreja — Web, Android e iOS (bootstrap único).
   Future<void> _bootstrap({bool backgroundOnly = false}) async {
-    await PublicSiteMediaAuth.ensurePublicVisitorMediaAccess()
-        .timeout(const Duration(seconds: 4), onTimeout: () {});
     if (backgroundOnly) {
       await _loadTenant(refreshInBackground: true);
       return;
@@ -503,6 +527,21 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     _refreshTenantLogoInBackground(op, data);
   }
 
+  Future<void> _enrichTenantProfile(
+    String slug,
+    PublicChurchResolved seed,
+  ) async {
+    try {
+      final full = await PublicChurchSlugResolver.resolveEnrich(
+        slug,
+        seed: seed,
+      );
+      if (full != null && mounted) {
+        await _applyTenantFromChurchData(full.churchId, full.profile);
+      }
+    } catch (_) {}
+  }
+
   Future<void> _loadTenant({bool refreshInBackground = false}) async {
     if (refreshInBackground && !_loading) {
       final tid = (_tenantId ?? widget.tenantId ?? '').trim();
@@ -516,36 +555,20 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       return;
     }
     try {
-      final slugTrim = widget.slug?.trim() ?? '';
-      final tenantHint = widget.tenantId?.trim() ?? '';
-
-      for (final seed in [tenantHint, slugTrim]) {
-        if (seed.isEmpty) continue;
-        final peek = TenantResolverService.peekRegistrationContext(seed);
-        if (peek != null && peek.profile.isNotEmpty) {
-          await _applyTenantFromChurchData(peek.operationalId, peek.profile);
-          return;
+      final resolved = await PublicChurchSiteBootstrap.resolveForSignup(
+        slug: widget.slug,
+        tenantIdHint: widget.tenantId,
+      );
+      if (resolved != null) {
+        await _applyTenantFromChurchData(
+          resolved.churchId,
+          resolved.profile,
+        );
+        final slugTrim = widget.slug?.trim() ?? '';
+        if (slugTrim.isNotEmpty) {
+          unawaited(_enrichTenantProfile(slugTrim, resolved));
         }
-      }
-
-      if (slugTrim.isNotEmpty) {
-        final resolved = await PublicChurchSlugResolver.resolve(slugTrim);
-        if (resolved != null) {
-          await _applyTenantFromChurchData(
-            resolved.churchId,
-            resolved.profile,
-          );
-          return;
-        }
-      }
-
-      if (tenantHint.isNotEmpty) {
-        final hit =
-            await IgrejaDirectFirestoreReads.readIgrejaPublicProfile(tenantHint);
-        if (hit != null && hit.data.isNotEmpty) {
-          await _applyTenantFromChurchData(hit.docId, hit.data);
-          return;
-        }
+        return;
       }
 
       if (!mounted) return;
@@ -1430,7 +1453,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
           _buildPublicChurchHeader(loading: false),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              padding: ThemeCleanPremium.pagePadding(context),
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 500),
@@ -1446,25 +1469,28 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                       style: TextStyle(color: Colors.black54),
                     ),
                     const SizedBox(height: 16),
-                    MemberSignupSectionTitle(title: 'Dados pessoais'),
+                    MemberSignupSectionTitle(
+                      title: 'Dados pessoais',
+                      accentColor: _signupStepAccent,
+                    ),
                     const SizedBox(height: 10),
                     TextFormField(
                       controller: _nameCtrl,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                           label: 'Nome completo', icon: Icons.person_rounded),
                       validator: _req,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _filiacaoMaeCtrl,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                           label: 'Filiação (mãe)',
                           icon: Icons.family_restroom_rounded),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _filiacaoPaiCtrl,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                           label: 'Filiação (pai)',
                           icon: Icons.family_restroom_rounded),
                     ),
@@ -1488,7 +1514,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                 );
                               }),
                             ],
-                            decoration: memberSignupInputDecoration(
+                            decoration: _signInput(
                                 label: 'CPF', icon: Icons.badge_rounded),
                             validator: (v) {
                               final msg = _req(v);
@@ -1508,7 +1534,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                               MemberSignupBirthDateInputFormatter(),
                               LengthLimitingTextInputFormatter(10),
                             ],
-                            decoration: memberSignupInputDecoration(
+                            decoration: _signInput(
                               label: 'Data de nascimento',
                               icon: Icons.cake_rounded,
                               hint: 'DD/MM/AAAA',
@@ -1547,7 +1573,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                         Expanded(
                           child: DropdownButtonFormField<String>(
                             value: _sexo,
-                            decoration: memberSignupInputDecoration(
+                            decoration: _signInput(
                                 label: 'Sexo', icon: Icons.wc_rounded),
                             items: const [
                               DropdownMenuItem(
@@ -1579,7 +1605,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                 );
                               }),
                             ],
-                            decoration: memberSignupInputDecoration(
+                            decoration: _signInput(
                                 label: 'Telefone', icon: Icons.phone_rounded),
                             validator: _req,
                           ),
@@ -1590,7 +1616,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     TextFormField(
                       controller: _emailCtrl,
                       keyboardType: TextInputType.emailAddress,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                           label: 'Email', icon: Icons.alternate_email_rounded),
                       validator: _req,
                     ),
@@ -1600,7 +1626,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                               .contains(_escolaridadeCtrl.text.trim())
                           ? _escolaridadeCtrl.text.trim()
                           : null,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                           label: 'Escolaridade',
                           icon: Icons.school_rounded),
                       hint: const Text('Opcional'),
@@ -1615,13 +1641,16 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _profissaoCtrl,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                           label: 'Profissão',
                           icon: Icons.work_outline_rounded),
                     ),
                     ],
                     if (_signupStep == 1) ...[
-                    MemberSignupSectionTitle(title: 'Endereço'),
+                    MemberSignupSectionTitle(
+                      title: 'Endereço',
+                      accentColor: _signupStepAccent,
+                    ),
                     const SizedBox(height: 10),
                     Text(
                       'Digite o CEP e saia do campo para preencher os dados automaticamente.',
@@ -1633,7 +1662,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                       controller: _cepCtrl,
                       keyboardType: TextInputType.number,
                       maxLength: 9,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                         label: 'CEP',
                         icon: Icons.pin_drop_rounded,
                         hint: '00000-000',
@@ -1658,7 +1687,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _enderecoCtrl,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                         label: 'Logradouro (rua, avenida)',
                         icon: Icons.home_rounded,
                         hint: 'Rua, avenida, alameda',
@@ -1668,7 +1697,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _quadraLoteNumeroCtrl,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                         label: 'Quadra, Lote e Número',
                         icon: Icons.tag_rounded,
                         hint: 'Qd 1, Lt 5, Nº 123',
@@ -1677,14 +1706,14 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _bairroCtrl,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                           label: 'Bairro', icon: Icons.location_city_rounded),
                       validator: _req,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _cityCtrl,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                           label: 'Cidade', icon: Icons.apartment_rounded),
                       onChanged: _searchCitySuggestions,
                     ),
@@ -1693,7 +1722,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                       value: _ufs.contains(_estadoCtrl.text.trim())
                           ? _estadoCtrl.text.trim()
                           : null,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                           label: 'Estado (UF)', icon: Icons.map_rounded),
                       isExpanded: true,
                       items: _ufs
@@ -1756,14 +1785,17 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     ],
                     if (_signupStep == 2) ...[
                     const SizedBox(height: 16),
-                    MemberSignupSectionTitle(title: 'Família'),
+                    MemberSignupSectionTitle(
+                      title: 'Família',
+                      accentColor: _signupStepAccent,
+                    ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                       value: MemberSignupPremiumUi.estadoCivilOptions
                               .contains(_estadoCivilCtrl.text.trim())
                           ? _estadoCivilCtrl.text.trim()
                           : null,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                           label: 'Estado civil',
                           icon: Icons.favorite_outline_rounded),
                       hint: const Text('Opcional'),
@@ -1778,12 +1810,15 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _conjugeCtrl,
-                      decoration: memberSignupInputDecoration(
+                      decoration: _signInput(
                           label: 'Nome conjuge',
                           icon: Icons.people_alt_rounded),
                     ),
                     const SizedBox(height: 16),
-                    MemberSignupSectionTitle(title: 'Foto do membro'),
+                    MemberSignupSectionTitle(
+                      title: 'Foto do membro',
+                      accentColor: _signupStepAccent,
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [

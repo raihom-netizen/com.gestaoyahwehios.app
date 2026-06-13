@@ -14,6 +14,7 @@ bool isFirestoreInternalAssertion(Object error) {
 Future<void> prepareFirestorePublishAttempt({
   int attempt = 0,
   bool allowReconnect = false,
+  bool criticalWrite = false,
 }) async {
   if (attempt > 0) {
     await Future<void>.delayed(
@@ -22,7 +23,9 @@ Future<void> prepareFirestorePublishAttempt({
   }
   if (kIsWeb) {
     try {
-      if (attempt == 0) {
+      if (attempt == 0 && criticalWrite) {
+        await FirestoreWebGuard.prepareForCriticalWrite();
+      } else if (attempt == 0) {
         await FirestoreWebGuard.prepareForChatWrite();
       } else {
         await FirestoreWebGuard.recoverFirestoreWebSession(
@@ -42,6 +45,7 @@ Future<void> prepareFirestorePublishAttempt({
 Future<T> runFirestorePublishWithRecovery<T>(
   Future<T> Function() fn, {
   int maxAttempts = 5,
+  bool criticalWrite = false,
 }) async {
   Future<T> runAttempts() async {
     Object? last;
@@ -51,6 +55,7 @@ Future<T> runFirestorePublishWithRecovery<T>(
         await prepareFirestorePublishAttempt(
           attempt: attempt,
           allowReconnect: attempt >= maxAttempts - 1,
+          criticalWrite: criticalWrite,
         );
         return await fn();
       } catch (e, st) {

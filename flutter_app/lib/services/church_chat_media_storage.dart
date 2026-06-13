@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
@@ -19,7 +20,7 @@ abstract final class ChurchChatMediaStorage {
     required String contentType,
     void Function(double progress)? onProgress,
   }) async {
-    await ensureFirebaseReadyForChatSend();
+    await EcoFirePublishBootstrap.ensureHard(logLabel: 'chat_storage_putBytes');
     Object? last;
     for (var attempt = 1; attempt <= _maxAttempts; attempt++) {
       try {
@@ -62,7 +63,7 @@ abstract final class ChurchChatMediaStorage {
     if (kIsWeb) {
       throw UnsupportedError('putFile do chat não suportado na web.');
     }
-    await ensureFirebaseReadyForChatSend();
+    await EcoFirePublishBootstrap.ensureHard(logLabel: 'chat_storage_putFile');
     final file = File(localPath);
     if (!await file.exists()) {
       throw StateError('Ficheiro não encontrado no aparelho.');

@@ -93,30 +93,35 @@ InputDecoration memberSignupInputDecoration({
   IconData? icon,
   Widget? suffixIcon,
   String? counterText,
+  Color? accentColor,
 }) {
-  const border = OutlineInputBorder(
-    borderRadius: BorderRadius.all(Radius.circular(14)),
-    borderSide: BorderSide(color: Color(0xFFE2E8F0)),
+  final accent = accentColor ?? ThemeCleanPremium.primary;
+  final fill = Color.lerp(accent, Colors.white, 0.92)!;
+  final border = OutlineInputBorder(
+    borderRadius: const BorderRadius.all(Radius.circular(14)),
+    borderSide: BorderSide(color: accent.withValues(alpha: 0.18)),
   );
   return InputDecoration(
     labelText: label,
     hintText: hint,
-    prefixIcon: icon == null ? null : Icon(icon, size: 22),
+    prefixIcon: icon == null
+        ? null
+        : Icon(icon, size: 22, color: accent.withValues(alpha: 0.85)),
     suffixIcon: suffixIcon,
     counterText: counterText,
     filled: true,
-    fillColor: const Color(0xFFF8FAFC),
+    fillColor: fill,
     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
     border: border,
     enabledBorder: border,
     focusedBorder: border.copyWith(
       borderSide: BorderSide(
-        color: ThemeCleanPremium.primary.withValues(alpha: 0.95),
-        width: 1.6,
+        color: accent.withValues(alpha: 0.95),
+        width: 1.8,
       ),
     ),
     labelStyle: TextStyle(
-      fontWeight: FontWeight.w600,
+      fontWeight: FontWeight.w700,
       color: Colors.grey.shade800,
       fontSize: 14,
     ),
@@ -126,18 +131,37 @@ InputDecoration memberSignupInputDecoration({
 /// Título de bloco (Dados pessoais, Endereço, …).
 class MemberSignupSectionTitle extends StatelessWidget {
   final String title;
+  final Color? accentColor;
 
-  const MemberSignupSectionTitle({super.key, required this.title});
+  const MemberSignupSectionTitle({
+    super.key,
+    required this.title,
+    this.accentColor,
+  });
+
+  static const _stepColors = [
+    Color(0xFF6366F1),
+    Color(0xFF10B981),
+    Color(0xFFF97316),
+  ];
 
   @override
   Widget build(BuildContext context) {
+    final accent = accentColor ?? ThemeCleanPremium.primary;
     return Row(
       children: [
         Container(
           width: 4,
-          height: 18,
+          height: 22,
           decoration: BoxDecoration(
-            color: ThemeCleanPremium.primary,
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                accent,
+                Color.lerp(accent, _stepColors[2], 0.35)!,
+              ],
+            ),
             borderRadius: BorderRadius.circular(4),
           ),
         ),
@@ -163,28 +187,48 @@ class MemberSignupWizardProgress extends StatelessWidget {
   const MemberSignupWizardProgress({super.key, required this.step});
 
   static const _labels = ['Seus dados', 'Endereço', 'Família e foto'];
+  static const _stepColors = [
+    Color(0xFF6366F1),
+    Color(0xFF10B981),
+    Color(0xFFF97316),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    final primary = ThemeCleanPremium.primary;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'Passo ${step + 1} de 3',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontWeight: FontWeight.w800,
-            fontSize: 12,
-            letterSpacing: 0.4,
-            color: Colors.grey.shade700,
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                _stepColors[step].withValues(alpha: 0.12),
+                _stepColors[(step + 1).clamp(0, 2)].withValues(alpha: 0.08),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: _stepColors[step].withValues(alpha: 0.22),
+            ),
+          ),
+          child: Text(
+            'Passo ${step + 1} de 3',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 13,
+              letterSpacing: 0.3,
+              color: _stepColors[step].withValues(alpha: 0.95),
+            ),
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         Row(
           children: List.generate(3, (i) {
             final active = i == step;
             final done = i < step;
+            final color = _stepColors[i];
             return Expanded(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 3),
@@ -192,14 +236,19 @@ class MemberSignupWizardProgress extends StatelessWidget {
                   children: [
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 220),
-                      height: 4,
+                      height: 5,
                       decoration: BoxDecoration(
-                        color: done || active ? primary : Colors.grey.shade300,
+                        gradient: done || active
+                            ? LinearGradient(
+                                colors: [color, Color.lerp(color, Colors.white, 0.2)!],
+                              )
+                            : null,
+                        color: done || active ? null : Colors.grey.shade300,
                         borderRadius: BorderRadius.circular(999),
                         boxShadow: active
                             ? [
                                 BoxShadow(
-                                  color: primary.withValues(alpha: 0.35),
+                                  color: color.withValues(alpha: 0.35),
                                   blurRadius: 8,
                                   offset: const Offset(0, 2),
                                 ),
@@ -216,9 +265,7 @@ class MemberSignupWizardProgress extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                        color: active
-                            ? primary
-                            : Colors.grey.shade600,
+                        color: active ? color : Colors.grey.shade600,
                         height: 1.2,
                       ),
                     ),

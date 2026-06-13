@@ -11,6 +11,8 @@ import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Logo institucional — **fonte única**: `logoPath` → Storage canónico.
 abstract final class ChurchBrandService {
@@ -253,9 +255,15 @@ abstract final class ChurchBrandService {
     }
     await ensureFirebaseReadyForPublishUpload();
     await ChurchStorageMetadataVerify.assertExists(path);
-    await ChurchOperationalPaths.churchDoc(cid).set(
-      logoPathFirestorePatch(path),
-      SetOptions(merge: true),
+    await runFirestorePublishWithRecovery(
+      () => FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchOperationalPaths.churchDoc(cid).set(
+              logoPathFirestorePatch(path),
+              SetOptions(merge: true),
+            ),
+        maxAttempts: 5,
+      ),
+      maxAttempts: 5,
     );
     invalidate(churchId: cid);
     unawaited(_repairLegacyLogoUrlInFirestore(cid, path));

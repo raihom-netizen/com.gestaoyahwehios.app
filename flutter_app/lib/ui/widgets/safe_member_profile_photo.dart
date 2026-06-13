@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -138,38 +139,34 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
   Future<void> _resolveDisplayUrl() async {
     final hint = widget.memberFirestoreHint;
     final primary = sanitizeImageUrl(widget.imageUrl);
-    final thumbRaw = MemberImageFields.photoThumbStoragePath(hint) ??
-        MemberProfileVariantsService.listPhotoUrl(hint);
-    final fullRaw = MemberImageFields.photoStoragePath(hint) ??
-        MemberProfileVariantsService.profilePhotoUrl(hint);
+
+    final fullRef = MemberProfilePhotoResolver.displayRef(hint, preferThumb: false);
+    final listRef = MemberProfilePhotoResolver.displayRef(hint, preferThumb: true);
 
     String? pickRaw;
+    String? variantAlt;
     if (widget.preferListThumbnail) {
-      final thumb = (thumbRaw ?? '').trim();
-      final full = (fullRaw ?? '').trim();
-      pickRaw = thumb.isNotEmpty ? thumbRaw : fullRaw;
-      if (thumb.isNotEmpty && full.isNotEmpty && thumb != full) {
-        final fullUrl = sanitizeImageUrl(full);
-        if (isValidImageUrl(fullUrl)) {
-          _variantFallbackUrl = fullUrl;
-        } else if (_looksLikeMemberStoragePath(full)) {
-          _variantFallbackUrl = full;
-        } else {
-          _variantFallbackUrl = null;
-        }
-      } else {
-        _variantFallbackUrl = null;
+      final list = (listRef ?? '').trim();
+      final full = (fullRef ?? '').trim();
+      pickRaw = list.isNotEmpty ? listRef : fullRef;
+      if (list.isNotEmpty && full.isNotEmpty && list != full) {
+        variantAlt = full;
       }
     } else {
-      pickRaw = (fullRaw ?? '').trim().isNotEmpty
-          ? fullRaw
+      pickRaw = (fullRef ?? '').trim().isNotEmpty
+          ? fullRef
           : ((primary.isNotEmpty) ? widget.imageUrl : null);
-      final thumbUrl = sanitizeImageUrl(thumbRaw ?? '');
-      _variantFallbackUrl = isValidImageUrl(thumbUrl) &&
-              pickRaw != null &&
-              sanitizeImageUrl(pickRaw) != thumbUrl
-          ? thumbUrl
-          : null;
+      final list = sanitizeImageUrl(listRef ?? '');
+      if (isValidImageUrl(list) &&
+          pickRaw != null &&
+          sanitizeImageUrl(pickRaw) != list) {
+        variantAlt = listRef;
+      }
+    }
+    _variantFallbackUrl = variantAlt;
+
+    if ((pickRaw ?? '').trim().isEmpty && isValidImageUrl(primary)) {
+      pickRaw = widget.imageUrl;
     }
 
     final raw = (pickRaw ?? '').trim();
@@ -200,7 +197,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
         return;
       }
       if (widget.preferListThumbnail) {
-        final full = (fullRaw ?? '').trim();
+        final full = (fullRef ?? '').trim();
         if (full.isNotEmpty && full != raw && _looksLikeMemberStoragePath(full)) {
           final fromFull = await _storagePathToDisplayUrl(full);
           if (!mounted) return;
@@ -267,8 +264,10 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
   }) {
     final alt = _variantFallbackUrl;
     if (alt != null &&
-        isValidImageUrl(alt) &&
-        sanitizeImageUrl(alt) != sanitizeImageUrl(currentUrl)) {
+        sanitizeImageUrl(alt) != sanitizeImageUrl(currentUrl) &&
+        (isValidImageUrl(alt) ||
+            _looksLikeMemberStoragePath(alt) ||
+            firebaseStorageMediaUrlLooksLike(alt))) {
       return ResilientNetworkImage(
         key: ValueKey<String>('smp_alt_${alt}_${tid}_$mid'),
         imageUrl: alt,

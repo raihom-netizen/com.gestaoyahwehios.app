@@ -188,6 +188,199 @@ bool churchLetterMemberMatchesDepartment(
   return false;
 }
 
+/// Filtro por departamento — dropdown recolhível (não ocupa a lista de membros).
+class ChurchLetterDepartmentFilterDropdown extends StatefulWidget {
+  const ChurchLetterDepartmentFilterDropdown({
+    super.key,
+    required this.selectedId,
+    required this.departments,
+    required this.onChanged,
+  });
+
+  /// `todos` ou id do departamento.
+  final String selectedId;
+  final List<({String id, String name})> departments;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<ChurchLetterDepartmentFilterDropdown> createState() =>
+      _ChurchLetterDepartmentFilterDropdownState();
+}
+
+class _ChurchLetterDepartmentFilterDropdownState
+    extends State<ChurchLetterDepartmentFilterDropdown> {
+  bool _expanded = false;
+
+  String get _selectedLabel {
+    if (widget.selectedId == 'todos') return 'Geral — todos os departamentos';
+    for (final d in widget.departments) {
+      if (d.id == widget.selectedId) return d.name;
+    }
+    return 'Departamento';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = ThemeCleanPremium.primary;
+    final options = <({String id, String name, IconData icon})>[
+      (id: 'todos', name: 'Geral', icon: Icons.dashboard_rounded),
+      ...widget.departments.map(
+        (d) => (id: d.id, name: d.name, icon: Icons.groups_rounded),
+      ),
+    ];
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: accent.withValues(alpha: 0.14)),
+          boxShadow: ThemeCleanPremium.softUiCardShadow,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.vertical(
+                top: const Radius.circular(16),
+                bottom: Radius.circular(_expanded ? 0 : 16),
+              ),
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(
+                        _expanded
+                            ? Icons.expand_less_rounded
+                            : Icons.filter_list_rounded,
+                        size: 20,
+                        color: accent,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Departamento',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.grey.shade600,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _selectedLabel,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14,
+                              height: 1.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    AnimatedRotation(
+                      turns: _expanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      child: Icon(Icons.keyboard_arrow_down_rounded, color: accent),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            AnimatedCrossFade(
+              firstChild: const SizedBox.shrink(),
+              secondChild: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Divider(height: 1, color: accent.withValues(alpha: 0.12)),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      itemCount: options.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 2),
+                      itemBuilder: (context, i) {
+                        final o = options[i];
+                        final selected = widget.selectedId == o.id;
+                        return Material(
+                          color: selected
+                              ? accent.withValues(alpha: 0.08)
+                              : Colors.transparent,
+                          child: InkWell(
+                            onTap: () {
+                              widget.onChanged(o.id);
+                              setState(() => _expanded = false);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    o.icon,
+                                    size: 18,
+                                    color: selected ? accent : Colors.grey.shade600,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      o.name,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontWeight: selected
+                                            ? FontWeight.w800
+                                            : FontWeight.w600,
+                                        fontSize: 13.5,
+                                        color: selected
+                                            ? accent
+                                            : const Color(0xFF334155),
+                                      ),
+                                    ),
+                                  ),
+                                  if (selected)
+                                    Icon(Icons.check_circle_rounded,
+                                        size: 18, color: accent),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              crossFadeState: _expanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 200),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Escolha única — só liderança (pastor, gestor, secretário, tesoureiro, líder dept., admin).
 Future<String?> showChurchLetterSignerPicker(
   BuildContext context, {
@@ -554,66 +747,6 @@ class _ChurchLetterRecipientsPickerSheetState
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   }
 
-  Widget _deptFilterChip({
-    required String label,
-    required String value,
-    IconData icon = Icons.groups_rounded,
-  }) {
-    final selected = _deptFilter == value;
-    final accent = ThemeCleanPremium.primary;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => setState(() => _deptFilter = value),
-        borderRadius: BorderRadius.circular(12),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: selected
-                ? accent.withValues(alpha: 0.12)
-                : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected
-                  ? accent.withValues(alpha: 0.45)
-                  : const Color(0xFFE2E8F0),
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                size: 16,
-                color: selected ? accent : const Color(0xFF64748B),
-              ),
-              const SizedBox(width: 6),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 220),
-                child: Text(
-                  label,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    height: 1.15,
-                    color: selected ? accent : const Color(0xFF334155),
-                  ),
-                ),
-              ),
-              if (selected) ...[
-                const SizedBox(width: 4),
-                Icon(Icons.check_rounded, size: 16, color: accent),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _memberRow(ChurchLetterMemberEntry e) {
     final sel = _sel.contains(e.id);
     final accent = ThemeCleanPremium.primary;
@@ -774,22 +907,10 @@ class _ChurchLetterRecipientsPickerSheetState
                 const SizedBox(height: 10),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _deptFilterChip(
-                        label: 'Geral',
-                        value: 'todos',
-                        icon: Icons.dashboard_rounded,
-                      ),
-                      ...widget.departments.map(
-                        (d) => _deptFilterChip(
-                          label: d.name,
-                          value: d.id,
-                        ),
-                      ),
-                    ],
+                  child: ChurchLetterDepartmentFilterDropdown(
+                    selectedId: _deptFilter,
+                    departments: widget.departments,
+                    onChanged: (v) => setState(() => _deptFilter = v),
                   ),
                 ),
                 Padding(

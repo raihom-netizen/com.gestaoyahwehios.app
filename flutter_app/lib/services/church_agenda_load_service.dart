@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -38,6 +39,37 @@ abstract final class ChurchAgendaLoadService {
   ChurchAgendaLoadService._();
 
   static const int _plainFallbackLimit = 500;
+
+  /// Pré-visualização síncrona — RAM por intervalo ou lista completa em cache.
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekAnyRam(
+    String seedTenantId, {
+    Timestamp? start,
+    Timestamp? end,
+  }) {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return null;
+    if (start != null && end != null) {
+      final ranged = peekRam(churchId, start: start, end: end);
+      if (ranged != null && ranged.isNotEmpty) return ranged;
+    }
+    final prefix = '${churchId.trim()}_agenda_';
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? best;
+    DateTime? bestAt;
+    for (final e in _ram.entries) {
+      if (!e.key.startsWith(prefix)) continue;
+      if (e.value.docs.isEmpty) continue;
+      if (bestAt == null || e.value.at.isAfter(bestAt)) {
+        best = e.value.docs;
+        bestAt = e.value.at;
+      }
+    }
+    if (best == null) return null;
+    if (start != null && end != null) {
+      final filtered = _filterByRange(best, start, end);
+      return filtered.isNotEmpty ? filtered : best;
+    }
+    return best;
+  }
 
   static final Map<
       String,
@@ -193,6 +225,31 @@ abstract final class ChurchAgendaLoadService {
       lastError = e;
     }
 
+    try {
+      final snap = await IgrejaDirectFirestoreReads.listSubcollection(
+        churchId,
+        'agenda',
+        moduleLabel: 'Agenda',
+        limit: _plainFallbackLimit,
+        cacheKey: '${ramKey}_direct',
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
+      if (snap.docs.isNotEmpty) {
+        final filtered = _sortByStartTime(_filterByRange(snap.docs, start, end));
+        if (filtered.isNotEmpty) {
+          _putRam(ramKey, filtered);
+          unawaited(_persistHive(churchId, snap.docs));
+          return ChurchAgendaLoadResult(
+            churchId: churchId,
+            docs: filtered,
+            readSource: 'direct_list',
+            collectionPath: path,
+          );
+        }
+      }
+    } catch (e) {
+      lastError ??= e;
+    }
+
     final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
     if (mem != null && mem.docs.isNotEmpty) {
       return ChurchAgendaLoadResult(
@@ -241,9 +298,46 @@ abstract final class ChurchAgendaLoadService {
     }
 
     final col = ChurchUiCollections.agenda(churchId);
+
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> plainLoad() async {
+      final plain = await FirestoreReadResilience.getQuery(
+        col.orderBy('startTime', descending: true).limit(_plainFallbackLimit),
+        cacheKey: '${cacheKey}_plain_all',
+        maxAttempts: kIsWeb ? 4 : 3,
+        attemptTimeout: ChurchPanelReadTimeouts.attempt,
+      );
+      return _sortByStartTime(_filterByRange(plain.docs, start, end));
+    }
+
     Query<Map<String, dynamic>> ranged() => col
         .where('startTime', isGreaterThanOrEqualTo: start)
         .where('startTime', isLessThanOrEqualTo: end);
+
+    if (!forceServer) {
+      try {
+        final cacheSnap = await col
+            .orderBy('startTime', descending: true)
+            .limit(_plainFallbackLimit)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 5));
+        if (cacheSnap.docs.isNotEmpty) {
+          final filtered = _filterByRange(cacheSnap.docs, start, end);
+          if (filtered.isNotEmpty) {
+            return _sortByStartTime(filtered);
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (kIsWeb && !forceServer) {
+      try {
+        final filtered = await FirestoreWebGuard.runWithWebRecovery(
+          plainLoad,
+          maxAttempts: 4,
+        ).timeout(ChurchPanelReadTimeouts.queryCap);
+        if (filtered.isNotEmpty) return filtered;
+      } catch (_) {}
+    }
 
     if (!forceServer) {
       try {
@@ -265,15 +359,7 @@ abstract final class ChurchAgendaLoadService {
           attemptTimeout: ChurchPanelReadTimeouts.attempt,
         );
       } catch (_) {
-        final plain = await FirestoreReadResilience.getQuery(
-          col.limit(_plainFallbackLimit),
-          cacheKey: '${cacheKey}_plain',
-          maxAttempts: kIsWeb ? 4 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-        return MergedFirestoreQuerySnapshot(
-          _filterByRange(plain.docs, start, end),
-        );
+        return MergedFirestoreQuerySnapshot(await plainLoad());
       }
     }
 
@@ -284,7 +370,13 @@ abstract final class ChurchAgendaLoadService {
           ).timeout(ChurchPanelReadTimeouts.queryCap)
         : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
 
-    return _sortByStartTime(snap.docs);
+    final docs = _sortByStartTime(snap.docs);
+    if (docs.isEmpty) {
+      try {
+        return await plainLoad();
+      } catch (_) {}
+    }
+    return docs;
   }
 
   static Future<void> invalidate(String seedTenantId) async {

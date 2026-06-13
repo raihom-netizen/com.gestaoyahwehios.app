@@ -1,20 +1,9 @@
-import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/core/media_upload_limits.dart';
-import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
-import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
-import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
-import 'package:gestao_yahweh/services/patrimonio_publish_verification_service.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show sanitizeImageUrl;
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
 
-/// Patrimônio — upload Storage (até 4 fotos) → URLs HTTPS → Firestore → confirmação.
+/// Fachada legada → [PatrimonioPublishService] (Ecofire linear).
 abstract final class PatrimonioStrictPublishService {
   PatrimonioStrictPublishService._();
 
@@ -22,7 +11,6 @@ abstract final class PatrimonioStrictPublishService {
       EntityPublishStatus.photoUploadStateField;
   static const String statePublished = EntityPublishStatus.published;
 
-  /// Upload sequencial (fiável) → validar Storage → gravar Firestore → confirmar doc.
   static Future<void> publish({
     required String seedTenantId,
     required String itemId,
@@ -34,125 +22,20 @@ abstract final class PatrimonioStrictPublishService {
     List<String> existingUrls = const [],
     String? userUid,
     void Function(double progress)? onUploadProgress,
-  }) async {
-    await ensureFirebaseCore(requireAuth: true);
-    if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-    }
-
-    final igrejaId = PatrimonioPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: seedTenantId,
-      userUid: userUid,
-    );
-
-    final docRef = PatrimonioPublishVerificationService.patrimonioDocRef(
-      igrejaId: igrejaId,
-      itemId: itemId,
-    );
-
-    unawaited(
-      PatrimonioPublishVerificationService.logPublishPhase(
-        phase: 'before',
-        igrejaId: igrejaId,
+  }) =>
+      PatrimonioPublishService.publish(
+        seedTenantId: seedTenantId,
         itemId: itemId,
-        nome: (corePayload['nome'] ?? '').toString(),
-      ),
-    );
-
-    final allPaths = List<String>.from(existingPaths);
-    final allUrls = existingUrls
-        .map((e) => sanitizeImageUrl(e))
-        .where((e) => e.isNotEmpty)
-        .toList();
-
-    final maxNew = (kMaxPatrimonioPhotosPerItem - startSlot).clamp(0, kMaxPatrimonioPhotosPerItem);
-    final batch = newImages.take(maxNew).toList(growable: false);
-
-    if (batch.isNotEmpty) {
-      onUploadProgress?.call(0.04);
-
-      if (!isNewDoc) {
-        await Future.wait([
-          for (var j = 0; j < batch.length; j++)
-            FirebaseStorageCleanupService.deletePatrimonioCanonicalSlotFast(
-              tenantId: igrejaId,
-              itemDocId: itemId,
-              slot: startSlot + j,
-            ),
-        ]);
-      }
-      onUploadProgress?.call(0.08);
-
-      final uploaded = await PatrimonioMediaUpload.uploadGalleryPhotosSequential(
-        churchId: igrejaId,
-        itemDocId: itemId,
-        images: batch,
+        corePayload: corePayload,
+        isNewDoc: isNewDoc,
+        newImages: newImages,
         startSlot: startSlot,
-        skipPrepare: true,
-        onBatchProgress: (p) => onUploadProgress?.call(0.08 + p * 0.82),
+        existingPaths: existingPaths,
+        existingUrls: existingUrls,
+        userUid: userUid,
+        onUploadProgress: onUploadProgress,
       );
 
-      for (final r in uploaded) {
-        allPaths.add(r.storagePath);
-        allUrls.add(sanitizeImageUrl(r.downloadUrl));
-      }
-
-      await PatrimonioPublishVerificationService.verifyStorageMetadata(
-        photoPaths: uploaded.map((e) => e.storagePath),
-        timeout: const Duration(seconds: 10),
-        maxAttempts: 3,
-      );
-    }
-
-    final payload = Map<String, dynamic>.from(corePayload);
-    _applyPhotoFields(payload, allPaths, allUrls);
-    payload['ativo'] = true;
-    payload[photoUploadStateField] = statePublished;
-    payload['photoUploadError'] = FieldValue.delete();
-    payload['atualizadoEm'] = FieldValue.serverTimestamp();
-    if (isNewDoc) {
-      payload['criadoEm'] = FieldValue.serverTimestamp();
-    }
-
-    onUploadProgress?.call(0.94);
-
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
-    ).timeout(
-      const Duration(seconds: 45),
-      onTimeout: () => throw TimeoutException(
-        'Gravação no Firestore demorou demais. Verifique a rede e tente novamente.',
-      ),
-    );
-
-    await PatrimonioPublishVerificationService.verifyDocumentExists(docRef)
-        .timeout(
-      const Duration(seconds: 20),
-      onTimeout: () => throw TimeoutException(
-        'Patrimônio gravado mas confirmação no servidor demorou demais.',
-      ),
-    );
-
-    onUploadProgress?.call(1.0);
-
-    unawaited(
-      PatrimonioPublishVerificationService.logPublishPhase(
-        phase: 'after',
-        igrejaId: igrejaId,
-        itemId: itemId,
-        nome: (corePayload['nome'] ?? '').toString(),
-        storagePaths: allPaths,
-      ),
-    );
-
-    YahwehFlowLog.patrimonioSuccess();
-    FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(
-      tenantId: igrejaId,
-      itemDocId: itemId,
-    );
-  }
-
-  /// Metadados sem fotos novas — só Firestore + confirmação.
   static Future<void> publishMetadataOnly({
     required String seedTenantId,
     required String itemId,
@@ -161,74 +44,14 @@ abstract final class PatrimonioStrictPublishService {
     List<String> existingPaths = const [],
     List<String> existingUrls = const [],
     String? userUid,
-  }) async {
-    await ensureFirebaseCore(requireAuth: true);
-    if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-    }
-
-    final igrejaId = PatrimonioPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: seedTenantId,
-      userUid: userUid,
-    );
-    final docRef = PatrimonioPublishVerificationService.patrimonioDocRef(
-      igrejaId: igrejaId,
-      itemId: itemId,
-    );
-    final payload = Map<String, dynamic>.from(corePayload);
-    final urls = existingUrls
-        .map((e) => sanitizeImageUrl(e))
-        .where((e) => e.isNotEmpty)
-        .toList();
-    if (existingPaths.isNotEmpty || urls.isNotEmpty) {
-      _applyPhotoFields(payload, existingPaths, urls);
-    }
-    payload['ativo'] = true;
-    payload[photoUploadStateField] = statePublished;
-    payload['photoUploadError'] = FieldValue.delete();
-    payload['atualizadoEm'] = FieldValue.serverTimestamp();
-    if (isNewDoc) payload['criadoEm'] = FieldValue.serverTimestamp();
-
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => docRef.set(payload, SetOptions(merge: !isNewDoc)),
-    );
-    await PatrimonioPublishVerificationService.verifyDocumentExists(docRef);
-  }
-
-  static void _applyPhotoFields(
-    Map<String, dynamic> payload,
-    List<String> paths,
-    List<String> urls,
-  ) {
-    if (urls.isNotEmpty) {
-      payload['fotos'] = urls;
-      payload['fotoUrls'] = urls;
-      payload['imageUrls'] = urls;
-      payload['imageUrl'] = urls.first;
-      payload['fotoUrl'] = urls.first;
-      payload['thumbnail'] = urls.first;
-      payload['fotoPrincipalThumbPath'] = FieldValue.delete();
-      payload['thumbStoragePath'] = FieldValue.delete();
-      payload['imageVariants'] = FieldValue.delete();
-      payload['fotoVariants'] = FieldValue.delete();
-    } else {
-      payload['fotos'] = FieldValue.delete();
-      payload['fotoUrls'] = FieldValue.delete();
-      payload['imageUrls'] = FieldValue.delete();
-      payload['imageUrl'] = FieldValue.delete();
-      payload['fotoUrl'] = FieldValue.delete();
-      payload['thumbnail'] = FieldValue.delete();
-    }
-    if (paths.isNotEmpty) {
-      payload['fotoStoragePaths'] = paths;
-      payload['imageStoragePath'] = paths.first;
-      payload['fotoPath'] = paths.first;
-      payload['fotoPrincipalPath'] = paths.first;
-      if (paths.length > 1) {
-        payload['gallery'] = paths.sublist(1);
-      } else {
-        payload['gallery'] = FieldValue.delete();
-      }
-    }
-  }
+  }) =>
+      PatrimonioPublishService.publishMetadataOnly(
+        seedTenantId: seedTenantId,
+        itemId: itemId,
+        corePayload: corePayload,
+        isNewDoc: isNewDoc,
+        existingPaths: existingPaths,
+        existingUrls: existingUrls,
+        userUid: userUid,
+      );
 }

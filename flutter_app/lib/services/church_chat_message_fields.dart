@@ -45,6 +45,8 @@ abstract final class ChurchChatMessageFields {
           .trim();
 
   static bool hasResolvableMedia(Map<String, dynamic> data) {
+    // Path no doc stub antes do upload → não tentar carregar do Storage (spinner infinito).
+    if (isUploadInProgress(data)) return false;
     if (storagePath(data).isNotEmpty) return true;
     if (mediaUrl(data).isNotEmpty) return true;
     return false;

@@ -1,5 +1,15 @@
 /// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
+/// 11.2.305+1966: Bootstrap público único Web/Android/iOS + regras staff/member Storage/Firestore.
+/// 11.2.305+1965: Site público + cadastro membro — resolveFast slug, mural cache-first, UI colorida premium.
+/// 11.2.305+1962: Aprovações rápidas — ChurchAprovacoesLoadService cache-first igrejas/{id}/membros; UI esmeralda; web sem stream.
+/// 11.2.305+1961: Cadastro Igreja web — save blindado (ChurchCadastroSaveService); sem write duplo logo; INTERNAL ASSERTION recovery.
+/// 11.2.305+1960: Agenda — ChurchAgendaLoadService cache-first igrejas/{id}/agenda; web plain query; UI premium hero; PDF rápido.
+/// 11.2.305+1959: Pedidos de Oração — UI premium rosa; path igrejas/{id}/pedidosOracao; cache RAM/Hive rápido.
+/// 11.2.305+1954: Foto perfil membro — MemberProfilePhotoResolver (https antes de path errado); painel/chat/carteirinha.
+/// 11.2.305+1953: Ecofire offline — financeiro fila silenciosa, drain module_media, INTERNAL ASSERTION → queue.
+/// 11.2.305+1952: Cadastro Igreja web — uma leitura Firestore, cache-first, sem spinner infinito.
+/// 11.2.305+1951: Patrimônio Ecofire — foto01…04, upload completo, Firestore após Storage.
 /// 11.2.305+1944: Financeiro — comprovante JPEG/PNG/PDF Storage→Firestore; olho premium; sem vídeo.
 /// 11.2.305+1943: Patrimônio — upload sequencial até 4 fotos, URLs HTTPS no Firestore, save conclui.
 /// 11.2.305+1921: Eventos — ChurchEventosLoadService cache-first; publish web sem dart:io (_Namespace); paths igrejas/{id}/eventos.
@@ -338,6 +348,7 @@
 /// 11.2.295+1609: Mídia rápida — preview imediato avisos/eventos; chat foto auto-envio;
 /// vídeo 90s (chat + eventos); FAB novo aviso; vídeo hospedado no mural.
 /// 11.2.305+1924: Assinantes — só liderança (pastor, gestor, secretário, tesoureiro, admin, líder dept.) em certificados, carteirinha, financeiro e patrimônio.
+/// 11.2.305+1964: Certificados — lista completa membros (59+), ChurchCertificadosLoadService, UI premium violeta.
 const String appVersion = '11.2.305';
 /// 11.2.295+1634: Eventos/avisos v1555 — upload síncrono (1 WebP/foto, URLs no Firestore);
 /// chat DM — conversas legadas aparecem na aba Conversas + fallback merge reforçado.
@@ -380,7 +391,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1930: Foto perfil membro — pipeline linear sem limpeza bloqueante; UI premium.
 /// 11.2.305+1931: Chat igreja — envio mídia pipeline único (timeout 90s, foto/PDF/vídeo, paths igrejas/{id}/chat_media).
 /// 11.2.305+1939: Cartas — deptos visíveis, lista moderna, PDF rápido.
-const String appBuildNumber = '1944';
+const String appBuildNumber = '1966';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

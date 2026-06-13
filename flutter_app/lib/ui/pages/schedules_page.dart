@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/services/department_member_integration_service.dar
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_departments_load_service.dart';
 import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -455,6 +456,33 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     );
     await ChurchSchedulesLoadService.persistEscalas(r);
     return r.snapshot;
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _schedulesSnapshotFuture(
+    String tid,
+    Future<QuerySnapshot<Map<String, dynamic>>> Function(String tid) loader,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? seed, {
+    required bool templates,
+  }) {
+    if (seed != null && seed.isNotEmpty) {
+      unawaited(loader(tid).then((snap) {
+        if (!mounted || snap.docs.isEmpty) return;
+        setState(() {
+          if (templates) {
+            _seedTemplates = snap.docs;
+            _templatesFuture = Future.value(snap);
+          } else {
+            _seedInstances = snap.docs;
+            _instancesFuture = Future.value(snap);
+          }
+        });
+      }).catchError((_) {}));
+      return Future.value(MergedFirestoreQuerySnapshot(seed));
+    }
+    return loader(tid).timeout(
+      kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      onTimeout: () => MergedFirestoreQuerySnapshot(seed ?? const []),
+    );
   }
 
   Future<void> _openSchedulesFast() async {
@@ -1334,9 +1362,21 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     unawaited(_openSchedulesFast());
     _effectiveTidFuture = _resolveTenantAndSeedPresets();
     final seed = _effectiveTenantId;
+    _seedTemplates = ChurchSchedulesLoadService.peekTemplatesRam(seed, limit: 120);
+    _seedInstances = ChurchSchedulesLoadService.peekEscalasRam(seed, limit: 500);
     _deptsFuture = _loadDepartmentsForTenant(seed);
-    _templatesFuture = _fetchTemplates(seed);
-    _instancesFuture = _fetchEscalas(seed);
+    _templatesFuture = _schedulesSnapshotFuture(
+      seed,
+      _fetchTemplates,
+      _seedTemplates,
+      templates: true,
+    );
+    _instancesFuture = _schedulesSnapshotFuture(
+      seed,
+      _fetchEscalas,
+      _seedInstances,
+      templates: false,
+    );
     _tenantFuture = _churchDoc(seed).get();
     _effectiveTidFuture.then((tid) async {
       try {

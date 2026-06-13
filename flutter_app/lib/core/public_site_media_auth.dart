@@ -1,6 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
-
 /// Site público: mídia via HTTP / regras Storage — **sem** login anónimo.
 ///
 /// O provedor Anonymous foi desligado no Firebase (só Gmail, Apple, e-mail/senha).
@@ -19,8 +17,8 @@ class PublicSiteMediaAuth {
     }
   }
 
+  /// Compatível com chamadas legadas — todas as plataformas.
   static Future<void> ensureWebAnonymousForStorage() async {
-    if (!kIsWeb) return;
     await ensurePublicVisitorMediaAccess();
   }
 }

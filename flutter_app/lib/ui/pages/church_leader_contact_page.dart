@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_role_badge.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
@@ -47,8 +48,8 @@ class ChurchLeaderContactPage extends StatelessWidget {
         .toString()
         .trim();
     final titulo = nome.isEmpty ? 'Contato' : nome;
-    final foto = imageUrlFromMap(memberData);
-    final hasFoto = isValidImageUrl(foto);
+    final foto = MemberProfilePhotoResolver.displayRef(memberData);
+    final hasFoto = MemberProfilePhotoResolver.hasPhotoRef(memberData);
     final avatarColor =
         avatarColorForMember(memberData, hasPhoto: hasFoto);
     final cpfRaw = (memberData['CPF'] ?? memberData['cpf'] ?? '')
@@ -97,12 +98,16 @@ class ChurchLeaderContactPage extends StatelessWidget {
             children: [
               const SizedBox(height: 16),
               FotoMembroWidget(
-                imageUrl: hasFoto ? foto : null,
+                imageUrl: foto,
                 memberData: memberData,
                 tenantId: tenantId,
                 memberId: memberDocId,
                 cpfDigits: cpfRaw.length == 11 ? cpfRaw : null,
-                authUid: leaderContactAuthUid(memberData),
+                authUid: MemberProfilePhotoResolver.authUidFromData(
+                  memberData,
+                  memberDocId: memberDocId,
+                ) ??
+                    leaderContactAuthUid(memberData),
                 size: 128,
                 memCacheWidth: 280,
                 memCacheHeight: 280,

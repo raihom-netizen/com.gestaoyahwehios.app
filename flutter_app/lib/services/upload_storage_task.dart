@@ -13,18 +13,20 @@ String formatUploadErrorForUser(Object error) =>
 bool isRetryableUploadError(Object error) {
   if (error is StateError) {
     final m = error.message.toLowerCase();
+    if (m.contains('sem dados para enviar')) {
+      return false;
+    }
     if (m.contains('sessão expirada') ||
         m.contains('firebase não') ||
-        m.contains('sem dados para enviar')) {
-      return false;
+        m.contains('indispon')) {
+      return true;
     }
   }
   final rawBootstrap = error.toString().toLowerCase();
-  if (rawBootstrap.contains('firebasebootstrap') ||
-      rawBootstrap.contains('no firebase app') ||
+  if (rawBootstrap.contains('no firebase app') ||
       rawBootstrap.contains('core/no-app') ||
       rawBootstrap.contains('não inicializou')) {
-    return false;
+    return true;
   }
   if (error is TimeoutException) return true;
   if (error is FirebaseException) {

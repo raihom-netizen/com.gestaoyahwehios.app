@@ -45,12 +45,10 @@ exports.refreshPublicFeedCacheForTenant = refreshPublicFeedCacheForTenant;
  * Modelo real: `igrejas/{tenant}/avisos|noticias|membros|chat_media/…`
  * (não `posts` / `members` genéricos da spec de referência).
  */
-const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
 const sharp_1 = __importDefault(require("sharp"));
+const adminDb_1 = require("./adminDb");
 const tenantCallableResolve_1 = require("./tenantCallableResolve");
-const db = admin.firestore();
-const bucket = admin.storage().bucket();
 const WEBP_Q = 70;
 const TIERS = [
     { key: "thumb_200", edge: 200 },
@@ -67,8 +65,8 @@ function isVariantPath(name) {
         name.includes("/thumbs/"));
 }
 async function saveWebp(destPath, buffer) {
-    const file = bucket.file(destPath);
-    const token = admin.firestore().collection("_meta").doc().id;
+    const file = (0, adminDb_1.storageBucket)().file(destPath);
+    const token = adminDb_1.admin.firestore().collection("_meta").doc().id;
     await file.save(buffer, {
         metadata: {
             contentType: "image/webp",
@@ -78,10 +76,10 @@ async function saveWebp(destPath, buffer) {
         resumable: false,
     });
     const encoded = encodeURIComponent(destPath);
-    return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encoded}?alt=media&token=${token}`;
+    return `https://firebasestorage.googleapis.com/v0/b/${(0, adminDb_1.storageBucket)().name}/o/${encoded}?alt=media&token=${token}`;
 }
 async function processMemberProfile(tenantId, memberId, srcPath) {
-    const [buf] = await bucket.file(srcPath).download();
+    const [buf] = await (0, adminDb_1.storageBucket)().file(srcPath).download();
     if (!buf || buf.length < 32)
         return;
     const fullPath = `igrejas/${tenantId}/membros/fotos/${memberId}.webp`;
@@ -94,7 +92,7 @@ async function processMemberProfile(tenantId, memberId, srcPath) {
         saveWebp(fullPath, fullBuf),
         saveWebp(thumbPath, thumbBuf),
     ]);
-    await db
+    await (0, adminDb_1.fs)()
         .collection("igrejas")
         .doc(tenantId)
         .collection("membros")
@@ -106,12 +104,12 @@ async function processMemberProfile(tenantId, memberId, srcPath) {
         photoThumb: fotoThumbUrl,
         photoStoragePath: fullPath,
         photoThumbStoragePath: thumbPath,
-        photoMedium: admin.firestore.FieldValue.delete(),
-        photoVariantsGeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
+        photoMedium: adminDb_1.admin.firestore.FieldValue.delete(),
+        photoVariantsGeneratedAt: adminDb_1.admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
 }
 async function processFeedImage(tenantId, collection, postId, baseName, srcPath) {
-    const [buf] = await bucket.file(srcPath).download();
+    const [buf] = await (0, adminDb_1.storageBucket)().file(srcPath).download();
     if (!buf || buf.length < 32)
         return;
     const folder = collection === "avisos" ? "avisos" : "eventos";
@@ -128,14 +126,14 @@ async function processFeedImage(tenantId, collection, postId, baseName, srcPath)
         .toBuffer();
     const primary = await saveWebp(dest, out);
     const col = collection === "avisos" ? "avisos" : "eventos";
-    const ref = db.collection("igrejas").doc(tenantId).collection(col).doc(postId);
+    const ref = (0, adminDb_1.fs)().collection("igrejas").doc(tenantId).collection(col).doc(postId);
     const snap = await ref.get();
     if (!snap.exists)
         return;
     await ref.set({
         imagem_url: primary,
         imageUrl: primary,
-        serverVariantsGeneratedAt: admin.firestore.FieldValue.serverTimestamp(),
+        serverVariantsGeneratedAt: adminDb_1.admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
 }
 function parseUpload(name) {
@@ -245,20 +243,20 @@ exports.compressVideo = functions
     const postId = m[2];
     const slot = Number(m[3]);
     const thumbPath = `igrejas/${tenantId}/eventos/thumbs/${postId}_v${slot}.webp`;
-    await db
+    await (0, adminDb_1.fs)()
         .collection("igrejas")
         .doc(tenantId)
         .collection("eventos")
         .doc(postId)
         .set({
-        videoServerProcessedAt: admin.firestore.FieldValue.serverTimestamp(),
+        videoServerProcessedAt: adminDb_1.admin.firestore.FieldValue.serverTimestamp(),
         videoThumbStoragePath: thumbPath,
     }, { merge: true });
     return true;
 });
 async function listActiveTenantIds(limit = 40) {
     try {
-        const snap = await db
+        const snap = await (0, adminDb_1.fs)()
             .collection("igrejas")
             .orderBy("updatedAt", "desc")
             .limit(limit)
@@ -269,14 +267,14 @@ async function listActiveTenantIds(limit = 40) {
     catch (_) {
         /* índice updatedAt pode não existir em todas as bases */
     }
-    const fallback = await db.collection("igrejas").limit(limit).get();
+    const fallback = await (0, adminDb_1.fs)().collection("igrejas").limit(limit).get();
     return fallback.docs.map((d) => d.id);
 }
 function parseBirthMd(data) {
     const keys = ["DATA_NASCIMENTO", "dataNascimento", "birthDate", "nascimento"];
     for (const k of keys) {
         const raw = data[k];
-        if (raw instanceof admin.firestore.Timestamp) {
+        if (raw instanceof adminDb_1.admin.firestore.Timestamp) {
             const dt = raw.toDate();
             return { month: dt.getMonth() + 1, day: dt.getDate() };
         }
@@ -301,7 +299,7 @@ exports.generateBirthdayCache = functions
     let written = 0;
     for (const tenantId of tenantIds) {
         try {
-            const snap = await db
+            const snap = await (0, adminDb_1.fs)()
                 .collection("igrejas")
                 .doc(tenantId)
                 .collection("membros")
@@ -322,7 +320,7 @@ exports.generateBirthdayCache = functions
                     birthDay: birth.day,
                 });
             }
-            await db
+            await (0, adminDb_1.fs)()
                 .collection("igrejas")
                 .doc(tenantId)
                 .collection("_performance_cache")
@@ -330,7 +328,7 @@ exports.generateBirthdayCache = functions
                 .set({
                 month,
                 data: birthdays,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: adminDb_1.admin.firestore.FieldValue.serverTimestamp(),
             });
             written += 1;
         }
@@ -356,7 +354,7 @@ function lightPublicPost(id, collection, data) {
 }
 /** Atualiza `public_feed` para uma igreja (reutilizado por cron e triggers). */
 async function refreshPublicFeedCacheForTenant(tenantId) {
-    const churchRef = db.collection("igrejas").doc(tenantId);
+    const churchRef = (0, adminDb_1.fs)().collection("igrejas").doc(tenantId);
     const [avisosSnap, noticiasSnap] = await Promise.all([
         churchRef
             .collection("avisos")
@@ -388,7 +386,7 @@ async function refreshPublicFeedCacheForTenant(tenantId) {
     });
     await churchRef.collection("_performance_cache").doc("public_feed").set({
         data: feed.slice(0, 50),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: adminDb_1.admin.firestore.FieldValue.serverTimestamp(),
     });
     try {
         const { recomputePublicSiteMediaPrefetch } = await Promise.resolve().then(() => __importStar(require("./publicSiteMediaPrefetch")));

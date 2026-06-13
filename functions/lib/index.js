@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getUserProfile = exports.seedFrotaMasterHttp = exports.seedFrotaMaster = exports.migrateFrotaToFrotasveiculo = exports.corrigirBancoFrota = exports.cleanFrotaFromDefault = exports.ensureBrasilParaCristoAccess = exports.getMemberEmailForReset = exports.bulkEnsureMembersAuth = exports.setMemberApproved = exports.masterRelinkMembroAuthUid = exports.purgeMemberFirebaseLogin = exports.setMemberPassword = exports.recreateMemberAuthForNewEmail = exports.alignMemberDocToAuthUid = exports.createMemberLoginFromPublic = exports.createMemberAuthAccountForGestor = exports.syncGestorBrasilParaCristo = exports.seedGestorBrasilParaCristo = exports.createChurchForOnboardingGestor = exports.registerGestorProfile = exports.createChurchAndGestorWithGoogle = exports.consumeUserSignupInvite = exports.getUserSignupInviteInfo = exports.createUserSignupInvite = exports.upsertTenantUser = exports.setUserActive = exports.setUserRole = exports.resolveCpfToEmail = exports.syncMemberRoleClaims = exports.repairMyChurchBinding = exports.resolveEmailToChurchPublic = exports.mpWebhook = exports.mercadoPagoWebhook = exports.createMpPixPayment = exports.createMpPreapproval = exports.backupDailyToGcs = exports.testDriveWriteForChurch = exports.getChurchStorageUsage = exports.archiveChurchMediaNow = exports.archiveChurchMediaToDrive = exports.backupDailyToDrive = exports.ensureGlobalDownloads = exports.ensureDriveFolders = exports.onIgrejaTenantProvision = exports.migrateAllChurchTenantsCallable = exports.ensureChurchTenantConsolidated = exports.provisionChurchTenantCallable = exports.onTenantCreate = exports.resolveCpfToChurchPublic = void 0;
+exports.getUserProfile = exports.seedFrotaMasterHttp = exports.seedFrotaMaster = exports.migrateFrotaToFrotasveiculo = exports.corrigirBancoFrota = exports.cleanFrotaFromDefault = exports.ensureBrasilParaCristoAccess = exports.getMemberEmailForReset = exports.bulkEnsureMembersAuth = exports.setMemberApproved = exports.masterRelinkMembroAuthUid = exports.purgeMemberFirebaseLogin = exports.setMemberPassword = exports.recreateMemberAuthForNewEmail = exports.alignMemberDocToAuthUid = exports.createMemberLoginFromPublic = exports.createMemberAuthAccountForGestor = exports.syncGestorBrasilParaCristo = exports.seedGestorBrasilParaCristo = exports.createChurchForOnboardingGestor = exports.registerGestorProfile = exports.createChurchAndGestorWithGoogle = exports.consumeUserSignupInvite = exports.getUserSignupInviteInfo = exports.createUserSignupInvite = exports.upsertTenantUser = exports.setUserActive = exports.setUserRole = exports.resolveCpfToEmail = exports.syncMemberRoleClaims = exports.repairMyChurchBinding = exports.resolveEmailToChurchPublic = exports.mpWebhook = exports.mercadoPagoWebhook = exports.createMpPixPayment = exports.createMpPreapproval = exports.backupDailyToGcs = exports.testDriveWriteForChurch = exports.getChurchStorageUsage = exports.archiveChurchMediaNow = exports.archiveChurchMediaToDrive = exports.backupDailyToDrive = exports.ensureGlobalDownloads = exports.ensureDriveFolders = exports.onIgrejaTenantProvision = exports.migrateAllChurchTenantsCallable = exports.ensureChurchTenantConsolidated = exports.provisionChurchTenantCallable = exports.onIgrejaCreate = exports.resolveCpfToChurchPublic = void 0;
 exports.onNovoEventoNoticiaPublishedPush = exports.onNovoEventoNoticiaPush = exports.onNovoAvisoMuralPublishedPush = exports.onNovoAvisoMuralPush = exports.onIgrejaChatMessageDeleteCleanupStorage = exports.onIgrejaPatrimonioDeleteCleanupStorage = exports.onIgrejaNoticiaDeleteCleanupStorage = exports.onIgrejaMembroDeleteCleanupStorage = exports.hourlyDevotionalBroadcast = exports.rollingScaleRemindersConfirmed = exports.dayBeforeScaleReminder = exports.dailyBirthdayTopicPush = exports.onEscalaTrocaInviteTarget = exports.respondScheduleSwap = exports.onEscalaImpedimentoNotifyLeaders = exports.notifySchedulePublished = exports.deleteDevotionalEnvio = exports.resendDevotionalEnvio = exports.resendPastoralMessage = exports.updatePastoralMessage = exports.archivePastoralMessage = exports.sendSegmentedPush = exports.gerarCarteirinhaPdf = exports.gerarCertificadoPdf = exports.processarCertificadosLote = exports.gerarCertificadosEmLote = exports.shareEvento = exports.recordDomainDailyHit = exports.generateThumbnail = exports.onNewMemberLegacy = exports.onNewMember = exports.validateCarteirinhaPublic = exports.refreshCarteiraSignatoriesIndex = exports.carteirinhaValidarHttp = exports.migrateAllIgrejasMembersToMembros = exports.scheduledGerarReceitasRecorrentesPendentes = exports.scheduledMigrateIgrejaMembersToMembros = exports.ensureMigrateMembersToMembros = exports.migrateMembersFull = exports.syncMembersFromUsers = exports.autoGenerateEvents = exports.onScheduleCreate = exports.resolveCpfToChurchPublicFinal = exports.resolveCpfToChurchPublicHttp = exports.seedPublicCpfIndex = exports.reportSecurityEvent = exports.bootstrapAdmin = exports.saveMercadoPagoAdminConfig = exports.getMercadoPagoAdminConfig = exports.getAdminCheck = void 0;
 exports.warmChurchTenantCaches = exports.getChurchPanelSnapshot = exports.onChurchPedidoOracaoWritePanelDashboard = exports.onChurchVisitanteWritePanelDashboard = exports.onChurchDepartamentoWritePanelDashboard = exports.onChurchNoticiaWritePanelDashboard = exports.onChurchAvisoWritePanelDashboard = exports.onChurchMembroWritePanelDashboard = exports.onChurchMembroWriteSyncBirthIndex = exports.recomputePublicSiteMediaPrefetch = exports.warmPublicSiteFeedCache = exports.warmChurchPublicFeedCache = exports.refreshPublicFeedCacheOnNoticiaWrite = exports.refreshPublicFeedCacheOnAvisoWrite = exports.generatePublicFeedCache = exports.generateBirthdayCache = exports.compressVideo = exports.optimizeImage = exports.runStorageConsolidationMigration = exports.migrateStorageConsolidated = exports.masterApplyTenantLicense = exports.syncBpcMemberTenantLinkageHttp = exports.syncBpcMemberTenantLinkage = exports.consolidateBpcChurchToCanonicalHttp = exports.consolidateBpcChurchToCanonical = exports.syncChurchClusterDataFromRichest = exports.syncChurchMercadoPagoFromCluster = exports.migrateAllTenantsFirestoreCollections = exports.migrateTenantFirestoreCollections = exports.onChurchContasWriteFinanceAccounts = exports.onChurchFinanceWritePanelSummary = exports.repairChurchChatDmThreads = exports.backfillChurchChatDmThreads = exports.onChurchChatMessageIndexThread = exports.onChurchChatDmThreadWrite = exports.scheduledSyncMembroSessions = exports.onMembroWriteSyncSession = exports.onIgrejaMembroWriteChatPeerProfile = exports.onChurchChatMessageCreated = exports.purgeAnonymousAuthUsers = exports.purgeChurchChatMessagesAdmin = exports.pruneExpiredChurchChatMessages = exports.pruneContribuicoesDizimoHistorico = exports.createChurchDonationPreference = exports.createChurchDonationPix = exports.ensureChurchTreasuryAccountPresets = exports.saveChurchMercadoPagoCredentials = exports.scheduledFinanceVencimento24h = exports.scheduledFinanceDailyDigest = exports.scheduledFornecedorAgendaReminders = void 0;
 exports.scheduledCleanupOrphanFiles = exports.scheduledPurgeStalePendingUploads = exports.backfillMemberCodigos = exports.resolveStorageDisplayUrls = exports.syncPublicChurchSlugIndexForChurch = exports.backfillPublicChurchSlugIndex = exports.onIgrejaWritePublicSlugIndex = exports.recomputePanelPublicSiteCache = exports.mirrorPublicSitePanelCache = exports.writePanelStatisticsCache = exports.getChurchMembersDirectory = exports.scheduledRefreshMasterChurchesList = exports.getMasterChurchesList = exports.scheduledRefreshMasterDashboard = exports.warmChurchPanelFromMaster = exports.getMasterDashboardSnapshot = exports.scheduledRefreshPanelCaches = void 0;
@@ -51,6 +51,8 @@ const churchMercadoPago_1 = require("./churchMercadoPago");
 const memberCodigo_1 = require("./memberCodigo");
 const carteirinhaValidarPublic_1 = require("./carteirinhaValidarPublic");
 const churchTenantProvisioning_1 = require("./churchTenantProvisioning");
+const memberAccessPolicy_1 = require("./memberAccessPolicy");
+const churchFirestorePaths_1 = require("./churchFirestorePaths");
 admin.initializeApp();
 const db = admin.firestore();
 /** Banco Firestore separado para frotas (frotasveiculo). */
@@ -434,9 +436,8 @@ function storagePathFromUrl(rawUrl) {
     return null;
 }
 async function getTenantFolderLabel(tenantId) {
-    const tenantSnap = await db.collection("tenants").doc(tenantId).get();
-    const tData = tenantSnap.data() || {};
-    const createdByCpf = String(tData.createdByCpf || tData.ownerCpf || tData.gestorCpf || "").trim();
+    const tData = await (0, churchFirestorePaths_1.readChurchRootData)(db, tenantId);
+    const createdByCpf = String(tData.createdByCpf || tData.ownerCpf || tData.gestorCpf || tData.cpf || "").trim();
     const folderLabel = createdByCpf ? `${tenantId}_${createdByCpf}` : tenantId;
     const description = createdByCpf ? `createdByCpf: ${createdByCpf}` : undefined;
     return { folderLabel, description };
@@ -556,7 +557,7 @@ async function ensureTenantDriveFolders(tenantId) {
     const reportsFolder = await findOrCreateFolder(drive, monthFolder, "relatorios");
     const mediaFolder = await findOrCreateFolder(drive, monthFolder, "midias");
     const auditFolder = await findOrCreateFolder(drive, monthFolder, "auditoria");
-    await db.collection("tenants").doc(tenantId).set({
+    await (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).set({
         drive: {
             rootId,
             churchesRootId: churchesRoot,
@@ -711,19 +712,16 @@ function computeGraceBlockDate(from) {
     return d;
 }
 /**
- * Atualiza cobrança/licença em `igrejas` e `tenants` (o app usa principalmente `igrejas`).
+ * Atualiza cobrança/licença em `igrejas/{churchId}`.
  * Pagamento aprovado: grava licenseExpiresAt / nextCharge conforme ciclo (mensal/anual) nos metadados do MP.
  */
 async function updateTenantBilling(tenantId, billingStatus, extras) {
-    const igRef = db.collection("igrejas").doc(tenantId);
-    const tnRef = db.collection("tenants").doc(tenantId);
-    const [igSnap, tnSnap] = await Promise.all([igRef.get(), tnRef.get()]);
-    const igData = igSnap.data() || {};
-    const tnData = tnSnap.data() || {};
+    const igRef = (0, churchFirestorePaths_1.churchDocRef)(db, tenantId);
+    const igData = await (0, churchFirestorePaths_1.readChurchRootData)(db, tenantId);
     const metaPlan = String(extras.metadataPlanId || "").trim();
     const metaCycle = String(extras.billingCycle || "").trim().toLowerCase();
     const planIdRaw = metaPlan ||
-        String(igData.planId || tnData.planId || igData.plano || tnData.plan || "inicial");
+        String(igData.planId || igData.plano || "inicial");
     const planId = planIdRaw.replace(/\s/g, "").toLowerCase() || "inicial";
     const licenseStatus = billingStatus === "paid"
         ? "active"
@@ -776,7 +774,7 @@ async function updateTenantBilling(tenantId, billingStatus, extras) {
     const rootPatch = {
         planId,
         plano: planId,
-        billingCycle: metaCycle || igData.billingCycle || tnData.billingCycle || null,
+        billingCycle: metaCycle || igData.billingCycle || null,
         license: licensePatch,
         billing: billingPatch,
         status_assinatura: billingStatus === "paid"
@@ -796,8 +794,7 @@ async function updateTenantBilling(tenantId, billingStatus, extras) {
     if (dataBloqueioTs)
         rootPatch.data_bloqueio = dataBloqueioTs;
     await igRef.set(rootPatch, { merge: true });
-    await tnRef.set(rootPatch, { merge: true });
-    const pendingTrialEnds = igData.trialEndsAt || tnData.trialEndsAt || null;
+    const pendingTrialEnds = igData.trialEndsAt || null;
     await upsertSubscription(tenantId, planId, subscriptionUiStatus, billingStatus === "pending" ? pendingTrialEnds : null, {
         nextChargeAt: nextChargeAtTs || extras.nextChargeAt,
         lastPaymentAt: extras.lastPaymentAt,
@@ -970,37 +967,11 @@ async function resolveFromPublicIndex(cpf) {
     const tenantId = String(publicData.tenantId || publicData.churchId || "").replace(/"/g, "").trim();
     if (!tenantId)
         return null;
-    let tenant = {};
-    const tenantSnap = await db.collection("tenants").doc(tenantId).get();
-    if (tenantSnap.exists) {
-        tenant = tenantSnap.data() || {};
-    }
-    else {
-        const igrejaSnap = await db.collection("igrejas").doc(tenantId).get();
-        if (igrejaSnap.exists) {
-            tenant = igrejaSnap.data() || {};
-        }
-    }
+    let tenant = await (0, churchFirestorePaths_1.readChurchRootData)(db, tenantId);
     let userData = {};
-    const userDocTenant = await db
-        .collection("tenants")
-        .doc(tenantId)
-        .collection("usersIndex")
-        .doc(cpf)
-        .get();
-    if (userDocTenant.exists) {
-        userData = userDocTenant.data() || {};
-    }
-    else {
-        const userDocIgreja = await db
-            .collection("igrejas")
-            .doc(tenantId)
-            .collection("usersIndex")
-            .doc(cpf)
-            .get();
-        if (userDocIgreja.exists) {
-            userData = userDocIgreja.data() || {};
-        }
+    const userDocIgreja = await (0, churchFirestorePaths_1.readUsersIndexSnapshot)(db, tenantId, cpf);
+    if (userDocIgreja.exists) {
+        userData = userDocIgreja.data() || {};
     }
     const name = String(tenant.name || tenant.nome || publicData.name || "Igreja").replace(/"/g, "");
     const slug = String(tenant.slug || tenant.alias || publicData.slug || tenantId || "")
@@ -1017,7 +988,7 @@ async function resolveFromPublicIndex(cpf) {
 }
 /**
  * ✅ CPF → PERFIL DA IGREJA (CALLABLE)
- * Procura em tenants/{tenantId}/usersIndex/{cpf} (docId ou campo cpf)
+ * Procura em igrejas/{churchId}/usersIndex/{cpf} (docId ou campo cpf)
  */
 exports.resolveCpfToChurchPublic = functions
     .region("us-central1")
@@ -1061,17 +1032,7 @@ exports.resolveCpfToChurchPublic = functions
         if (!tenantId) {
             throw new functions.https.HttpsError("internal", "tenantId ausente");
         }
-        let tenant = {};
-        const tenantSnap = await db.collection("tenants").doc(tenantId).get();
-        if (tenantSnap.exists) {
-            tenant = tenantSnap.data() || {};
-        }
-        else {
-            const igrejaSnap = await db.collection("igrejas").doc(tenantId).get();
-            if (igrejaSnap.exists) {
-                tenant = igrejaSnap.data() || {};
-            }
-        }
+        const tenant = await (0, churchFirestorePaths_1.readChurchRootData)(db, tenantId);
         return {
             tenantId,
             name: String(tenant.name || tenant.nome || "Igreja"),
@@ -1087,24 +1048,24 @@ exports.resolveCpfToChurchPublic = functions
         throw new functions.https.HttpsError("internal", e?.message || "Erro interno");
     }
 });
-// ✅ Cria pastas do Drive quando uma igreja e criada
-exports.onTenantCreate = functions
+// ✅ Cria pastas do Drive quando uma igreja é criada em igrejas/{churchId}
+exports.onIgrejaCreate = functions
     .region("us-central1")
-    .firestore.document("tenants/{tenantId}")
+    .firestore.document("igrejas/{churchId}")
     .onCreate(async (_, context) => {
-    const tenantId = context.params.tenantId;
+    const tenantId = context.params.churchId;
     await ensureTenantDriveFolders(tenantId);
     try {
         await (0, churchWelcomeSeed_1.ensureChurchWelcomeSeed)(db, tenantId);
     }
     catch (e) {
-        console.error("onTenantCreate ensureChurchWelcomeSeed:", e);
+        console.error("onIgrejaCreate ensureChurchWelcomeSeed:", e);
     }
     try {
-        await (0, churchTenantProvisioning_1.provisionChurchTenant)(tenantId, { source: "onTenantCreate" });
+        await (0, churchTenantProvisioning_1.provisionChurchTenant)(tenantId, { source: "onIgrejaCreate" });
     }
     catch (e) {
-        console.error("onTenantCreate provisionChurchTenant:", e);
+        console.error("onIgrejaCreate provisionChurchTenant:", e);
     }
 });
 /** Alinha aliases + doc raiz + Storage após cadastro da igreja (gestor ou migração). */
@@ -1133,9 +1094,17 @@ exports.provisionChurchTenantCallable = functions
         }
     }
     try {
-        return await (0, churchTenantProvisioning_1.provisionChurchTenant)(tenantId, {
+        const provision = await (0, churchTenantProvisioning_1.provisionChurchTenant)(tenantId, {
             source: String(data?.source || "provisionChurchTenantCallable"),
         });
+        let welcome = null;
+        try {
+            welcome = await (0, churchWelcomeSeed_1.ensureChurchWelcomeSeed)(db, tenantId);
+        }
+        catch (e) {
+            console.error("provisionChurchTenantCallable ensureChurchWelcomeSeed:", e);
+        }
+        return { ...provision, welcomeSeed: welcome };
     }
     catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -1227,6 +1196,12 @@ exports.onIgrejaTenantProvision = functions
     catch (e) {
         console.error("onIgrejaTenantProvision:", tenantId, e);
     }
+    try {
+        await (0, churchWelcomeSeed_1.ensureChurchWelcomeSeed)(db, tenantId);
+    }
+    catch (e) {
+        console.error("onIgrejaTenantProvision ensureChurchWelcomeSeed:", tenantId, e);
+    }
 });
 // ✅ Endpoint manual para recriar pastas no Drive
 exports.ensureDriveFolders = functions
@@ -1290,29 +1265,17 @@ exports.backupDailyToDrive = functions
     const drive = await getDrive();
     const backupRoot = await findOrCreateFolder(drive, churchRootId, "GESTAO_YAHWEH_BKPS_DIARIOS");
     const dailyFolder = await findOrCreateFolder(drive, backupRoot, ymdFolder(new Date()));
-    const tenantsSnap = await db.collection("tenants").get();
+    const tenantsSnap = await db.collection("igrejas").get();
     for (const t of tenantsSnap.docs) {
         const tenantId = t.id;
-        const membersSnap = await db
-            .collection("tenants")
-            .doc(tenantId)
-            .collection("members")
-            .get();
-        const usersSnap = await db
-            .collection("tenants")
-            .doc(tenantId)
-            .collection("usersIndex")
-            .get();
+        const membersSnap = await (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("membros").get();
+        const usersSnap = await (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("usersIndex").get();
         const members = membersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
         const usersIndex = usersSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        const fleetVehiclesSnap = await db
-            .collection("tenants")
-            .doc(tenantId)
+        const fleetVehiclesSnap = await (0, churchFirestorePaths_1.churchDocRef)(db, tenantId)
             .collection("fleet_vehicles")
             .get();
-        const fleetFuelingsSnap = await db
-            .collection("tenants")
-            .doc(tenantId)
+        const fleetFuelingsSnap = await (0, churchFirestorePaths_1.churchDocRef)(db, tenantId)
             .collection("fleet_fuelings")
             .get();
         const fleetVehicles = fleetVehiclesSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -1512,9 +1475,9 @@ exports.getChurchStorageUsage = functions
     let firestoreTotal = 0;
     try {
         const [membersSnap, noticiasSnap, usersSnap] = await Promise.all([
-            db.collection("tenants").doc(tenantId).collection("members").count().get(),
+            (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("membros").count().get(),
             db.collection("igrejas").doc(tenantId).collection("eventos").count().get(),
-            db.collection("tenants").doc(tenantId).collection("usersIndex").count().get(),
+            (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("usersIndex").count().get(),
         ]);
         firestoreCounts.members = membersSnap.data().count ?? 0;
         firestoreCounts.eventos = noticiasSnap.data().count ?? 0;
@@ -2025,12 +1988,10 @@ exports.resolveEmailToChurchPublic = functions
             const userData = userDoc.data() || {};
             const tenantId = String(userData.tenantId || userDoc.ref.parent.parent?.id || "");
             if (tenantId) {
-                let churchSnap = await db.collection("igrejas").doc(tenantId).get();
-                if (!churchSnap.exists) {
-                    churchSnap = await db.collection("tenants").doc(tenantId).get();
+                const ch = await (0, churchFirestorePaths_1.readChurchRootData)(db, tenantId);
+                if (Object.keys(ch).length > 0) {
+                    return outPayload(tenantId, ch, String(userData.role || "user"));
                 }
-                const ch = churchSnap.data() || {};
-                return outPayload(tenantId, ch, String(userData.role || "user"));
             }
         }
         // users/{uid} — muitos gestores têm só aqui o e-mail + igrejaId
@@ -2044,12 +2005,9 @@ exports.resolveEmailToChurchPublic = functions
                 const u = ud.data() || {};
                 const tenantId = String(u.igrejaId || u.tenantId || u.churchId || "").trim();
                 if (tenantId) {
-                    let churchSnap = await db.collection("igrejas").doc(tenantId).get();
-                    if (!churchSnap.exists) {
-                        churchSnap = await db.collection("tenants").doc(tenantId).get();
-                    }
-                    if (churchSnap.exists) {
-                        return outPayload(tenantId, churchSnap.data() || {}, String(u.role || "gestor"));
+                    const ch = await (0, churchFirestorePaths_1.readChurchRootData)(db, tenantId);
+                    if (Object.keys(ch).length > 0) {
+                        return outPayload(tenantId, ch, String(u.role || "gestor"));
                     }
                 }
             }
@@ -2068,12 +2026,9 @@ exports.resolveEmailToChurchPublic = functions
                 tenantId = String(claims.igrejaId || claims.tenantId || "").trim();
             }
             if (tenantId) {
-                let churchSnap = await db.collection("igrejas").doc(tenantId).get();
-                if (!churchSnap.exists) {
-                    churchSnap = await db.collection("tenants").doc(tenantId).get();
-                }
-                if (churchSnap.exists) {
-                    return outPayload(tenantId, churchSnap.data() || {}, String(u.role || claims.role || "user"));
+                const ch = await (0, churchFirestorePaths_1.readChurchRootData)(db, tenantId);
+                if (Object.keys(ch).length > 0) {
+                    return outPayload(tenantId, ch, String(u.role || claims.role || "user"));
                 }
             }
         }
@@ -2123,10 +2078,7 @@ exports.resolveEmailToChurchPublic = functions
             const parent = mq.docs[0].ref.parent.parent;
             const tid = parent ? String(parent.id) : "";
             if (tid) {
-                let churchSnap = await db.collection("igrejas").doc(tid).get();
-                if (!churchSnap.exists) {
-                    churchSnap = await db.collection("tenants").doc(tid).get();
-                }
+                const churchSnap = await db.collection("igrejas").doc(tid).get();
                 if (churchSnap.exists) {
                     return outPayload(tid, churchSnap.data() || {}, "membro");
                 }
@@ -2419,9 +2371,8 @@ exports.syncMemberRoleClaims = functions
     if (!authUid) {
         return { ok: true, skipped: true, reason: "no_authUid" };
     }
-    const status = String(memberData.STATUS || memberData.status || "").toLowerCase();
-    const reallyAtivo = status === "ativo" || (status !== "pendente" && status !== "reprovado");
-    const pendingApproval = status === "pendente";
+    const reallyAtivo = (0, memberAccessPolicy_1.memberDocIsActive)(memberData);
+    const pendingApproval = (0, memberAccessPolicy_1.memberDocIsPending)(memberData);
     const panelRole = await computeEffectivePanelRoleFromMembroServer(tenantId, memberData);
     const roleClaim = claimTokenRoleFromPanelKey(panelRole);
     const cpf = String(memberData.CPF || memberData.cpf || "").replace(/\D/g, "");
@@ -2485,18 +2436,7 @@ exports.syncMemberRoleClaims = functions
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     if (cpf.length === 11) {
-        await db
-            .collection("tenants")
-            .doc(tenantId)
-            .collection("usersIndex")
-            .doc(cpf)
-            .set(indexPayload, { merge: true });
-        await db
-            .collection("igrejas")
-            .doc(tenantId)
-            .collection("usersIndex")
-            .doc(cpf)
-            .set(indexPayload, { merge: true });
+        await (0, churchFirestorePaths_1.churchUsersIndexRef)(db, tenantId, cpf).set(indexPayload, { merge: true });
     }
     return {
         ok: true,
@@ -2613,12 +2553,8 @@ exports.setUserRole = functions
     if (roleCaller !== "MASTER" && role === "MASTER") {
         throw new functions.https.HttpsError("permission-denied", "Somente MASTER pode atribuir perfil MASTER");
     }
-    const userIndexRef = db
-        .collection("tenants")
-        .doc(tenantId)
-        .collection("usersIndex")
-        .doc(cpf);
-    const userIndexSnap = await userIndexRef.get();
+    const userIndexRef = (0, churchFirestorePaths_1.churchUsersIndexRef)(db, tenantId, cpf);
+    const userIndexSnap = await (0, churchFirestorePaths_1.readUsersIndexSnapshot)(db, tenantId, cpf);
     if (!userIndexSnap.exists) {
         throw new functions.https.HttpsError("not-found", "Usuario nao encontrado");
     }
@@ -2669,12 +2605,8 @@ exports.setUserActive = functions
     if (!tenantId || cpf.length != 11) {
         throw new functions.https.HttpsError("invalid-argument", "tenantId ou cpf inválidos");
     }
-    const userIndexRef = db
-        .collection("tenants")
-        .doc(tenantId)
-        .collection("usersIndex")
-        .doc(cpf);
-    const userIndexSnap = await userIndexRef.get();
+    const userIndexRef = (0, churchFirestorePaths_1.churchUsersIndexRef)(db, tenantId, cpf);
+    const userIndexSnap = await (0, churchFirestorePaths_1.readUsersIndexSnapshot)(db, tenantId, cpf);
     if (!userIndexSnap.exists) {
         throw new functions.https.HttpsError("not-found", "Usuário não encontrado");
     }
@@ -2791,12 +2723,7 @@ exports.upsertTenantUser = functions
             updatedByUid: context.auth.uid,
         }, { merge: true });
     }
-    await db
-        .collection("tenants")
-        .doc(tenantId)
-        .collection("usersIndex")
-        .doc(cpf)
-        .set({
+    await (0, churchFirestorePaths_1.churchUsersIndexRef)(db, tenantId, cpf).set({
         uid,
         cpf,
         name,
@@ -2849,12 +2776,8 @@ exports.createUserSignupInvite = functions
     if (!tenantId || cpf.length !== 11) {
         throw new functions.https.HttpsError("invalid-argument", "tenantId/cpf inválidos");
     }
-    const userIndexRef = db
-        .collection("tenants")
-        .doc(tenantId)
-        .collection("usersIndex")
-        .doc(cpf);
-    const userIndexSnap = await userIndexRef.get();
+    const userIndexRef = (0, churchFirestorePaths_1.churchUsersIndexRef)(db, tenantId, cpf);
+    const userIndexSnap = await (0, churchFirestorePaths_1.readUsersIndexSnapshot)(db, tenantId, cpf);
     if (!userIndexSnap.exists) {
         throw new functions.https.HttpsError("not-found", "Usuário não encontrado no usersIndex");
     }
@@ -2870,9 +2793,7 @@ exports.createUserSignupInvite = functions
     const token = db.collection("_tokens").doc().id;
     const nowMs = Date.now();
     const expiresAt = admin.firestore.Timestamp.fromMillis(nowMs + expiresInDays * 24 * 60 * 60 * 1000);
-    const inviteRef = db
-        .collection("tenants")
-        .doc(tenantId)
+    const inviteRef = (0, churchFirestorePaths_1.churchDocRef)(db, tenantId)
         .collection("userSignupInvites")
         .doc(token);
     await inviteRef.set({
@@ -3015,11 +2936,7 @@ exports.consumeUserSignupInvite = functions
     if (!expiresAt || expiresAt.getTime() <= now.getTime()) {
         throw new functions.https.HttpsError("deadline-exceeded", "Convite expirado");
     }
-    const userIndexRef = db
-        .collection("tenants")
-        .doc(tenantId)
-        .collection("usersIndex")
-        .doc(cpf);
+    const userIndexRef = (0, churchFirestorePaths_1.churchUsersIndexRef)(db, tenantId, cpf);
     const userIndexSnap = await userIndexRef.get();
     if (!userIndexSnap.exists) {
         throw new functions.https.HttpsError("not-found", "Usuário não encontrado no tenant");
@@ -3172,23 +3089,14 @@ async function finalizeNewChurchForGestorCore(params) {
         tenantId,
         churchId: tenantId,
         cnpjCpf: igrejaDoc || null,
+        cpf: cpfRaw,
+        email,
+        registrationComplete: false,
         ativa: true,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
-    await db.collection("igrejas").doc(tenantId).set(igrejaPayload, { merge: true });
-    // Padrão tenant: alias, cpf, email, name, nome, slug, updatedAt (logo não obrigatório no começo).
-    // registrationComplete: false → exige completar cadastro da igreja no painel antes de qualquer lançamento.
-    await db.collection("tenants").doc(tenantId).set({
-        name: igrejaNome,
-        nome: igrejaNome,
-        slug,
-        alias: slug,
-        cpf: cpfRaw,
-        email,
-        registrationComplete: false,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
+    await (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).set(igrejaPayload, { merge: true });
     await db.collection("subscriptions").add({
         igrejaId: tenantId,
         planId: "PRO",
@@ -3218,7 +3126,7 @@ async function finalizeNewChurchForGestorCore(params) {
         mustChangePass: false,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
-    const usersIndexRef = db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpfRaw);
+    const usersIndexRef = (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("usersIndex").doc(cpfRaw);
     await usersIndexRef.set({
         uid,
         cpf: cpfRaw,
@@ -3481,7 +3389,7 @@ exports.seedGestorBrasilParaCristo = functions
         isUser: true,
         isDriver: false,
     });
-    const usersIndexRef = db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpf);
+    const usersIndexRef = (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("usersIndex").doc(cpf);
     await usersIndexRef.set({
         uid: authUser.uid,
         cpf,
@@ -3499,7 +3407,7 @@ exports.seedGestorBrasilParaCristo = functions
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
     // Já existe cadastro em members — só acrescentar perfil gestor (merge para não sobrescrever)
-    const membersRef = db.collection("tenants").doc(tenantId).collection("members").doc(cpf);
+    const membersRef = (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("membros").doc(cpf);
     await membersRef.set({
         role,
         profile: "gestor",
@@ -3565,7 +3473,7 @@ exports.syncGestorBrasilParaCristo = functions
         mustChangePass: false,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
-    const usersIndexRef = db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpf);
+    const usersIndexRef = (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("usersIndex").doc(cpf);
     await usersIndexRef.set({
         uid,
         cpf,
@@ -3604,8 +3512,8 @@ async function copyIgrejaMembroStorageFolder(tenantId, fromFolderId, toFolderId)
 }
 /** Claims + `users/` + `usersIndex` por CPF após login Firebase criado (idempotente com merge). */
 async function applyMemberAuthSideEffects(tenantId, authUid, memberData, authUser) {
-    const status = String(memberData.STATUS || memberData.status || "").toLowerCase();
-    const reallyAtivo = status === "ativo" || (status !== "pendente" && status !== "reprovado");
+    const reallyAtivo = (0, memberAccessPolicy_1.memberDocIsActive)(memberData);
+    const pendingApproval = (0, memberAccessPolicy_1.memberDocIsPending)(memberData);
     const cpf = String(memberData.CPF || memberData.cpf || "").replace(/\D/g, "");
     const nome = String(memberData.NOME_COMPLETO || memberData.nome || memberData.name || "").trim();
     await admin.auth().setCustomUserClaims(authUid, {
@@ -3615,7 +3523,7 @@ async function applyMemberAuthSideEffects(tenantId, authUid, memberData, authUse
         active: reallyAtivo,
         isUser: true,
         isDriver: false,
-        pendingApproval: status === "pendente",
+        pendingApproval,
         // Firestore rules: troca de escala / confirmação usam CPF quando users/{uid}.cpf ainda vazio
         ...(cpf.length === 11 ? { cpf } : {}),
     });
@@ -3631,6 +3539,7 @@ async function applyMemberAuthSideEffects(tenantId, authUid, memberData, authUse
         displayName: nome,
         nomeCompleto: nome,
         ativo: reallyAtivo,
+        active: reallyAtivo,
     }, { merge: true });
     const indexPayload = {
         uid: authUid,
@@ -3643,22 +3552,12 @@ async function applyMemberAuthSideEffects(tenantId, authUid, memberData, authUse
         tenantId,
         role: "membro",
         active: reallyAtivo,
-        pendingApproval: status === "pendente",
+        ativo: reallyAtivo,
+        pendingApproval,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     if (cpf.length === 11) {
-        await db
-            .collection("tenants")
-            .doc(tenantId)
-            .collection("usersIndex")
-            .doc(cpf)
-            .set(indexPayload, { merge: true });
-        await db
-            .collection("igrejas")
-            .doc(tenantId)
-            .collection("usersIndex")
-            .doc(cpf)
-            .set(indexPayload, { merge: true });
+        await (0, churchFirestorePaths_1.churchUsersIndexRef)(db, tenantId, cpf).set(indexPayload, { merge: true });
     }
 }
 /** Busca membro em igrejas/.../membros (id, authUid ou CPF), depois coleções legadas. */
@@ -3694,7 +3593,7 @@ async function findMemberDocumentInTenant(tenantId, memberId) {
     }
     const legacy = [
         db.collection("igrejas").doc(tid).collection("members").doc(mid),
-        db.collection("tenants").doc(tid).collection("members").doc(mid),
+        (0, churchFirestorePaths_1.churchDocRef)(db, tid).collection("members").doc(mid),
     ];
     for (const ref of legacy) {
         const snap = await ref.get();
@@ -4165,7 +4064,7 @@ exports.recreateMemberAuthForNewEmail = functions
             pendingApproval: status === "pendente",
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
-        await db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpf).set(idx, {
+        await (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("usersIndex").doc(cpf).set(idx, {
             merge: true,
         });
         await db.collection("igrejas").doc(tenantId).collection("usersIndex").doc(cpf).set(idx, {
@@ -4390,7 +4289,7 @@ exports.purgeMemberFirebaseLogin = functions.region("us-central1").https.onCall(
     }
     if (cpf.length === 11) {
         try {
-            await db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpf).delete();
+            await (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("usersIndex").doc(cpf).delete();
         }
         catch (_) { }
         try {
@@ -4565,18 +4464,7 @@ exports.setMemberApproved = functions
     const cpf = String(d.CPF || d.cpf || "").replace(/\D/g, "");
     if (cpf.length === 11) {
         const idx = { active: true, pendingApproval: false };
-        await db
-            .collection("tenants")
-            .doc(tenantId)
-            .collection("usersIndex")
-            .doc(cpf)
-            .set(idx, { merge: true });
-        await db
-            .collection("igrejas")
-            .doc(tenantId)
-            .collection("usersIndex")
-            .doc(cpf)
-            .set(idx, { merge: true });
+        await (0, churchFirestorePaths_1.churchUsersIndexRef)(db, tenantId, cpf).set(idx, { merge: true });
     }
     return {
         ok: true,
@@ -4694,7 +4582,7 @@ exports.getMemberEmailForReset = functions
             q = await db.collection("igrejas").doc(tenantId).collection("membros").where("cpf", "==", cpfDigits).limit(1).get();
         }
         if (q.empty) {
-            q = await db.collection("tenants").doc(tenantId).collection("members").where("CPF", "==", cpfDigits).limit(1).get();
+            q = await (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("membros").where("CPF", "==", cpfDigits).limit(1).get();
         }
         if (!q.empty && q.docs[0].data()?.authUid) {
             email = q.docs[0].data()?.EMAIL || q.docs[0].data()?.email || null;
@@ -4707,7 +4595,7 @@ exports.getMemberEmailForReset = functions
 });
 /**
  * ✅ Garante acesso completo ao banco para o gestor Brasil para Cristo (CPF 94536368191, raihom@gmail.com).
- * Cria/atualiza: igrejas, tenants, usersIndex, users, publicCpfIndex, subscription e custom claims.
+ * Cria/atualiza: igrejas, usersIndex, users, publicCpfIndex, subscription e custom claims.
  * Chamar uma vez (como MASTER ou logado como raihom@gmail.com) para corrigir o acesso.
  */
 exports.ensureBrasilParaCristoAccess = functions
@@ -4739,20 +4627,11 @@ exports.ensureBrasilParaCristoAccess = functions
             email: email.toLowerCase(),
             gestorEmail: email.toLowerCase(),
             emailGestor: email.toLowerCase(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        };
-        await db.collection("igrejas").doc(tenantId).set(igrejaPayload, { merge: true });
-        const tenantPayload = {
-            name,
-            nome: name,
-            slug: tenantId,
-            alias: tenantId,
-            email: email.toLowerCase(),
             cpf,
             gestorNome: gestorName,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
-        await db.collection("tenants").doc(tenantId).set(tenantPayload, { merge: true });
+        await (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).set(igrejaPayload, { merge: true });
         await db.doc(`publicCpfIndex/${cpf}`).set({
             tenantId,
             churchId: tenantId,
@@ -4771,7 +4650,7 @@ exports.ensureBrasilParaCristoAccess = functions
             authUser = null;
         }
         // Sempre grava usersIndex para CPF e e-mail encontrarem o perfil (resolveCpfToChurchPublic / resolveEmailToChurchPublic)
-        const usersIndexRef = db.collection("tenants").doc(tenantId).collection("usersIndex").doc(cpf);
+        const usersIndexRef = (0, churchFirestorePaths_1.churchDocRef)(db, tenantId).collection("usersIndex").doc(cpf);
         await usersIndexRef.set({
             ...(authUser ? { uid: authUser.uid } : {}),
             cpf,
@@ -5198,23 +5077,50 @@ exports.getUserProfile = functions
             memberData = (memberSnap.data() || {});
         }
         if (!memberSnap.exists && authEmail) {
-            for (const field of ["email", "EMAIL", "mail"]) {
-                try {
-                    const byEmail = await db
-                        .collection("igrejas")
-                        .doc(igrejaId)
-                        .collection("membros")
-                        .where(field, "==", authEmail)
-                        .limit(1)
-                        .get();
-                    if (!byEmail.empty) {
-                        memberData = byEmail.docs[0].data();
-                        break;
+            const emailRaw = String(context.auth.token?.email || "").trim();
+            const emailCandidates = emailRaw.toLowerCase() === emailRaw
+                ? [authEmail]
+                : [authEmail, emailRaw.toLowerCase(), emailRaw];
+            for (const emailVal of emailCandidates) {
+                if (!emailVal)
+                    continue;
+                for (const field of ["email", "EMAIL", "mail"]) {
+                    try {
+                        const byEmail = await db
+                            .collection("igrejas")
+                            .doc(igrejaId)
+                            .collection("membros")
+                            .where(field, "==", emailVal)
+                            .limit(1)
+                            .get();
+                        if (!byEmail.empty) {
+                            memberData = byEmail.docs[0].data();
+                            break;
+                        }
+                    }
+                    catch (_) {
+                        /* índice ausente */
                     }
                 }
-                catch (_) {
-                    /* índice ausente */
+                if (memberData)
+                    break;
+            }
+        }
+        if (!memberData) {
+            try {
+                const byAuthUid = await db
+                    .collection("igrejas")
+                    .doc(igrejaId)
+                    .collection("membros")
+                    .where("authUid", "==", uid)
+                    .limit(1)
+                    .get();
+                if (!byAuthUid.empty) {
+                    memberData = byAuthUid.docs[0].data();
                 }
+            }
+            catch (_) {
+                /* índice ausente */
             }
         }
         if (!memberData && cpfDigits.length === 11) {
@@ -5228,13 +5134,6 @@ exports.getUserProfile = functions
                 memberData = (byCpf.data() || {});
         }
         if (memberData) {
-            const status = String(memberData.STATUS || memberData.status || "").toLowerCase();
-            if (status === "ativo")
-                active = true;
-            if (status === "pendente") {
-                active = false;
-                memberStatusPending = true;
-            }
             podeVerFinanceiro = memberData.podeVerFinanceiro === true;
             podeVerPatrimonio = memberData.podeVerPatrimonio === true;
             podeVerFornecedores = memberData.podeVerFornecedores === true;
@@ -5248,22 +5147,17 @@ exports.getUserProfile = functions
             if (!role)
                 role = String(memberData.role || memberData.ROLE || "").trim();
         }
-        const roleNorm = String(role || "").trim().toLowerCase();
-        const gestorRoles = new Set([
-            "gestor",
-            "master",
-            "admin",
-            "adm",
-            "administrador",
-            "pastor",
-            "lider",
-            "líder",
-        ]);
-        if (isProductMaster || gestorRoles.has(roleNorm)) {
-            active = true;
-            memberStatusPending = false;
-        }
-        else if (authEmail && churchData) {
+        const access = (0, memberAccessPolicy_1.resolveMemberPanelAccess)({
+            userAtivo: userData.ativo === true,
+            userActive: userData.active === true,
+            claimsActive: context.auth.token?.active === true,
+            role,
+            memberData,
+            isProductMaster,
+        });
+        active = access.active;
+        memberStatusPending = access.memberStatusPending;
+        if (!active && authEmail && churchData) {
             for (const k of [
                 "gestorEmail",
                 "emailGestor",
@@ -5729,19 +5623,7 @@ exports.autoGenerateEvents = functions
  * Resolve tenant ID por slug ou nome (ex.: "brasil-para-cristo" ou "Brasil para Cristo").
  */
 async function resolveTenantIdBySlugOrName(slugOrName) {
-    const s = String(slugOrName || "").trim().toLowerCase();
-    if (!s)
-        return null;
-    const sAsName = s.replace(/-/g, " ");
-    const tenantsSnap = await db.collection("tenants").get();
-    for (const doc of tenantsSnap.docs) {
-        const d = doc.data();
-        const slug = String(d.slug ?? d.alias ?? "").trim().toLowerCase();
-        const name = String(d.name ?? d.nome ?? "").trim().toLowerCase();
-        if (slug === s || slug === sAsName || name.includes(s) || name.includes(sAsName) || s.includes(name) || sAsName.includes(name))
-            return doc.id;
-    }
-    return null;
+    return resolveIgrejaIdBySlugOrName(slugOrName);
 }
 /** Resolve ID do documento em igrejas por slug, nome ou id (ex.: brasil-para-cristo). */
 async function resolveIgrejaIdBySlugOrName(slugOrName) {
@@ -5763,15 +5645,9 @@ async function resolveIgrejaIdBySlugOrName(slugOrName) {
 }
 async function resolveChurchIdForMigration(targetTenantIdParam, targetSlugParam) {
     if (targetTenantIdParam) {
-        const ig = await db.collection("igrejas").doc(targetTenantIdParam).get();
+        const ig = await (0, churchFirestorePaths_1.churchDocRef)(db, targetTenantIdParam).get();
         if (ig.exists)
             return targetTenantIdParam;
-        const tn = await db.collection("tenants").doc(targetTenantIdParam).get();
-        if (tn.exists) {
-            const ig2 = await db.collection("igrejas").doc(targetTenantIdParam).get();
-            if (ig2.exists)
-                return targetTenantIdParam;
-        }
     }
     if (targetSlugParam) {
         let id = await resolveIgrejaIdBySlugOrName(targetSlugParam);

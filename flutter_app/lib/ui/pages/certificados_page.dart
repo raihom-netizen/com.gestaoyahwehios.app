@@ -30,9 +30,8 @@ import 'package:gestao_yahweh/pdf/certificate_pdf_builder.dart'
     show segundoNomeCasamentoFallbackDoCorpo;
 import 'package:gestao_yahweh/certificates/certificate_visual_template.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/church_certificados_load_service.dart';
+import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/certificate_protocol_id.dart';
 import 'package:gestao_yahweh/core/certificado_consulta_url.dart';
 import 'package:gestao_yahweh/services/certificate_emitido_service.dart';
@@ -44,7 +43,6 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableChurchLogo;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
@@ -353,99 +351,72 @@ class _CertificadosPageState extends State<CertificadosPage> {
   Map<String, dynamic>? _certConfig;
   late Future<QuerySnapshot<Map<String, dynamic>>> _membersFuture;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _seedMemberDocs = [];
-  int _membersQueryLimit = YahwehPerformanceV4.defaultPageSize;
-  bool _membersLoadingMore = false;
+  bool _membersSyncing = false;
+
+  String get _effectiveTenantId =>
+      ChurchPanelTenant.resolve(widget.tenantId.trim());
 
   DocumentReference<Map<String, dynamic>> get _certConfigDoc =>
-                ChurchUiCollections.config(widget.tenantId)
-          .doc('certificados');
+      ChurchUiCollections.config(_effectiveTenantId).doc('certificados');
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _fetchMemberDocs({required int limit}) async {
-    final tid = widget.tenantId.trim();
-    if (tid.isEmpty) return const [];
-
-    try {
-      final dir = await MembersDirectorySnapshotService.readOnce(tid);
-      if (dir.hasEntries) {
-        final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-        for (final e in dir.entries) {
-          if (out.length >= limit) break;
-          out.add(_CertCachedMemberQueryDoc(
-            id: e.memberDocId,
-            data: e.toMemberDataMap(),
-          ));
-        }
-        if (out.isNotEmpty) {
-          unawaited(
-              MembersDirectorySnapshotService.warmFromCallableIfStale(tid));
-          return out;
-        }
-      }
-    } catch (_) {}
-
-    final snap =
-        await ChurchTenantResilientReads.membrosRecent(tid, limit: limit);
-    return snap.docs;
+      _fetchAllMemberDocs() async {
+    final result = await ChurchCertificadosLoadService.load(
+      seedTenantId: _effectiveTenantId,
+    );
+    return result.docs;
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadMembers() async {
-    final docs = await _fetchMemberDocs(limit: _membersQueryLimit);
-    final tid = widget.tenantId.trim();
+    final docs = await _fetchAllMemberDocs();
+    final tid = _effectiveTenantId;
     if (tid.isNotEmpty && docs.isNotEmpty) {
+      ChurchCertificadosLoadService.putRam(tid, docs);
       _CertificadosMembersRamCache.put(tid, docs);
     }
     return _CertMembersListSnapshot(docs);
   }
 
   Future<void> _openCertificadosFast() async {
-    final tid = widget.tenantId.trim();
+    final tid = _effectiveTenantId;
     if (tid.isEmpty) return;
+    if (mounted) setState(() => _membersSyncing = true);
     try {
-      final docs = await _fetchMemberDocs(limit: _membersQueryLimit);
-      if (!mounted || docs.isEmpty) return;
-      _CertificadosMembersRamCache.put(tid, docs);
+      final docs = await _fetchAllMemberDocs();
+      if (!mounted) return;
+      if (docs.isNotEmpty) {
+        ChurchCertificadosLoadService.putRam(tid, docs);
+        _CertificadosMembersRamCache.put(tid, docs);
+      }
       setState(() {
         _seedMemberDocs = docs;
         _membersFuture = Future.value(_CertMembersListSnapshot(docs));
+        _membersSyncing = false;
       });
-    } catch (_) {}
-  }
-
-  Future<void> _loadMoreMembers() async {
-    if (_membersLoadingMore) return;
-    setState(() {
-      _membersLoadingMore = true;
-      _membersQueryLimit += YahwehPerformanceV4.defaultPageSize;
-      _membersFuture = _loadMembers();
-    });
-    try {
-      final snap = await _membersFuture;
-      if (mounted) {
-        setState(() {
-          _seedMemberDocs = snap.docs;
-          _membersFuture = Future.value(_CertMembersListSnapshot(_seedMemberDocs));
-          _membersLoadingMore = false;
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _membersLoadingMore = false);
+    } catch (_) {
+      if (mounted) setState(() => _membersSyncing = false);
     }
   }
 
   void _refreshMembers() {
     final prev = _seedMemberDocs;
     setState(() {
-      _membersQueryLimit = YahwehPerformanceV4.defaultPageSize;
       _membersFuture = prev.isNotEmpty
           ? Future.value(_CertMembersListSnapshot(prev))
           : _loadMembers();
     });
     unawaited(() async {
       try {
-        final snap = await _loadMembers();
+        final result = await ChurchCertificadosLoadService.load(
+          seedTenantId: _effectiveTenantId,
+          forceRefresh: true,
+        );
         if (!mounted) return;
-        final docs = snap.docs;
+        final docs = result.docs;
+        if (docs.isNotEmpty) {
+          ChurchCertificadosLoadService.putRam(_effectiveTenantId, docs);
+          _CertificadosMembersRamCache.put(_effectiveTenantId, docs);
+        }
         setState(() {
           _seedMemberDocs = docs;
           _membersFuture = Future.value(_CertMembersListSnapshot(docs));
@@ -458,9 +429,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
   void initState() {
     super.initState();
     unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded());
-    final hint = widget.tenantId.trim();
-    final ram =
-        hint.isNotEmpty ? _CertificadosMembersRamCache.peek(hint) : null;
+    final hint = _effectiveTenantId;
+    final ram = ChurchCertificadosLoadService.peekRam(hint) ??
+        (hint.isNotEmpty ? _CertificadosMembersRamCache.peek(hint) : null);
     if (ram != null && ram.isNotEmpty) {
       _seedMemberDocs = List.from(ram);
       _membersFuture = Future.value(_CertMembersListSnapshot(_seedMemberDocs));
@@ -872,12 +843,23 @@ class _CertificadosPageState extends State<CertificadosPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              _CertificadosHeroHeader(
+                tenantId: _effectiveTenantId,
+                tenantData: _tenantData,
+                totalMembros: allDocs.length,
+                syncing: _membersSyncing,
+              ),
               Material(
                 color: Colors.white,
                 child: TabBar(
-                  indicatorColor: ThemeCleanPremium.primary,
-                  labelColor: ThemeCleanPremium.primary,
+                  indicatorColor: const Color(0xFF7C3AED),
+                  indicatorWeight: 3,
+                  labelColor: const Color(0xFF7C3AED),
                   unselectedLabelColor: Colors.grey.shade600,
+                  labelStyle: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
                   tabs: const [
                     Tab(text: 'Membros'),
                     Tab(text: 'Painel de emissões'),
@@ -1322,23 +1304,19 @@ class _CertificadosPageState extends State<CertificadosPage> {
                         return Container(
                           margin: const EdgeInsets.only(bottom: 10),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: batchSel
-                                  ? [
-                                      Colors.white,
-                                      ThemeCleanPremium.primary
-                                          .withOpacity(0.04),
-                                    ]
-                                  : [Colors.white, Colors.white],
-                              begin: Alignment.centerLeft,
-                              end: Alignment.centerRight,
-                            ),
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusMd),
-                            boxShadow: ThemeCleanPremium.softUiCardShadow,
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: (avatarColor ?? const Color(0xFF7C3AED))
+                                    .withValues(alpha: 0.12),
+                                blurRadius: 14,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
                             border: Border.all(
                               color: batchSel
-                                  ? ThemeCleanPremium.primary.withOpacity(0.45)
+                                  ? const Color(0xFF7C3AED).withValues(alpha: 0.55)
                                   : const Color(0xFFE8EEF5),
                               width: batchSel ? 1.5 : 1,
                             ),
@@ -1346,8 +1324,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                           child: Material(
                             color: Colors.transparent,
                             child: InkWell(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusMd),
+                              borderRadius: BorderRadius.circular(16),
                               onTap: () {
                                 if (_batchMode) {
                                   setState(() {
@@ -1367,11 +1344,20 @@ class _CertificadosPageState extends State<CertificadosPage> {
                               },
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 18, vertical: 14),
+                                    horizontal: 14, vertical: 14),
                                 child: Row(
                                   children: [
+                                    Container(
+                                      width: 4,
+                                      height: 52,
+                                      decoration: BoxDecoration(
+                                        color: avatarColor ?? const Color(0xFF7C3AED),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
                                     FotoMembroWidget(
-                                      tenantId: widget.tenantId,
+                                      tenantId: _effectiveTenantId,
                                       memberId: docId,
                                       memberData: data,
                                       cpfDigits: cpfDigits.isEmpty
@@ -1565,13 +1551,6 @@ class _CertificadosPageState extends State<CertificadosPage> {
                       },
                       childCount: docs.length,
                     ),
-                  ),
-                ),
-              if (allDocs.length >= _membersQueryLimit)
-                SliverToBoxAdapter(
-                  child: LazyLoadMoreFooter(
-                    loading: _membersLoadingMore,
-                    onLoadMore: _loadMoreMembers,
                   ),
                 ),
             ],
@@ -3201,6 +3180,119 @@ class _CertificadosPageState extends State<CertificadosPage> {
   }
 }
 
+class _CertificadosHeroHeader extends StatelessWidget {
+  const _CertificadosHeroHeader({
+    required this.tenantId,
+    required this.tenantData,
+    required this.totalMembros,
+    required this.syncing,
+  });
+
+  final String tenantId;
+  final Map<String, dynamic>? tenantData;
+  final int totalMembros;
+  final bool syncing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF6D28D9),
+            Color(0xFF7C3AED),
+            Color(0xFF2563EB),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF7C3AED).withValues(alpha: 0.28),
+            blurRadius: 22,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          StableChurchLogo(
+            tenantId: tenantId,
+            tenantData: tenantData,
+            width: 56,
+            height: 56,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Certificados Premium',
+                  style: GoogleFonts.poppins(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  syncing
+                      ? 'Sincronizando membros…'
+                      : '$totalMembros membros prontos para emissão',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (syncing)
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.2,
+                color: Colors.white,
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.18),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.verified_rounded,
+                      color: Colors.white, size: 18),
+                  const SizedBox(width: 6),
+                  Text(
+                    '$totalMembros',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CertificadosInsightsPanel extends StatelessWidget {
   final int totalMembros;
   final int membrosFiltrados;
@@ -3244,26 +3336,52 @@ class _CertificadosInsightsPanel extends StatelessWidget {
       );
     });
 
-    Widget metricTile(String label, String value, IconData icon, Color color) {
+    Widget metricTile(
+      String label,
+      String value,
+      IconData icon,
+      List<Color> gradient,
+    ) {
       return Expanded(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFF1F5F9)),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: gradient,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: gradient.last.withValues(alpha: 0.22),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, size: 18, color: color),
-              const SizedBox(height: 8),
-              Text(value,
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w800)),
+              Icon(icon, size: 20, color: Colors.white),
+              const SizedBox(height: 10),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
+                ),
+              ),
               const SizedBox(height: 2),
-              Text(label,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white.withValues(alpha: 0.9),
+                ),
+              ),
             ],
           ),
         ),
@@ -3273,8 +3391,8 @@ class _CertificadosInsightsPanel extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFF),
-        borderRadius: BorderRadius.circular(16),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
@@ -3282,14 +3400,26 @@ class _CertificadosInsightsPanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              metricTile('Membros', '$totalMembros', Icons.groups_rounded,
-                  const Color(0xFF2563EB)),
+              metricTile(
+                'Membros',
+                '$totalMembros',
+                Icons.groups_rounded,
+                const [Color(0xFF2563EB), Color(0xFF3B82F6)],
+              ),
               const SizedBox(width: 8),
-              metricTile('Visíveis', '$membrosFiltrados',
-                  Icons.filter_alt_rounded, const Color(0xFF0891B2)),
+              metricTile(
+                'Filtrados',
+                '$membrosFiltrados',
+                Icons.filter_alt_rounded,
+                const [Color(0xFF0891B2), Color(0xFF06B6D4)],
+              ),
               const SizedBox(width: 8),
-              metricTile('Signatários', '$signatariosElegiveis',
-                  Icons.draw_rounded, const Color(0xFF7C3AED)),
+              metricTile(
+                'Signatários',
+                '$signatariosElegiveis',
+                Icons.draw_rounded,
+                const [Color(0xFF7C3AED), Color(0xFF9333EA)],
+              ),
             ],
           ),
           const SizedBox(height: 12),

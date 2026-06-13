@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -68,10 +68,12 @@ class FotoMembroWidget extends StatelessWidget {
     Map<String, dynamic> d, {
     bool preferThumb = false,
   }) {
-    if (preferThumb) {
-      final t = MemberProfileVariantsService.listPhotoUrl(d);
-      if (t != null && t.isNotEmpty) return t;
-      return null;
+    final fromResolver = MemberProfilePhotoResolver.displayRef(
+      d,
+      preferThumb: preferThumb,
+    );
+    if (fromResolver != null && fromResolver.isNotEmpty) {
+      return fromResolver;
     }
     final u = imageUrl?.trim();
     if (u != null && u.isNotEmpty) return u;
@@ -79,11 +81,17 @@ class FotoMembroWidget extends StatelessWidget {
     return m.isNotEmpty ? m : null;
   }
 
-  static String? _authUidFromData(Map<String, dynamic> md, String? explicit) {
+  static String? _authUidFromData(
+    Map<String, dynamic> md,
+    String? explicit, {
+    String? memberDocId,
+  }) {
     final e = explicit?.trim() ?? '';
     if (e.isNotEmpty) return e;
-    final a = (md['authUid'] ?? '').toString().trim();
-    return a.isEmpty ? null : a;
+    return MemberProfilePhotoResolver.authUidFromData(
+      md,
+      memberDocId: memberDocId,
+    );
   }
 
   @override
@@ -136,8 +144,9 @@ class FotoMembroWidget extends StatelessWidget {
               preferThumb: preferListThumbnail,
             )
           : (preferListThumbnail ? null : imageUrl?.trim());
-      final authRaw =
-          md != null ? _authUidFromData(md, authUid) : authUid?.trim();
+      final authRaw = md != null
+          ? _authUidFromData(md, authUid, memberDocId: mid)
+          : authUid?.trim();
       final authOpt =
           (authRaw == null || authRaw.isEmpty) ? null : authRaw;
 

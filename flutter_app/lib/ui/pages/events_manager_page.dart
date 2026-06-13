@@ -20,12 +20,12 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
-import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
+import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/services/evento_create_publish_service.dart';
 import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
@@ -95,6 +95,7 @@ import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/immediate_feed_photo_attach.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
@@ -7645,14 +7646,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final titulo = _title.text.trim();
     try {
-      await EventoCreatePublishService.ensureReady(logLabel: 'evento_save');
-      ChurchPublishFlowLog.eventoStart();
+      await EventoCreatePublishService.ensureReady(logLabel: 'evento_save_start');
       final ctx = await _prepareEventoPublishContext();
       final docRef = ctx.docRef;
       final publishTenantId = ctx.igrejaId;
       final postId = docRef.id;
 
       await _waitForInFlightPhotoUploads();
+      if (_uploadingVideo) {
+        await _waitForVideoUploadComplete();
+      }
       final pending = _pendingEventPhotosForPublish();
 
       unawaited(
@@ -7689,22 +7692,29 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       payload.remove('videoUrl');
 
-      await EventoCreatePublishService.publish(
-        docRef: docRef,
-        tenantId: publishTenantId,
-        corePayload: payload,
-        isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: existingUrls.length,
-        hasVideo: hasVideo,
-        newImagesBytes: pending.bytes,
-        newImagePaths: pending.paths,
-        videoStoragePath: videoPathForPublish,
-        publicSite: _publicSite,
-        eventStartAt: eventStart,
-        location: _localSalvo(),
-        agendaCategory: _agendaCategoryKeyFromEvent(),
-        agendaColorHex: _agendaColorHexForCategory(),
+      await EcofirePublishProgressUi.runWithProgress(
+        context,
+        uploadLabel: 'A enviar fotos e vídeo…',
+        saveLabel: 'A gravar evento…',
+        distributeLabel: 'A notificar e publicar no site…',
+        action: (reportProgress) => EventoCreatePublishService.publish(
+          docRef: docRef,
+          tenantId: publishTenantId,
+          corePayload: payload,
+          isNewDoc: isNewDoc,
+          existingUrls: existingUrls,
+          startSlotIndex: existingUrls.length,
+          hasVideo: hasVideo,
+          newImagesBytes: pending.bytes,
+          newImagePaths: pending.paths,
+          videoStoragePath: videoPathForPublish,
+          publicSite: _publicSite,
+          eventStartAt: eventStart,
+          location: _localSalvo(),
+          agendaCategory: _agendaCategoryKeyFromEvent(),
+          agendaColorHex: _agendaColorHexForCategory(),
+          onUploadProgress: reportProgress,
+        ),
       );
 
       _clearPendingEventPhotosAfterPublish();
@@ -7721,6 +7731,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       EventosPublishVerificationService.clearLastError();
       await _showEventoPublishVerifiedSuccess(isNewDoc: isNewDoc);
     } catch (e, st) {
+      if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
+        _clearPendingEventPhotosAfterPublish();
+        EventosPublishVerificationService.clearLastError();
+        await _showEventoPublishVerifiedSuccess(isNewDoc: isNewDoc);
+        return;
+      }
       ChurchPublishFlowLog.logCatch(e, st, label: 'evento_save');
       EventosPublishVerificationService.rememberLastError(e);
       unawaited(
@@ -7750,9 +7766,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   .kStorageVerifyFailedMessage);
       if (mounted && (isAssertionOrPerm || isFirebaseNoAppError(e))) {
         try {
-          FastMediaPublishBootstrap.resetSessionWarm();
-          FirebaseBootstrapService.invalidateStorageUploadBootstrap();
-          await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: true);
+          await EventoCreatePublishService.ensureReady(logLabel: 'evento_retry');
           await _retryEventPublishFirestoreFirst();
           final verifyCtx = await _prepareEventoPublishContext();
           await EventosPublishVerificationService.verifyDocumentExists(

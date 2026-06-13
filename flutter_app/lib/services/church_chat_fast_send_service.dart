@@ -1,4 +1,4 @@
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_sync_send_service.dart';
@@ -6,24 +6,23 @@ import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 
 /// Chat igreja — envio rápido estilo WhatsApp (texto + mídia).
 ///
-/// Firestore: só `storagePath` + `thumbStoragePath` (sem `mediaUrl`).
-/// Storage: `igrejas/{churchId}/chat_media/images|docs|…` + `chat_media/thumbs/`.
+/// Mídia: preview local → Storage → Firestore `sent` (sem stub uploading).
 abstract final class ChurchChatFastSendService {
   ChurchChatFastSendService._();
 
   static DateTime? _lastWarm;
   static Future<void>? _warmInFlight;
 
-  /// Aquece Firebase antes de enviar (evita `core/no-app` na web).
+  /// Bootstrap Ecofire antes de enviar (evita core/no-app).
   static Future<void> warmSendPipeline({bool force = false}) {
     final now = DateTime.now();
     if (!force &&
         _lastWarm != null &&
-        now.difference(_lastWarm!) < const Duration(seconds: 25)) {
+        now.difference(_lastWarm!) < const Duration(seconds: 20)) {
       return Future<void>.value();
     }
-    _warmInFlight ??= FirebaseBootstrapService.ensureAlwaysOn(
-      refreshAuthToken: true,
+    _warmInFlight ??= EcoFireResilientPublish.prepareForPublish(
+      logLabel: 'chat_warm',
     ).whenComplete(() {
       _lastWarm = DateTime.now();
       _warmInFlight = null;
@@ -63,7 +62,7 @@ abstract final class ChurchChatFastSendService {
     );
   }
 
-  /// Mídia — stub Firestore → upload Storage → `sent` (só paths).
+  /// Mídia — Storage → Firestore `sent` (preview local na UI).
   static Future<void> sendMedia({
     required String tenantId,
     required String threadId,

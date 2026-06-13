@@ -3,7 +3,8 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
@@ -22,20 +23,58 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Financeiro — comprovante: Storage `igrejas/{id}/financeiro/YYYY_MM/{lancamentoId}.ext`
 /// → URL HTTPS → Firestore (`comprovanteUrl`, `hasComprovante`).
+/// Resultado canónico após upload Storage + gravação Firestore.
+class FinanceComprovantePersistResult {
+  const FinanceComprovantePersistResult({
+    required this.url,
+    required this.storagePath,
+    required this.mimeType,
+    required this.fileName,
+  });
+
+  final String url;
+  final String storagePath;
+  final String mimeType;
+  final String fileName;
+
+  Map<String, dynamic> toFirestorePatch() =>
+      FinanceComprovantePublishService.comprovanteFieldsPatch(
+        url: url,
+        storagePath: storagePath,
+        mimeType: mimeType,
+        fileName: fileName,
+      );
+}
+
 abstract final class FinanceComprovantePublishService {
   FinanceComprovantePublishService._();
 
   static const String comprovanteUploadStateField = 'comprovanteUploadState';
 
+  /// Campos Firestore canónicos (Controle Total) — inclui alias [comprovanteLink].
+  static Map<String, dynamic> comprovanteFieldsPatch({
+    required String url,
+    required String storagePath,
+    required String mimeType,
+    required String fileName,
+  }) {
+    final safeUrl = sanitizeImageUrl(url);
+    return {
+      'comprovanteUrl': safeUrl,
+      'comprovanteLink': safeUrl,
+      'comprovanteStoragePath': storagePath,
+      'comprovanteMimeType': mimeType,
+      'comprovanteFileName': fileName,
+      'hasComprovante': true,
+      comprovanteUploadStateField: EntityPublishStatus.published,
+      'comprovanteUploadError': FieldValue.delete(),
+      'comprovanteUpdatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+  }
+
   static Future<void> _ensureReady() async {
-    await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
-    await ensureFirebaseCore(requireAuth: true);
-    await AppFinalizeBootstrap.ensureSessionForPublish(
-      logLabel: 'finance_comprovante',
-    ).timeout(const Duration(seconds: 20), onTimeout: () {});
-    if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-    }
+    await EcoFirePublishBootstrap.ensureHard(logLabel: 'finance_comprovante');
   }
 
   /// Grava lançamento (sem comprovante ou com estado uploading).
@@ -44,6 +83,7 @@ abstract final class FinanceComprovantePublishService {
     required Map<String, dynamic> payload,
     required bool isEdit,
     DocumentReference<Map<String, dynamic>>? existingRef,
+    DocumentReference<Map<String, dynamic>>? preGeneratedRef,
     bool hasNewComprovante = false,
   }) async {
     YahwehFlowLog.financeiroStart();
@@ -57,29 +97,102 @@ abstract final class FinanceComprovantePublishService {
       patch.remove('comprovanteFileName');
     }
     final tenantId = financeCol.parent?.id ?? '';
+    DocumentReference<Map<String, dynamic>> targetRef;
     if (isEdit && existingRef != null) {
+      try {
+        await _writeFirestore(
+          () => OptimisticFirestoreWrite.update(
+            ref: existingRef,
+            data: patch,
+            module: OfflineModules.financeiro,
+            tenantId: tenantId,
+          ),
+        );
+      } catch (e) {
+        if (!EcoFireResilientPublish.shouldQueueSilently(e)) rethrow;
+        await EcoFireResilientPublish.queueFinanceLancamento(
+          churchId: tenantId,
+          docRef: existingRef,
+          payload: patch,
+          isEdit: true,
+        );
+        EcoFireResilientPublish.scheduleSync(reason: 'finance_save_edit');
+      }
+      YahwehFlowLog.financeiroFirestoreOk();
+      return existingRef;
+    }
+    targetRef = preGeneratedRef ?? financeCol.doc();
+    try {
       await _writeFirestore(
-        () => OptimisticFirestoreWrite.update(
-          ref: existingRef,
+        () => OptimisticFirestoreWrite.set(
+          ref: targetRef,
           data: patch,
           module: OfflineModules.financeiro,
           tenantId: tenantId,
         ),
       );
-      YahwehFlowLog.financeiroFirestoreOk();
-      return existingRef;
+    } catch (e) {
+      if (!EcoFireResilientPublish.shouldQueueSilently(e)) rethrow;
+      await EcoFireResilientPublish.queueFinanceLancamento(
+        churchId: tenantId,
+        docRef: targetRef,
+        payload: patch,
+        isEdit: false,
+      );
+      EcoFireResilientPublish.scheduleSync(reason: 'finance_save_new');
     }
-    final ref = financeCol.doc();
-    await _writeFirestore(
-      () => OptimisticFirestoreWrite.set(
-        ref: ref,
-        data: patch,
-        module: OfflineModules.financeiro,
-        tenantId: tenantId,
-      ),
-    );
     YahwehFlowLog.financeiroFirestoreOk();
-    return ref;
+    return targetRef;
+  }
+
+  /// Confirma Storage + campos no Firestore após upload (read-back servidor).
+  static Future<void> verifyComprovantePersisted({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required String storagePath,
+  }) async {
+    await ChurchStorageMetadataVerify.assertExists(
+      storagePath,
+      maxAttempts: 4,
+      timeout: const Duration(seconds: 12),
+    );
+    final snap = await FirestoreWebGuard.runWithWebRecovery(
+      () => docRef.get(const GetOptions(source: Source.server)),
+      maxAttempts: 4,
+    );
+    final data = snap.data() ?? {};
+    if (data['hasComprovante'] != true) {
+      throw StateError(
+        'Comprovante enviado mas o Firestore não confirmou hasComprovante.',
+      );
+    }
+    final url = (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
+        .toString()
+        .trim();
+    final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
+    if (url.isEmpty && path.isEmpty) {
+      throw StateError(
+        'Comprovante enviado mas o link não foi gravado no lançamento.',
+      );
+    }
+  }
+
+  static Future<void> markComprovanteUploadFailed({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required Object error,
+  }) async {
+    final msg = error.toString().split('\n').first;
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => docRef.set(
+        {
+          comprovanteUploadStateField: EntityPublishStatus.error,
+          'comprovanteUploadError': msg.length > 240 ? msg.substring(0, 240) : msg,
+          'hasComprovante': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      ),
+      maxAttempts: 3,
+    ).catchError((_) {});
   }
 
   static Future<void> _writeFirestore(Future<void> Function() action) async {
@@ -92,7 +205,9 @@ abstract final class FinanceComprovantePublishService {
   }
 
   static Future<String> resolveComprovanteUrl(Map<String, dynamic> data) async {
-    final url = sanitizeImageUrl((data['comprovanteUrl'] ?? '').toString());
+    final url = sanitizeImageUrl(
+      (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '').toString(),
+    );
     if (url.isNotEmpty) return url;
     final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
     if (path.isEmpty) return '';
@@ -189,6 +304,118 @@ abstract final class FinanceComprovantePublishService {
     }
   }
 
+  /// Só Storage (sem Firestore) — usar antes do `set` completo em lançamento novo.
+  static Future<FinanceComprovantePersistResult> uploadComprovanteStorageOnly({
+    required String tenantId,
+    required String lancamentoId,
+    required Uint8List rawBytes,
+    required String mimeType,
+    String? fileName,
+    DateTime? referenceDate,
+    String? previousStoragePath,
+    String? previousDownloadUrl,
+    void Function(double progress)? onProgress,
+  }) async {
+    return FirebaseBootstrapService.runGuarded(
+      () => _uploadComprovanteStorageCore(
+        tenantId: tenantId,
+        lancamentoId: lancamentoId,
+        rawBytes: rawBytes,
+        mimeType: mimeType,
+        fileName: fileName,
+        referenceDate: referenceDate,
+        previousStoragePath: previousStoragePath,
+        previousDownloadUrl: previousDownloadUrl,
+        onProgress: onProgress,
+      ),
+      debugLabel: 'finance_comprovante_storage',
+      requireAuth: true,
+    );
+  }
+
+  static Future<FinanceComprovantePersistResult> _uploadComprovanteStorageCore({
+    required String tenantId,
+    required String lancamentoId,
+    required Uint8List rawBytes,
+    required String mimeType,
+    String? fileName,
+    DateTime? referenceDate,
+    String? previousStoragePath,
+    String? previousDownloadUrl,
+    void Function(double progress)? onProgress,
+  }) async {
+    await _ensureReady();
+    final churchId = ChurchRepository.churchId(tenantId.trim());
+    if (churchId.isEmpty) {
+      throw StateError('Igreja não identificada para o comprovante.');
+    }
+    if (rawBytes.isEmpty) {
+      throw StateError('Arquivo vazio — selecione outra imagem ou PDF.');
+    }
+    final mt = mimeType.toLowerCase();
+    if (mt.startsWith('video/')) {
+      throw StateError('Vídeo não permitido. Use JPEG, PNG ou PDF.');
+    }
+
+    onProgress?.call(0.08);
+    await FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(
+      churchId,
+    );
+
+    final ext = _extFromMime(mimeType, fileName);
+    await deleteComprovanteArtifacts(
+      tenantId: churchId,
+      lancamentoId: lancamentoId,
+      storagePath: previousStoragePath,
+      downloadUrl: previousDownloadUrl,
+      referenceDate: referenceDate,
+      ext: ext,
+    );
+    onProgress?.call(0.15);
+
+    final path = comprovantePathFor(
+      tenantId: churchId,
+      lancamentoId: lancamentoId,
+      referenceDate: referenceDate,
+      ext: ext,
+    );
+
+    final contentType = ext == 'pdf'
+        ? 'application/pdf'
+        : (ext == 'png' ? 'image/png' : 'image/jpeg');
+
+    final url = await EcoFireStorageUpload.putData(
+      storagePath: path,
+      bytes: rawBytes,
+      mimeType: contentType,
+      onProgress: (p) => onProgress?.call(0.15 + p * 0.75),
+    ).timeout(
+      const Duration(seconds: 45),
+      onTimeout: () => throw TimeoutException(
+        'Upload do comprovante demorou demais. Verifique a rede.',
+      ),
+    );
+
+    onProgress?.call(0.92);
+    await ChurchStorageMetadataVerify.assertExists(
+      path,
+      maxAttempts: 4,
+      timeout: const Duration(seconds: 12),
+    );
+
+    final safeName = (fileName ?? '').trim().isNotEmpty
+        ? fileName!.trim()
+        : 'comprovante.$ext';
+
+    onProgress?.call(0.95);
+    return FinanceComprovantePersistResult(
+      url: sanitizeImageUrl(url),
+      storagePath: path,
+      mimeType: contentType,
+      fileName: safeName,
+    );
+  }
+
   /// Upload Storage → validar → gravar URL no Firestore (síncrono, sem falso sucesso).
   static Future<String> uploadComprovanteNow({
     required String tenantId,
@@ -206,78 +433,19 @@ abstract final class FinanceComprovantePublishService {
         await _ensureReady();
         YahwehFlowLog.uploadStart('comprovante');
 
-        final churchId = ChurchRepository.churchId(tenantId.trim());
-        if (churchId.isEmpty) {
-          throw StateError('Igreja não identificada para o comprovante.');
-        }
-        if (rawBytes.isEmpty) {
-          throw StateError('Arquivo vazio — selecione outra imagem ou PDF.');
-        }
-        final mt = mimeType.toLowerCase();
-        if (mt.startsWith('video/')) {
-          throw StateError('Vídeo não permitido. Use JPEG, PNG ou PDF.');
-        }
-
-        onProgress?.call(0.05);
-        await FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(
-          churchId,
-        );
-
-        final ext = _extFromMime(mimeType, fileName);
-        await deleteComprovanteArtifacts(
-          tenantId: churchId,
+        final persisted = await _uploadComprovanteStorageCore(
+          tenantId: tenantId,
           lancamentoId: docRef.id,
-          storagePath: previousStoragePath,
-          downloadUrl: previousDownloadUrl,
+          rawBytes: rawBytes,
+          mimeType: mimeType,
+          fileName: fileName,
           referenceDate: referenceDate,
-          ext: ext,
-        );
-        onProgress?.call(0.12);
-
-        final path = comprovantePathFor(
-          tenantId: churchId,
-          lancamentoId: docRef.id,
-          referenceDate: referenceDate,
-          ext: ext,
+          previousStoragePath: previousStoragePath,
+          previousDownloadUrl: previousDownloadUrl,
+          onProgress: onProgress,
         );
 
-        final contentType = ext == 'pdf'
-            ? 'application/pdf'
-            : (ext == 'png' ? 'image/png' : 'image/jpeg');
-
-        final url = await EcoFireStorageUpload.putData(
-          storagePath: path,
-          bytes: rawBytes,
-          mimeType: contentType,
-          onProgress: (p) => onProgress?.call(0.12 + p * 0.78),
-        ).timeout(
-          const Duration(seconds: 45),
-          onTimeout: () => throw TimeoutException(
-            'Upload do comprovante demorou demais. Verifique a rede.',
-          ),
-        );
-
-        onProgress?.call(0.92);
-        await ChurchStorageMetadataVerify.assertExists(
-          path,
-          maxAttempts: 4,
-          timeout: const Duration(seconds: 12),
-        );
-
-        final safeName = (fileName ?? '').trim().isNotEmpty
-            ? fileName!.trim()
-            : 'comprovante.$ext';
-
-        final firestorePatch = {
-          'comprovanteUrl': sanitizeImageUrl(url),
-          'comprovanteStoragePath': path,
-          'comprovanteMimeType': contentType,
-          'comprovanteFileName': safeName,
-          'hasComprovante': true,
-          comprovanteUploadStateField: EntityPublishStatus.published,
-          'comprovanteUploadError': FieldValue.delete(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        };
+        final firestorePatch = persisted.toFirestorePatch();
 
         await FirestoreWebGuard.runWithWebRecovery(
           () => docRef.set(firestorePatch, SetOptions(merge: true)),
@@ -289,10 +457,16 @@ abstract final class FinanceComprovantePublishService {
           ),
         );
 
+        onProgress?.call(0.96);
+        await verifyComprovantePersisted(
+          docRef: docRef,
+          storagePath: persisted.storagePath,
+        );
+
         YahwehFlowLog.financeiroUploadOk();
         YahwehFlowLog.financeiroSuccess();
         onProgress?.call(1.0);
-        return url;
+        return persisted.url;
       },
       debugLabel: 'finance_comprovante_upload',
       requireAuth: true,
@@ -319,10 +493,12 @@ abstract final class FinanceComprovantePublishService {
           'hasComprovante': false,
           comprovanteUploadStateField: FieldValue.delete(),
           'comprovanteUrl': FieldValue.delete(),
+          'comprovanteLink': FieldValue.delete(),
           'comprovanteStoragePath': FieldValue.delete(),
           'comprovanteMimeType': FieldValue.delete(),
           'comprovanteFileName': FieldValue.delete(),
           'comprovanteUploadError': FieldValue.delete(),
+          'comprovanteUpdatedAt': FieldValue.delete(),
           'updatedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),

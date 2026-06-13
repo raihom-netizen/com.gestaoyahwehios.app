@@ -30,6 +30,7 @@ import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/gestor_membro_stub_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
+import 'package:gestao_yahweh/services/church_cadastro_save_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
@@ -381,22 +382,22 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   }
 
   Future<void> _bootstrapCadastro({bool forceRefresh = false}) async {
-    final ctxData = ChurchContextService.currentChurchData;
-    final ctxId = ChurchContextService.currentChurchId;
-    final hasRichSession = !forceRefresh &&
-        ctxData != null &&
-        ctxId != null &&
-        ctxId.isNotEmpty &&
-        TenantResolverService.churchProfileRichnessScore(ctxData) >=
-            ChurchCadastroLoadService.kMinProfileScore;
-    if (mounted && !hasRichSession && !_formHydrated) {
-      setState(() {
-        _cadastroBootstrapDone = false;
-        _cadastroBootstrapError = null;
-      });
+    if (!forceRefresh && !_formHydrated) {
+      final local = await ChurchCadastroLoadService.tryLocalSources(
+        seedTenantId: widget.tenantId.trim(),
+      );
+      if (local != null && local.data.isNotEmpty && mounted) {
+        _applyChurchDataResult(
+          local.toChurchDataLoadResult(),
+          softError: local.softError,
+        );
+      }
     }
     try {
-      await _bootstrapCadastroInner(forceRefresh: forceRefresh);
+      await _bootstrapCadastroInner(forceRefresh: forceRefresh).timeout(
+        Duration(seconds: kIsWeb ? 18 : 24),
+        onTimeout: () => throw TimeoutException('cadastro_bootstrap'),
+      );
     } on TimeoutException {
       if (!mounted) return;
       final id = (_operationalTenantId ?? ChurchPanelTenant.resolve(widget.tenantId)).trim();
@@ -514,9 +515,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final tid = resolvedId.trim().isNotEmpty ? resolvedId.trim() : widget.tenantId.trim();
     if (tid.isEmpty) return;
     try {
-      final loaded = await ChurchCadastroLoadService.load(
-        seedTenantId: tid,
-        forceRefresh: false,
+      final loaded = await ChurchRepository.loadByChurchId(tid).timeout(
+        Duration(seconds: kIsWeb ? 12 : 16),
       );
       if (!mounted || loaded.data.isEmpty) return;
       _hydrateFormFromFirestoreDoc(loaded.churchId, loaded.data);
@@ -550,9 +550,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<void> _prepareCadastroFirestoreWrite() async {
     await _igrejaLiveSub?.cancel();
     _igrejaLiveSub = null;
-    if (kIsWeb) {
-      await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
-    }
+    await ChurchCadastroSaveService.prepareForSave();
   }
 
   bool _slugNeedsUniquenessCheck(String slugRaw) {
@@ -587,6 +585,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (resolved.isNotEmpty) {
       _operationalTenantId = resolved;
       _logoStoragePath = ChurchStorageLayout.churchIdentityLogoPath(resolved);
+      // Shell já tem churchId — nunca spinner infinito (cache-first como mobile).
+      _cadastroBootstrapDone = true;
     }
     final ctxData = ChurchContextService.currentChurchData;
     final ctxId = ChurchContextService.currentChurchId;
@@ -607,8 +607,21 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           logoStoragePath: ChurchStorageLayout.churchIdentityLogoPath(ctxId),
         ),
       );
+    } else {
+      unawaited(_hydrateCadastroFromLocalCacheFirst());
     }
     unawaited(_bootstrapCadastro());
+  }
+
+  Future<void> _hydrateCadastroFromLocalCacheFirst() async {
+    final local = await ChurchCadastroLoadService.tryLocalSources(
+      seedTenantId: widget.tenantId.trim(),
+    );
+    if (!mounted || local == null || local.data.isEmpty) return;
+    _applyChurchDataResult(
+      local.toChurchDataLoadResult(),
+      softError: local.softError,
+    );
   }
 
   @override
@@ -906,6 +919,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         data,
         const [
           'whatsappChatUrl',
+          'whatsapp',
           'socialWhatsappUrl',
           'whatsappLink',
           'linkWhatsapp',
@@ -1724,8 +1738,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   /// Publica `configuracoes/logo_igreja.png` e grava **somente** [logoPath] no Firestore.
   /// Retorna `false` se tentou enviar e falhou (o chamador pode abortar o resto do save).
-  Future<bool> _commitLogoUploadFromPending(
-      {bool showCommitSuccessSnack = true}) async {
+  Future<bool> _commitLogoUploadFromPending({
+    bool showCommitSuccessSnack = true,
+    bool deferFirestorePatch = false,
+  }) async {
     if (!_canEdit || _logoBytes == null || !mounted) return true;
     setState(() {
       _uploadingLogo = true;
@@ -1783,10 +1799,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         storagePath: upload.storagePath,
         imageUrl: url,
       );
-      await ChurchBrandService.persistLogoPath(
-        churchId: resolvedId,
-        storagePath: upload.storagePath,
-      );
+      if (!deferFirestorePatch) {
+        await ChurchBrandService.persistLogoPath(
+          churchId: resolvedId,
+          storagePath: upload.storagePath,
+        );
+      }
       _logoStagedNotUploaded = false;
       FirebaseStorageCleanupService.scheduleCleanupAfterChurchConfigImageUpload(
         tenantId: resolvedId,
@@ -1965,8 +1983,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           _logoStagedNotUploaded &&
           _logoBytes != null &&
           !_uploadingLogo) {
-        final logoOk =
-            await _commitLogoUploadFromPending(showCommitSuccessSnack: false);
+        final logoOk = await _commitLogoUploadFromPending(
+          showCommitSuccessSnack: false,
+          deferFirestorePatch: true,
+        );
         if (!mounted) return;
         if (!logoOk) {
           setState(() => _saving = false);
@@ -2057,6 +2077,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         'whatsappLink',
         'linkWhatsapp',
       ]);
+      if (waDigits.isEmpty) {
+        data['whatsapp'] = FieldValue.delete();
+      } else {
+        data['whatsapp'] = waDigits;
+      }
 
       if (_logoStoragePath != null && _logoStoragePath!.trim().isNotEmpty) {
         final normalized =
@@ -2110,11 +2135,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           }
           return;
         }
-        if (_slugNeedsUniquenessCheck(slugRaw)) {
+        if (!kIsWeb &&
+            _slugNeedsUniquenessCheck(slugRaw)) {
           final taken = await FirestoreWebGuard.runWithWebRecovery(
             () => FirestoreReadResilience.getQuery(
-              FirebaseFirestore.instance
-                  .collection('igrejas')
+              ChurchRepository.churchDoc(resolvedId)
+                  .parent
                   .where('slug', isEqualTo: slugRaw)
                   .limit(2),
               cacheKey: 'igrejas_slug_check_$slugRaw',
@@ -2137,16 +2163,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
       data['sitePrimaryHex'] = FieldValue.delete();
 
-      await FirestoreWebGuard.runWithWebRecovery(
-        () =>             ChurchRepository.churchDoc(resolvedId)
-            .set(data, SetOptions(merge: true)),
-        maxAttempts: 5,
+      await ChurchCadastroSaveService.saveChurchProfile(
+        churchId: resolvedId,
+        seedTenantId: widget.tenantId,
+        data: data,
       );
-      TenantResolverService.invalidateRegistrationContextCache(
-        seedId: widget.tenantId,
-        userUid: FirebaseAuth.instance.currentUser?.uid,
-      );
-      TenantResolverService.invalidateAliasCache();
       if (!mounted) return;
       try {
         await GestorMembroStubService.ensurePreCadastroGestor(
@@ -2171,8 +2192,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
     } catch (e) {
       if (!mounted) return;
+      final msg = FirestoreWebGuard.isInternalAssertionError(e)
+          ? 'Firestore instável na web. Aguarde 3 segundos e toque em Salvar novamente.'
+          : 'Erro ao salvar: $e';
       ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar('Erro ao salvar: $e'),
+        ThemeCleanPremium.feedbackSnackBar(msg),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -2181,7 +2205,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           : (_operationalTenantId ?? _hydratedTenantId ?? '').trim();
       if (tid.isNotEmpty && mounted) {
         if (kIsWeb) {
-          unawaited(_refreshIgrejaDocOnce(tid));
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+          if (mounted) unawaited(_refreshIgrejaDocOnce(tid));
         } else {
           _bindIgrejaLiveWatch(tid);
         }
@@ -2417,17 +2442,6 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         _formHydrated &&
         _nameCtrl.text.trim().isNotEmpty &&
         incomingScore <= _hydratedProfileScore) {
-      AgentDebugLog.log(
-        location: 'igreja_cadastro_page.dart:hydrate_skip',
-        message: 'hydrate_guard_blocked',
-        hypothesisId: 'D',
-        data: {
-          'resolvedId': resolvedId,
-          'incomingScore': incomingScore,
-          'hydratedScore': _hydratedProfileScore,
-          'nameLen': _nameCtrl.text.trim().length,
-        },
-      );
       return;
     }
     _applyData(live, docIdFallback: resolvedId);
@@ -2784,7 +2798,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_cadastroBootstrapDone) {
+    if (!_cadastroBootstrapDone &&
+        ChurchPanelTenant.resolve(widget.tenantId).isEmpty) {
       return Scaffold(
         backgroundColor: ThemeCleanPremium.surface,
         appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),

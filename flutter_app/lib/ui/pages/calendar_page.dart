@@ -46,6 +46,21 @@ int _compareAgendaDayKeysAscending(String a, String b) {
   }
 }
 
+/// Cores premium — Agenda (azul / índigo / ciano).
+abstract final class _AgendaPremiumTheme {
+  _AgendaPremiumTheme._();
+
+  static const indigo = Color(0xFF4F46E5);
+  static const cyan = Color(0xFF0891B2);
+  static const sky = Color(0xFF0EA5E9);
+
+  static const heroGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF4F46E5), Color(0xFF0891B2), Color(0xFF0EA5E9)],
+  );
+}
+
 class CalendarPage extends StatefulWidget {
   final String tenantId;
   final String role;
@@ -139,6 +154,8 @@ class _CalendarPageState extends State<CalendarPage>
   List<String> _customTipos = [];
   /// Categorias personalizadas (`event_categories`) — mesma coleção do Mural de eventos.
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _eventCategoryDocs = [];
+  ReportPdfBranding? _pdfBrandingReady;
+  Future<ReportPdfBranding>? _pdfBrandingFuture;
 
   static const String _customCategoryPrefix = 'ec_';
 
@@ -829,6 +846,8 @@ class _CalendarPageState extends State<CalendarPage>
   String get _tid =>
       _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
 
+  String get _churchId => ChurchRepository.churchId(_tid);
+
   String _agendaCacheKey() {
     final (rangeStart, rangeEnd) = _computeLoadRange();
     return '${_tid.trim()}_${_dayKey(rangeStart)}_${_dayKey(rangeEnd)}';
@@ -853,19 +872,17 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   CollectionReference<Map<String, dynamic>> get _agenda =>
-                ChurchUiCollections.agenda(_tid);
+      ChurchUiCollections.agenda(_churchId);
 
   CollectionReference<Map<String, dynamic>> get _noticias =>
-                ChurchUiCollections.eventos(_tid);
+      ChurchUiCollections.eventos(_churchId);
 
   CollectionReference<Map<String, dynamic>> get _cultos =>
-                ChurchUiCollections.churchDoc(_tid)
-          .collection('cultos');
+      ChurchUiCollections.churchDoc(_churchId).collection('cultos');
 
   /// Modelos de evento fixo (pré-cadastro ao escolher o dia).
   CollectionReference<Map<String, dynamic>> get _eventTemplates =>
-                ChurchUiCollections.churchDoc(_tid)
-          .collection('event_templates');
+      ChurchUiCollections.churchDoc(_churchId).collection('event_templates');
 
   static const _keyCustomTipos = 'agenda_tipos_custom';
 
@@ -913,17 +930,38 @@ class _CalendarPageState extends State<CalendarPage>
       duration: const Duration(milliseconds: 300),
     );
     _hydrateAgendaFromRam();
+    _seedAgendaDocsFromCache();
     _restartAgendaSubscription();
     unawaited(_bootstrapAndLoadEvents());
+    unawaited(PdfSuperPremiumTheme.loadRobotoPdfTheme());
+    _pdfBrandingFuture = loadReportPdfBranding(_churchId).then((b) {
+      _pdfBrandingReady = b;
+      return b;
+    });
   }
 
-  /// Resolve tenant + Firestore pronto antes da 1.ª leitura.
+  void _seedAgendaDocsFromCache() {
+    final (rangeStart, rangeEnd) = _computeLoadRange();
+    final start = Timestamp.fromDate(rangeStart);
+    final end = Timestamp.fromDate(rangeEnd);
+    final ram = ChurchAgendaLoadService.peekAnyRam(
+      _churchId,
+      start: start,
+      end: end,
+    );
+    if (ram != null && ram.isNotEmpty) {
+      _agendaDocs = ram;
+      _loading = false;
+      _rebuildMerged();
+    }
+  }
+
+  /// Resolve tenant + Firestore pronto; carga em paralelo (não bloqueia UI).
   Future<void> _bootstrapAndLoadEvents() async {
-    await ChurchTenantResilientReads.preparePanelRead();
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
-    await _bootstrapAgendaTenant();
+    unawaited(_bootstrapAgendaTenant());
     if (mounted) await _loadEvents();
   }
 
@@ -1034,29 +1072,43 @@ class _CalendarPageState extends State<CalendarPage>
     );
   }
 
-  Future<void> _loadAgendaDocsForRange() async {
+  Future<void> _loadAgendaDocsForRange({bool forceRefresh = false}) async {
     final (rangeStart, rangeEnd) = _computeLoadRange();
     final start = Timestamp.fromDate(rangeStart);
     final end = Timestamp.fromDate(rangeEnd);
-    final ram = ChurchAgendaLoadService.peekRam(
-      _tid,
+    final ram = ChurchAgendaLoadService.peekAnyRam(
+      _churchId,
       start: start,
       end: end,
     );
     if (ram != null && ram.isNotEmpty && mounted) {
-      setState(() => _agendaDocs = ram);
+      setState(() {
+        _agendaDocs = ram;
+        _loading = false;
+      });
       _rebuildMerged();
     }
     try {
       final result = await ChurchAgendaLoadService.loadByStartTimeRange(
-        seedTenantId: _tid,
+        seedTenantId: _churchId,
         start: start,
         end: end,
+        forceRefresh: forceRefresh,
       );
       if (!mounted) return;
-      setState(() => _agendaDocs = result.docs);
+      setState(() {
+        _agendaDocs = result.docs;
+        _loading = false;
+        if (result.docs.isEmpty && result.softError != null) {
+          _loadError ??= result.softError;
+        }
+      });
       _rebuildMerged();
-    } catch (_) {}
+    } catch (e) {
+      if (mounted && _agendaDocs.isEmpty) {
+        setState(() => _loadError ??= e.toString());
+      }
+    }
   }
 
   void _restartAgendaSubscription() {
@@ -1825,7 +1877,7 @@ class _CalendarPageState extends State<CalendarPage>
 
   Future<void> _loadEvents({bool forceRefresh = false}) async {
     if (forceRefresh) {
-      unawaited(ChurchAgendaLoadService.invalidate(_tid));
+      unawaited(ChurchAgendaLoadService.invalidate(_churchId));
     }
     if (!mounted) return;
     final cacheKey = _agendaCacheKey();
@@ -1988,7 +2040,7 @@ class _CalendarPageState extends State<CalendarPage>
         loadAgendaInterna() async {
       try {
         final result = await ChurchAgendaLoadService.loadByStartTimeRange(
-          seedTenantId: _tid,
+          seedTenantId: _churchId,
           start: start,
           end: end,
           forceRefresh: forceRefresh,
@@ -1998,8 +2050,8 @@ class _CalendarPageState extends State<CalendarPage>
         err ??= e is TimeoutException
             ? 'Tempo esgotado ao carregar agenda.'
             : e.toString();
-        final fallback = ChurchAgendaLoadService.peekRam(
-          _tid,
+        final fallback = ChurchAgendaLoadService.peekAnyRam(
+          _churchId,
           start: start,
           end: end,
         );
@@ -2147,6 +2199,9 @@ class _CalendarPageState extends State<CalendarPage>
       appBar: !showAppBar
           ? null
           : AppBar(
+              backgroundColor: _AgendaPremiumTheme.indigo,
+              foregroundColor: Colors.white,
+              elevation: 0,
               leading: Navigator.canPop(context)
                   ? IconButton(
                       icon: const Icon(Icons.arrow_back_rounded),
@@ -2315,6 +2370,19 @@ class _CalendarPageState extends State<CalendarPage>
                     ),
                   ),
                 ),
+              SliverToBoxAdapter(
+                child: _AgendaHeroHeader(
+                  eventCount: _eventsByDay.values.fold<int>(
+                    0,
+                    (sum, list) => sum + list.length,
+                  ),
+                  monthLabel: DateFormat('MMMM yyyy', 'pt_BR')
+                      .format(_focusedMonth),
+                ),
+              ),
+              const SliverToBoxAdapter(
+                child: SizedBox(height: ThemeCleanPremium.spaceSm),
+              ),
               SliverToBoxAdapter(
                 child: _buildViewToggleRow(),
               ),
@@ -3991,43 +4059,45 @@ class _CalendarPageState extends State<CalendarPage>
         return;
       }
       if (!mounted) return;
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const Center(
-          child: Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 14),
-                  Text('Gerando PDF…'),
-                ],
+      Timer? pdfOverlay;
+      pdfOverlay = Timer(const Duration(milliseconds: 160), () {
+        if (!mounted) return;
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const Center(
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 14),
+                    Text('Gerando PDF…'),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      );
+        );
+      });
 
-      ReportPdfBranding branding;
-      try {
-        branding = await loadReportPdfBranding(widget.tenantId).timeout(
-          const Duration(seconds: 15),
-          onTimeout: () => ReportPdfBranding(
-            churchName: 'Agenda',
-            accent: ReportPdfBranding.defaultAccent,
-          ),
-        );
-      } catch (_) {
-        branding = ReportPdfBranding(
-          churchName: 'Agenda',
-          accent: ReportPdfBranding.defaultAccent,
-        );
+      final branding = _pdfBrandingReady ??
+          await (_pdfBrandingFuture ?? loadReportPdfBranding(_churchId))
+              .timeout(
+            const Duration(milliseconds: 500),
+            onTimeout: () => ReportPdfBranding(
+              churchName: 'Agenda',
+              accent: ReportPdfBranding.defaultAccent,
+            ),
+          );
+      await PdfSuperPremiumTheme.loadRobotoPdfTheme();
+
+      pdfOverlay?.cancel();
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).maybePop();
       }
-      if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
 
       final refLabel = _pdfExportPeriodLabel();
 
@@ -7085,6 +7155,94 @@ class _AgendaTplPick {
   final QueryDocumentSnapshot<Map<String, dynamic>>? template;
   const _AgendaTplPick.blank() : isBlank = true, template = null;
   const _AgendaTplPick.template(this.template) : isBlank = false;
+}
+
+// ─── Hero premium ─────────────────────────────────────────────────────────────
+
+class _AgendaHeroHeader extends StatelessWidget {
+  const _AgendaHeroHeader({
+    required this.eventCount,
+    required this.monthLabel,
+  });
+
+  final int eventCount;
+  final String monthLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    final month = monthLabel.isEmpty
+        ? monthLabel
+        : '${monthLabel[0].toUpperCase()}${monthLabel.substring(1)}';
+    return Container(
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+      decoration: BoxDecoration(
+        gradient: _AgendaPremiumTheme.heroGradient,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: _AgendaPremiumTheme.indigo.withValues(alpha: 0.35),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.22),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.calendar_month_rounded,
+                color: Colors.white, size: 28),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Agenda inteligente',
+                  style: tt.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  month,
+                  style: tt.labelMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$eventCount',
+                style: tt.headlineMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              Text(
+                'eventos',
+                style: tt.labelSmall?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ─── Calendar Event Model ─────────────────────────────────────────────────────

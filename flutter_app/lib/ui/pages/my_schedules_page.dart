@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/schedule_swap_service.dart';
 import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
@@ -781,7 +782,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     final ram = ChurchSchedulesLoadService.peekEscalasRam(seed, limit: 200) ??
         _MySchedulesRamCache.peek(seed, _cpfDigits);
     if (ram != null && ram.isNotEmpty && mounted) {
-      final filtered = await _filterAndSortSchedulesForUser(seed, ram);
+      final filtered = await _filterAndSortSchedulesForUser(seed, ram)
+          .timeout(const Duration(seconds: 10), onTimeout: () => ram);
       setState(() {
         _allDocs = filtered;
         _loading = false;
@@ -795,10 +797,13 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       final result = await ChurchSchedulesLoadService.loadEscalas(
         seedTenantId: seed,
         limit: 200,
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
       );
       if (!mounted) return;
       await ChurchSchedulesLoadService.persistEscalas(result);
-      final docs = await _filterAndSortSchedulesForUser(seed, result.docs);
+      final docs = await _filterAndSortSchedulesForUser(seed, result.docs)
+          .timeout(const Duration(seconds: 10), onTimeout: () => result.docs);
       _MySchedulesRamCache.put(seed, _cpfDigits, docs);
       setState(() {
         _allDocs = docs;
@@ -893,7 +898,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   Future<void> _bootstrap() async {
     unawaited(_hydrateCpfFromMemberRecord());
-    if (mounted) await _load();
+    if (mounted) unawaited(_load(silent: true));
   }
 
   bool get _isAdmin {
@@ -1055,11 +1060,18 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   Future<List<String>> _loadMemberDepartments(CollectionReference<Map<String, dynamic>> members) async {
     if (_cpfDigits.isEmpty) return [];
-    final byId = await members.doc(_cpfDigits).get();
-    if (byId.exists) return _deptList(byId.data());
-    final q = await members.where('CPF', isEqualTo: _cpfDigits).limit(1).get();
-    if (q.docs.isNotEmpty) return _deptList(q.docs.first.data());
-    return [];
+    Future<List<String>> read() async {
+      final byId = await members.doc(_cpfDigits).get();
+      if (byId.exists) return _deptList(byId.data());
+      final q = await members.where('CPF', isEqualTo: _cpfDigits).limit(1).get();
+      if (q.docs.isNotEmpty) return _deptList(q.docs.first.data());
+      return [];
+    }
+    try {
+      return await read().timeout(const Duration(seconds: 8));
+    } catch (_) {
+      return [];
+    }
   }
 
   List<String> _deptList(Map<String, dynamic>? data) {

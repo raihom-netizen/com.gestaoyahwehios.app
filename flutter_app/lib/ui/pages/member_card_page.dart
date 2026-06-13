@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/member_card_directory_service.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/services/member_card_photo_cache.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
@@ -1489,7 +1490,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
   Widget _cnhPhotoSlot(_CardData data) {
     final cpf = _memberCpfRaw(data.member);
     final cpfDigits = cpf.replaceAll(RegExp(r'[^0-9]'), '');
-    final photoUrlPreview = sanitizeImageUrl(imageUrlFromMap(data.member));
+    final photoUrlPreview = sanitizeImageUrl(
+      MemberProfilePhotoResolver.displayRef(data.member) ??
+          imageUrlFromMap(data.member),
+    );
     final nome = (data.member['NOME_COMPLETO'] ?? data.member['nome'] ?? '')
         .toString()
         .trim();
@@ -7442,7 +7446,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
   }
 
   void _warmupCarteiraAssets(_CardData data, _CardConfig cfg) {
-    final memberPhoto = sanitizeImageUrl(imageUrlFromMap(data.member));
+    final memberPhoto = sanitizeImageUrl(
+      MemberProfilePhotoResolver.displayRef(data.member) ??
+          imageUrlFromMap(data.member),
+    );
     final signUrl = sanitizeImageUrl(
         (data.member['carteirinhaAssinaturaUrl'] ?? '').toString().trim());
     final cfgLogo = (cfg.logoDataBase64 != null &&
@@ -8336,8 +8343,10 @@ class _MemberCardPageState extends State<MemberCardPage> {
 
             final cfg = _effectiveCardConfig(data);
             final name = _memberNome(data.member);
-            final photoUrlPreview =
-                sanitizeImageUrl(imageUrlFromMap(data.member));
+            final photoUrlPreview = sanitizeImageUrl(
+              MemberProfilePhotoResolver.displayRef(data.member) ??
+                  imageUrlFromMap(data.member),
+            );
             final validade = _validityLabel(data);
             _warmupCarteiraAssets(data, cfg);
 

@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/services/church_birthday_year_load_service.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart';
@@ -592,8 +593,8 @@ class _BirthdayPersonTile extends StatelessWidget {
     final data = entry.memberData;
     final nome = entry.displayName.isEmpty ? 'Membro' : entry.displayName;
     final primeiro = entry.firstName;
-    final foto = imageUrlFromMap(data);
-    final hasFoto = isValidImageUrl(foto);
+    final foto = MemberProfilePhotoResolver.displayRef(data, preferThumb: true);
+    final hasFoto = MemberProfilePhotoResolver.hasPhotoRef(data, preferThumb: true);
     final avatarColor =
         avatarColorForMember(data, hasPhoto: hasFoto) ?? accent;
     final cpf = (data['CPF'] ?? data['cpf'] ?? '')
@@ -613,12 +614,15 @@ class _BirthdayPersonTile extends StatelessWidget {
         gradient: LinearGradient(colors: [accent, accent.withValues(alpha: 0.55)]),
       ),
       child: FotoMembroWidget(
-        imageUrl: hasFoto ? foto : null,
+        imageUrl: foto,
         memberData: data,
         tenantId: tenantId,
         memberId: entry.memberDocId,
         cpfDigits: cpf.length == 11 ? cpf : null,
-        authUid: _authUid(data),
+        authUid: MemberProfilePhotoResolver.authUidFromData(
+          data,
+          memberDocId: entry.memberDocId,
+        ),
         size: avatarSize,
         memCacheWidth: memPx,
         memCacheHeight: memPx,

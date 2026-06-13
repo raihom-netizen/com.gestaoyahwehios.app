@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart'
     show FirebaseBootstrapException, FirebaseBootstrapService;
@@ -8,7 +9,7 @@ abstract final class ImmediateStorageUploadGuard {
   ImmediateStorageUploadGuard._();
 
   static Future<void> ensureReady({String debugLabel = 'immediate_attach'}) async {
-    await ensureFirebaseCore(requireAuth: true);
+    await EcoFirePublishBootstrap.ensureHard(logLabel: debugLabel);
   }
 
   static Never rethrowAsUserError(Object e, StackTrace st) {

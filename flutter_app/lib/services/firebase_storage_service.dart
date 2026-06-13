@@ -13,7 +13,10 @@ import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'media_handler_service.dart';
 import 'media_upload_service.dart';
+import 'member_profile_photo_resolver.dart';
 import 'storage_media_service.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show firebaseStorageObjectPathFromHttpUrl;
 
 /// Serviço de upload de mídia para Firebase Storage em alta resolução (Full HD).
 /// Faz: seleção → compressão (90%, 1920×1080) → upload → retorna URL com token (getDownloadURL).
@@ -386,7 +389,14 @@ class FirebaseStorageService {
     final mid = memberId.trim();
     if (tid.isEmpty || mid.isEmpty) return null;
     final cpfNorm = (cpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
-    final authNorm = (authUid ?? '').trim();
+    var authNorm = (authUid ?? '').trim();
+    if (authNorm.isEmpty && memberFirestoreHint != null) {
+      authNorm = MemberProfilePhotoResolver.authUidFromData(
+            memberFirestoreHint,
+            memberDocId: mid,
+          ) ??
+          '';
+    }
     final nomeNorm = (nomeCompleto ?? '').trim();
     final stemNamed = MemberPhotoStorageNaming.profileFolderStem(
       nomeCompleto: nomeNorm,
@@ -427,9 +437,18 @@ class FirebaseStorageService {
       if (!paths.contains(p)) paths.add(p);
     }
 
-    // 1) Path gravado no Firestore (fonte única — evita varrer dezenas de legados).
+    // 1) Path/URL gravados no Firestore — https antes de path desatualizado.
     if (memberFirestoreHint != null) {
+      final httpsFull = MemberImageFields.photoDownloadUrl(memberFirestoreHint);
+      if (httpsFull != null) {
+        addPath(firebaseStorageObjectPathFromHttpUrl(httpsFull));
+      }
       if (preferListThumbnail) {
+        final thumbHttps =
+            MemberImageFields.photoThumbDownloadUrl(memberFirestoreHint);
+        if (thumbHttps != null) {
+          addPath(firebaseStorageObjectPathFromHttpUrl(thumbHttps));
+        }
         addPath(MemberImageFields.photoThumbStoragePath(memberFirestoreHint));
       }
       addPath(MemberImageFields.photoStoragePath(memberFirestoreHint));

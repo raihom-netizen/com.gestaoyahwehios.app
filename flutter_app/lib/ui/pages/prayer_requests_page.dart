@@ -26,29 +26,32 @@ String _emailFromMemberData(Map<String, dynamic> data) {
   return '';
 }
 
-Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _paginateSubcollection(
-  DocumentReference<Map<String, dynamic>> churchRef,
-  String subName,
-) async {
-  const batch = 500;
-  final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-  Query<Map<String, dynamic>> q = churchRef
-      .collection(subName)
-      .orderBy(FieldPath.documentId)
-      .limit(batch);
-  while (true) {
-    final snap = await q.get();
-    out.addAll(snap.docs);
-    if (snap.docs.length < batch) break;
-    final last = snap.docs.last;
-    q = churchRef
-        .collection(subName)
-        .orderBy(FieldPath.documentId)
-        .startAfterDocument(last)
-        .limit(batch);
+/// Cores premium — Pedidos de Oração (rosa / violeta / coral).
+abstract final class _PrayerPremiumTheme {
+  _PrayerPremiumTheme._();
+
+  static const rose = Color(0xFFEC4899);
+  static const violet = Color(0xFF8B5CF6);
+
+  static const heroGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFFEC4899), Color(0xFF8B5CF6), Color(0xFFF472B6)],
+  );
+
+  static LinearGradient cardGradient(String categoria) {
+    final accent = _PrayerRequestsPageState.categoriaAccent(categoria);
+    return LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        accent.withValues(alpha: 0.16),
+        accent.withValues(alpha: 0.04),
+      ],
+    );
   }
-  return out;
 }
+
 
 class PrayerRequestsPage extends StatefulWidget {
   final String tenantId;
@@ -66,45 +69,6 @@ class PrayerRequestsPage extends StatefulWidget {
   State<PrayerRequestsPage> createState() => _PrayerRequestsPageState();
 }
 
-/// Cache RAM — pedidos de oração instantâneos ao reabrir o módulo.
-abstract final class _PedidosOracaoRamCache {
-  _PedidosOracaoRamCache._();
-
-  static final Map<
-      String,
-      ({
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-        DateTime at,
-      })> _byKey = {};
-
-  static const Duration _ttl = Duration(minutes: 20);
-
-  static String _key(String tenantId, String suffix) =>
-      '${tenantId.trim()}_$suffix';
-
-  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(
-    String tenantId,
-    String suffix,
-  ) {
-    final hit = _byKey[_key(tenantId, suffix)];
-    if (hit == null) return null;
-    if (DateTime.now().difference(hit.at) > _ttl) {
-      _byKey.remove(_key(tenantId, suffix));
-      return null;
-    }
-    return hit.docs;
-  }
-
-  static void put(
-    String tenantId,
-    String suffix,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    if (tenantId.trim().isEmpty || docs.isEmpty) return;
-    _byKey[_key(tenantId, suffix)] = (docs: List.from(docs), at: DateTime.now());
-  }
-}
-
 class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   /// Filtro por status: Todos | Respondidas | Não Respondidas
   String _filtroStatus = 'Todos';
@@ -117,14 +81,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
             : widget.tenantId,
       );
 
-  String _filtroCacheSuffix() {
-    if (_filtroStatus == 'Respondidas') return 'respondidas';
-    if (_filtroStatus == 'Não Respondidas') return 'pendentes';
-    return 'all';
-  }
-
-  static String _pedidosMemKey(String tenantId, String suffix) =>
-      '${tenantId.trim()}_pedidos_oracao_$suffix';
+  String get _churchId => ChurchRepository.churchId(_tid);
 
   bool? _respondidaFilterFromStatus() {
     if (_filtroStatus == 'Respondidas') return true;
@@ -134,6 +91,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
 
   Future<QuerySnapshot<Map<String, dynamic>>> _loadPedidos({
     bool forceRefresh = false,
+    bool forceServer = false,
   }) async {
     final tid = _tid.trim();
     if (tid.isEmpty) {
@@ -143,18 +101,17 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
       seedTenantId: tid,
       respondidaFilter: _respondidaFilterFromStatus(),
       forceRefresh: forceRefresh,
+      forceServer: forceServer,
     );
-    if (result.docs.isNotEmpty) {
-      _PedidosOracaoRamCache.put(tid, _filtroCacheSuffix(), result.docs);
-    }
     return result.snapshot;
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadPedidos() {
     final tid = _tid.trim();
-    if (tid.isEmpty) return _loadPedidos();
+    if (tid.isEmpty) {
+      return Future.value(const MergedFirestoreQuerySnapshot([]));
+    }
 
-    final suffix = _filtroCacheSuffix();
     final ram = ChurchPedidosOracaoLoadService.peekRam(
       tid,
       respondidaFilter: _respondidaFilterFromStatus(),
@@ -163,14 +120,12 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
       return Future.value(MergedFirestoreQuerySnapshot(ram));
     }
 
-    final cached = _PedidosOracaoRamCache.peek(tid, suffix);
-    if (cached != null && cached.isNotEmpty) {
-      return Future.value(MergedFirestoreQuerySnapshot(cached));
-    }
-
-    final mem = FirestoreReadResilience.peekLastGoodQuery(
-      _pedidosMemKey(tid, suffix),
+    final memKey = ChurchPedidosOracaoLoadService.cacheKey(
+      tid,
+      _respondidaFilterFromStatus(),
+      ChurchPedidosOracaoLoadService.kDefaultLimit,
     );
+    final mem = FirestoreReadResilience.peekLastGoodQuery(memKey);
     if (mem != null && mem.docs.isNotEmpty) {
       return Future.value(mem);
     }
@@ -178,21 +133,25 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     return _loadPedidos();
   }
 
-  Future<void> _refreshPedidosBackground() async {
+  Future<void> _openPedidosFast() async {
+    final tid = _tid.trim();
+    if (tid.isEmpty) return;
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       final snap = await _loadPedidos(forceRefresh: true);
-      if (!mounted || snap.docs.isEmpty) return;
-      _PedidosOracaoRamCache.put(_tid, _filtroCacheSuffix(), snap.docs);
+      if (!mounted) return;
       setState(() => _pedidosFuture = Future.value(snap));
     } catch (_) {}
   }
 
   void _refreshPedidos({bool forceRefresh = false}) {
     setState(() {
-      _pedidosFuture = _loadPedidos(forceRefresh: forceRefresh);
+      _pedidosFuture = _loadPedidos(
+        forceRefresh: forceRefresh,
+        forceServer: forceRefresh,
+      );
     });
   }
 
@@ -201,7 +160,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     super.initState();
     _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
     _pedidosFuture = _seedOrLoadPedidos();
-    unawaited(_refreshPedidosBackground());
+    unawaited(_openPedidosFast());
   }
 
   @override
@@ -210,16 +169,19 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     if (oldWidget.tenantId != widget.tenantId) {
       _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
       _pedidosFuture = _seedOrLoadPedidos();
-      unawaited(_refreshPedidosBackground());
+      unawaited(_openPedidosFast());
     }
   }
 
   static const _filtrosStatus = ['Todos', 'Não Respondidas', 'Respondidas'];
 
-  /// Categorias usadas no formulário (novo/editar) — o assunto é o texto do pedido.
   static const _categoriasForm = [
     'Saúde', 'Família', 'Finanças', 'Trabalho', 'Libertação', 'Gratidão', 'Outro',
   ];
+
+  static Color categoriaAccent(String categoria) {
+    return _categoriaTexto[categoria] ?? _PrayerPremiumTheme.rose;
+  }
 
   static const _categoriaCores = <String, Color>{
     'Saúde': Color(0xFFE8F5E9),
@@ -242,7 +204,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   };
 
   CollectionReference<Map<String, dynamic>> get _col =>
-      ChurchUiCollections.pedidosOracao(_tid);
+      ChurchUiCollections.pedidosOracao(_churchId);
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
 
@@ -262,7 +224,11 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     if (data['autorUid'] == _currentUser?.uid) return true;
     final emails = data['destinatariosEmails'];
     if (emails is List && emails.isNotEmpty && _currentUser?.email != null) {
-      if (emails.any((e) => e.toString().trim().toLowerCase() == _currentUser!.email!.trim().toLowerCase())) return true;
+      if (emails.any((e) =>
+          e.toString().trim().toLowerCase() ==
+          _currentUser!.email!.trim().toLowerCase())) {
+        return true;
+      }
     }
     return false;
   }
@@ -286,25 +252,70 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   Future<void> _toggleOrando(String docId, List<dynamic> orandoUids) async {
     final uid = _currentUser?.uid;
     if (uid == null) return;
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    if (orandoUids.contains(uid)) {
-      await _col.doc(docId).update({
-        'orandoUids': FieldValue.arrayRemove([uid]),
-        'orandoCount': FieldValue.increment(-1),
-      });
-    } else {
-      await _col.doc(docId).update({
-        'orandoUids': FieldValue.arrayUnion([uid]),
-        'orandoCount': FieldValue.increment(1),
-      });
+    final removing = orandoUids.contains(uid);
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.runWithWebRecovery(
+          () async {
+            if (removing) {
+              await _col.doc(docId).update({
+                'orandoUids': FieldValue.arrayRemove([uid]),
+                'orandoCount': FieldValue.increment(-1),
+              });
+            } else {
+              await _col.doc(docId).update({
+                'orandoUids': FieldValue.arrayUnion([uid]),
+                'orandoCount': FieldValue.increment(1),
+              });
+            }
+          },
+          maxAttempts: 4,
+        );
+      } else if (removing) {
+        await _col.doc(docId).update({
+          'orandoUids': FieldValue.arrayRemove([uid]),
+          'orandoCount': FieldValue.increment(-1),
+        });
+      } else {
+        await _col.doc(docId).update({
+          'orandoUids': FieldValue.arrayUnion([uid]),
+          'orandoCount': FieldValue.increment(1),
+        });
+      }
+      if (mounted) {
+        unawaited(ChurchPedidosOracaoLoadService.invalidate(_tid));
+        _refreshPedidos(forceRefresh: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao atualizar: $e')),
+        );
+      }
     }
-    if (mounted) _refreshPedidos(forceRefresh: true);
   }
 
   Future<void> _marcarRespondida(String docId) async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    await _col.doc(docId).update({'respondida': true});
-    if (mounted) _refreshPedidos(forceRefresh: true);
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => _col.doc(docId).update({'respondida': true}),
+          maxAttempts: 4,
+        );
+      } else {
+        await _col.doc(docId).update({'respondida': true});
+      }
+      if (mounted) {
+        unawaited(ChurchPedidosOracaoLoadService.invalidate(_tid));
+        _refreshPedidos(forceRefresh: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _deletar(String docId) async {
@@ -327,9 +338,16 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     );
     if (ok == true) {
       try {
-        await FirebaseAuth.instance.currentUser?.getIdToken(true);
-        await _col.doc(docId).delete();
+        if (kIsWeb) {
+          await FirestoreWebGuard.runWithWebRecovery(
+            () => _col.doc(docId).delete(),
+            maxAttempts: 4,
+          );
+        } else {
+          await _col.doc(docId).delete();
+        }
         if (mounted) {
+          unawaited(ChurchPedidosOracaoLoadService.invalidate(_tid));
           _refreshPedidos(forceRefresh: true);
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pedido excluído.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
         }
@@ -628,15 +646,22 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                                         return;
                                       }
                                       try {
-                                        await FirebaseAuth.instance.currentUser
-                                            ?.getIdToken(true);
-                                        await _col.doc(doc.id).update({
+                                        Future<void> save() => _col.doc(doc.id).update({
                                           'texto': textoCtrl.text.trim(),
                                           'categoria': categoria,
                                           'publico': pub,
                                           'destinatariosEmails': dest,
                                         });
+                                        if (kIsWeb) {
+                                          await FirestoreWebGuard.runWithWebRecovery(
+                                            save,
+                                            maxAttempts: 4,
+                                          );
+                                        } else {
+                                          await save();
+                                        }
                                         if (ctx.mounted) {
+                                          unawaited(ChurchPedidosOracaoLoadService.invalidate(_tid));
                                           _refreshPedidos(forceRefresh: true);
                                           Navigator.pop(ctx);
                                           ScaffoldMessenger.of(ctx)
@@ -897,9 +922,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                                           ? destinatariosEmails
                                           : <String>[];
                                       try {
-                                        await FirebaseAuth.instance.currentUser
-                                            ?.getIdToken(true);
-                                        await _col.add({
+                                        Future<void> save() => _col.add({
                                           'texto': textoCtrl.text.trim(),
                                           'categoria': categoria,
                                           'publico': publico,
@@ -914,7 +937,16 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                                           'orandoUids': <String>[],
                                           'respondida': false,
                                         });
+                                        if (kIsWeb) {
+                                          await FirestoreWebGuard.runWithWebRecovery(
+                                            save,
+                                            maxAttempts: 4,
+                                          );
+                                        } else {
+                                          await save();
+                                        }
                                         if (ctx.mounted) {
+                                          unawaited(ChurchPedidosOracaoLoadService.invalidate(_tid));
                                           _refreshPedidos(forceRefresh: true);
                                           Navigator.pop(ctx);
                                           ScaffoldMessenger.of(ctx).showSnackBar(
@@ -1199,24 +1231,27 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     );
   }
 
-  /// Carrega todos os membros do tenant (`membros` paginado + legado `members`).
+  /// Membros para selecionar destinatários (e-mail) — via [ChurchRepository].
   Future<List<Map<String, String>>> _loadMembrosParaSelecao(String tenantId) async {
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
     final id = ChurchRepository.churchId(tenantId.trim());
     if (id.isEmpty) return [];
 
-    final op = id;
-    final churchRef = ChurchUiCollections.churchDoc(op);
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
 
-    final membrosDocs = await _paginateSubcollection(churchRef, 'membros');
-    final legacyDocs = await _paginateSubcollection(churchRef, 'members');
+    final result = await ChurchRepository.membros.list(
+      churchIdHint: id,
+      limit: 500,
+    );
+    final docs = result.items;
 
     final seenDocIds = <String>{};
     final seenEmails = <String>{};
     final out = <Map<String, String>>[];
 
-    void addDoc(QueryDocumentSnapshot<Map<String, dynamic>> d) {
-      if (!seenDocIds.add(d.id)) return;
+    for (final d in docs) {
+      if (!seenDocIds.add(d.id)) continue;
       final data = d.data();
       final email = _emailFromMemberData(data);
       final nome = (data['NOME_COMPLETO'] ??
@@ -1227,19 +1262,12 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
           .trim();
       if (email.isNotEmpty) {
         final ek = email.toLowerCase();
-        if (seenEmails.contains(ek)) return;
+        if (seenEmails.contains(ek)) continue;
         seenEmails.add(ek);
         out.add({'email': email, 'nome': nome, 'docId': d.id});
       } else {
         out.add({'email': '', 'nome': nome, 'docId': d.id});
       }
-    }
-
-    for (final d in membrosDocs) {
-      addDoc(d);
-    }
-    for (final d in legacyDocs) {
-      addDoc(d);
     }
 
     out.sort((a, b) {
@@ -1256,172 +1284,253 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   Widget build(BuildContext context) {
     final isMobile = ThemeCleanPremium.isMobile(context);
     final padding = ThemeCleanPremium.pagePadding(context);
+    final tt = Theme.of(context).textTheme;
 
     final showAppBar = !isMobile || Navigator.canPop(context);
     return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: !showAppBar
           ? null
           : AppBar(
-              backgroundColor: ThemeCleanPremium.primary,
+              backgroundColor: _PrayerPremiumTheme.rose,
               foregroundColor: Colors.white,
+              elevation: 0,
               leading: Navigator.canPop(context)
                   ? IconButton(
                       icon: const Icon(Icons.arrow_back_rounded),
                       onPressed: () => Navigator.maybePop(context),
                       tooltip: 'Voltar',
-                      style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(
+                          ThemeCleanPremium.minTouchTarget,
+                          ThemeCleanPremium.minTouchTarget,
+                        ),
+                      ),
                     )
                   : null,
               title: const Text('Pedidos de Oração'),
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _abrirFormulario,
-        backgroundColor: ThemeCleanPremium.primary,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Pedir Oração'),
+      floatingActionButton: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: _PrayerPremiumTheme.heroGradient,
+          boxShadow: [
+            BoxShadow(
+              color: _PrayerPremiumTheme.rose.withValues(alpha: 0.45),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: FloatingActionButton.extended(
+          onPressed: _abrirFormulario,
+          backgroundColor: Colors.transparent,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          icon: const Icon(Icons.add_rounded),
+          label: const Text(
+            'Pedir Oração',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
       ),
       body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: ThemeCleanPremium.churchPanelBodyGradient,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFFDF2F8), Color(0xFFF8FAFC)],
+          ),
         ),
         child: SafeArea(
           top: !widget.embeddedInShell,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-            if (isMobile && !widget.embeddedInShell)
-              Padding(
-                padding: EdgeInsets.only(
-                  left: padding.left,
-                  right: padding.right,
-                  top: padding.top,
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.volunteer_activism_rounded,
-                        color: ThemeCleanPremium.primary, size: 28),
-                    const SizedBox(width: ThemeCleanPremium.spaceSm),
-                    Text('Pedidos de Oração',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(
-                                color: ThemeCleanPremium.onSurface,
-                                fontWeight: FontWeight.w700)),
-                  ],
-                ),
-              ),
-            Padding(
-              padding: EdgeInsets.symmetric(
-                  horizontal: padding.left,
-                  vertical: ThemeCleanPremium.spaceSm),
-              child: SizedBox(
-                height: 38,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _filtrosStatus.length,
-                  separatorBuilder: (_, __) =>
-                      const SizedBox(width: ThemeCleanPremium.spaceXs),
-                  itemBuilder: (_, i) {
-                    final s = _filtrosStatus[i];
-                    final sel = _filtroStatus == s;
-                    return FilterChip(
-                      label: Text(s,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight:
-                                sel ? FontWeight.w700 : FontWeight.w500,
-                            color: sel
-                                ? Colors.white
-                                : ThemeCleanPremium.onSurfaceVariant,
-                          )),
-                      selected: sel,
-                      selectedColor: ThemeCleanPremium.primary,
-                      backgroundColor: ThemeCleanPremium.cardBackground,
-                      checkmarkColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusSm),
-                        side: BorderSide(
-                          color: sel
-                              ? ThemeCleanPremium.primary
-                              : Colors.grey.shade300,
+              Expanded(
+                child: ResilientPanelQueryFutureBuilder(
+                  future: _pedidosFuture,
+                  errorTitle: 'Não foi possível carregar os pedidos de oração',
+                  onRetry: () => _refreshPedidos(forceRefresh: true),
+                  builder: (context, snap, {required bool showingStaleCache}) {
+                    final docs = snap.docs;
+                    final visibleDocs =
+                        docs.where((d) => _canSee(d.data())).toList();
+                    final pendentes = visibleDocs
+                        .where((d) => d.data()['respondida'] != true)
+                        .length;
+                    final respondidas = visibleDocs.length - pendentes;
+                    var orandoTotal = 0;
+                    for (final d in visibleDocs) {
+                      final c = d.data()['orandoCount'];
+                      orandoTotal += c is int ? c : 0;
+                    }
+
+                    return CustomScrollView(
+                      slivers: [
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              padding.left,
+                              padding.top,
+                              padding.right,
+                              8,
+                            ),
+                            child: _PrayerHeroHeader(
+                              total: visibleDocs.length,
+                              pendentes: pendentes,
+                              respondidas: respondidas,
+                              orandoTotal: orandoTotal,
+                            ),
+                          ),
                         ),
-                      ),
-                      onSelected: (_) {
-                        setState(() {
-                          _filtroStatus = s;
-                          _pedidosFuture = _seedOrLoadPedidos();
-                        });
-                        unawaited(_refreshPedidosBackground());
-                      },
+                        if (showingStaleCache)
+                          const SliverToBoxAdapter(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 16),
+                              child: ChurchPanelOfflineStaleBanner(
+                                message:
+                                    'Modo offline — últimos pedidos guardados.',
+                              ),
+                            ),
+                          ),
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: padding.left,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              children: [
+                                for (var i = 0; i < _filtrosStatus.length; i++) ...[
+                                  if (i > 0) const SizedBox(width: 8),
+                                  Expanded(
+                                    child: _PrayerFilterChip(
+                                      label: _filtrosStatus[i],
+                                      selected: _filtroStatus == _filtrosStatus[i],
+                                      onTap: () {
+                                        setState(() {
+                                          _filtroStatus = _filtrosStatus[i];
+                                          _pedidosFuture = _seedOrLoadPedidos();
+                                        });
+                                        unawaited(_openPedidosFast());
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                        if (visibleDocs.isEmpty)
+                          SliverFillRemaining(
+                            hasScrollBody: false,
+                            child: _buildEmptyState(tt),
+                          )
+                        else
+                          SliverPadding(
+                            padding: EdgeInsets.only(
+                              left: padding.left,
+                              right: padding.right,
+                              bottom: 96,
+                            ),
+                            sliver: SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, i) =>
+                                    _buildCard(visibleDocs[i]),
+                                childCount: visibleDocs.length,
+                              ),
+                            ),
+                          ),
+                      ],
                     );
                   },
                 ),
               ),
-            ),
-            Expanded(
-              child: ResilientPanelQueryFutureBuilder(
-                future: _pedidosFuture,
-                errorTitle: 'Não foi possível carregar os pedidos de oração',
-                onRetry: () => _refreshPedidos(forceRefresh: true),
-                builder: (context, snap, {required bool showingStaleCache}) {
-                  final docs = snap.docs;
-                  final visibleDocs =
-                      docs.where((d) => _canSee(d.data())).toList();
-
-                  if (visibleDocs.isEmpty) {
-                    return _buildEmptyState();
-                  }
-
-                  return ListView.builder(
-                    padding: EdgeInsets.only(
-                      left: padding.left,
-                      right: padding.right,
-                      bottom: 80,
-                      top: ThemeCleanPremium.spaceXs,
-                    ),
-                    itemCount: visibleDocs.length,
-                    itemBuilder: (_, i) =>
-                        _buildCard(visibleDocs[i]),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(TextTheme tt) {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.volunteer_activism_rounded,
-              size: 64, color: Colors.grey.shade300),
-          const SizedBox(height: ThemeCleanPremium.spaceMd),
-          Text('Nenhum pedido ainda',
-              style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade500)),
-          const SizedBox(height: ThemeCleanPremium.spaceXs),
-          Text('Seja o primeiro a compartilhar um pedido de oração',
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade400)),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(ThemeCleanPremium.spaceXl),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    _PrayerPremiumTheme.rose.withValues(alpha: 0.18),
+                    _PrayerPremiumTheme.violet.withValues(alpha: 0.1),
+                  ],
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: _PrayerPremiumTheme.rose.withValues(alpha: 0.22),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.volunteer_activism_rounded,
+                size: 56,
+                color: _PrayerPremiumTheme.rose,
+              ),
+            ),
+            const SizedBox(height: ThemeCleanPremium.spaceLg),
+            Text(
+              _filtroStatus == 'Todos'
+                  ? 'Nenhum pedido ainda'
+                  : 'Nenhum pedido neste filtro',
+              style: tt.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF1E293B),
+              ),
+            ),
+            const SizedBox(height: ThemeCleanPremium.spaceXs),
+            Text(
+              'Compartilhe um pedido — a igreja ora junto com você',
+              textAlign: TextAlign.center,
+              style: tt.bodySmall?.copyWith(color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: ThemeCleanPremium.spaceLg),
+            FilledButton.icon(
+              onPressed: _abrirFormulario,
+              style: FilledButton.styleFrom(
+                backgroundColor: _PrayerPremiumTheme.rose,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 14,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text(
+                'Pedir Oração',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
-    final nome = data['autorNome'] ?? 'Membro';
-    final texto = data['texto'] ?? '';
-    final categoria = data['categoria'] ?? 'Outro';
+    final nome = (data['autorNome'] ?? 'Membro').toString();
+    final texto = (data['texto'] ?? '').toString();
+    final categoria = (data['categoria'] ?? 'Outro').toString();
     final publico = data['publico'] ?? true;
     final respondida = data['respondida'] ?? false;
     final orandoUids = List<String>.from(data['orandoUids'] ?? []);
@@ -1430,136 +1539,190 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     final uid = _currentUser?.uid;
     final isOrando = uid != null && orandoUids.contains(uid);
 
-    final catBg = _categoriaCores[categoria] ?? Colors.grey.shade100;
-    final catFg = _categoriaTexto[categoria] ?? Colors.grey.shade700;
+    final catFg = categoriaAccent(categoria);
+    final catBg = _categoriaCores[categoria] ?? const Color(0xFFF1F5F9);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: respondida
+              ? const Color(0xFF86EFAC).withValues(alpha: 0.6)
+              : catFg.withValues(alpha: 0.18),
+        ),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: _PrayerPremiumTheme.cardGradient(categoria),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: ThemeCleanPremium.primaryLight.withAlpha(40),
-                  child: Text(
-                    nome.isNotEmpty ? nome[0].toUpperCase() : '?',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: ThemeCleanPremium.primary,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: ThemeCleanPremium.spaceSm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(nome,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 14)),
-                      if (ts != null)
-                        Text(_timeAgo(ts),
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade500)),
-                    ],
-                  ),
-                ),
-                if (_canManage(data))
-                  PopupMenuButton<String>(
-                    iconSize: 20,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                        minWidth: ThemeCleanPremium.minTouchTarget,
-                        minHeight: ThemeCleanPremium.minTouchTarget),
-                    onSelected: (v) {
-                      if (v == 'editar') _abrirFormularioEdicao(doc);
-                      if (v == 'respondida') _marcarRespondida(doc.id);
-                      if (v == 'excluir') _deletar(doc.id);
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(
-                        value: 'editar',
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit_outlined,
-                                size: 18, color: ThemeCleanPremium.primary),
-                            SizedBox(width: 8),
-                            Text('Editar'),
-                          ],
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [catFg, catFg.withValues(alpha: 0.65)],
                         ),
-                      ),
-                      if (!respondida)
-                        const PopupMenuItem(
-                          value: 'respondida',
-                          child: Row(
-                            children: [
-                              Icon(Icons.check_circle_outline_rounded,
-                                  size: 18, color: ThemeCleanPremium.success),
-                              SizedBox(width: 8),
-                              Text('Marcar respondida'),
-                            ],
+                        borderRadius: BorderRadius.circular(14),
+                        boxShadow: [
+                          BoxShadow(
+                            color: catFg.withValues(alpha: 0.35),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
                           ),
-                        ),
-                      const PopupMenuItem(
-                        value: 'excluir',
-                        child: Row(
-                          children: [
-                            Icon(Icons.delete_outline_rounded,
-                                size: 18, color: ThemeCleanPremium.error),
-                            SizedBox(width: 8),
-                            Text('Excluir',
-                                style:
-                                    TextStyle(color: ThemeCleanPremium.error)),
-                          ],
+                        ],
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        nome.isNotEmpty ? nome[0].toUpperCase() : '?',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                          fontSize: 18,
                         ),
                       ),
-                    ],
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            nome,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          if (ts != null)
+                            Text(
+                              _timeAgo(ts),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade500,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (_canManage(data))
+                      PopupMenuButton<String>(
+                        icon: Icon(Icons.more_horiz_rounded,
+                            color: Colors.grey.shade600),
+                        onSelected: (v) {
+                          if (v == 'editar') _abrirFormularioEdicao(doc);
+                          if (v == 'respondida') _marcarRespondida(doc.id);
+                          if (v == 'excluir') _deletar(doc.id);
+                        },
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: 'editar',
+                            child: Row(
+                              children: [
+                                Icon(Icons.edit_outlined,
+                                    size: 18, color: _PrayerPremiumTheme.violet),
+                                SizedBox(width: 8),
+                                Text('Editar'),
+                              ],
+                            ),
+                          ),
+                          if (!respondida)
+                            const PopupMenuItem(
+                              value: 'respondida',
+                              child: Row(
+                                children: [
+                                  Icon(Icons.check_circle_outline_rounded,
+                                      size: 18, color: Color(0xFF16A34A)),
+                                  SizedBox(width: 8),
+                                  Text('Marcar respondida'),
+                                ],
+                              ),
+                            ),
+                          const PopupMenuItem(
+                            value: 'excluir',
+                            child: Row(
+                              children: [
+                                Icon(Icons.delete_outline_rounded,
+                                    size: 18, color: ThemeCleanPremium.error),
+                                SizedBox(width: 8),
+                                Text('Excluir',
+                                    style: TextStyle(
+                                        color: ThemeCleanPremium.error)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  texto,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    height: 1.55,
+                    color: Color(0xFF334155),
+                    fontWeight: FontWeight.w500,
                   ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _badge(categoria, catBg, catFg),
+                    if (!publico &&
+                        data['destinatariosEmails'] is List &&
+                        (data['destinatariosEmails'] as List).isNotEmpty)
+                      _badge(
+                        'Membros selecionados',
+                        const Color(0xFFDBEAFE),
+                        const Color(0xFF1D4ED8),
+                        icon: Icons.people_outline_rounded,
+                      ),
+                    if (!publico &&
+                        (data['destinatariosEmails'] is! List ||
+                            (data['destinatariosEmails'] as List).isEmpty))
+                      _badge(
+                        'Apenas líderes',
+                        const Color(0xFFFFEDD5),
+                        const Color(0xFFEA580C),
+                        icon: Icons.lock_outline_rounded,
+                      ),
+                    if (respondida)
+                      _badge(
+                        'Respondida',
+                        const Color(0xFFDCFCE7),
+                        const Color(0xFF15803D),
+                        icon: Icons.check_circle_rounded,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                const Divider(height: 1, color: Color(0xFFE2E8F0)),
+                const SizedBox(height: 6),
+                _OrandoButton(
+                  isOrando: isOrando,
+                  count: orandoCount is int ? orandoCount : 0,
+                  onTap: () => _toggleOrando(doc.id, orandoUids),
+                ),
               ],
             ),
-            const SizedBox(height: ThemeCleanPremium.spaceSm),
-            Text(texto,
-                style: const TextStyle(fontSize: 15, height: 1.5)),
-            const SizedBox(height: ThemeCleanPremium.spaceSm),
-            Wrap(
-              spacing: ThemeCleanPremium.spaceXs,
-              runSpacing: ThemeCleanPremium.spaceXs,
-              children: [
-                _badge(categoria, catBg, catFg),
-                if (!publico && data['destinatariosEmails'] is List && (data['destinatariosEmails'] as List).isNotEmpty)
-                  _badge('Membros selecionados', const Color(0xFFE3F2FD),
-                      const Color(0xFF1565C0),
-                      icon: Icons.people_outline_rounded),
-                if (!publico && (data['destinatariosEmails'] is! List || (data['destinatariosEmails'] as List).isEmpty))
-                  _badge('Apenas líderes', const Color(0xFFFFF3E0),
-                      const Color(0xFFE65100),
-                      icon: Icons.lock_outline_rounded),
-                if (respondida)
-                  _badge('Respondida!', const Color(0xFFE8F5E9),
-                      ThemeCleanPremium.success,
-                      icon: Icons.check_circle_rounded),
-              ],
-            ),
-            const SizedBox(height: ThemeCleanPremium.spaceSm),
-            const Divider(height: 1),
-            const SizedBox(height: ThemeCleanPremium.spaceXs),
-            _OrandoButton(
-              isOrando: isOrando,
-              count: orandoCount is int ? orandoCount : 0,
-              onTap: () => _toggleOrando(doc.id, orandoUids),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1567,10 +1730,11 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
 
   Widget _badge(String label, Color bg, Color fg, {IconData? icon}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: fg.withValues(alpha: 0.22)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1579,10 +1743,210 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
             Icon(icon, size: 14, color: fg),
             const SizedBox(width: 4),
           ],
-          Text(label,
-              style: TextStyle(
-                  fontSize: 12, fontWeight: FontWeight.w600, color: fg)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: fg,
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _PrayerHeroHeader extends StatelessWidget {
+  const _PrayerHeroHeader({
+    required this.total,
+    required this.pendentes,
+    required this.respondidas,
+    required this.orandoTotal,
+  });
+
+  final int total;
+  final int pendentes;
+  final int respondidas;
+  final int orandoTotal;
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+      decoration: BoxDecoration(
+        gradient: _PrayerPremiumTheme.heroGradient,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: _PrayerPremiumTheme.rose.withValues(alpha: 0.38),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.22),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.volunteer_activism_rounded,
+                  color: Colors.white,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Pedidos de Oração',
+                      style: tt.titleLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    Text(
+                      'Oremos juntos — compartilhe e interceda',
+                      style: tt.labelSmall?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.92),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '$total',
+                style: tt.headlineMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              _PrayerStatPill(label: 'Pendentes', value: pendentes),
+              const SizedBox(width: 8),
+              _PrayerStatPill(label: 'Respondidas', value: respondidas),
+              const SizedBox(width: 8),
+              _PrayerStatPill(label: 'Orando', value: orandoTotal),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PrayerStatPill extends StatelessWidget {
+  const _PrayerStatPill({required this.label, required this.value});
+
+  final String label;
+  final int value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.18),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+        ),
+        child: Column(
+          children: [
+            Text(
+              '$value',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 16,
+              ),
+            ),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PrayerFilterChip extends StatelessWidget {
+  const _PrayerFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: selected ? _PrayerPremiumTheme.heroGradient : null,
+            color: selected ? null : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected
+                  ? _PrayerPremiumTheme.rose.withValues(alpha: 0.5)
+                  : const Color(0xFFE2E8F0),
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: _PrayerPremiumTheme.rose.withValues(alpha: 0.28),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : ThemeCleanPremium.softUiCardShadow,
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          child: Center(
+            child: Text(
+              label,
+              maxLines: 2,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                color: selected ? Colors.white : const Color(0xFF475569),
+                height: 1.15,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1645,7 +2009,7 @@ class _OrandoButtonState extends State<_OrandoButton>
                   Icons.volunteer_activism_rounded,
                   size: 20,
                   color: widget.isOrando
-                      ? ThemeCleanPremium.primary
+                      ? _PrayerPremiumTheme.rose
                       : Colors.grey.shade400,
                 ),
               ),
@@ -1655,9 +2019,9 @@ class _OrandoButtonState extends State<_OrandoButton>
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight:
-                      widget.isOrando ? FontWeight.w700 : FontWeight.w500,
+                      widget.isOrando ? FontWeight.w800 : FontWeight.w600,
                   color: widget.isOrando
-                      ? ThemeCleanPremium.primary
+                      ? _PrayerPremiumTheme.rose
                       : Colors.grey.shade600,
                 ),
               ),
@@ -1665,21 +2029,24 @@ class _OrandoButtonState extends State<_OrandoButton>
                 const SizedBox(width: 6),
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: widget.isOrando
-                        ? ThemeCleanPremium.primaryLight.withAlpha(30)
-                        : Colors.grey.shade200,
+                    gradient: LinearGradient(
+                      colors: [
+                        _PrayerPremiumTheme.rose.withValues(alpha: 0.2),
+                        _PrayerPremiumTheme.violet.withValues(alpha: 0.14),
+                      ],
+                    ),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Text('${widget.count}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: widget.isOrando
-                            ? ThemeCleanPremium.primary
-                            : Colors.grey.shade600,
-                      )),
+                  child: Text(
+                    '${widget.count}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      color: _PrayerPremiumTheme.rose,
+                    ),
+                  ),
                 ),
               ],
             ],

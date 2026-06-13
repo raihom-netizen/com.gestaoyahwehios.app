@@ -97,13 +97,24 @@ abstract final class MemberProfileVariantsService {
     if (data == null) return null;
     final thumbPath = MemberImageFields.photoThumbStoragePath(data);
     if (thumbPath != null && thumbPath.isNotEmpty) return thumbPath;
+    final thumbHttps = MemberImageFields.photoThumbDownloadUrl(data);
+    if (thumbHttps != null && thumbHttps.isNotEmpty) return thumbHttps;
+    final httpsFull = MemberImageFields.photoDownloadUrl(data);
+    if (httpsFull != null && httpsFull.isNotEmpty) return httpsFull;
     for (final k in [
       'photoThumbStoragePath',
       'fotoThumbPath',
-      'photoStoragePath',
-      'fotoPath',
+      'fotoThumbUrl',
+      'photoThumbUrl',
       YahwehPerformanceV4.profileThumbField,
       YahwehPerformanceV4.profileThumbFieldLegacy,
+      'photoStoragePath',
+      'fotoPath',
+      'fotoUrl',
+      'FOTO_URL_OU_ID',
+      'foto_url',
+      'photoUrl',
+      'photoURL',
       YahwehPerformanceV4.profileFullField,
     ]) {
       final thumb = (data[k] ?? '').toString().trim();
@@ -129,16 +140,18 @@ abstract final class MemberProfileVariantsService {
   /// URL full — carteirinha, PDF, ecrã de perfil detalhado.
   static String? profilePhotoUrl(Map<String, dynamic>? data) {
     if (data == null) return null;
+    final https = MemberImageFields.photoDownloadUrl(data);
+    if (https != null && https.isNotEmpty) return https;
     final storagePath = MemberImageFields.photoStoragePath(data);
     if (storagePath != null && storagePath.isNotEmpty) return storagePath;
     for (final k in [
-      'photoStoragePath',
       'fotoPath',
       YahwehPerformanceV4.profileFullField,
       'foto_url',
       'FOTO_URL_OU_ID',
       'photoURL',
       'photoUrl',
+      'fotoUrl',
     ]) {
       final s = (data[k] ?? '').toString().trim();
       if (s.isEmpty) continue;

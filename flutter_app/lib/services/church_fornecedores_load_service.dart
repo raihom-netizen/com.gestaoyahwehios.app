@@ -262,6 +262,15 @@ abstract final class ChurchFornecedoresLoadService {
     }
 
     Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
+      if (kIsWeb) {
+        final plainSnap = await FirestoreReadResilience.getQuery(
+          plain(reference),
+          cacheKey: '${cacheKey}_plain',
+          maxAttempts: 4,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        );
+        if (plainSnap.docs.isNotEmpty) return plainSnap;
+      }
       try {
         return await FirestoreReadResilience.getQuery(
           ordered(reference),

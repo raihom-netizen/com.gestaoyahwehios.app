@@ -33,7 +33,9 @@ abstract final class FinanceComprovanteAttachService {
 
   static bool hasComprovanteInDoc(Map<String, dynamic> data) {
     if (data['hasComprovante'] == true) return true;
-    final url = (data['comprovanteUrl'] ?? '').toString().trim();
+    final url = (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
+        .toString()
+        .trim();
     final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
     if (url.isNotEmpty || path.isNotEmpty) return true;
     final state = (data['comprovanteUploadState'] ?? '').toString();

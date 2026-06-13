@@ -254,20 +254,40 @@ abstract final class ChurchPatrimonioLoadService {
     if (churchId.isEmpty) return const [];
 
     Future<QuerySnapshot<Map<String, dynamic>>> read() async {
+      final cacheKey =
+          '${churchId}_patrimonio_page_${startAfter?.id ?? '0'}_$limit';
+      Future<QuerySnapshot<Map<String, dynamic>>> plainRead() =>
+          FirestoreReadResilience.getQuery(
+            ChurchUiCollections.patrimonio(churchId).limit(limit),
+            cacheKey: '${cacheKey}_plain',
+            maxAttempts: kIsWeb ? 4 : 3,
+            attemptTimeout: ChurchPanelReadTimeouts.attempt,
+          );
+
+      if (kIsWeb) {
+        final plain = await plainRead();
+        if (plain.docs.isNotEmpty) {
+          return MergedFirestoreQuerySnapshot(_sortByNome(plain.docs));
+        }
+      }
+
       var q = ChurchUiCollections.patrimonio(churchId)
           .orderBy('nome')
           .limit(limit);
       if (startAfter != null) {
         q = q.startAfterDocument(startAfter);
       }
-      final cacheKey =
-          '${churchId}_patrimonio_page_${startAfter?.id ?? '0'}_$limit';
-      return FirestoreReadResilience.getQuery(
-        q,
-        cacheKey: cacheKey,
-        maxAttempts: kIsWeb ? 4 : 3,
-        attemptTimeout: ChurchPanelReadTimeouts.attempt,
-      );
+      try {
+        return await FirestoreReadResilience.getQuery(
+          q,
+          cacheKey: cacheKey,
+          maxAttempts: kIsWeb ? 4 : 3,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        );
+      } catch (_) {
+        final plain = await plainRead();
+        return MergedFirestoreQuerySnapshot(_sortByNome(plain.docs));
+      }
     }
 
     if (kIsWeb) {
@@ -326,6 +346,15 @@ abstract final class ChurchPatrimonioLoadService {
     }
 
     Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
+      if (kIsWeb) {
+        final plainSnap = await FirestoreReadResilience.getQuery(
+          plain(reference),
+          cacheKey: '${cacheKey}_plain',
+          maxAttempts: 4,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        );
+        if (plainSnap.docs.isNotEmpty) return plainSnap;
+      }
       try {
         return await FirestoreReadResilience.getQuery(
           ordered(reference),

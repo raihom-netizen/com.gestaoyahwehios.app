@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/services/app_shell_session_cache.dart';
+import 'package:gestao_yahweh/services/auth_gate_panel_access_service.dart';
 import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -16,7 +17,7 @@ class AuthProfileCacheService {
   AuthProfileCacheService._();
   static final AuthProfileCacheService instance = AuthProfileCacheService._();
 
-  static const _keyPrefix = 'auth_gate_profile_json_v1_';
+  static const _keyPrefix = 'auth_gate_profile_json_v2_';
 
   final Map<String, Map<String, dynamic>> _memory = {};
   final List<AuthProfileCacheListener> _listeners = [];
@@ -52,6 +53,9 @@ class AuthProfileCacheService {
     if (u.isEmpty) return null;
     final m = _memory[u];
     if (m == null || m.isEmpty) return null;
+    if (AuthGateProfileCachePolicy.requiresOnlineVerification(m)) {
+      return null;
+    }
     return Map<String, dynamic>.from(m);
   }
 
@@ -72,10 +76,14 @@ class AuthProfileCacheService {
     if (u.isEmpty) return;
     _memory[u] = Map<String, dynamic>.from(profile);
     _notifyListeners(u, profile);
+    if (!AuthGateProfileCachePolicy.shouldPersistToDisk(profile)) {
+      return;
+    }
     try {
       final enc = firestoreToJsonSafe(profile);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('$_keyPrefix$u', jsonEncode(enc));
+      await prefs.remove('auth_gate_profile_json_v1_$u');
     } catch (_) {}
   }
 
@@ -88,7 +96,8 @@ class AuthProfileCacheService {
     }
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('$_keyPrefix$u');
+      var raw = prefs.getString('$_keyPrefix$u');
+      raw ??= prefs.getString('auth_gate_profile_json_v1_$u');
       if (raw == null || raw.isEmpty) return null;
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return null;
@@ -96,9 +105,13 @@ class AuthProfileCacheService {
         _fromJsonSafe(decoded) as Map<dynamic, dynamic>,
       );
       final restored = _restoreFirestoreTimestampsDeep(m) as Map<String, dynamic>;
-      if ((restored['igrejaId'] ?? '').toString().trim().isNotEmpty) {
-        _memory[u] = restored;
+      if ((restored['igrejaId'] ?? '').toString().trim().isEmpty) {
+        return null;
       }
+      if (AuthGateProfileCachePolicy.requiresOnlineVerification(restored)) {
+        return null;
+      }
+      _memory[u] = restored;
       return restored;
     } catch (_) {
       return null;
@@ -146,6 +159,7 @@ class AuthProfileCacheService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('$_keyPrefix$u');
+      await prefs.remove('auth_gate_profile_json_v1_$u');
     } catch (_) {}
   }
 }

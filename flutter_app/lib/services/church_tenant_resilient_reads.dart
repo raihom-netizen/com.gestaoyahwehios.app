@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_pedidos_oracao_load_service.dart';
+import 'package:gestao_yahweh/services/church_visitantes_load_service.dart';
 import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
@@ -485,62 +486,13 @@ abstract final class ChurchTenantResilientReads {
   static Future<QuerySnapshot<Map<String, dynamic>>> visitantes(
     String tenantId, {
     int limit = 400,
-  }) =>
-      TenantStaleWhileRevalidate.loadQuery(
-        tenantId: tenantId,
-        module: TenantModuleKeys.visitantes,
-        firestoreCacheKey: _key(tenantId, 'visitantes_$limit'),
-        networkFetch: () => _queryWithSiblingFallback(
-          tenantId,
-          (tid) => _visitantesQueryResilient(tid, limit: limit),
-        ),
-      );
-
-  static DateTime? _visitanteCreatedAt(Map<String, dynamic> data) {
-    final raw = data['createdAt'];
-    if (raw is Timestamp) return raw.toDate();
-    if (raw is DateTime) return raw;
-    return null;
+  }) async {
+    final r = await ChurchVisitantesLoadService.load(
+      seedTenantId: tenantId,
+      limit: limit,
+    );
+    return r.snapshot;
   }
-
-  static QuerySnapshot<Map<String, dynamic>> _sortVisitantesSnapshot(
-    QuerySnapshot<Map<String, dynamic>> snap,
-  ) {
-    final sorted =
-        List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(snap.docs);
-    sorted.sort((a, b) {
-      final ta = _visitanteCreatedAt(a.data()) ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-      final tb = _visitanteCreatedAt(b.data()) ??
-          DateTime.fromMillisecondsSinceEpoch(0);
-      return tb.compareTo(ta);
-    });
-    return MergedFirestoreQuerySnapshot(sorted);
-  }
-
-  /// Sem [preparePanelRead] — cache-first; plain query se faltar índice/campo createdAt.
-  static Future<QuerySnapshot<Map<String, dynamic>>> _visitantesQueryResilient(
-    String tenantId, {
-    int limit = 400,
-  }) =>
-      FirestoreWebGuard.runWithWebRecovery(() async {
-        final church = _church(tenantId);
-        try {
-          return await FirestoreReadResilience.getQuery(
-            church
-                .collection('visitantes')
-                .orderBy('createdAt', descending: true)
-                .limit(limit),
-            cacheKey: _key(tenantId, 'visitantes_$limit'),
-          );
-        } catch (_) {
-          final plain = await FirestoreReadResilience.getQuery(
-            church.collection('visitantes').limit(limit),
-            cacheKey: _key(tenantId, 'visitantes_plain_$limit'),
-          );
-          return _sortVisitantesSnapshot(plain);
-        }
-      });
 
   static Future<QuerySnapshot<Map<String, dynamic>>> membrosRecent(
     String tenantId, {

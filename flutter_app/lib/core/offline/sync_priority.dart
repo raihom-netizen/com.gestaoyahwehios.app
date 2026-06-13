@@ -81,6 +81,7 @@ abstract final class SyncPriority {
     'membros',
     'escalas',
     'mural',
+    'module_media',
     'storage',
     'bootstrap',
     'visitantes',

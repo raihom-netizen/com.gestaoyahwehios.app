@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/dashboard/church_ministry_intel.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart';
@@ -30,8 +31,8 @@ class PastoralAttentionMemberCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasPhone = alert.phoneDigits.trim().length >= 10;
-    final foto = imageUrlFromMap(memberData);
-    final hasFoto = isValidImageUrl(foto);
+    final foto = MemberProfilePhotoResolver.displayRef(memberData, preferThumb: true);
+    final hasFoto = MemberProfilePhotoResolver.hasPhotoRef(memberData, preferThumb: true);
     final avatarColor =
         avatarColorForMember(memberData, hasPhoto: hasFoto);
     final cpf = alert.cpfDigits.length == 11 ? alert.cpfDigits : null;
@@ -69,7 +70,7 @@ class PastoralAttentionMemberCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 FotoMembroWidget(
-                  imageUrl: hasFoto ? foto : null,
+                  imageUrl: foto,
                   memberData: memberData,
                   tenantId: tenantId,
                   memberId: alert.memberId,
