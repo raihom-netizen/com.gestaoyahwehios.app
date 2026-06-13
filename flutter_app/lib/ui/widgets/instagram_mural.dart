@@ -15,7 +15,6 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_resume_state_service.dart';
@@ -44,6 +43,7 @@ import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
+import 'package:gestao_yahweh/services/church_cadastro_address_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
@@ -275,7 +275,7 @@ class InstagramMuralState extends State<InstagramMural> {
   final _feedSearchCtrl = TextEditingController();
   String _lastFeedMediaWarmupKey = '';
   String? _firestoreTenantId;
-  String get _tid => ChurchPanelTenant.resolve(
+  String get _tid => ChurchRepository.churchId(
         (_firestoreTenantId ?? '').isNotEmpty
             ? _firestoreTenantId
             : widget.tenantId,
@@ -537,7 +537,7 @@ class InstagramMuralState extends State<InstagramMural> {
       }
       return;
     }
-    final igrejaId = ChurchPanelTenant.resolve(widget.tenantId);
+    final igrejaId = ChurchRepository.churchId(widget.tenantId);
     final postsCollection = type == 'evento'
         ? ChurchUiCollections.churchDoc(igrejaId)
             .collection(ChurchTenantPostsCollections.eventos)
@@ -2187,7 +2187,10 @@ class _PostCardState extends State<_PostCard>
                                   final refStr = muralFeedPhotoRefAt(
                                       data, idx, muralPhotos);
                                   final pathFs = eventNoticiaPhotoStoragePathAt(
-                                      data, idx);
+                                    data,
+                                    idx,
+                                    docIdHint: widget.doc.id,
+                                  );
                                   final ps =
                                       _muralStableParamsFromRef(refStr);
                                   final pathCombined =
@@ -2557,7 +2560,10 @@ class _PostCardState extends State<_PostCard>
                                   photoSlideBuilder: (c, i) {
                                     final pathFs =
                                         eventNoticiaPhotoStoragePathAt(
-                                            data, i);
+                                      data,
+                                      i,
+                                      docIdHint: widget.doc.id,
+                                    );
                                     final ps =
                                         _muralStableParamsFromRef(mp[i]);
                                     final pathCombined =
@@ -3568,6 +3574,42 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     } catch (_) {}
     _publicSite = data['publicSite'] != false;
     unawaited(_resolveOperationalTenantForEditor());
+    unawaited(_preloadChurchAddress());
+  }
+
+  Future<void> _preloadChurchAddress() async {
+    if (_useChurchLocation && (_churchAddressText ?? '').trim().isNotEmpty) {
+      return;
+    }
+    final peek = await ChurchCadastroAddressService.peekLocal(
+      widget.resolvedTenantId,
+    );
+    if (!mounted || peek == null || !peek.hasAddress) return;
+    setState(() {
+      _operationalTenantId = peek.churchId;
+      if (!_useChurchLocation && _logradouro.text.trim().isEmpty) {
+        _churchAddressText = peek.formattedLine;
+      }
+    });
+  }
+
+  void _applyAddressFromTenantData(String churchId, Map<String, dynamic> data) {
+    final endereco = ChurchCadastroAddressService.formatAddress(data);
+    if (endereco.isEmpty) return;
+    final lat = data['latitude'];
+    final lng = data['longitude'];
+    setState(() {
+      _operationalTenantId = churchId;
+      _useChurchLocation = true;
+      _churchAddressText = endereco;
+      _fillManualFieldsFromTenant(data);
+      _locationLat = lat is num
+          ? lat.toDouble()
+          : (lat != null ? double.tryParse(lat.toString()) : null);
+      _locationLng = lng is num
+          ? lng.toDouble()
+          : (lng != null ? double.tryParse(lng.toString()) : null);
+    });
   }
 
   Future<void> _resolveOperationalTenantForEditor() async {
@@ -3578,7 +3620,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     } catch (_) {}
   }
 
-  String get _editorTenantId => ChurchPanelTenant.resolve(
+  String get _editorTenantId => ChurchRepository.churchId(
         (_operationalTenantId ?? '').isNotEmpty
             ? _operationalTenantId
             : widget.resolvedTenantId,
@@ -3690,10 +3732,36 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     if (_loadingChurchAddress) return;
     setState(() => _loadingChurchAddress = true);
     try {
-      final loaded = await ChurchCadastroLoadService.load(
-        seedTenantId: _editorTenantId,
+      final churchId = ChurchRepository.churchId(
+        _operationalTenantId ?? widget.resolvedTenantId,
       );
-      if (loaded.data.isEmpty) {
+
+      final peek = await ChurchCadastroAddressService.peekLocal(churchId);
+      if (peek != null && peek.hasAddress) {
+        if (mounted) {
+          _applyAddressFromTenantData(peek.churchId, peek.data);
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar(
+              'Endereço da igreja aplicado. Use «Definir por CEP / manual» para outro local.',
+            ),
+          );
+        }
+        unawaited(
+          ChurchCadastroAddressService.load(
+            seedTenantId: churchId,
+            forceRefresh: true,
+          ).then((fresh) {
+            if (!mounted || !fresh.hasAddress) return;
+            _applyAddressFromTenantData(fresh.churchId, fresh.data);
+          }),
+        );
+        return;
+      }
+
+      final loaded = await ChurchCadastroAddressService.load(
+        seedTenantId: churchId,
+      );
+      if (!loaded.hasAddress) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
@@ -3705,32 +3773,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         }
         return;
       }
-      final data = loaded.data;
-      final endereco = _buildEnderecoFromTenant(data);
-      if (endereco.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-                'Cadastre o endereço da igreja em Cadastro da Igreja primeiro.'),
-          );
-        }
-        return;
-      }
-      final lat = data['latitude'];
-      final lng = data['longitude'];
       if (mounted) {
-        setState(() {
-          _operationalTenantId = loaded.churchId;
-          _useChurchLocation = true;
-          _churchAddressText = endereco;
-          _fillManualFieldsFromTenant(data);
-          _locationLat = lat is num
-              ? lat.toDouble()
-              : (lat != null ? double.tryParse(lat.toString()) : null);
-          _locationLng = lng is num
-              ? lng.toDouble()
-              : (lng != null ? double.tryParse(lng.toString()) : null);
-        });
+        _applyAddressFromTenantData(loaded.churchId, loaded.data);
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
             'Endereço da igreja aplicado. Use «Definir por CEP / manual» para outro local.',
@@ -4569,7 +4613,12 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       );
       await _showPublishVerifiedSuccess(isNewDoc: isNewDoc);
     } catch (e, st) {
-      if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
+      final pending = _newPhotosForPublish();
+      final hasPendingPhotos = pending.bytes?.isNotEmpty == true ||
+          pending.paths?.isNotEmpty == true;
+      final isAvisoWithPhotos = widget.type == 'aviso' && hasPendingPhotos;
+      if (!isAvisoWithPhotos &&
+          EcoFireResilientPublish.treatAsSilentSuccess(e)) {
         if (widget.type == 'evento') {
           _clearNewPhotosAfterPublish();
           EventosPublishVerificationService.clearLastError();
@@ -4592,6 +4641,8 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       final msg = e.toString();
       final verifyFailed = msg.contains('Documento não localizado no Firestore') ||
           msg.contains(AvisosPublishVerificationService.kPublishVerifyFailedMessage) ||
+          msg.contains(AvisosPublishVerificationService.kStorageVerifyFailedMessage) ||
+          msg.contains(AvisosPublishVerificationService.kPhotosVerifyFailedMessage) ||
           msg.contains(EventosPublishVerificationService.kPublishVerifyFailedMessage) ||
           msg.contains(EventosPublishVerificationService.kStorageVerifyFailedMessage);
       final isAssertionOrPerm = msg.contains('INTERNAL ASSERTION') ||
@@ -4609,9 +4660,16 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           await _retryPublishFirestoreFirst();
           if (widget.type == 'aviso') {
             final ctx = await _prepareAvisoPublishContext();
-            await AvisosPublishVerificationService.verifyDocumentExists(
-              ctx.docRef,
-            );
+            if (hasPendingPhotos) {
+              await AvisosPublishVerificationService.verifyPublishedMedia(
+                ctx.docRef,
+                minPhotos: 1,
+              );
+            } else {
+              await AvisosPublishVerificationService.verifyDocumentExists(
+                ctx.docRef,
+              );
+            }
             AvisosPublishVerificationService.clearLastError();
           } else if (widget.type == 'evento') {
             final ctx = await _prepareEventoPublishContext();

@@ -14,7 +14,6 @@ import 'package:gestao_yahweh/services/member_document_resolve.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
-import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/church_patrimonio_load_service.dart';
@@ -29,7 +28,6 @@ import 'package:gestao_yahweh/services/church_visitantes_load_service.dart';
 import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -51,8 +49,8 @@ abstract final class ChurchTenantResilientReads {
     if (bound.isNotEmpty) return bound;
     final hint = tenantId.trim();
     if (hint.isEmpty) return '';
-    final panel = ChurchContextService.panelChurchId(hint);
-    return panel.isNotEmpty ? panel : hint;
+    final id = ChurchRepository.churchId(hint);
+    return id.isNotEmpty ? id : hint;
   }
 
   /// Regra 8 — permission-denied / rede: re-resolve tenant e refaz leitura.
@@ -117,8 +115,8 @@ abstract final class ChurchTenantResilientReads {
     String seed, {
     String? userUid,
   }) async {
-    final direct = ChurchContextService.panelChurchId(seed);
-    return direct.isNotEmpty ? direct : seed.trim();
+    final id = ChurchRepository.churchId(seed);
+    return id.isNotEmpty ? id : seed.trim();
   }
 
   /// Endereço / formulário — tenant operacional + cache, sem desligar rede.
@@ -1413,24 +1411,6 @@ abstract final class ChurchTenantResilientReads {
       final snap = await tryTenant(primary);
       if (snap != null && snap.exists) return snap;
     } catch (_) {}
-
-    final siblings = TenantResolverService.orderedSiblingsForReadFallback(
-      primary,
-      await TenantResolverService.getAllRelatedIgrejaDocIds(primary),
-    );
-    for (final sid in siblings) {
-      try {
-        final snap = await tryTenant(sid);
-        if (snap != null && snap.exists) {
-          TenantResolverService.rememberModuleReadTenantId(
-            seed,
-            sid,
-            userUid: userUid,
-          );
-          return snap;
-        }
-      } catch (_) {}
-    }
     return null;
   }
 

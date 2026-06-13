@@ -79,7 +79,11 @@ abstract final class ChatPublishVerificationService {
       await ChurchStorageMetadataVerify.assertExists(storagePath);
       final thumb = thumbStoragePath?.trim() ?? '';
       if (thumb.isNotEmpty) {
-        await ChurchStorageMetadataVerify.assertExists(thumb);
+        try {
+          await ChurchStorageMetadataVerify.assertExists(thumb);
+        } catch (_) {
+          // Miniatura opcional — não bloquear envio se só o full existir.
+        }
       }
     } catch (e) {
       rememberLastError(kStorageVerifyFailedMessage);

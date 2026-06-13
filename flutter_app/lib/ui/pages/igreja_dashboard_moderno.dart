@@ -48,6 +48,7 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/panel_finance_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
+import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/yahweh_panel_cache_warmup.dart';
 import 'package:gestao_yahweh/core/utils/independent_futures.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -102,6 +103,7 @@ import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_engagement_controller.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
+import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
 import 'dart:ui' show ImageFilter;
 import 'igreja_cadastro_page.dart';
 import 'members_page.dart';
@@ -561,6 +563,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     final tenantRef = ChurchRepository.churchDoc(op);
     final avisosQ = tenantRef
         .collection(ChurchTenantPostsCollections.avisos)
+        .where('publicado', isEqualTo: true)
+        .where('ativo', isEqualTo: true)
         .orderBy('createdAt', descending: true)
         .limit(10);
     final eventosQ = tenantRef
@@ -5141,19 +5145,14 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
       _recentDespesasFuture = null;
       return;
     }
-    _recentDespesasFuture = ChurchFinanceRealtimeService.fetchFinanceFresh(
-      tid,
+    _recentDespesasFuture = ChurchFinanceLoadService.loadLancamentos(
+      seedTenantId: tid,
       limit: 180,
-    );
+    ).then((r) => r.snapshot);
   }
 
-  static bool _ehDespesa(Map<String, dynamic> data) {
-    final t = (data['tipo'] ?? data['type'] ?? '').toString().toLowerCase();
-    return t.contains('saida') ||
-        t.contains('despesa') ||
-        t.contains('saída') ||
-        t == 'saida';
-  }
+  static bool _ehDespesa(Map<String, dynamic> data) =>
+      financeIsSaida(data);
 
   static DateTime? _dataDoc(Map<String, dynamic> data) {
     final raw = data['createdAt'] ?? data['date'] ?? data['data'];
@@ -5875,9 +5874,15 @@ class _DestaqueAvisos extends StatelessWidget {
           }
           final now = DateTime.now();
           final docs = (snap.data?.docs ?? []).where((d) {
-            final type = (d.data()['type'] ?? '').toString().toLowerCase();
+            final data = d.data();
+            final type = (data['type'] ?? '').toString().toLowerCase();
             if (type == 'evento') return false;
-            final v = d.data()['validUntil'];
+            if (data['ativo'] == false) return false;
+            if (data['publicado'] == false) return false;
+            if ((data['status'] ?? '').toString().trim() == 'erro') {
+              return false;
+            }
+            final v = data['validUntil'];
             if (v == null) return true;
             if (v is Timestamp) return v.toDate().isAfter(now);
             return true;
@@ -6133,7 +6138,8 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
     final vids = eventNoticiaVideosFromDoc(data);
     final videoUrl =
         vids.isNotEmpty ? (vids.first['videoUrl'] ?? '').toString().trim() : '';
-    final storagePath = eventNoticiaPhotoStoragePathAt(data, 0)?.trim() ?? '';
+    final storagePath =
+        eventNoticiaPhotoStoragePathAt(data, 0, docIdHint: d.id)?.trim() ?? '';
     return <String, dynamic>{
       'title': data['title'],
       'startAt': data['startAt'],
@@ -6143,6 +6149,7 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
       'location': (data['location'] ?? data['local'] ?? '').toString().trim(),
       'videoUrl': videoUrl,
       'photoStoragePath': storagePath,
+      'docId': d.id,
     };
   }).toList();
 
@@ -7189,9 +7196,19 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
             final u = (data['imageUrl'] ?? '').toString().trim();
             if (u.isNotEmpty) imageUrl = sanitizeImageUrl(u);
           }
-          final path0 = eventNoticiaPhotoStoragePathAt(data, 0);
+          final path0 = () {
+            final fromMap = (data['photoStoragePath'] ?? '').toString().trim();
+            if (fromMap.isNotEmpty) return fromMap;
+            final docId = (data['docId'] ?? '').toString().trim();
+            return eventNoticiaPhotoStoragePathAt(
+                  data,
+                  0,
+                  docIdHint: docId.isNotEmpty ? docId : null,
+                )?.trim() ??
+                '';
+          }();
           final hasPhoto =
-              imageUrl.isNotEmpty || (path0 != null && path0.isNotEmpty);
+              imageUrl.isNotEmpty || path0.isNotEmpty;
           DateTime? dt;
           try {
             dt = (data['startAt'] as Timestamp).toDate();
@@ -7276,6 +7293,7 @@ List<String> _painelDestaqueGalleryPhotos(Map<String, dynamic> d) {
 /// Carrossel estilo Instagram no Painel — fotos (paths Storage) + vídeo embutido (web) ou miniatura + play.
 class _PainelDestaqueMediaCarousel extends StatefulWidget {
   final Map<String, dynamic> data;
+  final String docId;
   final bool isEvento;
   final String title;
   /// Toque numa foto: ampliar (site público), sem abrir tela cheia ao tocar no card inteiro.
@@ -7289,6 +7307,7 @@ class _PainelDestaqueMediaCarousel extends StatefulWidget {
 
   const _PainelDestaqueMediaCarousel({
     required this.data,
+    required this.docId,
     required this.isEvento,
     required this.title,
     this.onGalleryPhotoTap,
@@ -7459,7 +7478,11 @@ class _PainelDestaqueMediaCarouselState
                   final dpr = MediaQuery.devicePixelRatioOf(ctx2);
                   final memW = (w * dpr).round().clamp(64, 1200);
                   final memH = (h * dpr).round().clamp(64, 1200);
-                  final pathFs = eventNoticiaPhotoStoragePathAt(d, idx);
+                  final pathFs = eventNoticiaPhotoStoragePathAt(
+                    d,
+                    idx,
+                    docIdHint: widget.docId,
+                  );
                   final ps = _painelDestaqueStableParamsFromRef(refs[idx]);
                   // Path derivado do próprio ref tem prioridade — evita misturar imageStoragePaths[0] com foto[1].
                   final spMerged = (ps.storagePath != null &&
@@ -7997,7 +8020,18 @@ class _DestaqueCardState extends State<_DestaqueCard> {
             widget.doc.reference) ==
         ChurchTenantPostsCollections.avisos;
     final galleryRefs = yahwehPostGalleryRefs(data);
-    final galleryPhotos = _painelDestaqueGalleryPhotos(data);
+    var galleryPhotos = _painelDestaqueGalleryPhotos(data);
+    if (galleryPhotos.isEmpty) {
+      final sp = eventNoticiaPhotoStoragePathAt(
+        data,
+        0,
+        docIdHint: widget.doc.id,
+        churchIdHint: widget.tenantId,
+      );
+      if (sp != null && sp.isNotEmpty) {
+        galleryPhotos = [sp];
+      }
+    }
     var firstImg = '';
     for (final raw in galleryRefs) {
       final s = sanitizeImageUrl(raw);
@@ -8024,7 +8058,13 @@ class _DestaqueCardState extends State<_DestaqueCard> {
                 firebaseStorageMediaUrlLooksLike(firstImg))
         ? firstImg
         : '';
-    final storagePathPrimary = eventNoticiaImageStoragePath(data);
+    final storagePathPrimary = eventNoticiaPhotoStoragePathAt(
+          data,
+          0,
+          docIdHint: widget.doc.id,
+          churchIdHint: widget.tenantId,
+        ) ??
+        eventNoticiaImageStoragePath(data);
     final hasVideo = vids.isNotEmpty ||
         videoUrl.isNotEmpty ||
         (displayThumbAll != null && displayThumbAll.isNotEmpty);
@@ -8114,6 +8154,7 @@ class _DestaqueCardState extends State<_DestaqueCard> {
     final carouselOrImage = showCarousel
         ? _PainelDestaqueMediaCarousel(
             data: data,
+            docId: widget.doc.id,
             isEvento: isEvento,
             title: title,
             onGalleryPhotoTap: galleryPhotos.isEmpty

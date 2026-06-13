@@ -3,9 +3,11 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -40,7 +42,10 @@ abstract final class ChurchCadastroSaveService {
     await prepareForSave();
 
     final payload = FirestoreWriteGuard.stripHeavyFields(
-      Map<String, dynamic>.from(data),
+      ChurchTenantFields.stamp(
+        cid,
+        Map<String, dynamic>.from(data),
+      ),
     );
     if (!payload.containsKey('updatedAt')) {
       payload['updatedAt'] = FieldValue.serverTimestamp();
@@ -71,5 +76,6 @@ abstract final class ChurchCadastroSaveService {
         data: payload,
       ).catchError((_) {}),
     );
+    ChurchContextService.bindChurchData(churchId: cid, data: payload);
   }
 }

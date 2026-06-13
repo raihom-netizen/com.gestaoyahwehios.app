@@ -60,21 +60,38 @@ if is_ci; then
     LATEST="$FLOOR"
   fi
   TS="$(date +%s)"
-  # Sempre > último enviado; offset (BUILD_NUMBER) sobe a cada build novo na Codemagic.
-  BN=$(( LATEST + OFFSET ))
+  # Base = maior número conhecido (ASC, floor repo, timestamp).
+  BASE="$LATEST"
+  if [ "$FLOOR" -gt "$BASE" ]; then
+    BASE="$FLOOR"
+  fi
+  if [ "$TS" -gt "$BASE" ]; then
+    BASE="$TS"
+  fi
+
+  # Sempre estritamente > BASE; OFFSET (= BUILD_NUMBER Codemagic) evita colisão entre builds paralelos.
+  BN=$(( BASE + 1 + OFFSET ))
+
+  # CM_BUILD_ID único por execução — barreira extra se dois builds partilharem o mesmo OFFSET.
+  if [ -n "${CM_BUILD_ID:-}" ] && [[ "${CM_BUILD_ID}" =~ ^[0-9]+$ ]]; then
+    TAIL=$(( CM_BUILD_ID % 500 ))
+    ALT=$(( BASE + 1 + OFFSET + TAIL ))
+    if [ "$ALT" -gt "$BN" ]; then
+      BN="$ALT"
+    fi
+  fi
+
+  if [ "$BN" -le "$BASE" ]; then
+    BN=$(( BASE + 1 ))
+  fi
   if [ "$BN" -le "$LATEST" ]; then
-    BN=$(( LATEST + 1 ))
+    BN=$(( LATEST + 1 + OFFSET ))
   fi
   if [ "$BN" -le "$FLOOR" ]; then
-    BN=$(( FLOOR + 1 ))
+    BN=$(( FLOOR + 1 + OFFSET ))
   fi
-  if [ "$BN" -lt "$TS" ]; then
-    BN=$(( TS + OFFSET ))
-  fi
-  if [ "$BN" -le "$LATEST" ] || [ "$BN" -le "$FLOOR" ]; then
-    BN=$(( (LATEST > FLOOR ? LATEST : FLOOR) + 1 ))
-  fi
-  echo "CI: CFBundleVersion=$BN (ASC/floor último=$LATEST floor_repo=$FLOOR offset=$OFFSET ts=$TS)"
+
+  echo "CI: CFBundleVersion=$BN (base=$BASE ASC=$LATEST floor_repo=$FLOOR offset=$OFFSET ts=$TS)"
   echo "     CM_BUILD_ID=${CM_BUILD_ID:-?} CM_BUILD_NUMBER=${CM_BUILD_NUMBER:-?}"
   echo "     NÃO usar Retry só no passo Publishing — gera o mesmo .ipa e erro 90189."
 else

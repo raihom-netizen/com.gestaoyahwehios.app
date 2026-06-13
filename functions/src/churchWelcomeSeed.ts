@@ -14,6 +14,7 @@ import {
 import { recomputePanelDashboardSummary } from "./panelDashboardCache";
 import { recomputePanelFinanceSummary } from "./panelFinanceSummary";
 import { writePanelStatisticsCache } from "./panelStatisticsCache";
+import { withTenantFieldsStamp } from "./churchTenantFields";
 
 /** Categorias padrão — alinhadas ao Flutter (`kCategoriasDespesaPadrao`). */
 const CATEGORIAS_DESPESA_PADRAO = [
@@ -56,6 +57,7 @@ export type ChurchWelcomeSeedResult = {
   categoriasDespesaCreated: number;
   categoriasReceitaCreated: number;
   tenantModulesRegistered: string[];
+  visitantesSchemaCreated: boolean;
 };
 
 const WELCOME_DEPARTMENTS: ReadonlyArray<{
@@ -146,24 +148,31 @@ async function ensureTenantModuleRegistry(
   for (const mod of modules) {
     const ref = modCol.doc(mod.id);
     const snap = await ref.get();
-    if (snap.exists) continue;
-    await ref.set(
-      {
-        enabled: true,
-        module: mod.id,
-        collection: mod.collection,
-        firestorePath: `igrejas/${tenantId}/${mod.collection}`,
-        storagePath: mod.storageSubpath
-          ? `igrejas/${tenantId}/${mod.storageSubpath}`
-          : "",
-        isWelcomeKit: true,
-        provisionedAt: now,
-        schemaVersion: 1,
-        ...(mod.extra ?? {}),
-      },
-      { merge: true },
-    );
-    registered.push(mod.id);
+    const payload = withTenantFieldsStamp(tenantId, {
+      enabled: true,
+      module: mod.id,
+      collection: mod.collection,
+      firestorePath: `igrejas/${tenantId}/${mod.collection}`,
+      storagePath: mod.storageSubpath
+        ? `igrejas/${tenantId}/${mod.storageSubpath}`
+        : "",
+      isWelcomeKit: true,
+      provisionedAt: now,
+      schemaVersion: 1,
+      ...(mod.extra ?? {}),
+    });
+    if (!snap.exists) {
+      await ref.set(payload, { merge: true });
+      registered.push(mod.id);
+      continue;
+    }
+    const data = (snap.data() ?? {}) as Record<string, unknown>;
+    if (
+      String(data.churchId ?? "").trim() !== tenantId ||
+      String(data.tenantId ?? "").trim() !== tenantId
+    ) {
+      await ref.set(payload, { merge: true });
+    }
   }
   return registered;
 }
@@ -176,13 +185,13 @@ async function ensureFinanceSettingsSeed(
   const snap = await ref.get();
   if (snap.exists) return false;
   await ref.set(
-    {
+    withTenantFieldsStamp(churchRef.id, {
       limiteAprovacaoDespesa: 0,
       orcamentosDespesa: {},
       isWelcomeKit: true,
       createdAt: now,
       updatedAt: now,
-    },
+    }),
     { merge: true },
   );
   return true;
@@ -202,18 +211,39 @@ async function seedCategoriasIfEmpty(
   let n = 0;
   for (let i = 0; i < nomes.length; i++) {
     const nome = nomes[i];
-    batch.set(col.doc(categoriaDocId(nome)), {
+    batch.set(col.doc(categoriaDocId(nome)), withTenantFieldsStamp(churchRef.id, {
       nome,
       ordem: i,
       isWelcomeKit: true,
       isDefaultPreset: true,
       createdAt: now,
       updatedAt: now,
-    });
+    }));
     n++;
   }
   if (n > 0) await batch.commit();
   return n;
+}
+
+async function ensureVisitantesSchemaSeed(
+  churchRef: DocumentReference,
+  tenantId: string,
+  now: admin.firestore.FieldValue,
+): Promise<boolean> {
+  const ref = churchRef.collection("visitantes").doc("_schema");
+  const snap = await ref.get();
+  if (snap.exists) return false;
+  await ref.set(
+    withTenantFieldsStamp(tenantId, {
+      schemaVersion: 1,
+      firestorePath: `igrejas/${tenantId}/visitantes`,
+      isWelcomeKit: true,
+      provisionedAt: now,
+      followupsSubcollection: "followups",
+    }),
+    { merge: true },
+  );
+  return true;
 }
 
 async function ensureChurchModuleDefaults(
@@ -226,8 +256,14 @@ async function ensureChurchModuleDefaults(
   categoriasDespesaCreated: number;
   categoriasReceitaCreated: number;
   tenantModulesRegistered: string[];
+  visitantesSchemaCreated: boolean;
 }> {
   const tenantModulesRegistered = await ensureTenantModuleRegistry(
+    churchRef,
+    tenantId,
+    now,
+  );
+  const visitantesSchemaCreated = await ensureVisitantesSchemaSeed(
     churchRef,
     tenantId,
     now,
@@ -280,6 +316,7 @@ async function ensureChurchModuleDefaults(
     categoriasDespesaCreated,
     categoriasReceitaCreated,
     tenantModulesRegistered,
+    visitantesSchemaCreated,
   };
 }
 
@@ -294,6 +331,7 @@ export async function ensureChurchWelcomeSeed(
     categoriasDespesaCreated: 0,
     categoriasReceitaCreated: 0,
     tenantModulesRegistered: [],
+    visitantesSchemaCreated: false,
   };
 
   const tid = String(tenantId || "").trim();
@@ -315,7 +353,7 @@ export async function ensureChurchWelcomeSeed(
   if (deptProbe.empty) {
     const batch = firestore.batch();
     for (const d of WELCOME_DEPARTMENTS) {
-      batch.set(deptCol.doc(d.docId), {
+      batch.set(deptCol.doc(d.docId), withTenantFieldsStamp(tid, {
         name: d.name,
         description: d.description,
         iconKey: d.iconKey,
@@ -334,7 +372,7 @@ export async function ensureChurchWelcomeSeed(
         isDefaultPreset: true,
         isWelcomeKit: true,
         welcomeKitOrder: d.sortOrder,
-      });
+      }));
       departmentsCreated++;
     }
     await batch.commit();
@@ -347,7 +385,7 @@ export async function ensureChurchWelcomeSeed(
     const batch = firestore.batch();
     for (let i = 0; i < WELCOME_CARGOS.length; i++) {
       const c = WELCOME_CARGOS[i];
-      batch.set(cargosCol.doc(c.docId), {
+      batch.set(cargosCol.doc(c.docId), withTenantFieldsStamp(tid, {
         name: c.name,
         key: c.key,
         permissionTemplate: c.permissionTemplate,
@@ -360,7 +398,7 @@ export async function ensureChurchWelcomeSeed(
         modulePermissions: [],
         createdAt: now,
         updatedAt: now,
-      });
+      }));
       cargosCreated++;
     }
     await batch.commit();
@@ -390,6 +428,7 @@ export async function ensureChurchWelcomeSeed(
     categoriasDespesaCreated: 0,
     categoriasReceitaCreated: 0,
     tenantModulesRegistered: [] as string[],
+    visitantesSchemaCreated: false,
   };
   try {
     moduleDefaults = await ensureChurchModuleDefaults(firestore, tid, churchRef, now);
@@ -411,6 +450,9 @@ export async function ensureChurchWelcomeSeed(
         `ensureChurchWelcomeSeed: ${moduleDefaults.categoriasReceitaCreated} categorias_receitas em igrejas/${tid}`,
       );
     }
+    if (moduleDefaults.visitantesSchemaCreated) {
+      console.log(`ensureChurchWelcomeSeed: visitantes/_schema em igrejas/${tid}/visitantes`);
+    }
   } catch (e) {
     console.warn("ensureChurchWelcomeSeed ensureChurchModuleDefaults:", e);
   }
@@ -422,5 +464,6 @@ export async function ensureChurchWelcomeSeed(
     categoriasDespesaCreated: moduleDefaults.categoriasDespesaCreated,
     categoriasReceitaCreated: moduleDefaults.categoriasReceitaCreated,
     tenantModulesRegistered: moduleDefaults.tenantModulesRegistered,
+    visitantesSchemaCreated: moduleDefaults.visitantesSchemaCreated,
   };
 }

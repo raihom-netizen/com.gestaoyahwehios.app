@@ -127,6 +127,11 @@ class AppPermissions {
     String role, {
     List<String>? permissions,
   }) {
+    if (hasModulePermission(permissions, 'mural_avisos_edicao') ||
+        hasModulePermission(permissions, 'eventos_avisos_edicao') ||
+        hasModulePermission(permissions, 'eventos')) {
+      return true;
+    }
     if (hasModulePermission(permissions, 'mural_avisos_somente_leitura') &&
         !hasModulePermission(permissions, 'mural_avisos_edicao')) {
       return false;
@@ -146,6 +151,7 @@ class AppPermissions {
     if (n == ChurchRoleKeys.pastor ||
         n == ChurchRoleKeys.pastorAuxiliar ||
         n == ChurchRoleKeys.pastorPresidente ||
+        n == ChurchRoleKeys.presbitero ||
         n == ChurchRoleKeys.secretario ||
         n == ChurchRoleKeys.tesoureiro ||
         n == ChurchRoleKeys.tesouraria) {
@@ -381,6 +387,29 @@ class AppPermissions {
         r == 'administradora';
     final gestorLike = r == AppRoles.gestor || r == AppRoles.master;
     return adminLike || gestorLike;
+  }
+
+  /// Pagamento / renovação da **licença SaaS** (Mercado Pago) — só liderança financeira.
+  /// Membros comuns (ex.: secretária de departamento que não é gestora) **não** podem gerar cobrança.
+  static bool canPurchaseChurchLicense(String role, {List<String>? permissions}) {
+    if (hasModulePermission(permissions, 'licenca_pagamento')) return true;
+    if (isRestrictedMember(role)) return false;
+    final r = role.toLowerCase().trim();
+    if (r == AppRoles.gestor || r == AppRoles.master) return true;
+    if (r == AppRoles.admin ||
+        r == AppRoles.adm ||
+        r == 'administrador' ||
+        r == 'administradora') {
+      return true;
+    }
+    if (r == AppRoles.secretario ||
+        r == 'secretaria' ||
+        r == 'secretário' ||
+        r == 'secretária') {
+      return true;
+    }
+    if (r == AppRoles.tesoureiro || r == AppRoles.tesouraria) return true;
+    return false;
   }
 
   /// Links de recebimento (Mercado Pago) — gestor, pastor, tesoureiro.

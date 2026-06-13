@@ -61,7 +61,35 @@ service firebase.storage {
         || r == 'SECRETÃRIO' || r == 'SecretÃ¡rio'
         || r == 'secretÃ¡ria' || r == 'Secretaria'
         || r == 'tesoureiro' || r == 'TESOUREIRO' || r == 'Tesoureiro'
-        || r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria';
+        || r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria'
+        || r == 'MASTER' || r == 'master' || r == 'Master'
+        || r == 'PRESBITERO' || r == 'presbitero' || r == 'PRESBITERA' || r == 'presbitera'
+        || r == 'Presbitero' || r == 'Presbitera'
+        || r == 'lider' || r == 'LIDER' || r == 'Lider'
+        || r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento'
+        || r == 'lider_depto' || r == 'LIDER_DEPTO'
+        || r == 'lider_grupo' || r == 'LIDER_GRUPO' || r == 'Lider grupo' || r == 'Lider Grupo'
+        || r == 'lider_de_grupo' || r == 'LIDER_DE_GRUPO';
+    }
+
+    function storageTokenRole() {
+      return isSignedIn() && request.auth.token.role is string
+        ? request.auth.token.role : '';
+    }
+
+    function storageMuralPermissionList(perms) {
+      return perms is list && perms.hasAny([
+        'eventos', 'eventos_avisos_edicao', 'mural_avisos_edicao'
+      ]);
+    }
+
+    function storageTenantUserMuralEdit(igrejaId) {
+      return fsTenantUser(igrejaId).exists && (
+        (fsTenantUser(igrejaId).data.permissions is list
+          && storageMuralPermissionList(fsTenantUser(igrejaId).data.permissions))
+        || (fsTenantUser(igrejaId).data.roles is list
+          && storageMuralPermissionList(fsTenantUser(igrejaId).data.roles))
+      );
     }
 
     function storageGestorEmailMatches(igrejaId) {
@@ -90,15 +118,17 @@ service firebase.storage {
       );
     }
 
-    /// Staff: gestor, admin, pastor, secretário, tesoureiro (+ e-mail gestor).
+    /// Staff: gestor, admin, pastor, secretário, tesoureiro, líder (+ e-mail gestor + permissões mural).
     function isChurchStaffWriter(igrejaId) {
       return isSignedIn() && (
         storageStaffRoleMatches(storageUserRole())
+        || storageStaffRoleMatches(storageTokenRole())
         || (fsTenantUser(igrejaId).exists
           && storageStaffRoleMatches(storageMemberRole(fsTenantUser(igrejaId).data)))
         || (fsMembro(igrejaId).exists
           && storageStaffRoleMatches(storageMemberRole(fsMembro(igrejaId).data)))
         || storageGestorEmailMatches(igrejaId)
+        || (isChurchMember(igrejaId) && storageTenantUserMuralEdit(igrejaId))
       );
     }
 

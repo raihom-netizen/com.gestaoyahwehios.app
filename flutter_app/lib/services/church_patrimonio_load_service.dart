@@ -6,9 +6,9 @@ import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -20,6 +20,7 @@ class ChurchPatrimonioLoadResult {
     required this.readSource,
     required this.collectionPath,
     this.softError,
+    this.fromCache = false,
   });
 
   final String churchId;
@@ -27,14 +28,18 @@ class ChurchPatrimonioLoadResult {
   final String readSource;
   final String collectionPath;
   final String? softError;
+  final bool fromCache;
 
   QuerySnapshot<Map<String, dynamic>> get snapshot =>
       MergedFirestoreQuerySnapshot(docs);
 
   bool get isEmpty => docs.isEmpty;
+  bool get hasHardError => softError != null && softError!.trim().isNotEmpty;
 }
 
-/// Carga canónica — Firestore `igrejas/{id}/patrimonio`, fotos em Storage `patrimonio/{itemId}/galeria_01..05.webp`.
+/// Carga canónica — Firestore `igrejas/{id}/patrimonio`.
+///
+/// **Regra:** lista vazia = sucesso (igreja sem bens). Cache RAM / Hive aceite mesmo com 0 docs.
 abstract final class ChurchPatrimonioLoadService {
   ChurchPatrimonioLoadService._();
 
@@ -50,7 +55,9 @@ abstract final class ChurchPatrimonioLoadService {
 
   static const Duration _ramTtl = Duration(minutes: 20);
 
-  static String _resolve(String hint) => ChurchPanelTenant.resolve(hint.trim());
+  static String _resolve(String hint) => ChurchRepository.churchId(hint.trim());
+
+  static String resolveChurchId(String hint) => _resolve(hint);
 
   static String cacheKey(String churchId, int limit) =>
       '${churchId.trim()}_patrimonio_$limit';
@@ -58,8 +65,15 @@ abstract final class ChurchPatrimonioLoadService {
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekRam(
     String seedTenantId, {
     int limit = kDefaultListLimit,
-  }) {
-    final key = cacheKey(_resolve(seedTenantId), limit);
+  }) =>
+      _peekRam(_resolve(seedTenantId), limit);
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekRam(
+    String churchId,
+    int limit,
+  ) {
+    if (churchId.isEmpty) return null;
+    final key = cacheKey(churchId, limit);
     final hit = _ram[key];
     if (hit == null) return null;
     if (DateTime.now().difference(hit.at) > _ramTtl) {
@@ -73,7 +87,6 @@ abstract final class ChurchPatrimonioLoadService {
     String key,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    if (docs.isEmpty) return;
     _ram[key] = (docs: List.from(docs), at: DateTime.now());
   }
 
@@ -133,20 +146,29 @@ abstract final class ChurchPatrimonioLoadService {
 
     final path = 'igrejas/$churchId/patrimonio';
     final ramKey = cacheKey(churchId, limit);
+    final reference = ChurchUiCollections.patrimonio(churchId);
+    final capped = FirebasePerformanceLimits.capListLimit('patrimonio', limit);
 
     if (!forceRefresh && !forceServer) {
-      final ramHit = peekRam(churchId, limit: limit);
-      if (ramHit != null && ramHit.isNotEmpty) {
+      final ramHit = _peekRam(churchId, limit);
+      if (ramHit != null) {
+        unawaited(_refreshInBackground(
+          churchId: churchId,
+          ramKey: ramKey,
+          limit: capped,
+          reference: reference,
+        ));
         return ChurchPatrimonioLoadResult(
           churchId: churchId,
           docs: ramHit,
           readSource: 'ram',
           collectionPath: path,
+          fromCache: true,
         );
       }
 
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
-      if (mem != null && mem.docs.isNotEmpty) {
+      if (mem != null) {
         final docs = _sortByNome(mem.docs);
         _putRam(ramKey, docs);
         return ChurchPatrimonioLoadResult(
@@ -154,25 +176,33 @@ abstract final class ChurchPatrimonioLoadService {
           docs: docs,
           readSource: 'firestore_mem',
           collectionPath: path,
+          fromCache: true,
         );
       }
 
       try {
-        final hive = await TenantModuleHiveCache.readDocs(
+        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
           churchId,
           TenantModuleKeys.patrimonio,
-        ).timeout(const Duration(seconds: 4));
-        if (hive.isNotEmpty) {
-          final docs = _sortByNome(TenantModuleHiveCache.toQueryDocuments(hive));
-          if (docs.isNotEmpty) {
-            _putRam(ramKey, docs);
-            return ChurchPatrimonioLoadResult(
-              churchId: churchId,
-              docs: docs,
-              readSource: 'hive',
-              collectionPath: path,
-            );
-          }
+        ).timeout(const Duration(seconds: 3));
+        if (updatedAt != null) {
+          final hive =
+              await TenantModuleHiveCache.readDocs(churchId, TenantModuleKeys.patrimonio);
+          var docs = _sortByNome(TenantModuleHiveCache.toQueryDocuments(hive));
+          _putRam(ramKey, docs);
+          unawaited(_refreshInBackground(
+            churchId: churchId,
+            ramKey: ramKey,
+            limit: capped,
+            reference: reference,
+          ));
+          return ChurchPatrimonioLoadResult(
+            churchId: churchId,
+            docs: docs,
+            readSource: docs.isEmpty ? 'hive_empty' : 'hive',
+            collectionPath: path,
+            fromCache: true,
+          );
         }
       } catch (_) {}
     }
@@ -180,43 +210,59 @@ abstract final class ChurchPatrimonioLoadService {
     Object? lastError;
     try {
       final docs = await _loadFirestore(
-        churchId: churchId,
-        reference: ChurchUiCollections.patrimonio(churchId),
+        reference: reference,
         cacheKey: ramKey,
         forceServer: forceServer,
-        limit: limit,
+        limit: capped,
       );
-      if (docs.isNotEmpty) {
-        _putRam(ramKey, docs);
-        unawaited(_persistHive(churchId, docs));
-        return ChurchPatrimonioLoadResult(
-          churchId: churchId,
-          docs: docs,
-          readSource: forceServer ? 'server' : 'firestore_full',
-          collectionPath: path,
-        );
-      }
+      _putRam(ramKey, docs);
+      unawaited(_persistHive(churchId, docs));
+      return ChurchPatrimonioLoadResult(
+        churchId: churchId,
+        docs: docs,
+        readSource: forceServer ? 'server' : 'firestore_full',
+        collectionPath: path,
+      );
     } catch (e) {
       lastError = e;
     }
 
     try {
-      final snap = await IgrejaDirectFirestoreReads.listSubcollection(
-        churchId,
-        'patrimonio',
-        moduleLabel: 'Patrimônio',
-        limit: limit,
-        cacheKey: ramKey,
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
-      if (snap.docs.isNotEmpty) {
-        final docs = _sortByNome(snap.docs);
+      final docs = await _loadFirestore(
+        reference: reference,
+        cacheKey: '${ramKey}_retry',
+        forceServer: true,
+        limit: capped,
+      );
+      _putRam(ramKey, docs);
+      unawaited(_persistHive(churchId, docs));
+      return ChurchPatrimonioLoadResult(
+        churchId: churchId,
+        docs: docs,
+        readSource: 'direct_plain',
+        collectionPath: path,
+      );
+    } catch (e) {
+      lastError ??= e;
+    }
+
+    try {
+      final repo = await ChurchRepository.patrimonio.listCacheFirst(
+        churchIdHint: churchId,
+        limit: capped,
+        firestoreCacheKey: ramKey,
+      );
+      if (repo.items.isNotEmpty || repo.error == null) {
+        var docs = repo.items;
+        docs = _sortByNome(docs);
         _putRam(ramKey, docs);
-        unawaited(_persistHive(churchId, docs));
         return ChurchPatrimonioLoadResult(
           churchId: churchId,
           docs: docs,
-          readSource: 'direct_list',
+          readSource: 'repository_cache_first',
           collectionPath: path,
+          fromCache: repo.error == null && docs.isNotEmpty,
+          softError: repo.error,
         );
       }
     } catch (e) {
@@ -224,13 +270,26 @@ abstract final class ChurchPatrimonioLoadService {
     }
 
     final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
-    if (mem != null && mem.docs.isNotEmpty) {
+    if (mem != null) {
       return ChurchPatrimonioLoadResult(
         churchId: churchId,
         docs: _sortByNome(mem.docs),
         readSource: 'fallback_mem',
         collectionPath: path,
-        softError: lastError?.toString(),
+        fromCache: true,
+        softError: _humanizeError(lastError),
+      );
+    }
+
+    final ramFallback = _peekRam(churchId, limit);
+    if (ramFallback != null) {
+      return ChurchPatrimonioLoadResult(
+        churchId: churchId,
+        docs: ramFallback,
+        readSource: 'ram_fallback',
+        collectionPath: path,
+        fromCache: true,
+        softError: _humanizeError(lastError),
       );
     }
 
@@ -239,13 +298,40 @@ abstract final class ChurchPatrimonioLoadService {
       docs: const [],
       readSource: 'empty',
       collectionPath: path,
-      softError: lastError is TimeoutException
-          ? 'Tempo esgotado ao carregar patrimônio.'
-          : lastError?.toString(),
+      softError: _humanizeError(lastError),
     );
   }
 
-  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> loadPage({
+  static String? _humanizeError(Object? e) {
+    if (e == null) return null;
+    if (e is TimeoutException) {
+      return 'Tempo esgotado ao carregar patrimônio. Verifique a conexão.';
+    }
+    final s = e.toString();
+    if (s.length > 180) return '${s.substring(0, 177)}…';
+    return s;
+  }
+
+  static Future<void> _refreshInBackground({
+    required String churchId,
+    required String ramKey,
+    required int limit,
+    required CollectionReference<Map<String, dynamic>> reference,
+  }) async {
+    try {
+      final docs = await _loadFirestore(
+        reference: reference,
+        cacheKey: ramKey,
+        forceServer: false,
+        limit: limit,
+      );
+      _putRam(ramKey, docs);
+      await _persistHive(churchId, docs);
+    } catch (_) {}
+  }
+
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      loadPage({
     required String seedTenantId,
     required int limit,
     DocumentSnapshot<Map<String, dynamic>>? startAfter,
@@ -299,8 +385,7 @@ abstract final class ChurchPatrimonioLoadService {
       return snap.docs;
     }
 
-    final snap =
-        await read().timeout(ChurchPanelReadTimeouts.warmCap);
+    final snap = await read().timeout(ChurchPanelReadTimeouts.warmCap);
     return snap.docs;
   }
 
@@ -319,7 +404,6 @@ abstract final class ChurchPatrimonioLoadService {
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadFirestore({
-    required String churchId,
     required CollectionReference<Map<String, dynamic>> reference,
     required String cacheKey,
     required bool forceServer,
@@ -347,13 +431,15 @@ abstract final class ChurchPatrimonioLoadService {
 
     Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
       if (kIsWeb) {
-        final plainSnap = await FirestoreReadResilience.getQuery(
-          plain(reference),
-          cacheKey: '${cacheKey}_plain',
-          maxAttempts: 4,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-        if (plainSnap.docs.isNotEmpty) return plainSnap;
+        try {
+          final plainSnap = await FirestoreReadResilience.getQuery(
+            plain(reference),
+            cacheKey: '${cacheKey}_plain',
+            maxAttempts: 4,
+            attemptTimeout: ChurchPanelReadTimeouts.attempt,
+          );
+          if (plainSnap.docs.isNotEmpty) return plainSnap;
+        } catch (_) {}
       }
       try {
         return await FirestoreReadResilience.getQuery(

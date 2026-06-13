@@ -1,7 +1,6 @@
 import 'dart:async' show Timer, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,28 +16,26 @@ import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
+import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart'
     show excluirLancamentoFinanceiroComAuditoria, showFinanceLancamentoEditorForTenant;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
 import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Cache RAM — cadastro de fornecedores (reabrir módulo sem skeleton longo).
@@ -55,7 +52,7 @@ abstract final class _FornecedoresRamCache {
   static const Duration _ttl = Duration(minutes: 20);
 
   static QuerySnapshot<Map<String, dynamic>>? peek(String tenantId) {
-    final tid = tenantId.trim();
+    final tid = ChurchRepository.churchId(tenantId);
     if (tid.isEmpty) return null;
     final hit = _ram[tid];
     if (hit == null) return null;
@@ -67,10 +64,60 @@ abstract final class _FornecedoresRamCache {
   }
 
   static void store(String tenantId, QuerySnapshot<Map<String, dynamic>> snap) {
-    final tid = tenantId.trim();
-    if (tid.isEmpty || snap.docs.isEmpty) return;
+    final tid = ChurchRepository.churchId(tenantId);
+    if (tid.isEmpty) return;
     _ram[tid] = (snap: snap, at: DateTime.now());
   }
+}
+
+typedef _FornecedoresAgendaBundle = ({
+  QuerySnapshot<Map<String, dynamic>> fornecedores,
+  QuerySnapshot<Map<String, dynamic>> compromissos,
+});
+
+_FornecedoresAgendaBundle _seedFornecedoresAgendaBundle(String tenantId) {
+  final tid = ChurchRepository.churchId(tenantId);
+  final fnDocs =
+      ChurchFornecedoresLoadService.peekRam(tid) ??
+          _FornecedoresRamCache.peek(tid)?.docs
+              .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+          const [];
+  return (
+    fornecedores: MergedFirestoreQuerySnapshot(fnDocs),
+    compromissos: const MergedFirestoreQuerySnapshot([]),
+  );
+}
+
+Future<_FornecedoresAgendaBundle> _loadFornecedoresAgendaBundle({
+  required String tenantId,
+  required int compromissosLimit,
+  String? fornecedorIdFilter,
+  bool descending = false,
+  bool forceFresh = false,
+}) async {
+  final tid = ChurchRepository.churchId(tenantId);
+  if (tid.isEmpty) {
+    throw StateError('Igreja não identificada.');
+  }
+  if (kIsWeb) {
+    await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+  }
+  final results = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
+    ChurchFornecedoresLoadService.load(
+      seedTenantId: tid,
+      limit: YahwehPerformanceV4.defaultPageSize,
+      forceRefresh: forceFresh,
+      forceServer: forceFresh,
+    ).then((r) => r.snapshot),
+    _loadFornecedorCompromissosQuery(
+      tid,
+      limit: compromissosLimit,
+      fornecedorIdFilter: fornecedorIdFilter,
+      descending: descending,
+    ),
+  ]).timeout(ChurchPanelReadTimeouts.queryCap);
+  _FornecedoresRamCache.store(tid, results[0]);
+  return (fornecedores: results[0], compromissos: results[1]);
 }
 
 Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
@@ -79,7 +126,7 @@ Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
   String? fornecedorIdFilter,
   bool descending = false,
 }) async {
-  final churchId = ChurchPanelTenant.resolve(tenantId.trim());
+  final churchId = ChurchRepository.churchId(tenantId.trim());
   if (churchId.isEmpty) return const MergedFirestoreQuerySnapshot([]);
   if (kIsWeb) {
     await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
@@ -87,15 +134,54 @@ Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
   final col = ChurchUiCollections.churchDoc(churchId)
       .collection('fornecedor_compromissos');
   final f = (fornecedorIdFilter ?? '').trim();
-  final Query<Map<String, dynamic>> q = f.isNotEmpty
-      ? col
-          .where('fornecedorId', isEqualTo: f)
-          .orderBy('dataVencimento', descending: true)
-          .limit(200)
-      : col.orderBy('dataVencimento', descending: descending).limit(limit);
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortByVencimento(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final sorted = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
+    sorted.sort((a, b) {
+      final ta = a.data()['dataVencimento'];
+      final tb = b.data()['dataVencimento'];
+      if (ta is Timestamp && tb is Timestamp) {
+        return descending ? tb.compareTo(ta) : ta.compareTo(tb);
+      }
+      return 0;
+    });
+    return sorted;
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> read() async {
+    if (f.isNotEmpty) {
+      try {
+        return await col
+            .where('fornecedorId', isEqualTo: f)
+            .orderBy('dataVencimento', descending: true)
+            .limit(200)
+            .get(const GetOptions(source: Source.serverAndCache));
+      } catch (_) {
+        final plain = await col
+            .where('fornecedorId', isEqualTo: f)
+            .limit(200)
+            .get(const GetOptions(source: Source.serverAndCache));
+        return MergedFirestoreQuerySnapshot(_sortByVencimento(plain.docs));
+      }
+    }
+    try {
+      return await col
+          .orderBy('dataVencimento', descending: descending)
+          .limit(limit)
+          .get(const GetOptions(source: Source.serverAndCache));
+    } catch (_) {
+      final plain = await col
+          .limit(limit)
+          .get(const GetOptions(source: Source.serverAndCache));
+      return MergedFirestoreQuerySnapshot(_sortByVencimento(plain.docs));
+    }
+  }
+
   try {
     return await FirestoreWebGuard.runWithWebRecovery(
-      () => q.get(const GetOptions(source: Source.serverAndCache)),
+      read,
       maxAttempts: 4,
     ).timeout(ChurchPanelReadTimeouts.queryCap);
   } catch (_) {
@@ -1037,100 +1123,143 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   int _fornecedoresListLimit = YahwehPerformanceV4.defaultPageSize;
   Timer? _searchDebounce;
   late TabController _tabMain;
-  QuerySnapshot<Map<String, dynamic>>? _fornecedoresCacheSnap;
-  late Future<QuerySnapshot<Map<String, dynamic>>> _fornecedoresFuture;
+  QuerySnapshot<Map<String, dynamic>>? _fornecedoresSnap;
+  bool _fornecedoresFetching = false;
   String? _resolvedTenantId;
+  String? _loadHint;
+  String? _fornecedoresError;
 
-  String get _effectiveTenantId => ChurchPanelTenant.resolve(
-        (_resolvedTenantId ?? '').isNotEmpty
-            ? _resolvedTenantId
-            : widget.tenantId,
-      );
+  String get _effectiveTenantId {
+    final hint = (_resolvedTenantId ?? '').trim().isNotEmpty
+        ? _resolvedTenantId!.trim()
+        : widget.tenantId.trim();
+    return ChurchRepository.churchId(hint).isNotEmpty
+        ? ChurchRepository.churchId(hint)
+        : hint;
+  }
 
-  Future<void> _bootstrapTenant() async {
-    final resolved = ChurchRepository.churchId(widget.tenantId).trim().isNotEmpty
-        ? ChurchRepository.churchId(widget.tenantId)
-        : ChurchPanelTenant.resolve(widget.tenantId).trim();
-    if (resolved.isEmpty) return;
-    if (!mounted) return;
-    if (_resolvedTenantId != resolved) {
-      setState(() => _resolvedTenantId = resolved);
+  void _seedFornecedoresLocal() {
+    final tid = _effectiveTenantId;
+    final seeded =
+        ChurchFornecedoresLoadService.peekRam(
+              tid,
+              limit: _fornecedoresListLimit,
+            ) ??
+            _FornecedoresRamCache.peek(tid)?.docs
+                .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+            const [];
+    _fornecedoresSnap = MergedFirestoreQuerySnapshot(seeded);
+    _fornecedoresFetching = true;
+    _fornecedoresError = null;
+  }
+
+  void _bindFornecedoresLoad({bool forceFresh = false}) {
+    if (mounted) {
+      setState(_seedFornecedoresLocal);
+    } else {
+      _seedFornecedoresLocal();
     }
-    _seedFornecedoresFirstPaint(resolved);
-    if (kIsWeb) {
-      unawaited(
-        FirestoreWebGuard.ensurePanelReadReady().catchError((_) {}),
+    unawaited(_fetchFornecedores(forceFresh: forceFresh));
+  }
+
+  Future<void> _fetchFornecedores({bool forceFresh = false}) async {
+    final tid = _effectiveTenantId;
+    if (tid.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _loadHint = 'Igreja não identificada.';
+        _fornecedoresError = _loadHint;
+        _fornecedoresFetching = false;
+      });
+      return;
+    }
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final result = await ChurchFornecedoresLoadService.load(
+        seedTenantId: tid,
+        limit: _fornecedoresListLimit,
+        forceRefresh: forceFresh,
+        forceServer: forceFresh,
       );
+      if (!mounted) return;
+      if (result.docs.isEmpty && result.hasHardError) {
+        setState(() {
+          _loadHint = result.softError;
+          _fornecedoresError = result.softError;
+          _fornecedoresFetching = false;
+        });
+        return;
+      }
+      final snap = result.snapshot;
+      _FornecedoresRamCache.store(tid, snap);
+      setState(() {
+        _fornecedoresSnap = snap;
+        _fornecedoresFetching = false;
+        _fornecedoresError = null;
+        _loadHint =
+            'igrejas/$tid/fornecedores (${result.readSource}, ${result.docs.length})';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      if ((_fornecedoresSnap?.docs ?? const []).isEmpty) {
+        setState(() {
+          _loadHint = '$e';
+          _fornecedoresError = '$e';
+          _fornecedoresFetching = false;
+        });
+      } else {
+        setState(() => _fornecedoresFetching = false);
+      }
     }
   }
 
-  void _seedFornecedoresFirstPaint(String tid) {
-    List<QueryDocumentSnapshot<Map<String, dynamic>>>? cachedDocs =
-        ChurchFornecedoresLoadService.peekRam(
-      tid,
-      limit: _fornecedoresListLimit,
-    );
-    cachedDocs ??= _FornecedoresRamCache.peek(tid)?.docs
-        .cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
-    if (cachedDocs != null && cachedDocs.isNotEmpty) {
-      final snap = MergedFirestoreQuerySnapshot(cachedDocs);
-      _fornecedoresCacheSnap = snap;
-      _fornecedoresFuture = Future.value(snap);
-      _refreshFornecedoresBackground();
-      return;
+  Future<void> _bootstrapTenant() async {
+    final resolved = ChurchRepository.churchId(widget.tenantId);
+    if (resolved.isEmpty) return;
+    if (_resolvedTenantId == resolved) return;
+    if (!mounted) return;
+    setState(() => _resolvedTenantId = resolved);
+    _bindFornecedoresLoad();
+  }
+
+  Future<void> _warmFornecedoresData(String tenantId) async {
+    final tid = ChurchRepository.churchId(tenantId);
+    if (tid.isEmpty) return;
+    try {
+      final result = await ChurchFornecedoresLoadService.load(
+        seedTenantId: tid,
+        limit: _fornecedoresListLimit,
+      );
+      _FornecedoresRamCache.store(tid, result.snapshot);
+      if (mounted) {
+        setState(() {
+          _fornecedoresSnap = result.snapshot;
+          _fornecedoresFetching = false;
+          _fornecedoresError = null;
+        });
+      }
+      ChurchModuleQueryProbe.logSuccess(
+        module: 'Fornecedores',
+        churchId: ChurchFornecedoresLoadService.resolveChurchId(tid),
+        path:
+            'igrejas/${ChurchFornecedoresLoadService.resolveChurchId(tid)}/fornecedores',
+        totalDocs: result.docs.length,
+      );
+    } catch (e) {
+      ChurchModuleQueryProbe.logError(
+        module: 'Fornecedores',
+        churchId: ChurchFornecedoresLoadService.resolveChurchId(tid),
+        path:
+            'igrejas/${ChurchFornecedoresLoadService.resolveChurchId(tid)}/fornecedores',
+        error: '$e',
+      );
     }
-    _reloadFornecedoresList();
   }
 
   void _reloadFornecedoresList() {
-    final tid = _effectiveTenantId;
-    if (tid.isEmpty) {
-      _fornecedoresFuture =
-          Future.value(const MergedFirestoreQuerySnapshot([]));
-      return;
-    }
-    _fornecedoresFuture = ChurchFornecedoresLoadService.load(
-      seedTenantId: tid,
-      limit: _fornecedoresListLimit,
-    ).then((result) {
-      final snap = result.snapshot;
-      if (snap.docs.isNotEmpty) {
-        _FornecedoresRamCache.store(tid, snap);
-        _fornecedoresCacheSnap = snap;
-      }
-      return snap;
-    }).catchError((_) {
-      final fallback = ChurchFornecedoresLoadService.peekRam(
-        tid,
-        limit: _fornecedoresListLimit,
-      );
-      if (fallback != null && fallback.isNotEmpty) {
-        return MergedFirestoreQuerySnapshot(fallback);
-      }
-      return _fornecedoresCacheSnap ?? const MergedFirestoreQuerySnapshot([]);
-    });
-  }
-
-  void _refreshFornecedoresBackground() {
-    final tid = _effectiveTenantId;
-    if (tid.isEmpty) return;
-    unawaited(() async {
-      try {
-        final result = await ChurchFornecedoresLoadService.load(
-          seedTenantId: tid,
-          limit: _fornecedoresListLimit,
-          forceRefresh: true,
-        );
-        if (result.docs.isEmpty) return;
-        final snap = result.snapshot;
-        _FornecedoresRamCache.store(tid, snap);
-        if (!mounted) return;
-        setState(() {
-          _fornecedoresCacheSnap = snap;
-          _fornecedoresFuture = Future.value(snap);
-        });
-      } catch (_) {}
-    }());
+    setState(() => _bindFornecedoresLoad(forceFresh: true));
   }
 
   static const _mainTabs = <Widget>[
@@ -1155,14 +1284,11 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     _tabMain.addListener(() {
       if (!_tabMain.indexIsChanging && mounted) setState(() {});
     });
-    final resolved = ChurchPanelTenant.resolve(widget.tenantId).trim();
-    if (resolved.isNotEmpty) _resolvedTenantId = resolved;
-    if (resolved.isNotEmpty) {
-      _seedFornecedoresFirstPaint(resolved);
-    } else {
-      _fornecedoresFuture =
-          Future.value(const MergedFirestoreQuerySnapshot([]));
-    }
+    final initial = ChurchRepository.churchId(widget.tenantId).trim();
+    if (initial.isNotEmpty) _resolvedTenantId = initial;
+    _seedFornecedoresLocal();
+    unawaited(_fetchFornecedores());
+    unawaited(_warmFornecedoresData(initial));
     unawaited(_bootstrapTenant());
   }
 
@@ -1458,255 +1584,300 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           ),
         ),
         Expanded(
-          child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            future: _fornecedoresFuture,
-            builder: (context, snap) {
-              if (snap.hasError) {
-                return ChurchPanelErrorBody(
-                  title: 'Erro ao carregar fornecedores',
-                  error: snap.error,
-                  onRetry: () => setState(_reloadFornecedoresList),
-                );
-              }
-              if (snap.connectionState == ConnectionState.waiting &&
-                  !snap.hasData) {
-                return const ChurchPanelLoadingBody();
-              }
-              final docs = (snap.data?.docs ?? _fornecedoresCacheSnap?.docs ?? [])
-                  .where((d) {
-                if (_q.isEmpty) return true;
-                final m = d.data();
-                final blob = [
-                  m['nome'],
-                  m['cpfCnpj'],
-                  m['cidade'],
-                  m['email'],
-                ].whereType<Object>().map((e) => e.toString().toLowerCase()).join(' ');
-                return blob.contains(_q);
-              }).toList();
+          child: _buildFornecedoresListBody(accent),
+        ),
+      ],
+    );
+  }
 
-                    if (docs.isEmpty) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(18),
-                                decoration: BoxDecoration(
-                                  color: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.08),
-                                  shape: BoxShape.circle,
-                                  boxShadow: ThemeCleanPremium.softUiCardShadow,
-                                ),
-                                child: Icon(
-                                  kFornecedoresModuleIcon,
-                                  size: 44,
-                                  color: ThemeCleanPremium.primary,
-                                ),
-                              ),
-                              const SizedBox(height: 18),
-                              Text(
-                                _q.isEmpty
-                                    ? 'Nenhum fornecedor cadastrado.'
-                                    : 'Nenhum resultado.',
-                                textAlign: TextAlign.center,
-                                style: GoogleFonts.inter(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.grey.shade700,
-                                  height: 1.35,
-                                ),
-                              ),
-                              if (_q.isEmpty) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Toque em «Novo cadastro» para incluir o primeiro.',
-                                  textAlign: TextAlign.center,
-                                  style: GoogleFonts.inter(
-                                    fontSize: 13,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      );
-                    }
+  Widget _buildFornecedoresListBody(Color accent) {
+    if (_fornecedoresError != null &&
+        (_fornecedoresSnap?.docs.isEmpty ?? true)) {
+      return ChurchPanelErrorBody(
+        title: 'Erro ao carregar fornecedores',
+        error: _fornecedoresError,
+        onRetry: _reloadFornecedoresList,
+      );
+    }
+    if (_fornecedoresSnap == null) {
+      return const ChurchPanelLoadingBody();
+    }
 
-                    final showLoadMore =
-                        docs.length >= _fornecedoresListLimit && _q.isEmpty;
-                    return ListView.builder(
-                      padding: ThemeCleanPremium.pagePadding(context).copyWith(bottom: 88),
-                      itemCount: docs.length + (showLoadMore ? 1 : 0),
-                      itemBuilder: (_, i) {
-                        if (showLoadMore && i == docs.length) {
-                          return LazyLoadMoreFooter(
-                            label: 'Carregar mais fornecedores',
-                            onLoadMore: () => setState(() {
-                              _fornecedoresListLimit +=
-                                  YahwehPerformanceV4.defaultPageSize;
-                              _reloadFornecedoresList();
-                            }),
-                          );
-                        }
-                        final d = docs[i];
-                        final m = d.data();
-                        final nome = (m['nome'] ?? '').toString().trim();
-                        final status = (m['status'] ?? 'ativo').toString();
-                        final statusLabel = status == 'inativo'
-                            ? 'Inativo'
-                            : status == 'pendente_docs'
-                                ? 'Docs pendentes'
-                                : 'Ativo';
-                        final cidade = (m['cidade'] ?? '').toString();
-                        final doc = m['cpfCnpj'] ?? '';
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              onTap: () => _openHub(d.id),
-                              borderRadius: BorderRadius.circular(22),
-                              child: Ink(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(22),
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      Colors.white,
-                                      ThemeCleanPremium.primary.withValues(alpha: 0.045),
-                                    ],
-                                  ),
-                                  border: Border.all(
-                                    color: ThemeCleanPremium.primary
-                                        .withValues(alpha: 0.12),
-                                    width: 1.1,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.1),
-                                      blurRadius: 20,
-                                      offset: const Offset(0, 8),
-                                    ),
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.04),
-                                      blurRadius: 12,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 52,
-                                        height: 52,
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(16),
-                                          gradient: LinearGradient(
-                                            colors: [
-                                              ThemeCleanPremium.primary,
-                                              Color.lerp(ThemeCleanPremium.primary,
-                                                  const Color(0xFF1E3A8A), 0.28)!,
-                                            ],
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
-                                              blurRadius: 10,
-                                              offset: const Offset(0, 4),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Icon(kFornecedoresModuleIcon,
-                                            color: Colors.white, size: 26),
-                                      ),
-                                      const SizedBox(width: 14),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              nome.isEmpty ? 'Sem nome' : nome,
-                                              style: GoogleFonts.inter(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 16,
-                                                letterSpacing: -0.35,
-                                                color: ThemeCleanPremium.onSurface,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              [
-                                                if (doc.toString().isNotEmpty) doc.toString(),
-                                                if (cidade.isNotEmpty) cidade,
-                                              ].join(' · '),
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: GoogleFonts.inter(
-                                                fontSize: 13,
-                                                color: Colors.grey.shade700,
-                                                height: 1.25,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-                                        decoration: BoxDecoration(
-                                          color: status == 'inativo'
-                                              ? const Color(0xFFF1F5F9)
-                                              : status == 'pendente_docs'
-                                                  ? const Color(0xFFFFFBEB)
-                                                  : const Color(0xFFECFDF5),
-                                          borderRadius: BorderRadius.circular(999),
-                                          border: Border.all(
-                                            color: status == 'inativo'
-                                                ? const Color(0xFFCBD5E1)
-                                                : status == 'pendente_docs'
-                                                    ? const Color(0xFFFDE68A)
-                                                    : const Color(0xFF86EFAC),
-                                          ),
-                                        ),
-                                        child: Text(
-                                          statusLabel,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800,
-                                            letterSpacing: 0.2,
-                                            color: status == 'inativo'
-                                                ? const Color(0xFF475569)
-                                                : status == 'pendente_docs'
-                                                    ? const Color(0xFFB45309)
-                                                    : const Color(0xFF166534),
-                                          ),
-                                        ),
-                                      ),
-                                      Icon(Icons.chevron_right_rounded,
-                                          color: Colors.grey.shade400),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
+    final docs = _fornecedoresSnap!.docs.where((d) {
+      if (_q.isEmpty) return true;
+      final m = d.data();
+      final blob = [
+        m['nome'],
+        m['cpfCnpj'],
+        m['cidade'],
+        m['email'],
+      ].whereType<Object>().map((e) => e.toString().toLowerCase()).join(' ');
+      return blob.contains(_q);
+    }).toList();
+
+    if (docs.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
+                  shape: BoxShape.circle,
+                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                ),
+                child: Icon(
+                  kFornecedoresModuleIcon,
+                  size: 44,
+                  color: ThemeCleanPremium.primary,
                 ),
               ),
+              const SizedBox(height: 18),
+              Text(
+                _q.isEmpty
+                    ? (_fornecedoresFetching
+                        ? 'Carregando fornecedores…'
+                        : 'Nenhum fornecedor cadastrado.')
+                    : 'Nenhum resultado.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade700,
+                  height: 1.35,
+                ),
+              ),
+              if (_q.isEmpty && !_fornecedoresFetching) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Toque em «Novo cadastro» para incluir o primeiro.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'igrejas/${_effectiveTenantId}/fornecedores',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: Colors.grey.shade500,
+                  ),
+                ),
+                if (_loadHint != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _loadHint!,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                OutlinedButton.icon(
+                  onPressed: _reloadFornecedoresList,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Atualizar lista'),
+                ),
+              ],
+              if (_fornecedoresFetching) ...[
+                const SizedBox(height: 16),
+                const SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+              ],
             ],
+          ),
+        ),
+      );
+    }
+
+    final showLoadMore = docs.length >= _fornecedoresListLimit && _q.isEmpty;
+    return ListView.builder(
+      padding: ThemeCleanPremium.pagePadding(context).copyWith(bottom: 88),
+      itemCount: docs.length + (showLoadMore ? 1 : 0),
+      itemBuilder: (_, i) {
+        if (showLoadMore && i == docs.length) {
+          return LazyLoadMoreFooter(
+            label: 'Carregar mais fornecedores',
+            onLoadMore: () => setState(() {
+              _fornecedoresListLimit += YahwehPerformanceV4.defaultPageSize;
+              _reloadFornecedoresList();
+            }),
           );
+        }
+        final d = docs[i];
+        final m = d.data();
+        final nome = (m['nome'] ?? '').toString().trim();
+        final status = (m['status'] ?? 'ativo').toString();
+        final statusLabel = status == 'inativo'
+            ? 'Inativo'
+            : status == 'pendente_docs'
+                ? 'Docs pendentes'
+                : 'Ativo';
+        final cidade = (m['cidade'] ?? '').toString();
+        final doc = m['cpfCnpj'] ?? '';
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => _openHub(d.id),
+              borderRadius: BorderRadius.circular(22),
+              child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(22),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.white,
+                      ThemeCleanPremium.primary.withValues(alpha: 0.045),
+                    ],
+                  ),
+                  border: Border.all(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                    width: 1.1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 52,
+                        height: 52,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          gradient: LinearGradient(
+                            colors: [
+                              ThemeCleanPremium.primary,
+                              Color.lerp(
+                                ThemeCleanPremium.primary,
+                                const Color(0xFF1E3A8A),
+                                0.28,
+                              )!,
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: ThemeCleanPremium.primary
+                                  .withValues(alpha: 0.28),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          kFornecedoresModuleIcon,
+                          color: Colors.white,
+                          size: 26,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              nome.isEmpty ? 'Sem nome' : nome,
+                              style: GoogleFonts.inter(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16,
+                                letterSpacing: -0.35,
+                                color: ThemeCleanPremium.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              [
+                                if (doc.toString().isNotEmpty) doc.toString(),
+                                if (cidade.isNotEmpty) cidade,
+                              ].join(' · '),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                                height: 1.25,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 11,
+                          vertical: 7,
+                        ),
+                        decoration: BoxDecoration(
+                          color: status == 'inativo'
+                              ? const Color(0xFFF1F5F9)
+                              : status == 'pendente_docs'
+                                  ? const Color(0xFFFFFBEB)
+                                  : const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: status == 'inativo'
+                                ? const Color(0xFFCBD5E1)
+                                : status == 'pendente_docs'
+                                    ? const Color(0xFFFDE68A)
+                                    : const Color(0xFF86EFAC),
+                          ),
+                        ),
+                        child: Text(
+                          statusLabel,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.2,
+                            color: status == 'inativo'
+                                ? const Color(0xFF475569)
+                                : status == 'pendente_docs'
+                                    ? const Color(0xFFB45309)
+                                    : const Color(0xFF166534),
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: Colors.grey.shade400,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -1735,16 +1906,14 @@ class _FornecedoresCompromissosListaTabState
     extends State<_FornecedoresCompromissosListaTab>
     with AutomaticKeepAliveClientMixin {
   int _retryNonce = 0;
-  late Future<
-      ({
-        QuerySnapshot<Map<String, dynamic>> fornecedores,
-        QuerySnapshot<Map<String, dynamic>> compromissos,
-      })> _agendaFuture;
+  _FornecedoresAgendaBundle? _agendaBundle;
+  bool _agendaFetching = false;
+  String? _agendaError;
 
   @override
   bool get wantKeepAlive => true;
 
-  String get _tenantId => widget.colFornecedores.parent?.id ?? '';
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId);
 
   CollectionReference<Map<String, dynamic>> get _compCol =>       ChurchUiCollections.churchDoc(_tenantId)
       .collection('fornecedor_compromissos');
@@ -1752,21 +1921,44 @@ class _FornecedoresCompromissosListaTabState
   @override
   void initState() {
     super.initState();
-    _reloadAgenda();
+    _agendaBundle = _seedFornecedoresAgendaBundle(_tenantId);
+    _agendaFetching = true;
+    unawaited(_fetchAgenda());
+  }
+
+  Future<void> _fetchAgenda({bool forceFresh = false}) async {
+    try {
+      final bundle = await _loadFornecedoresAgendaBundle(
+        tenantId: _tenantId,
+        compromissosLimit: YahwehPerformanceV4.defaultPageSize,
+        fornecedorIdFilter: widget.fornecedorIdFilter,
+        descending: true,
+        forceFresh: forceFresh,
+      );
+      if (!mounted) return;
+      setState(() {
+        _agendaBundle = bundle;
+        _agendaFetching = false;
+        _agendaError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _agendaFetching = false;
+        if ((_agendaBundle?.fornecedores.docs.isEmpty ?? true) &&
+            (_agendaBundle?.compromissos.docs.isEmpty ?? true)) {
+          _agendaError = '$e';
+        }
+      });
+    }
   }
 
   void _reloadAgenda() {
-    _agendaFuture = Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-      ChurchTenantResilientReads.fornecedores(_tenantId),
-      _loadFornecedorCompromissosQuery(
-        _tenantId,
-        limit: YahwehPerformanceV4.defaultPageSize,
-        fornecedorIdFilter: widget.fornecedorIdFilter,
-        descending: true,
-      ),
-    ]).then(
-      (r) => (fornecedores: r[0], compromissos: r[1]),
-    );
+    setState(() {
+      _agendaFetching = true;
+      _agendaError = null;
+    });
+    unawaited(_fetchAgenda(forceFresh: true));
   }
 
   Future<void> _editar(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
@@ -1801,34 +1993,32 @@ class _FornecedoresCompromissosListaTabState
     final pad = ThemeCleanPremium.pagePadding(context);
     return KeyedSubtree(
       key: ValueKey<int>(_retryNonce),
-      child: FutureBuilder<
-          ({
-            QuerySnapshot<Map<String, dynamic>> fornecedores,
-            QuerySnapshot<Map<String, dynamic>> compromissos,
-          })>(
-        future: _agendaFuture,
-        builder: (context, bundle) {
-          if (bundle.hasError) {
+      child: Builder(
+        builder: (context) {
+          if (_agendaError != null &&
+              (_agendaBundle?.compromissos.docs.isEmpty ?? true)) {
             return ChurchPanelErrorBody(
               title: 'Erro ao carregar agendamentos',
-              error: bundle.error,
+              error: _agendaError,
               onRetry: () => setState(() {
                 _retryNonce++;
                 _reloadAgenda();
               }),
             );
           }
-          if (bundle.connectionState == ConnectionState.waiting &&
-              !bundle.hasData) {
+          if (_agendaBundle == null) {
             return const ChurchPanelLoadingBody();
           }
-          final fnSnap = bundle.data!.fornecedores;
-          final snap = bundle.data!.compromissos;
+          final fnSnap = _agendaBundle!.fornecedores;
+          final snap = _agendaBundle!.compromissos;
           final nomePorId = <String, String>{};
           for (final d in fnSnap.docs) {
             nomePorId[d.id] = (d.data()['nome'] ?? '').toString().trim();
           }
           final docs = snap.docs;
+          if (docs.isEmpty && _agendaFetching) {
+            return const ChurchPanelLoadingBody();
+          }
             final deep = Color.lerp(
                     ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.35) ??
                 ThemeCleanPremium.primary;
@@ -2124,15 +2314,11 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
 
   DateTime _focused = DateTime.now();
   DateTime? _selected;
-  late Future<
-      ({
-        QuerySnapshot<Map<String, dynamic>> fornecedores,
-        QuerySnapshot<Map<String, dynamic>> compromissos,
-      })> _agendaFuture;
+  _FornecedoresAgendaBundle? _agendaBundle;
+  bool _agendaFetching = false;
+  String? _agendaError;
 
-  String get _tenantId => widget.tenantId.trim().isNotEmpty
-      ? widget.tenantId.trim()
-      : (widget.colFornecedores.parent?.id ?? '');
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId);
 
   CollectionReference<Map<String, dynamic>> get _compCol =>       ChurchUiCollections.churchDoc(_tenantId)
       .collection('fornecedor_compromissos');
@@ -2140,19 +2326,41 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
   @override
   void initState() {
     super.initState();
-    _reloadAgenda();
+    _agendaBundle = _seedFornecedoresAgendaBundle(_tenantId);
+    _agendaFetching = true;
+    unawaited(_fetchAgenda());
+  }
+
+  Future<void> _fetchAgenda({bool forceFresh = false}) async {
+    try {
+      final bundle = await _loadFornecedoresAgendaBundle(
+        tenantId: _tenantId,
+        compromissosLimit: YahwehPerformanceV4.defaultPageSize * 3,
+        forceFresh: forceFresh,
+      );
+      if (!mounted) return;
+      setState(() {
+        _agendaBundle = bundle;
+        _agendaFetching = false;
+        _agendaError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _agendaFetching = false;
+        if ((_agendaBundle?.compromissos.docs.isEmpty ?? true)) {
+          _agendaError = '$e';
+        }
+      });
+    }
   }
 
   void _reloadAgenda() {
-    _agendaFuture = Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-      ChurchTenantResilientReads.fornecedores(_tenantId),
-      _loadFornecedorCompromissosQuery(
-        _tenantId,
-        limit: YahwehPerformanceV4.defaultPageSize * 3,
-      ),
-    ]).then(
-      (r) => (fornecedores: r[0], compromissos: r[1]),
-    );
+    setState(() {
+      _agendaFetching = true;
+      _agendaError = null;
+    });
+    unawaited(_fetchAgenda(forceFresh: true));
   }
 
   Map<String, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupByDay(
@@ -2449,34 +2657,33 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return FutureBuilder<
-        ({
-          QuerySnapshot<Map<String, dynamic>> fornecedores,
-          QuerySnapshot<Map<String, dynamic>> compromissos,
-        })>(
-      future: _agendaFuture,
-      builder: (context, bundle) {
-        if (bundle.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Erro ao carregar agenda geral',
-            error: bundle.error,
-            onRetry: () => setState(_reloadAgenda),
-          );
-        }
-        if (bundle.connectionState == ConnectionState.waiting &&
-            !bundle.hasData) {
-          return const ChurchPanelLoadingBody();
-        }
-        final fnSnap = bundle.data!.fornecedores;
-        final snap = bundle.data!.compromissos;
-        final nomePorId = <String, String>{};
-        for (final d in fnSnap.docs) {
-          nomePorId[d.id] = (d.data()['nome'] ?? '').toString().trim();
-        }
-        final docs = snap.docs;
-        final byDay = _groupByDay(docs);
+    if (_agendaError != null &&
+        (_agendaBundle?.fornecedores.docs.isEmpty ?? true) &&
+        (_agendaBundle?.compromissos.docs.isEmpty ?? true)) {
+      return ChurchPanelErrorBody(
+        title: 'Erro ao carregar agenda geral',
+        error: _agendaError,
+        onRetry: _reloadAgenda,
+      );
+    }
+    if (_agendaBundle == null) {
+      return const ChurchPanelLoadingBody();
+    }
+    final fnSnap = _agendaBundle!.fornecedores;
+    final snap = _agendaBundle!.compromissos;
+    if (fnSnap.docs.isEmpty &&
+        snap.docs.isEmpty &&
+        _agendaFetching) {
+      return const ChurchPanelLoadingBody();
+    }
+    final nomePorId = <String, String>{};
+    for (final d in fnSnap.docs) {
+      nomePorId[d.id] = (d.data()['nome'] ?? '').toString().trim();
+    }
+    final docs = snap.docs;
+    final byDay = _groupByDay(docs);
 
-            return DecoratedBox(
+    return DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
@@ -2685,8 +2892,6 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
                 ],
               ),
             );
-      },
-    );
   }
 }
 
@@ -3065,6 +3270,7 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
+      final churchId = ChurchRepository.churchId(widget.tenantId);
       final payload = <String, dynamic>{
         'nome': _nomeCtrl.text.trim(),
         'tipoPessoa': _tipo,
@@ -3085,6 +3291,8 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
         'notaInterna': _notaInternaCtrl.text.trim(),
         'avaliacao': _avaliacao,
         'status': _status,
+        'churchId': churchId,
+        'tenantId': churchId,
         'updatedAt': FieldValue.serverTimestamp(),
       };
       if (kIsWeb) {
@@ -3142,13 +3350,17 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    final accent = kChurchShellNavEntries[ChurchShellIndices.fornecedores].accent;
     return Padding(
       padding: EdgeInsets.only(bottom: bottom),
       child: Container(
         constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.92),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(ThemeCleanPremium.radiusLg)),
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(ThemeCleanPremium.radiusLg),
+          ),
+          boxShadow: ThemeCleanPremium.softUiCardShadow,
         ),
         child: Column(
           children: [
@@ -3161,16 +3373,60 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(16),
+            Container(
+              margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    accent.withValues(alpha: 0.12),
+                    accent.withValues(alpha: 0.04),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                border: Border.all(color: accent.withValues(alpha: 0.22)),
+              ),
               child: Row(
                 children: [
-                  Text(
-                    _isEdit ? 'Editar fornecedor' : 'Novo fornecedor',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  IconButton.filledTonal(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    tooltip: 'Voltar',
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: accent,
+                    ),
                   ),
-                  const Spacer(),
-                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _isEdit ? 'Editar fornecedor' : 'Novo fornecedor',
+                          style: GoogleFonts.inter(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        Text(
+                          'igrejas/${ChurchRepository.churchId(widget.tenantId)}/fornecedores',
+                          style: GoogleFonts.inter(
+                            fontSize: 10.5,
+                            color: Colors.grey.shade600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                    tooltip: 'Fechar',
+                  ),
                 ],
               ),
             ),
@@ -3563,6 +3819,8 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
 
   Future<void> _emitirRecibo(Map<String, dynamic> m, String financeDocId) async {
     try {
+      final brandingFuture = _loadBrandingFastForRecibo(widget.tenantId);
+      final signersFuture = _fetchReciboSigners(widget.tenantId);
       final doc = await _fornecedorRef.get(
         const GetOptions(source: Source.serverAndCache),
       );
@@ -3595,7 +3853,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
       DateTime? dt;
       if (ts is Timestamp) dt = ts.toDate();
 
-      final signers = await _fetchReciboSigners(widget.tenantId);
+      final signers = await signersFuture;
       if (!mounted) return;
       String? signerId;
       var useDigital = true;
@@ -3669,18 +3927,34 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
       if (cfg == null || !mounted) return;
       final sel = signers.where((s) => s.id == cfg.signerId);
       final signer = sel.isNotEmpty ? sel.first : null;
-      Uint8List? sigBytes;
-      if (cfg.useDigital && signer != null && signer.assinatura.isNotEmpty) {
-        final url = sanitizeImageUrl(signer.assinatura);
-        if (url.isNotEmpty) {
-          sigBytes = await ImageHelper.getBytesFromUrlOrNull(
-            url,
-            timeout: const Duration(seconds: 14),
-          );
-        }
-      }
       final branding = await _loadBrandingFastForRecibo(widget.tenantId);
       if (!mounted) return;
+
+      PdfDigitalStampInput? churchStamp;
+      if (cfg.useDigital && signer != null) {
+        Map<String, dynamic> churchData = {};
+        try {
+          churchData =
+              (await ChurchRepository.churchDoc(widget.tenantId).get()).data() ??
+                  {};
+        } catch (_) {}
+        var cpfDigits = '';
+        try {
+          final md = await ChurchUiCollections.membros(widget.tenantId)
+              .doc(signer.id)
+              .get();
+          cpfDigits = (md.data()?['CPF'] ?? md.data()?['cpf'] ?? '')
+              .toString()
+              .replaceAll(RegExp(r'\D'), '');
+        } catch (_) {}
+        churchStamp = PdfDigitalStampInput.now(
+          signerName: signer.nome,
+          signerCpfDigits: cpfDigits.length == 11 ? cpfDigits : null,
+          churchName: branding.churchName,
+          churchData: churchData,
+        );
+      }
+
       final bytes = await buildFornecedorReciboPdf(
         branding: branding,
         fornecedorNome: nomeForn,
@@ -3690,9 +3964,9 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
         referente: desc.isEmpty ? 'Pagamento / serviço' : desc,
         dataPagamento: dt,
         showDigitalSignature: cfg.useDigital,
-        churchSignatureImageBytes: sigBytes,
         churchSignerName: signer?.nome ?? '',
         churchSignerRole: signer?.cargo ?? '',
+        churchDigitalStamp: churchStamp,
       );
       if (!mounted) return;
       await showPdfActions(

@@ -5,7 +5,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/services/church_departments_load_service.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/pdf/church_transfer_letter_pdf.dart';
@@ -17,6 +19,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
@@ -122,7 +125,11 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     _tabs.addListener(() {
       if (!_tabs.indexIsChanging && mounted) setState(() {});
     });
-    _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId);
+    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
+    final ctxData = ChurchContextService.currentChurchData;
+    if (ctxData != null && ctxData.isNotEmpty) {
+      _tenant = Map<String, dynamic>.from(ctxData);
+    }
     final ram = _effectiveTenantId.isNotEmpty
         ? _ChurchLettersMembersRamCache.peek(_effectiveTenantId)
         : null;
@@ -139,23 +146,96 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     unawaited(_prewarmPdfEmitAssets());
   }
 
-  Future<void> _loadDepartmentsForLetters() async {
-    try {
-      final tid = _effectiveTenantId.isNotEmpty
+  Future<void> _loadDepartmentsForLetters({bool forceRefresh = false}) async {
+    final churchId = ChurchRepository.churchId(
+      _effectiveTenantId.isNotEmpty
           ? _effectiveTenantId
-          : widget.tenantId.trim();
-      if (tid.isEmpty) return;
-      final snap = await ChurchTenantResilientReads.departamentos(tid);
-      final list = snap.docs
-          .map((d) => (
-                id: d.id,
-                name: churchDepartmentNameFromDoc(d),
-              ))
-          .where((e) => e.name.isNotEmpty)
-          .toList()
-        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-      if (mounted) setState(() => _deptFilterItems = list);
+          : widget.tenantId.trim(),
+    );
+    if (churchId.isEmpty) return;
+
+    if (!forceRefresh) {
+      final ram = ChurchDepartmentsLoadService.peekRam(churchId);
+      if (ram != null && ram.isNotEmpty) {
+        _applyDepartmentFilterItems(ram);
+      }
+    }
+
+    try {
+      final result = await ChurchDepartmentsLoadService.load(
+        seedTenantId: churchId,
+        forceRefresh: forceRefresh,
+      );
+      if (result.docs.isEmpty) return;
+      _applyDepartmentFilterItems(result.docs);
     } catch (_) {}
+  }
+
+  void _applyDepartmentFilterItems(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final list = docs
+        .map((d) => (
+              id: d.id,
+              name: churchDepartmentNameFromDoc(d),
+            ))
+        .where((e) => e.name.isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    if (mounted) setState(() => _deptFilterItems = list);
+  }
+
+  Future<Map<String, dynamic>> _ensureTenantProfileLoaded() async {
+    if (_tenant != null && _tenant!.isNotEmpty) {
+      return Map<String, dynamic>.from(_tenant!);
+    }
+    final ctx = ChurchContextService.currentChurchData;
+    if (ctx != null && ctx.isNotEmpty) {
+      if (mounted) setState(() => _tenant = Map<String, dynamic>.from(ctx));
+      return Map<String, dynamic>.from(ctx);
+    }
+    final churchId = ChurchRepository.churchId(
+      _effectiveTenantId.isNotEmpty
+          ? _effectiveTenantId
+          : widget.tenantId.trim(),
+    );
+    if (churchId.isEmpty) return const {};
+
+    try {
+      final direct = await IgrejaDirectFirestoreReads.readIgrejaDoc(churchId);
+      if (direct != null && direct.data.isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            _tenant = Map<String, dynamic>.from(direct.data);
+            if (_missionCtrl.text.trim().isEmpty) {
+              _missionCtrl.text = _defaultMissionText();
+            }
+          });
+        }
+        return Map<String, dynamic>.from(direct.data);
+      }
+    } catch (_) {}
+
+    try {
+      final loaded = await ChurchRepository.loadByChurchId(churchId);
+      if (loaded.data.isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            _tenant = Map<String, dynamic>.from(loaded.data);
+            if (_missionCtrl.text.trim().isEmpty) {
+              _missionCtrl.text = _defaultMissionText();
+            }
+          });
+        }
+        ChurchContextService.bindChurchData(
+          churchId: loaded.churchId,
+          data: loaded.data,
+        );
+        return Map<String, dynamic>.from(loaded.data);
+      }
+    } catch (_) {}
+
+    return const {};
   }
 
   List<ChurchLetterMemberEntry> _memberEntriesFromDocs(
@@ -369,18 +449,12 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   }
 
   Future<void> _bootstrap() async {
-    final hint = widget.tenantId.trim();
-    if (hint.isNotEmpty) _effectiveTenantId = hint;
+    final churchId = ChurchRepository.churchId(widget.tenantId.trim());
+    if (churchId.isNotEmpty && mounted) {
+      setState(() => _effectiveTenantId = churchId);
+    }
 
-    try {
-      final ch = await           ChurchUiCollections.churchDoc(_effectiveTenantId)
-          .get(const GetOptions(source: Source.serverAndCache));
-      final d = ch.data() ?? {};
-      if (mounted) {
-        setState(() => _tenant = d);
-        _missionCtrl.text = _defaultMissionText();
-      }
-    } catch (_) {}
+    await _ensureTenantProfileLoaded();
 
     try {
       final cfg = await _configRef
@@ -415,35 +489,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       await _defaultSignerFromMembro();
     }
     unawaited(_getBrandingCached());
-
-    unawaited(() async {
-      try {
-        final tid = ChurchRepository.churchId(widget.tenantId).isNotEmpty
-            ? ChurchRepository.churchId(widget.tenantId)
-            : widget.tenantId.trim();
-        if (tid.isNotEmpty && tid != _effectiveTenantId && mounted) {
-          setState(() {
-            _effectiveTenantId = tid;
-            _brandingFuture = null;
-          });
-          await _openChurchLettersFast();
-          try {
-            final op = ChurchRepository.churchId(tid.trim());
-            final ch = await                 ChurchUiCollections.churchDoc(op)
-                .get(const GetOptions(source: Source.serverAndCache));
-            if (mounted) {
-              setState(() {
-                _tenant = ch.data();
-                if (_missionCtrl.text.trim().isEmpty) {
-                  _missionCtrl.text = _defaultMissionText();
-                }
-              });
-            }
-          } catch (_) {}
-        }
-      } catch (_) {}
-    }());
-
+    await _loadDepartmentsForLetters();
   }
 
   void _applyDefaultSignerFromLoadedMembers(
@@ -629,8 +675,21 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     super.dispose();
   }
 
-  String get _nomeIgreja =>
-      (_tenant?['name'] ?? _tenant?['nome'] ?? 'Igreja').toString().trim();
+  String get _nomeIgreja {
+    final t = _tenant;
+    if (t != null) {
+      final n = (t['nome'] ?? t['name'] ?? '').toString().trim();
+      if (n.isNotEmpty) return n;
+    }
+    final ctx = ChurchContextService.currentChurchData;
+    if (ctx != null) {
+      final n = (ctx['nome'] ?? ctx['name'] ?? '').toString().trim();
+      if (n.isNotEmpty) return n;
+    }
+    final brand = _brandingReady?.churchName.trim() ?? '';
+    if (brand.isNotEmpty) return brand;
+    return 'Igreja';
+  }
 
   String get _gestorNomeExibicao =>
       (_tenant?['gestorNome'] ??
@@ -644,6 +703,44 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       (_tenant?['gestorCargo'] ?? _tenant?['gestor_cargo'] ?? 'Pastor(a) Presidente')
           .toString()
           .trim();
+
+  String _enderecoCompletoLine() {
+    final d = _tenant;
+    if (d == null) return '';
+    final rua = (d['rua'] ?? d['address'] ?? '').toString().trim();
+    final qd = (d['quadraLoteNumero'] ?? '').toString().trim();
+    final ruaC = rua.isEmpty ? qd : (qd.isEmpty ? rua : '$rua, $qd');
+    final bairro = (d['bairro'] ?? '').toString().trim();
+    final parts = <String>[
+      if (ruaC.isNotEmpty) ruaC,
+      if (bairro.isNotEmpty) bairro,
+    ];
+    return parts.join(' · ');
+  }
+
+  String _telefoneIgrejaLine() {
+    final d = _tenant;
+    if (d == null) return '';
+    return (d['telefoneIgreja'] ??
+            d['telefone'] ??
+            d['whatsappIgreja'] ??
+            d['whatsapp'] ??
+            '')
+        .toString()
+        .trim();
+  }
+
+  String _cepLine() {
+    final d = _tenant;
+    if (d == null) return '';
+    final raw = (d['cep'] ?? d['CEP'] ?? '').toString().trim();
+    if (raw.isEmpty) return '';
+    final digits = raw.replaceAll(RegExp(r'\D'), '');
+    if (digits.length == 8) {
+      return 'CEP ${digits.substring(0, 5)}-${digits.substring(5)}';
+    }
+    return 'CEP $raw';
+  }
 
   Widget _buildChurchIdentityCard(Color accent) {
     final igreja = _nomeIgreja;
@@ -704,6 +801,27 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                 fontWeight: FontWeight.w600,
                 color: Colors.grey.shade700,
               ),
+            ),
+          ],
+          if (_enderecoCompletoLine().isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              _enderecoCompletoLine(),
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+            ),
+          ],
+          if (_cepLine().isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              _cepLine(),
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+            ),
+          ],
+          if (_telefoneIgrejaLine().isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              'Tel.: ${_telefoneIgrejaLine()}',
+              style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
             ),
           ],
           if (gestor.isNotEmpty) ...[
@@ -838,7 +956,9 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     if (_brandingReady != null) {
       return Future.value(_brandingReady!);
     }
-    _brandingFuture ??= loadReportPdfBranding(_effectiveTenantId).then((b) {
+    _brandingFuture ??= loadReportPdfBranding(
+      ChurchRepository.churchId(_effectiveTenantId),
+    ).then((b) {
       _brandingReady = b;
       return b;
     });
@@ -1115,11 +1235,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     }
     YahwehFlowLog.cartaStart();
     try {
-      final tplEarly = switch (kind) {
-        _CartaKind.apresentacao => _tplApresentacaoCtrl.text,
-        _CartaKind.transferencia => _tplTransferCtrl.text,
-        _CartaKind.agradecimento => _tplAgradecimentoCtrl.text,
-      };
+      await _ensureTenantProfileLoaded();
+      final tenantData = _tenant ?? const <String, dynamic>{};
 
       final byId = _memberDataById(_seedMemberDocs);
       final lines = <ChurchLetterMemberLine>[];
@@ -1192,9 +1309,17 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         return;
       }
 
-      Uint8List? signatureImageBytes;
+      PdfDigitalStampInput? digitalStamp;
       if (_signatureMode == _LetterSignatureMode.digital) {
-        signatureImageBytes = await _signatureBytesForEmit(m1);
+        final cpf = (m1['CPF'] ?? m1['cpf'] ?? '')
+            .toString()
+            .replaceAll(RegExp(r'\D'), '');
+        digitalStamp = PdfDigitalStampInput.now(
+          signerName: n1,
+          signerCpfDigits: cpf.length == 11 ? cpf : null,
+          churchName: _nomeIgreja,
+          churchData: tenantData.isNotEmpty ? tenantData : (_tenant ?? {}),
+        );
       }
 
       final tpl = switch (kind) {
@@ -1246,9 +1371,9 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         branding: branding,
         documentTitle: title,
         bodyAfterReplacements: filled,
-        churchData: _tenant ?? {},
-        signatureImageBytes: signatureImageBytes,
+        churchData: tenantData.isNotEmpty ? tenantData : (_tenant ?? {}),
         reserveManualSignatureSpace: _signatureMode == _LetterSignatureMode.manual,
+        digitalStamp: digitalStamp,
       );
 
       if (!mounted) return;
@@ -1261,7 +1386,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       if (saveHistorico) {
         unawaited(() async {
           try {
-            await _persistHistorico(kind: kind, templateText: tplEarly);
+            await _persistHistorico(kind: kind, templateText: tpl);
             if (mounted) setState(() => _historyEditDocId = null);
           } catch (e, st) {
             YahwehFlowLog.error('CARTA_HIST', e, st);
@@ -1787,7 +1912,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                       const SizedBox(height: 6),
                                       Text(
                                         _signatureMode == _LetterSignatureMode.digital
-                                            ? 'Digital: usa a imagem de assinatura do 1.º assinante (cadastro Membros).'
+                                            ? 'Digital: selo compacto de certificado (igreja + assinante + data/hora).'
                                             : 'Manual: gera espaço proporcional para assinatura à caneta no documento impresso.',
                                         style: TextStyle(
                                           fontSize: 12,

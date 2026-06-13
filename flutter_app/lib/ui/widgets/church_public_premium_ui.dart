@@ -1,9 +1,13 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show FreshFirebaseStorageImage, isValidImageUrl;
+    show
+        FreshFirebaseStorageImage,
+        firebaseStorageMediaUrlLooksLike,
+        isValidImageUrl;
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
     show YahwehPremiumFeedShimmer;
 
@@ -408,6 +412,8 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
   /// Endereço principal do cadastro da igreja — se [location] for equivalente, não repete no card.
   final String churchDefaultAddress;
   final String imageUrl;
+  /// Path Storage (`igrejas/.../eventos/{id}/banner_evento.jpg`) — exibição sem URL https.
+  final String photoStoragePath;
   final Color accent;
   final VoidCallback? onTap;
 
@@ -421,12 +427,18 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
     required this.location,
     this.churchDefaultAddress = '',
     required this.imageUrl,
+    this.photoStoragePath = '',
     required this.accent,
     this.onTap,
   });
 
-  bool get _hasPhoto =>
-      imageUrl.trim().isNotEmpty && isValidImageUrl(imageUrl.trim());
+  bool get _hasPhoto {
+    final path = photoStoragePath.trim();
+    if (path.isNotEmpty && firebaseStorageMediaUrlLooksLike(path)) {
+      return true;
+    }
+    return imageUrl.trim().isNotEmpty && isValidImageUrl(imageUrl.trim());
+  }
 
   bool get _showVenueLine {
     final loc = location.trim();
@@ -488,8 +500,16 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(14),
                     child: _hasPhoto
-                        ? FreshFirebaseStorageImage(
-                            imageUrl: imageUrl.trim(),
+                        ? StableStorageImage(
+                            storagePath: photoStoragePath.trim().isNotEmpty
+                                ? photoStoragePath.trim()
+                                : null,
+                            imageUrl: imageUrl.trim().isNotEmpty &&
+                                    isValidImageUrl(imageUrl.trim())
+                                ? imageUrl.trim()
+                                : null,
+                            width: 74,
+                            height: 74,
                             fit: BoxFit.cover,
                             memCacheWidth: 360,
                             memCacheHeight: 360,

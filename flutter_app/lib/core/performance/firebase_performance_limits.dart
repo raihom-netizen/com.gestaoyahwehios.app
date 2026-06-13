@@ -10,12 +10,12 @@ abstract final class FirebasePerformanceLimits {
   static const int avisosPage = 32;
   static const int chatThreadsPage = 40;
   static const int chatMessagesPage = 30;
-  static const int patrimonioPage = 40;
-  static const int financeiroPage = 80;
-  static const int fornecedoresPage = 40;
+  static const int patrimonioPage = 120;
+  static const int financeiroPage = 200;
+  static const int fornecedoresPage = 120;
   static const int departamentosPage = 60;
   static const int cargosPage = 60;
-  static const int escalasPage = 40;
+  static const int escalasPage = 120;
   static const int agendaPage = 40;
 
   /// Teto absoluto — proíbe `collection.get()` sem limite na camada de dados.
@@ -39,6 +39,8 @@ abstract final class FirebasePerformanceLimits {
         return patrimonioPage;
       case 'finance':
         return financeiroPage;
+      case 'contas':
+        return financeiroPage;
       case 'fornecedores':
         return fornecedoresPage;
       case 'departamentos':
@@ -46,6 +48,8 @@ abstract final class FirebasePerformanceLimits {
       case 'cargos':
         return cargosPage;
       case 'escalas':
+        return escalasPage;
+      case 'escala_templates':
         return escalasPage;
       case 'agenda':
         return agendaPage;

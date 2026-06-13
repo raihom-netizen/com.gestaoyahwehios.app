@@ -67,29 +67,57 @@ abstract final class PatrimonioMediaUpload {
     required int startSlot,
     void Function(double batchProgress)? onBatchProgress,
     bool skipPrepare = true,
+  }) async =>
+      uploadGalleryPhotosParallel(
+        churchId: churchId,
+        itemDocId: itemDocId,
+        images: images,
+        startSlot: startSlot,
+        onBatchProgress: onBatchProgress,
+        skipPrepare: skipPrepare,
+        maxParallel: 1,
+      );
+
+  /// Até [maxParallel] fotos em paralelo — mais rápido na Web e Android.
+  static Future<List<PatrimonioGalleryUploadResult>> uploadGalleryPhotosParallel({
+    required String churchId,
+    required String itemDocId,
+    required List<Uint8List> images,
+    required int startSlot,
+    void Function(double batchProgress)? onBatchProgress,
+    bool skipPrepare = true,
+    int maxParallel = 2,
   }) async {
     if (images.isEmpty) return const [];
     final count = images.length.clamp(0, kMaxPatrimonioPhotosPerItem - startSlot);
     if (count <= 0) return const [];
 
-    final results = <PatrimonioGalleryUploadResult>[];
-    for (var i = 0; i < count; i++) {
+    final parallel = maxParallel.clamp(1, 3);
+    final results = List<PatrimonioGalleryUploadResult?>.filled(count, null);
+    var completed = 0;
+
+    Future<void> uploadOne(int i) async {
       final slot = startSlot + i;
-      onBatchProgress?.call(i / count);
-      final r = await uploadGalleryPhoto(
+      results[i] = await uploadGalleryPhoto(
         churchId: churchId,
         itemDocId: itemDocId,
         slotIndex: slot,
         rawBytes: images[i],
         skipPrepare: skipPrepare,
-        onProgress: (slotP) {
-          onBatchProgress?.call((i + slotP) / count);
-        },
       );
-      results.add(r);
+      completed++;
+      onBatchProgress?.call(completed / count);
     }
+
+    for (var start = 0; start < count; start += parallel) {
+      final end = (start + parallel).clamp(0, count);
+      await Future.wait([
+        for (var i = start; i < end; i++) uploadOne(i),
+      ]);
+    }
+
     onBatchProgress?.call(1.0);
-    return results;
+    return results.whereType<PatrimonioGalleryUploadResult>().toList();
   }
 }
 

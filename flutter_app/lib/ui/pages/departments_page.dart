@@ -871,7 +871,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         tenantId: _tid,
         departmentId: doc.id,
       );
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = ChurchRepository.batch();
       final membersList =
           await ChurchRepository.membros.list(churchIdHint: _tid, limit: 500);
       for (final m in membersList.items) {

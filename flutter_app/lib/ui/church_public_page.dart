@@ -195,6 +195,8 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       for (final d in aviDocs) {
         final m = d.data();
         if (m['publicSite'] == false) continue;
+        if (m['publicado'] == false) continue;
+        if ((m['status'] ?? '').toString().trim() == 'erro') continue;
         if (!_churchPublicDocStillActive(m, now)) continue;
         merged.add(d);
       }
@@ -3485,6 +3487,7 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
                     location: locFinal,
                     churchDefaultAddress: widget.churchVenueAddress,
                     imageUrl: imageUrl,
+                    photoStoragePath: photoPath,
                     accent: accentEvento,
                     onTap: () {
                       final hasSchedule = dayName.isNotEmpty ||
@@ -3548,17 +3551,13 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
   }
 }
 
-/// Capa do evento fixo (Eventos fixos no painel): `defaultImageUrl` / `imageUrl` / lista.
+/// Capa do evento fixo — mesma lógica do feed (`eventNoticiaFeedCoverHintUrl`).
 String _publicEventTemplateCoverUrl(Map<String, dynamic> m) {
-  var u = (m['defaultImageUrl'] ?? m['imageUrl'] ?? '').toString().trim();
-  if (u.isEmpty && m['imageUrls'] is List) {
-    for (final e in m['imageUrls'] as List) {
-      u = e.toString().trim();
-      if (u.isNotEmpty) break;
-    }
-  }
-  if (u.isEmpty) return '';
-  return sanitizeImageUrl(u);
+  final hint = eventNoticiaFeedCoverHintUrl(m);
+  if (hint.isNotEmpty) return sanitizeImageUrl(hint);
+  final photos = eventNoticiaPhotoUrls(m);
+  if (photos.isNotEmpty) return sanitizeImageUrl(photos.first);
+  return '';
 }
 
 Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
@@ -3581,7 +3580,7 @@ Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
       final data = d.data();
       final photos = eventNoticiaPhotoUrls(data);
       final videos = eventNoticiaVideosFromDoc(data);
-      final path0 = eventNoticiaPhotoStoragePathAt(data, 0);
+      final path0 = eventNoticiaPhotoStoragePathAt(data, 0, docIdHint: d.id);
       final title = (data['title'] ?? '').toString().trim();
       if (title.isEmpty) continue;
       final sa = data['startAt'];
@@ -5167,62 +5166,88 @@ class _ChurchTenantFallback extends StatelessWidget {
                       );
                     }
 
-                    if (photos.isNotEmpty) {
-                      final u0 = sanitizeImageUrl(photos.first);
-                      if (isValidImageUrl(u0) ||
-                          eventNoticiaPhotoStoragePathAt(p, 0) != null) {
-                        media.add(
-                          Padding(
-                            padding: const EdgeInsets.only(top: 10),
-                            child: ChurchPublicConstrainedMedia(
-                              child: LayoutBuilder(
-                                builder: (ctx, c) {
-                                  final w = c.maxWidth;
-                                  final h = c.maxHeight;
-                                  return LazyViewportBuilder(
-                                    visibilityKey:
-                                        'church-pub-${d.id}-evt-photo',
-                                    placeholder: SizedBox.expand(
-                                      child: YahwehPremiumFeedShimmer
-                                          .mediaCover(),
-                                    ),
-                                    builder: () => StableStorageImage(
-                                      storagePath:
-                                          eventNoticiaPhotoStoragePathAt(
-                                              p, 0),
-                                      imageUrl:
-                                          isValidImageUrl(u0) ? u0 : null,
-                                      width: w,
-                                      height: h,
-                                      fit: BoxFit.contain,
-                                      memCacheWidth: 900,
-                                      memCacheHeight: 900,
-                                      skipFreshDisplayUrl: false,
-                                      errorWidget: Container(
-                                        color: const Color(0xFFEEF2FF),
-                                        alignment: Alignment.center,
-                                        child: Icon(
-                                            Icons.image_not_supported_rounded,
-                                            size: 48,
-                                            color: Colors.indigo.shade200),
-                                      ),
-                                    ),
-                                  );
-                                },
+                    if ((p['publishState'] ?? '').toString() == 'uploading' &&
+                        !eventNoticiaPostHasFeedCoverRow(p)) {
+                      media.add(
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: ChurchPublicConstrainedMedia(
+                            child: LayoutBuilder(
+                              builder: (ctx, c) => SizedBox(
+                                width: c.maxWidth,
+                                height: c.maxHeight,
+                                child: YahwehPremiumFeedShimmer.mediaCover(),
                               ),
                             ),
                           ),
-                        );
-                      }
+                        ),
+                      );
+                    } else if (eventNoticiaPostHasFeedCoverRow(
+                        p,
+                        docIdHint: d.id,
+                      )) {
+                      final hint =
+                          sanitizeImageUrl(eventNoticiaFeedCoverHintUrl(p));
+                      final u0 = photos.isNotEmpty
+                          ? sanitizeImageUrl(photos.first)
+                          : hint;
+                      final path0 = eventNoticiaPhotoStoragePathAt(
+                        p,
+                        0,
+                        docIdHint: d.id,
+                        churchIdHint: igrejaId,
+                      );
+                      media.add(
+                        Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: ChurchPublicConstrainedMedia(
+                            child: LayoutBuilder(
+                              builder: (ctx, c) {
+                                final w = c.maxWidth;
+                                final h = c.maxHeight;
+                                return LazyViewportBuilder(
+                                  visibilityKey:
+                                      'church-pub-${d.id}-evt-photo',
+                                  placeholder: SizedBox.expand(
+                                    child: YahwehPremiumFeedShimmer
+                                        .mediaCover(),
+                                  ),
+                                  builder: () => StableStorageImage(
+                                    storagePath: path0,
+                                    imageUrl: isValidImageUrl(u0) ? u0 : null,
+                                    width: w,
+                                    height: h,
+                                    fit: BoxFit.contain,
+                                    memCacheWidth: 900,
+                                    memCacheHeight: 900,
+                                    skipFreshDisplayUrl: false,
+                                    errorWidget: Container(
+                                      color: const Color(0xFFEEF2FF),
+                                      alignment: Alignment.center,
+                                      child: Icon(
+                                        Icons.image_not_supported_rounded,
+                                        size: 48,
+                                        color: Colors.indigo.shade200,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      );
                       if (photos.length > 1) {
                         media.add(Padding(
                           padding: const EdgeInsets.only(top: 6),
                           child: Text(
-                              '+ ${photos.length - 1} foto(s) no app da igreja',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey.shade600,
-                                  fontWeight: FontWeight.w600)),
+                            '+ ${photos.length - 1} foto(s) no app da igreja',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ));
                       }
                       if (hasVideo) {
@@ -5231,8 +5256,8 @@ class _ChurchTenantFallback extends StatelessWidget {
                             padding: const EdgeInsets.only(top: 10),
                             child: FilledButton.icon(
                               onPressed: openEventoVideo,
-                              icon:
-                                  const Icon(Icons.play_circle_filled_rounded),
+                              icon: const Icon(
+                                  Icons.play_circle_filled_rounded),
                               label: const Text('Assistir vídeo do evento'),
                               style: FilledButton.styleFrom(
                                   backgroundColor: const Color(0xFFDC2626)),

@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Chat mídia estilo WhatsApp — Ecofire: Firebase OK → Storage → Firestore **uma vez** (`sent`).
 ///
@@ -95,6 +96,7 @@ abstract final class ChurchChatMediaSendService {
             localPath: localPath,
           );
           EcoFireResilientPublish.scheduleSync(reason: 'chat_media_queued');
+          onProgress?.call(0.92);
           onSuccess?.call();
           return;
         } catch (_) {}
@@ -135,12 +137,7 @@ abstract final class ChurchChatMediaSendService {
     final ts = ChurchChatService.timestampMsFromChatMediaPath(storagePath);
 
     final uploadPath = (localPath ?? pending.localPath)?.trim() ?? '';
-    var uploadBytes = bytes;
-    if ((uploadBytes == null || uploadBytes.isEmpty) &&
-        pending.previewBytes != null &&
-        pending.previewBytes!.isNotEmpty) {
-      uploadBytes = pending.previewBytes;
-    }
+    final uploadBytes = bytes;
 
     String? thumbStoragePath;
     int? fileSize;
@@ -150,7 +147,7 @@ abstract final class ChurchChatMediaSendService {
       final prepared = await _prepareImageSafe(
         bytes: uploadBytes != null && uploadBytes.isNotEmpty
             ? Uint8List.fromList(uploadBytes)
-            : pending.previewBytes,
+            : null,
         localPath: uploadPath.isNotEmpty && !kIsWeb ? uploadPath : null,
       );
       fileSize = prepared.fullBytes.length;
@@ -246,21 +243,18 @@ abstract final class ChurchChatMediaSendService {
     onProgress?.call(0.9);
     ChurchPublishFlowLog.uploadOk('chat_${pending.kind}');
 
-    final written = await ChurchChatService.writeMediaMessageFirestoreOnce(
-      tenantId: resolvedTenant,
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+    }
+
+    final written = await _writeFirestoreAfterUpload(
+      resolvedTenant: resolvedTenant,
       threadId: threadId,
-      kind: pending.kind,
+      pending: pending,
       storagePath: storagePath,
       thumbStoragePath: thumbStoragePath,
-      fileName: ChurchChatMessageFields.isDocumentType(pending.kind)
-          ? pending.fileName
-          : null,
       fileSize: fileSize,
       replyTo: replyTo,
-      senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
-      albumGroupId: pending.albumGroupId,
-      albumIndex: pending.albumIndex,
-      albumCount: pending.albumCount,
     );
 
     if (!written.allowed || written.messageId.isEmpty) {
@@ -272,6 +266,45 @@ abstract final class ChurchChatMediaSendService {
     onProgress?.call(1.0);
     ChurchPublishFlowLog.chatFileUploaded();
     ChurchPublishFlowLog.chatFinalOk();
+  }
+
+  static Future<({String messageId, bool allowed})> _writeFirestoreAfterUpload({
+    required String resolvedTenant,
+    required String threadId,
+    required ChurchChatOutboundPending pending,
+    required String storagePath,
+    String? thumbStoragePath,
+    int? fileSize,
+    Map<String, dynamic>? replyTo,
+  }) async {
+    Object? last;
+    for (var attempt = 1; attempt <= 4; attempt++) {
+      try {
+        return await ChurchChatService.writeMediaMessageFirestoreOnce(
+          tenantId: resolvedTenant,
+          threadId: threadId,
+          kind: pending.kind,
+          storagePath: storagePath,
+          thumbStoragePath: thumbStoragePath,
+          fileName: ChurchChatMessageFields.isDocumentType(pending.kind)
+              ? pending.fileName
+              : null,
+          fileSize: fileSize,
+          replyTo: replyTo,
+          senderDisplayName: ChurchChatService.senderDisplayNameForNewMessage(),
+          albumGroupId: pending.albumGroupId,
+          albumIndex: pending.albumIndex,
+          albumCount: pending.albumCount,
+          skipStorageVerify: true,
+        );
+      } catch (e) {
+        last = e;
+        if (attempt < 4) {
+          await Future<void>.delayed(Duration(milliseconds: 280 * attempt));
+        }
+      }
+    }
+    throw last ?? StateError('Não foi possível gravar a mensagem no chat.');
   }
 
   static Future<PreparedChatImage> _prepareImageSafe({

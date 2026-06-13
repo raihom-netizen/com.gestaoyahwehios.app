@@ -102,12 +102,7 @@ abstract final class ChurchTenantMediaService {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
 
-    final churchId = await TenantResolverService.resolveOperationalChurchDocId(
-      seed,
-      userUid: userUid,
-      forceRefresh: forceRefresh,
-    );
-    final resolved = churchId.trim();
+    final resolved = ChurchRepository.churchId(seed).trim();
     if (resolved.isEmpty) {
       throw ChurchTenantMediaException(
         'Não foi possível resolver o tenant operacional.',

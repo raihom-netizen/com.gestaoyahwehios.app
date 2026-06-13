@@ -1400,7 +1400,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       final resolvedTenantId = await _resolveEffectiveTenantId();
       final data = jsonDecode(ctrl.text.trim()) as Map<String, dynamic>;
       final members = (data['members'] as List?) ?? [];
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = ChurchRepository.batch();
       final op = ChurchRepository.churchId(resolvedTenantId.trim());
       final col = ChurchUiCollections.membros(op);
       for (final m in members) {

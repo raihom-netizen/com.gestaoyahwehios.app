@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -34,13 +34,45 @@ class ChurchAgendaLoadResult {
   bool get isEmpty => docs.isEmpty;
 }
 
-/// Carga canónica — Firestore `igrejas/{id}/agenda` por intervalo `startTime`.
+/// Carga canónica — Firestore `igrejas/{id}/agenda`.
 abstract final class ChurchAgendaLoadService {
   ChurchAgendaLoadService._();
 
   static const int _plainFallbackLimit = 500;
 
-  /// Pré-visualização síncrona — RAM por intervalo ou lista completa em cache.
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _ram = {};
+
+  static const Duration _ramTtl = Duration(minutes: 20);
+
+  static String _resolve(String hint) => ChurchRepository.churchId(hint.trim());
+
+  static String cacheKeyAll(String churchId, int limit) =>
+      '${churchId.trim()}_agenda_all_$limit';
+
+  static String cacheKey(String churchId, Timestamp start, Timestamp end) =>
+      '${churchId.trim()}_agenda_${start.seconds}_${end.seconds}';
+
+  /// Extrai timestamp canónico — suporta campos legados.
+  static Timestamp? docStartTimestamp(Map<String, dynamic> data) {
+    for (final key in [
+      'startTime',
+      'startAt',
+      'dataEvento',
+      'data',
+      'date',
+    ]) {
+      final v = data[key];
+      if (v is Timestamp) return v;
+    }
+    return null;
+  }
+
+  /// Pré-visualização síncrona — lista completa ou intervalo filtrado.
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekAnyRam(
     String seedTenantId, {
     Timestamp? start,
@@ -48,16 +80,27 @@ abstract final class ChurchAgendaLoadService {
   }) {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return null;
+
+    final allKey = cacheKeyAll(churchId, _plainFallbackLimit);
+    final allHit = _peekRamEntry(allKey);
+    if (allHit != null) {
+      if (start != null && end != null) {
+        final filtered = _filterByRange(allHit, start, end);
+        return filtered.isNotEmpty ? filtered : allHit;
+      }
+      return allHit;
+    }
+
     if (start != null && end != null) {
       final ranged = peekRam(churchId, start: start, end: end);
-      if (ranged != null && ranged.isNotEmpty) return ranged;
+      if (ranged != null) return ranged;
     }
+
     final prefix = '${churchId.trim()}_agenda_';
     List<QueryDocumentSnapshot<Map<String, dynamic>>>? best;
     DateTime? bestAt;
     for (final e in _ram.entries) {
       if (!e.key.startsWith(prefix)) continue;
-      if (e.value.docs.isEmpty) continue;
       if (bestAt == null || e.value.at.isAfter(bestAt)) {
         best = e.value.docs;
         bestAt = e.value.at;
@@ -71,26 +114,18 @@ abstract final class ChurchAgendaLoadService {
     return best;
   }
 
-  static final Map<
-      String,
-      ({
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-        DateTime at,
-      })> _ram = {};
-
-  static const Duration _ramTtl = Duration(minutes: 20);
-
-  static String _resolve(String hint) => ChurchPanelTenant.resolve(hint.trim());
-
-  static String cacheKey(String churchId, Timestamp start, Timestamp end) =>
-      '${churchId.trim()}_agenda_${start.seconds}_${end.seconds}';
-
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekRam(
     String seedTenantId, {
     required Timestamp start,
     required Timestamp end,
   }) {
     final key = cacheKey(_resolve(seedTenantId), start, end);
+    return _peekRamEntry(key);
+  }
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekRamEntry(
+    String key,
+  ) {
     final hit = _ram[key];
     if (hit == null) return null;
     if (DateTime.now().difference(hit.at) > _ramTtl) {
@@ -104,7 +139,6 @@ abstract final class ChurchAgendaLoadService {
     String key,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    if (docs.isEmpty) return;
     _ram[key] = (docs: List.from(docs), at: DateTime.now());
   }
 
@@ -116,9 +150,9 @@ abstract final class ChurchAgendaLoadService {
     final startDate = start.toDate();
     final endDate = end.toDate();
     return docs.where((d) {
-      final raw = d.data()['startTime'];
-      if (raw is! Timestamp) return false;
-      final dt = raw.toDate();
+      final ts = docStartTimestamp(d.data());
+      if (ts == null) return false;
+      final dt = ts.toDate();
       return !dt.isBefore(startDate) && !dt.isAfter(endDate);
     }).toList();
   }
@@ -128,18 +162,20 @@ abstract final class ChurchAgendaLoadService {
   ) {
     final sorted = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
     sorted.sort((a, b) {
-      final ta = a.data()['startTime'];
-      final tb = b.data()['startTime'];
-      if (ta is Timestamp && tb is Timestamp) return ta.compareTo(tb);
+      final ta = docStartTimestamp(a.data());
+      final tb = docStartTimestamp(b.data());
+      if (ta != null && tb != null) return ta.compareTo(tb);
+      if (ta != null) return -1;
+      if (tb != null) return 1;
       return 0;
     });
     return sorted;
   }
 
-  static Future<ChurchAgendaLoadResult> loadByStartTimeRange({
+  /// Lista completa da agenda — cache-first; filtro por mês na UI.
+  static Future<ChurchAgendaLoadResult> loadAll({
     required String seedTenantId,
-    required Timestamp start,
-    required Timestamp end,
+    int limit = _plainFallbackLimit,
     bool forceRefresh = false,
     bool forceServer = false,
   }) async {
@@ -155,72 +191,81 @@ abstract final class ChurchAgendaLoadService {
     }
 
     final path = 'igrejas/$churchId/agenda';
-    final ramKey = cacheKey(churchId, start, end);
+    final ramKey = cacheKeyAll(churchId, limit);
 
     if (!forceRefresh && !forceServer) {
-      final ramHit = peekRam(churchId, start: start, end: end);
-      if (ramHit != null && ramHit.isNotEmpty) {
+      final ramHit = _peekRamEntry(ramKey);
+      if (ramHit != null) {
+        unawaited(_refreshAllInBackground(
+          churchId: churchId,
+          ramKey: ramKey,
+          limit: limit,
+        ));
         return ChurchAgendaLoadResult(
           churchId: churchId,
           docs: ramHit,
-          readSource: 'ram',
+          readSource: 'ram_all',
           collectionPath: path,
         );
       }
 
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
-      if (mem != null && mem.docs.isNotEmpty) {
+      if (mem != null) {
         final docs = _sortByStartTime(mem.docs);
         _putRam(ramKey, docs);
         return ChurchAgendaLoadResult(
           churchId: churchId,
           docs: docs,
-          readSource: 'firestore_mem',
+          readSource: 'firestore_mem_all',
           collectionPath: path,
         );
       }
 
       try {
-        final hive = await TenantModuleHiveCache.readDocs(
+        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
           churchId,
           TenantModuleKeys.agenda,
         ).timeout(const Duration(seconds: 4));
-        if (hive.isNotEmpty) {
-          final filtered = _sortByStartTime(
-            _filterByRange(TenantModuleHiveCache.toQueryDocuments(hive), start, end),
+        if (updatedAt != null) {
+          final hive = await TenantModuleHiveCache.readDocs(
+            churchId,
+            TenantModuleKeys.agenda,
           );
-          if (filtered.isNotEmpty) {
-            _putRam(ramKey, filtered);
-            return ChurchAgendaLoadResult(
-              churchId: churchId,
-              docs: filtered,
-              readSource: 'hive',
-              collectionPath: path,
-            );
-          }
+          final docs = _sortByStartTime(
+            TenantModuleHiveCache.toQueryDocuments(hive),
+          );
+          _putRam(ramKey, docs);
+          unawaited(_refreshAllInBackground(
+            churchId: churchId,
+            ramKey: ramKey,
+            limit: limit,
+          ));
+          return ChurchAgendaLoadResult(
+            churchId: churchId,
+            docs: docs,
+            readSource: docs.isEmpty ? 'hive_empty_all' : 'hive_all',
+            collectionPath: path,
+          );
         }
       } catch (_) {}
     }
 
     Object? lastError;
     try {
-      final docs = await _loadFirestoreRange(
+      final docs = await _loadFirestoreAll(
         churchId: churchId,
-        start: start,
-        end: end,
         cacheKey: ramKey,
+        limit: limit,
         forceServer: forceServer,
       );
-      if (docs.isNotEmpty) {
-        _putRam(ramKey, docs);
-        unawaited(_persistHive(churchId, docs));
-        return ChurchAgendaLoadResult(
-          churchId: churchId,
-          docs: docs,
-          readSource: forceServer ? 'server' : 'firestore_full',
-          collectionPath: path,
-        );
-      }
+      _putRam(ramKey, docs);
+      unawaited(_persistHive(churchId, docs));
+      return ChurchAgendaLoadResult(
+        churchId: churchId,
+        docs: docs,
+        readSource: forceServer ? 'server_all' : 'firestore_all',
+        collectionPath: path,
+      );
     } catch (e) {
       lastError = e;
     }
@@ -230,34 +275,62 @@ abstract final class ChurchAgendaLoadService {
         churchId,
         'agenda',
         moduleLabel: 'Agenda',
-        limit: _plainFallbackLimit,
+        limit: limit,
         cacheKey: '${ramKey}_direct',
       ).timeout(ChurchPanelReadTimeouts.queryCap);
-      if (snap.docs.isNotEmpty) {
-        final filtered = _sortByStartTime(_filterByRange(snap.docs, start, end));
-        if (filtered.isNotEmpty) {
-          _putRam(ramKey, filtered);
-          unawaited(_persistHive(churchId, snap.docs));
-          return ChurchAgendaLoadResult(
-            churchId: churchId,
-            docs: filtered,
-            readSource: 'direct_list',
-            collectionPath: path,
-          );
-        }
+      final docs = _sortByStartTime(snap.docs);
+      _putRam(ramKey, docs);
+      unawaited(_persistHive(churchId, docs));
+      return ChurchAgendaLoadResult(
+        churchId: churchId,
+        docs: docs,
+        readSource: 'direct_list_all',
+        collectionPath: path,
+      );
+    } catch (e) {
+      lastError ??= e;
+    }
+
+    try {
+      final repo = await ChurchRepository.agenda.listCacheFirst(
+        churchIdHint: churchId,
+        limit: limit,
+        firestoreCacheKey: ramKey,
+      );
+      if (repo.items.isNotEmpty || repo.error == null) {
+        final docs = _sortByStartTime(repo.items);
+        _putRam(ramKey, docs);
+        return ChurchAgendaLoadResult(
+          churchId: churchId,
+          docs: docs,
+          readSource: 'repository_cache_first',
+          collectionPath: path,
+          softError: repo.error,
+        );
       }
     } catch (e) {
       lastError ??= e;
     }
 
     final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
-    if (mem != null && mem.docs.isNotEmpty) {
+    if (mem != null) {
       return ChurchAgendaLoadResult(
         churchId: churchId,
         docs: _sortByStartTime(mem.docs),
-        readSource: 'fallback_mem',
+        readSource: 'fallback_mem_all',
         collectionPath: path,
-        softError: lastError?.toString(),
+        softError: _humanizeError(lastError),
+      );
+    }
+
+    final ramFallback = _peekRamEntry(ramKey);
+    if (ramFallback != null) {
+      return ChurchAgendaLoadResult(
+        churchId: churchId,
+        docs: ramFallback,
+        readSource: 'ram_fallback_all',
+        collectionPath: path,
+        softError: _humanizeError(lastError),
       );
     }
 
@@ -266,10 +339,64 @@ abstract final class ChurchAgendaLoadService {
       docs: const [],
       readSource: 'empty',
       collectionPath: path,
-      softError: lastError is TimeoutException
-          ? 'Tempo esgotado ao carregar agenda.'
-          : lastError?.toString(),
+      softError: _humanizeError(lastError),
     );
+  }
+
+  static Future<ChurchAgendaLoadResult> loadByStartTimeRange({
+    required String seedTenantId,
+    required Timestamp start,
+    required Timestamp end,
+    bool forceRefresh = false,
+    bool forceServer = false,
+  }) async {
+    final all = await loadAll(
+      seedTenantId: seedTenantId,
+      forceRefresh: forceRefresh,
+      forceServer: forceServer,
+    );
+    final filtered = _sortByStartTime(_filterByRange(all.docs, start, end));
+    final churchId = all.churchId;
+    final path = all.collectionPath;
+    if (filtered.isNotEmpty) {
+      _putRam(cacheKey(churchId, start, end), filtered);
+    }
+    return ChurchAgendaLoadResult(
+      churchId: churchId,
+      docs: filtered,
+      readSource: filtered.isEmpty && all.docs.isNotEmpty
+          ? '${all.readSource}_filtered_empty'
+          : all.readSource,
+      collectionPath: path,
+      softError: filtered.isEmpty ? all.softError : null,
+    );
+  }
+
+  static String? _humanizeError(Object? e) {
+    if (e == null) return null;
+    if (e is TimeoutException) {
+      return 'Tempo esgotado ao carregar agenda. Verifique a conexão.';
+    }
+    final s = e.toString();
+    if (s.length > 180) return '${s.substring(0, 177)}…';
+    return s;
+  }
+
+  static Future<void> _refreshAllInBackground({
+    required String churchId,
+    required String ramKey,
+    required int limit,
+  }) async {
+    try {
+      final docs = await _loadFirestoreAll(
+        churchId: churchId,
+        cacheKey: ramKey,
+        limit: limit,
+        forceServer: false,
+      );
+      _putRam(ramKey, docs);
+      await _persistHive(churchId, docs);
+    } catch (_) {}
   }
 
   static Future<void> _persistHive(
@@ -286,11 +413,10 @@ abstract final class ChurchAgendaLoadService {
   }
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _loadFirestoreRange({
+      _loadFirestoreAll({
     required String churchId,
-    required Timestamp start,
-    required Timestamp end,
     required String cacheKey,
+    required int limit,
     required bool forceServer,
   }) async {
     if (kIsWeb) {
@@ -300,48 +426,32 @@ abstract final class ChurchAgendaLoadService {
     final col = ChurchUiCollections.agenda(churchId);
 
     Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> plainLoad() async {
+      Query<Map<String, dynamic>> q = col.limit(limit);
+      try {
+        final ordered = await FirestoreReadResilience.getQuery(
+          col.orderBy('startTime', descending: true).limit(limit),
+          cacheKey: '${cacheKey}_ordered',
+          maxAttempts: kIsWeb ? 5 : 3,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        );
+        if (ordered.docs.isNotEmpty) {
+          return _sortByStartTime(ordered.docs);
+        }
+      } catch (_) {}
+
       final plain = await FirestoreReadResilience.getQuery(
-        col.orderBy('startTime', descending: true).limit(_plainFallbackLimit),
-        cacheKey: '${cacheKey}_plain_all',
+        q,
+        cacheKey: '${cacheKey}_plain',
         maxAttempts: kIsWeb ? 4 : 3,
         attemptTimeout: ChurchPanelReadTimeouts.attempt,
       );
-      return _sortByStartTime(_filterByRange(plain.docs, start, end));
+      return _sortByStartTime(plain.docs);
     }
-
-    Query<Map<String, dynamic>> ranged() => col
-        .where('startTime', isGreaterThanOrEqualTo: start)
-        .where('startTime', isLessThanOrEqualTo: end);
 
     if (!forceServer) {
       try {
         final cacheSnap = await col
-            .orderBy('startTime', descending: true)
-            .limit(_plainFallbackLimit)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 5));
-        if (cacheSnap.docs.isNotEmpty) {
-          final filtered = _filterByRange(cacheSnap.docs, start, end);
-          if (filtered.isNotEmpty) {
-            return _sortByStartTime(filtered);
-          }
-        }
-      } catch (_) {}
-    }
-
-    if (kIsWeb && !forceServer) {
-      try {
-        final filtered = await FirestoreWebGuard.runWithWebRecovery(
-          plainLoad,
-          maxAttempts: 4,
-        ).timeout(ChurchPanelReadTimeouts.queryCap);
-        if (filtered.isNotEmpty) return filtered;
-      } catch (_) {}
-    }
-
-    if (!forceServer) {
-      try {
-        final cacheSnap = await ranged()
+            .limit(limit)
             .get(const GetOptions(source: Source.cache))
             .timeout(const Duration(seconds: 5));
         if (cacheSnap.docs.isNotEmpty) {
@@ -350,33 +460,13 @@ abstract final class ChurchAgendaLoadService {
       } catch (_) {}
     }
 
-    Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
-      try {
-        return await FirestoreReadResilience.getQuery(
-          ranged(),
-          cacheKey: cacheKey,
-          maxAttempts: kIsWeb ? 5 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-      } catch (_) {
-        return MergedFirestoreQuerySnapshot(await plainLoad());
-      }
+    if (kIsWeb) {
+      return FirestoreWebGuard.runWithWebRecovery(
+        plainLoad,
+        maxAttempts: 4,
+      ).timeout(ChurchPanelReadTimeouts.queryCap);
     }
-
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
-        : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
-
-    final docs = _sortByStartTime(snap.docs);
-    if (docs.isEmpty) {
-      try {
-        return await plainLoad();
-      } catch (_) {}
-    }
-    return docs;
+    return plainLoad().timeout(ChurchPanelReadTimeouts.warmCap);
   }
 
   static Future<void> invalidate(String seedTenantId) async {

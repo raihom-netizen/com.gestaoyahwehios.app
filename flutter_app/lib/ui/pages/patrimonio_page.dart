@@ -13,11 +13,11 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         ResilientNetworkImage,
         sanitizeImageUrl;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -34,6 +34,7 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
@@ -47,6 +48,7 @@ import 'package:gestao_yahweh/services/patrimonio_categoria_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/yahweh_catch_log.dart';
@@ -60,6 +62,7 @@ import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
@@ -345,7 +348,8 @@ DateTime? _dataAquisicaoFromPatrimonioMap(Map<String, dynamic> m) {
 Future<({
   String signerName,
   Uint8List? signerSignatureBytes,
-  bool showDigitalSignature
+  bool showDigitalSignature,
+  PdfDigitalStampInput? digitalStamp,
 })?> _pickPatrimonioPdfSigner(
   BuildContext context, {
   required String tenantId,
@@ -378,9 +382,9 @@ Future<({
           onChanged: (v) => setDlg(() => useDigital = v),
           dense: true,
           contentPadding: EdgeInsets.zero,
-          title: const Text('Carregar assinatura digital'),
+          title: const Text('Carregar selo de assinatura digital'),
           subtitle: Text(
-            picked.nome,
+            '${picked.nome} — certificado digital (igreja + assinante)',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
         ),
@@ -399,25 +403,37 @@ Future<({
   );
   if (useDigitalConfirmed != true || !context.mounted) return null;
 
-  Uint8List? sigBytes;
+  Map<String, dynamic> churchData = {};
+  try {
+    final snap = await ChurchRepository.churchDoc(tenantId).get();
+    churchData = snap.data() ?? {};
+  } catch (_) {}
+
+  PdfDigitalStampInput? digitalStamp;
   if (useDigital) {
-    final raw = (picked.assinaturaUrl ?? '').trim();
-    if (raw.isNotEmpty) {
-      final url = sanitizeImageUrl(raw);
-      if (url.isNotEmpty) {
-        sigBytes = await ImageHelper.getBytesFromUrlOrNull(
-          url,
-          timeout: const Duration(seconds: 14),
-        );
-      }
-    }
+    digitalStamp = PdfDigitalStampInput.now(
+      signerName: picked.nome,
+      signerCpfDigits: picked.cpfDigits,
+      churchName: brandingChurchNameFromPatrimonio(churchData, tenantId),
+      churchData: churchData,
+    );
   }
 
   return (
     signerName: picked.nome,
-    signerSignatureBytes: sigBytes,
+    signerSignatureBytes: null,
     showDigitalSignature: useDigital,
+    digitalStamp: digitalStamp,
   );
+}
+
+String brandingChurchNameFromPatrimonio(
+  Map<String, dynamic> churchData,
+  String tenantId,
+) {
+  final n = churchTaxIdChurchNameFromMap(churchData);
+  if (n.isNotEmpty) return n;
+  return tenantId.trim();
 }
 
 /// PDF Super Premium — patrimônio (tabela completa + linhas opcionais de filtros).
@@ -500,6 +516,7 @@ Future<void> _exportPatrimonioRelatorioPdf({
           signerName: signerCfg.signerName,
           signatureImageBytes: signerCfg.signerSignatureBytes,
           showDigitalSignature: signerCfg.showDigitalSignature,
+          digitalStamp: signerCfg.digitalStamp,
         ),
       ],
     ),
@@ -606,6 +623,7 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
           signerName: signerCfg.signerName,
           signatureImageBytes: signerCfg.signerSignatureBytes,
           showDigitalSignature: signerCfg.showDigitalSignature,
+          digitalStamp: signerCfg.digitalStamp,
         ),
       ],
     ),
@@ -641,7 +659,7 @@ abstract final class _PatrimonioRamCache {
   static const Duration _ttl = Duration(minutes: 20);
 
   static QuerySnapshot<Map<String, dynamic>>? peek(String tenantId) {
-    final tid = tenantId.trim();
+    final tid = ChurchRepository.churchId(tenantId);
     if (tid.isEmpty) return null;
     final hit = _ram[tid];
     if (hit == null) return null;
@@ -653,14 +671,14 @@ abstract final class _PatrimonioRamCache {
   }
 
   static void store(String tenantId, QuerySnapshot<Map<String, dynamic>> snap) {
-    final tid = tenantId.trim();
-    if (tid.isEmpty || snap.docs.isEmpty) return;
+    final tid = ChurchRepository.churchId(tenantId);
+    if (tid.isEmpty) return;
     _ram[tid] = (snap: snap, at: DateTime.now());
   }
 }
 
 void _prewarmPatrimonioModule(String tenantId) {
-  final tid = tenantId.trim();
+  final tid = ChurchRepository.churchId(tenantId);
   if (tid.isEmpty) return;
   unawaited(
     ChurchRepository.listCacheFirst(
@@ -669,7 +687,16 @@ void _prewarmPatrimonioModule(String tenantId) {
       limit: YahwehPerformanceV4.patrimonioListPageSize,
     ),
   );
-  unawaited(ChurchTenantResilientReads.contas(tid));
+  unawaited(
+    ChurchPatrimonioLoadService.loadAll(seedTenantId: tid).catchError((_) {
+      return const ChurchPatrimonioLoadResult(
+        churchId: '',
+        docs: [],
+        readSource: 'prewarm_error',
+        collectionPath: 'patrimonio',
+      );
+    }),
+  );
 }
 
 /// Abas do cabeçalho — alto contraste sobre fundo primário (segmentos tipo “pill”).
@@ -753,11 +780,14 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   String? _operationalTenantId;
   bool _patrimonioBootstrapDone = false;
 
-  String get _effectiveTenantId => ChurchPanelTenant.resolve(
-        (_operationalTenantId ?? '').isNotEmpty
-            ? _operationalTenantId
-            : widget.tenantId,
-      );
+  String get _effectiveTenantId {
+    final hint = (_operationalTenantId ?? '').trim().isNotEmpty
+        ? _operationalTenantId!.trim()
+        : widget.tenantId.trim();
+    return ChurchRepository.churchId(hint).isNotEmpty
+        ? ChurchRepository.churchId(hint)
+        : hint;
+  }
 
   bool get _canWrite => ChurchRolePermissions.isFinanceCoreTeam(widget.role);
 
@@ -821,8 +851,8 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   void initState() {
     super.initState();
     _categoriasEfetivas = _mergeCategorias(null);
-    final resolved = ChurchPanelTenant.resolve(widget.tenantId).trim();
-    if (resolved.isNotEmpty) _operationalTenantId = resolved;
+    final initial = ChurchRepository.churchId(widget.tenantId).trim();
+    if (initial.isNotEmpty) _operationalTenantId = initial;
     _tabCtrl = TabController(length: 4, vsync: this);
     _searchCtrl = TextEditingController();
     if (widget.initialSearchQuery != null &&
@@ -832,7 +862,8 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       _q = s.toLowerCase();
     }
     _patrimonioBootstrapDone = true;
-    _prewarmPatrimonioModule(widget.tenantId);
+    _prewarmPatrimonioModule(initial);
+    unawaited(_warmPatrimonioData(initial));
     unawaited(FastMediaPublishBootstrap.warmForPatrimonioSave());
     unawaited(_loadCategoriasExtras());
     unawaited(_resolveOperationalTenant());
@@ -845,10 +876,40 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     }
   }
 
+  Future<void> _warmPatrimonioData(String tenantId) async {
+    final tid = ChurchRepository.churchId(tenantId);
+    if (tid.isEmpty) return;
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final result = await ChurchPatrimonioLoadService.loadAll(
+        seedTenantId: tid,
+      );
+      _PatrimonioRamCache.store(tid, result.snapshot);
+      if (mounted) {
+        _refreshPatrimonioTabs();
+      }
+      ChurchModuleQueryProbe.logSuccess(
+        module: 'Patrimônio',
+        churchId: ChurchPatrimonioLoadService.resolveChurchId(tid),
+        path: 'igrejas/${ChurchPatrimonioLoadService.resolveChurchId(tid)}/patrimonio',
+        totalDocs: result.docs.length,
+      );
+    } catch (e) {
+      ChurchModuleQueryProbe.logError(
+        module: 'Patrimônio',
+        churchId: ChurchPatrimonioLoadService.resolveChurchId(tid),
+        path: 'igrejas/${ChurchPatrimonioLoadService.resolveChurchId(tid)}/patrimonio',
+        error: '$e',
+      );
+    }
+  }
+
   Future<void> _resolveOperationalTenant() async {
     final seed = widget.tenantId.trim();
     if (seed.isEmpty) return;
-    final tid = ChurchContextService.panelChurchId(seed);
+    final tid = ChurchRepository.churchId(seed);
     if (tid.isEmpty) return;
     try {
       if (!mounted || tid == _operationalTenantId) return;
@@ -857,6 +918,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       _refreshPatrimonioTabs();
       unawaited(_loadCategoriasExtras());
       _prewarmPatrimonioModule(tid);
+      unawaited(_warmPatrimonioData(tid));
     } catch (_) {}
   }
 
@@ -2144,6 +2206,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                 children: [
                   _BensTab(
                     key: _bensTabKey,
+                    tenantId: _effectiveTenantId,
                     col: _col,
                     q: _q,
                     filterCategoria: _filterCategoria,
@@ -2235,6 +2298,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _BensTab extends StatefulWidget {
+  final String tenantId;
   final CollectionReference<Map<String, dynamic>> col;
   final String q;
   final String filterCategoria;
@@ -2260,6 +2324,7 @@ class _BensTab extends StatefulWidget {
 
   const _BensTab({
     super.key,
+    required this.tenantId,
     required this.col,
     required this.q,
     required this.filterCategoria,
@@ -2290,6 +2355,7 @@ class _BensTab extends StatefulWidget {
 
 class _BensTabState extends State<_BensTab> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+  String? _lastLoadHint;
   /// Lista compacta por padrão; galeria em grade se o utilizador alternar.
   bool _galleryView = false;
   static const int _pageSize = YahwehPerformanceV4.patrimonioListPageSize;
@@ -2363,47 +2429,91 @@ class _BensTabState extends State<_BensTab> {
   @override
   void initState() {
     super.initState();
+    _bindPatrimonioLoad();
+  }
+
+  void _seedFromLocalCaches() {
     final tid = _tenantId;
-    List<QueryDocumentSnapshot<Map<String, dynamic>>>? cachedDocs =
-        ChurchPatrimonioLoadService.peekRam(tid, limit: _pageSize);
-    cachedDocs ??= _PatrimonioRamCache.peek(tid)?.docs
-        .cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
-    if (cachedDocs != null && cachedDocs.isNotEmpty) {
-      _loadedDocs
-        ..clear()
-        ..addAll(cachedDocs);
-      _lastCursor = cachedDocs.last;
-      _hasMorePages = cachedDocs.length >= _pageSize;
-      _future = Future.value(MergedFirestoreQuerySnapshot(_loadedDocs));
-      unawaited(_refreshBensFromServer());
+    _loadedDocs.clear();
+    final seeded =
+        ChurchPatrimonioLoadService.peekRam(tid, limit: _pageSize) ??
+            _PatrimonioRamCache.peek(tid)?.docs
+                .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+            const [];
+    _loadedDocs.addAll(seeded);
+    _lastCursor = _loadedDocs.isNotEmpty ? _loadedDocs.last : null;
+    _hasMorePages = _loadedDocs.length >= _pageSize;
+  }
+
+  void _bindPatrimonioLoad({bool forceFresh = false}) {
+    if (!forceFresh) {
+      _seedFromLocalCaches();
     } else {
-      _future = _loadBensFirstPaint();
+      _loadedDocs.clear();
+      _lastCursor = null;
+      _hasMorePages = true;
+    }
+    _future = Future.value(MergedFirestoreQuerySnapshot(_loadedDocs));
+    unawaited(_fetchPatrimonioFromServer(forceFresh: forceFresh));
+  }
+
+  @override
+  void didUpdateWidget(covariant _BensTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      _lastLoadHint = null;
+      setState(() => _bindPatrimonioLoad(forceFresh: true));
     }
   }
 
-  String get _tenantId => widget.col.parent?.id ?? '';
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId);
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioInitial() async {
+  Future<void> _fetchPatrimonioFromServer({bool forceFresh = false}) async {
     final tid = _tenantId;
     if (tid.isEmpty) {
-      return const MergedFirestoreQuerySnapshot([]);
+      if (!mounted) return;
+      setState(() {
+        _lastLoadHint = 'Igreja não identificada.';
+        if (_loadedDocs.isEmpty) {
+          _future = Future.error(StateError(_lastLoadHint!));
+        }
+      });
+      return;
     }
-    final result = await ChurchPatrimonioLoadService.load(
-      seedTenantId: tid.trim(),
-      limit: _pageSize,
-    );
-    final docs = result.docs;
-    _loadedDocs
-      ..clear()
-      ..addAll(docs);
-    _lastCursor = docs.isNotEmpty ? docs.last : null;
-    _hasMorePages = docs.length >= _pageSize;
-    return MergedFirestoreQuerySnapshot(_loadedDocs);
-  }
-
-  /// Leitura resiliente (Controle Total) — evita `client has already been terminated` na web.
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioResilient() async {
-    return _loadPatrimonioInitial();
+    try {
+      final result = await ChurchPatrimonioLoadService.load(
+        seedTenantId: tid,
+        limit: _pageSize,
+        forceRefresh: forceFresh,
+        forceServer: forceFresh,
+      );
+      if (!mounted) return;
+      if (result.docs.isEmpty && result.hasHardError && _loadedDocs.isEmpty) {
+        setState(() {
+          _lastLoadHint = result.softError;
+          _future = Future.error(StateError(result.softError!));
+        });
+        return;
+      }
+      _loadedDocs
+        ..clear()
+        ..addAll(result.docs);
+      _lastCursor = result.docs.isNotEmpty ? result.docs.last : null;
+      _hasMorePages = result.docs.length >= _pageSize;
+      _lastLoadHint =
+          'igrejas/$tid/patrimonio (${result.readSource}, ${result.docs.length} bens)';
+      final snap = MergedFirestoreQuerySnapshot(_loadedDocs);
+      _PatrimonioRamCache.store(tid, snap);
+      setState(() => _future = Future.value(snap));
+    } catch (e) {
+      if (!mounted) return;
+      if (_loadedDocs.isEmpty) {
+        setState(() {
+          _lastLoadHint = '$e';
+          _future = Future.error(e);
+        });
+      }
+    }
   }
 
   Future<void> _loadMorePatrimonio() async {
@@ -2442,60 +2552,8 @@ class _BensTabState extends State<_BensTab> {
     }
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadBensFirstPaint() async {
-    final tid = _tenantId.trim();
-    final ram = ChurchPatrimonioLoadService.peekRam(tid, limit: _pageSize);
-    if (ram != null && ram.isNotEmpty) {
-      _loadedDocs
-        ..clear()
-        ..addAll(ram);
-      _lastCursor = ram.last;
-      _hasMorePages = ram.length >= _pageSize;
-      unawaited(_refreshBensFromServer());
-      return MergedFirestoreQuerySnapshot(_loadedDocs);
-    }
-    try {
-      final snap = await _loadPatrimonioResilient()
-          .timeout(ChurchPanelReadTimeouts.queryCap);
-      if (snap.docs.isNotEmpty) {
-        _PatrimonioRamCache.store(_tenantId, snap);
-        unawaited(_refreshBensFromServer());
-      }
-      return snap;
-    } on TimeoutException {
-      final fallback = ChurchPatrimonioLoadService.peekRam(tid, limit: _pageSize);
-      if (fallback != null && fallback.isNotEmpty) {
-        _loadedDocs
-          ..clear()
-          ..addAll(fallback);
-        return MergedFirestoreQuerySnapshot(_loadedDocs);
-      }
-      return const MergedFirestoreQuerySnapshot([]);
-    }
-  }
-
-  Future<void> _refreshBensFromServer() async {
-    try {
-      final result = await ChurchPatrimonioLoadService.load(
-        seedTenantId: _tenantId.trim(),
-        limit: _pageSize,
-        forceRefresh: true,
-      );
-      if (result.docs.isEmpty) return;
-      _loadedDocs
-        ..clear()
-        ..addAll(result.docs);
-      _lastCursor = result.docs.last;
-      _hasMorePages = result.docs.length >= _pageSize;
-      final server = MergedFirestoreQuerySnapshot(_loadedDocs);
-      _PatrimonioRamCache.store(_tenantId, server);
-      if (!mounted) return;
-      setState(() => _future = Future.value(server));
-    } catch (_) {}
-  }
-
   void refresh() {
-    setState(() => _future = _loadPatrimonioResilient());
+    setState(() => _bindPatrimonioLoad(forceFresh: true));
   }
 
   /// Busca + filtros como slivers: rolagem única evita scroll “travado” (web / shell / mobile).
@@ -2878,6 +2936,23 @@ class _BensTabState extends State<_BensTab> {
                       Text('Cadastre bens usando o botão abaixo',
                           style: TextStyle(
                               fontSize: 13, color: Colors.grey.shade400)),
+                      if (_lastLoadHint != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          _lastLoadHint!,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      OutlinedButton.icon(
+                        onPressed: refresh,
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('Atualizar lista'),
+                      ),
                     ],
                   ),
                 ),
@@ -3850,18 +3925,67 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
   DateTime? _aquisicaoInicio;
   DateTime? _aquisicaoFim;
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+  String? _loadHint;
+
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId);
 
   @override
   void initState() {
     super.initState();
-    _reloadPatrimonio();
+    _bindRelatoriosLoad();
+  }
+
+  void _bindRelatoriosLoad({bool forceFresh = false}) {
+    final tid = _tenantId;
+    final seeded =
+        ChurchPatrimonioLoadService.peekRam(
+              tid,
+              limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
+            ) ??
+            _PatrimonioRamCache.peek(tid)?.docs
+                .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+            const [];
+    _future = Future.value(MergedFirestoreQuerySnapshot(seeded));
+    unawaited(_fetchRelatorios(forceFresh: forceFresh));
+  }
+
+  Future<void> _fetchRelatorios({bool forceFresh = false}) async {
+    final tid = _tenantId;
+    if (tid.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _loadHint = 'Igreja não identificada.';
+        _future = Future.error(StateError(_loadHint!));
+      });
+      return;
+    }
+    try {
+      final result = await ChurchPatrimonioLoadService.loadAll(
+        seedTenantId: tid,
+        forceRefresh: forceFresh,
+        forceServer: forceFresh,
+      );
+      if (!mounted) return;
+      if (result.docs.isEmpty && result.hasHardError) {
+        setState(() {
+          _loadHint = result.softError;
+          _future = Future.error(StateError(result.softError!));
+        });
+        return;
+      }
+      _PatrimonioRamCache.store(tid, result.snapshot);
+      setState(() => _future = Future.value(result.snapshot));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadHint = '$e';
+        _future = Future.error(e);
+      });
+    }
   }
 
   void _reloadPatrimonio() {
-    _future = ChurchTenantResilientReads.patrimonioAll(
-      widget.tenantId,
-      limit: 800,
-    );
+    setState(() => _bindRelatoriosLoad(forceFresh: true));
   }
 
   static const _mesesNomes = [
@@ -4605,72 +4729,67 @@ class _DashboardTab extends StatefulWidget {
 
 class _DashboardTabState extends State<_DashboardTab> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+  String? _loadHint;
+
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId);
 
   @override
   void initState() {
     super.initState();
-    final cached = _PatrimonioRamCache.peek(widget.tenantId);
-    if (cached != null && cached.docs.isNotEmpty) {
-      _future = Future.value(cached);
-      unawaited(_refreshDashboardInBackground());
-    } else {
-      _future = _loadDashboardFirstPaint();
-    }
+    _bindDashboardLoad();
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() async {
-    final result = await ChurchPatrimonioLoadService.loadAll(
-      seedTenantId: widget.tenantId.trim(),
-    );
-    return result.snapshot;
+  void _bindDashboardLoad({bool forceFresh = false}) {
+    final tid = _tenantId;
+    final seeded =
+        ChurchPatrimonioLoadService.peekRam(
+              tid,
+              limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
+            ) ??
+            _PatrimonioRamCache.peek(tid)?.docs
+                .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+            const [];
+    _future = Future.value(MergedFirestoreQuerySnapshot(seeded));
+    unawaited(_fetchDashboard(forceFresh: forceFresh));
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadDashboardFirstPaint() async {
-    final tid = widget.tenantId.trim();
-    final ram = ChurchPatrimonioLoadService.peekRam(
-      tid,
-      limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
-    );
-    if (ram != null && ram.isNotEmpty) {
-      unawaited(_refreshDashboardInBackground());
-      return MergedFirestoreQuerySnapshot(ram);
+  Future<void> _fetchDashboard({bool forceFresh = false}) async {
+    final tid = _tenantId;
+    if (tid.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _loadHint = 'Igreja não identificada.';
+        _future = Future.error(StateError(_loadHint!));
+      });
+      return;
     }
-    try {
-      final snap = await _loadPatrimonioAllResilient()
-          .timeout(ChurchPanelReadTimeouts.queryCap);
-      if (snap.docs.isNotEmpty) {
-        _PatrimonioRamCache.store(tid, snap);
-        unawaited(_refreshDashboardInBackground());
-      }
-      return snap;
-    } on TimeoutException {
-      final fallback = ChurchPatrimonioLoadService.peekRam(
-        tid,
-        limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
-      );
-      if (fallback != null && fallback.isNotEmpty) {
-        return MergedFirestoreQuerySnapshot(fallback);
-      }
-      return const MergedFirestoreQuerySnapshot([]);
-    }
-  }
-
-  Future<void> _refreshDashboardInBackground() async {
     try {
       final result = await ChurchPatrimonioLoadService.loadAll(
-        seedTenantId: widget.tenantId.trim(),
-        forceRefresh: true,
+        seedTenantId: tid,
+        forceRefresh: forceFresh,
+        forceServer: forceFresh,
       );
-      if (result.docs.isEmpty) return;
-      final server = result.snapshot;
-      _PatrimonioRamCache.store(widget.tenantId, server);
       if (!mounted) return;
-      setState(() => _future = Future.value(server));
-    } catch (_) {}
+      if (result.docs.isEmpty && result.hasHardError) {
+        setState(() {
+          _loadHint = result.softError;
+          _future = Future.error(StateError(result.softError!));
+        });
+        return;
+      }
+      _PatrimonioRamCache.store(tid, result.snapshot);
+      setState(() => _future = Future.value(result.snapshot));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadHint = '$e';
+        _future = Future.error(e);
+      });
+    }
   }
 
   void refresh() {
-    setState(() => _future = _loadPatrimonioAllResilient());
+    setState(() => _bindDashboardLoad(forceFresh: true));
   }
 
   @override
@@ -4690,11 +4809,11 @@ class _DashboardTabState extends State<_DashboardTab> {
             onRetry: refresh,
           );
         }
-        if (snap.connectionState == ConnectionState.waiting || !snap.hasData) {
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const ChurchPanelLoadingBody();
         }
 
-        final docs = snap.data!.docs;
+        final docs = snap.data?.docs ?? [];
         final total = docs.length;
 
         double valorTotal = 0;
@@ -5520,73 +5639,67 @@ class _InventarioTabState extends State<_InventarioTab> {
   bool _conferindo = false;
   final Set<String> _conferidos = {};
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+  String? _loadHint;
+
+  String get _tenantId => ChurchRepository.churchId(widget.tenantId);
 
   @override
   void initState() {
     super.initState();
-    final cached = _PatrimonioRamCache.peek(widget.tenantId);
-    if (cached != null && cached.docs.isNotEmpty) {
-      _future = Future.value(cached);
-      unawaited(_refreshInventarioInBackground());
-    } else {
-      _future = _loadInventarioFirstPaint();
-    }
+    _bindInventarioLoad();
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadPatrimonioAllResilient() async {
-    final result = await ChurchPatrimonioLoadService.loadAll(
-      seedTenantId: widget.tenantId.trim(),
-    );
-    return result.snapshot;
+  void _bindInventarioLoad({bool forceFresh = false}) {
+    final tid = _tenantId;
+    final seeded =
+        ChurchPatrimonioLoadService.peekRam(
+              tid,
+              limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
+            ) ??
+            _PatrimonioRamCache.peek(tid)?.docs
+                .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+            const [];
+    _future = Future.value(MergedFirestoreQuerySnapshot(seeded));
+    unawaited(_fetchInventario(forceFresh: forceFresh));
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>>
-      _loadInventarioFirstPaint() async {
-    final tid = widget.tenantId.trim();
-    final ram = ChurchPatrimonioLoadService.peekRam(
-      tid,
-      limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
-    );
-    if (ram != null && ram.isNotEmpty) {
-      unawaited(_refreshInventarioInBackground());
-      return MergedFirestoreQuerySnapshot(ram);
+  Future<void> _fetchInventario({bool forceFresh = false}) async {
+    final tid = _tenantId;
+    if (tid.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _loadHint = 'Igreja não identificada.';
+        _future = Future.error(StateError(_loadHint!));
+      });
+      return;
     }
-    try {
-      final snap = await _loadPatrimonioAllResilient()
-          .timeout(ChurchPanelReadTimeouts.queryCap);
-      if (snap.docs.isNotEmpty) {
-        _PatrimonioRamCache.store(tid, snap);
-        unawaited(_refreshInventarioInBackground());
-      }
-      return snap;
-    } on TimeoutException {
-      final fallback = ChurchPatrimonioLoadService.peekRam(
-        tid,
-        limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
-      );
-      if (fallback != null && fallback.isNotEmpty) {
-        return MergedFirestoreQuerySnapshot(fallback);
-      }
-      return const MergedFirestoreQuerySnapshot([]);
-    }
-  }
-
-  Future<void> _refreshInventarioInBackground() async {
     try {
       final result = await ChurchPatrimonioLoadService.loadAll(
-        seedTenantId: widget.tenantId.trim(),
-        forceRefresh: true,
+        seedTenantId: tid,
+        forceRefresh: forceFresh,
+        forceServer: forceFresh,
       );
-      if (result.docs.isEmpty) return;
-      final server = result.snapshot;
-      _PatrimonioRamCache.store(widget.tenantId, server);
       if (!mounted) return;
-      setState(() => _future = Future.value(server));
-    } catch (_) {}
+      if (result.docs.isEmpty && result.hasHardError) {
+        setState(() {
+          _loadHint = result.softError;
+          _future = Future.error(StateError(result.softError!));
+        });
+        return;
+      }
+      _PatrimonioRamCache.store(tid, result.snapshot);
+      setState(() => _future = Future.value(result.snapshot));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadHint = '$e';
+        _future = Future.error(e);
+      });
+    }
   }
 
   void refresh() {
-    setState(() => _future = _loadPatrimonioAllResilient());
+    setState(() => _bindInventarioLoad(forceFresh: true));
   }
 
   Future<void> _marcarConferido(
@@ -5715,7 +5828,7 @@ class _InventarioTabState extends State<_InventarioTab> {
             onRetry: refresh,
           );
         }
-        if (snap.connectionState == ConnectionState.waiting || !snap.hasData) {
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const ChurchPanelLoadingBody();
         }
         final docs = snap.data?.docs ?? [];
@@ -7234,6 +7347,8 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
   late final DocumentReference<Map<String, dynamic>> _itemRef;
   bool _itemStubEnsured = false;
   bool _saving = false;
+  bool _mediaPicking = false;
+  int _preparingPhotoCount = 0;
   double _uploadProgress = 0;
   String _uploadProgressLabel = '';
 
@@ -7316,7 +7431,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
   }
 
   String get _churchIdForPublish =>
-      ChurchPublishContext.churchIdForPublish(widget.col.parent!.id);
+      ChurchRepository.churchId(widget.col.parent?.id ?? '');
 
   /// Repara docs presos (`uploading`) quando Storage já tem galeria_01…04.
   Future<void> _maybeRepairStuckPhotos(Map<String, dynamic> data) async {
@@ -7613,6 +7728,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
   }
 
   Future<void> _pickImages() async {
+    if (_mediaPicking || _saving) return;
     if (_atingiuLimiteFotos) {
       _showLimiteFotosSnack();
       return;
@@ -7622,51 +7738,74 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _showLimiteFotosSnack();
       return;
     }
-    final list = await ImagePicker().pickMultiImage(limit: vagas);
-    if (list.isEmpty || !mounted) return;
-    final novosBytes = <Uint8List>[];
-    final novosNomes = <String>[];
-    for (final f in list) {
-      if (_fotoCountAtual + novosBytes.length >= _maxFotosPorItem) break;
-      try {
-        final bytes = await SafeImageBytes.patrimonioFromPicker(f);
-        novosBytes.add(bytes);
-        novosNomes.add(f.name.isNotEmpty ? f.name : 'foto_${novosBytes.length}.webp');
-      } catch (e) {
+    setState(() {
+      _mediaPicking = true;
+      _preparingPhotoCount = 0;
+    });
+    try {
+      final list = await ImagePicker().pickMultiImage(limit: vagas);
+      if (list.isEmpty || !mounted) return;
+      final novosBytes = <Uint8List>[];
+      final novosNomes = <String>[];
+      for (var i = 0; i < list.length; i++) {
+        if (_fotoCountAtual + novosBytes.length >= _maxFotosPorItem) break;
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Foto ignorada: $e')),
+          setState(() => _preparingPhotoCount = i + 1);
+        }
+        final f = list[i];
+        try {
+          final bytes = await SafeImageBytes.patrimonioFromPicker(f)
+              .timeout(const Duration(seconds: 25));
+          novosBytes.add(bytes);
+          novosNomes.add(
+            f.name.isNotEmpty ? f.name : 'foto_${novosBytes.length}.webp',
           );
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Foto ignorada: $e')),
+            );
+          }
         }
       }
-    }
-    if (novosBytes.isEmpty || !mounted) return;
-    setState(() {
-      _newImages.addAll(novosBytes);
-      _newNames.addAll(novosNomes);
-    });
-    if (mounted) {
-      ImmediateMediaAttachFeedback.showArquivoAnexado(
-        context,
-        novosNomes.length == 1
-            ? novosNomes.first
-            : '${novosNomes.length} fotos',
-      );
-    }
-    if (list.length > novosBytes.length) {
-      _showLimiteFotosSnack();
+      if (novosBytes.isEmpty || !mounted) return;
+      setState(() {
+        _newImages.addAll(novosBytes);
+        _newNames.addAll(novosNomes);
+      });
+      if (mounted) {
+        ImmediateMediaAttachFeedback.showArquivoAnexado(
+          context,
+          novosNomes.length == 1
+              ? novosNomes.first
+              : '${novosNomes.length} fotos',
+        );
+      }
+      if (list.length > novosBytes.length) {
+        _showLimiteFotosSnack();
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _mediaPicking = false;
+          _preparingPhotoCount = 0;
+        });
+      }
     }
   }
 
   Future<void> _pickCamera() async {
+    if (_mediaPicking || _saving) return;
     if (_atingiuLimiteFotos) {
       _showLimiteFotosSnack();
       return;
     }
-    final file = await ImagePicker().pickImage(source: ImageSource.camera);
-    if (file == null || !mounted) return;
+    setState(() => _mediaPicking = true);
     try {
-      final bytes = await SafeImageBytes.patrimonioFromPicker(file);
+      final file = await ImagePicker().pickImage(source: ImageSource.camera);
+      if (file == null || !mounted) return;
+      final bytes = await SafeImageBytes.patrimonioFromPicker(file)
+          .timeout(const Duration(seconds: 25));
       setState(() {
         _newImages.add(bytes);
         _newNames.add(file.name.isNotEmpty ? file.name : 'camera.webp');
@@ -7683,10 +7822,20 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           SnackBar(content: Text('Erro na foto: $e')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _mediaPicking = false);
     }
   }
 
   Future<void> _save() async {
+    if (_mediaPicking) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Aguarde a preparação das fotos terminar.'),
+        ),
+      );
+      return;
+    }
     if (!_formKey.currentState!.validate()) return;
     if (_categoria.trim().isEmpty) {
       if (!mounted) return;
@@ -7700,6 +7849,18 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text('Informe a data de aquisição (campo obrigatório).')),
+      );
+      return;
+    }
+    if (_newImages.isNotEmpty && !AppConnectivityService.instance.isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Sem ligação à internet. Conecte-se para enviar as fotos do bem.',
+          ),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
@@ -8055,7 +8216,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       FilledButton.icon(
-                        onPressed: _atingiuLimiteFotos ? null : _pickImages,
+                        onPressed: (_atingiuLimiteFotos || _mediaPicking || _saving)
+                            ? null
+                            : _pickImages,
                         icon: const Icon(Icons.add_photo_alternate_outlined,
                             size: 20),
                         label: const Text('Galeria'),
@@ -8070,7 +8233,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                       ),
                       const SizedBox(width: 8),
                       OutlinedButton.icon(
-                        onPressed: _atingiuLimiteFotos ? null : _pickCamera,
+                        onPressed: (_atingiuLimiteFotos || _mediaPicking || _saving)
+                            ? null
+                            : _pickCamera,
                         icon: const Icon(Icons.photo_camera_outlined, size: 20),
                         label: const Text('Câmera'),
                         style: OutlinedButton.styleFrom(
@@ -8134,8 +8299,11 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                           runSpacing: 8,
                           children: [
                             FilledButton.icon(
-                              onPressed:
-                                  _atingiuLimiteFotos ? null : _pickImages,
+                              onPressed: (_atingiuLimiteFotos ||
+                                      _mediaPicking ||
+                                      _saving)
+                                  ? null
+                                  : _pickImages,
                               icon: const Icon(Icons.add_photo_alternate_outlined,
                                   size: 20),
                               label: const Text('Galeria'),
@@ -8145,8 +8313,11 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                               ),
                             ),
                             OutlinedButton.icon(
-                              onPressed:
-                                  _atingiuLimiteFotos ? null : _pickCamera,
+                              onPressed: (_atingiuLimiteFotos ||
+                                      _mediaPicking ||
+                                      _saving)
+                                  ? null
+                                  : _pickCamera,
                               icon: const Icon(Icons.photo_camera_outlined),
                               label: const Text('Câmera'),
                               style: OutlinedButton.styleFrom(
@@ -8504,6 +8675,25 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               ]),
               const SizedBox(height: 24),
 
+              if (_mediaPicking) ...[
+                LinearProgressIndicator(
+                  minHeight: 4,
+                  backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _preparingPhotoCount > 0
+                      ? 'A preparar foto $_preparingPhotoCount…'
+                      : 'A preparar fotos…',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
+
               // Botão salvar
               if (_saving) ...[
                 ClipRRect(
@@ -8531,7 +8721,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               SizedBox(
                   height: 52,
                   child: FilledButton.icon(
-                    onPressed: _saving ? null : _save,
+                    onPressed: (_saving || _mediaPicking) ? null : _save,
                     icon: _saving
                         ? const SizedBox(
                             width: 20,

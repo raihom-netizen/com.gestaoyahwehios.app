@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_profile_loader.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -26,7 +26,7 @@ abstract final class IgrejaDirectFirestoreReads {
 
   /// Sempre o doc canónico pedido pelo módulo (slug BPC → `igreja_o_brasil_…`).
   static String _directChurchDocId(String tenantId) {
-    return ChurchPanelTenant.resolve(tenantId);
+    return ChurchRepository.churchId(tenantId);
   }
 
 

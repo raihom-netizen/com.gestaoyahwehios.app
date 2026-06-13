@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 
@@ -333,6 +334,156 @@ class PdfSuperPremiumTheme {
     );
   }
 
+  /// Cabeçalho estilo ofício — logo, nome completo, endereço, CEP e telefone.
+  static pw.Widget oficioLetterHeader({
+    required ReportPdfBranding branding,
+    required Map<String, dynamic> churchData,
+    required String documentTitle,
+  }) {
+    final accent = branding.accent;
+    final churchName = pdfSafeText(
+      (churchData['nome'] ??
+              churchData['name'] ??
+              branding.churchName ??
+              '')
+          .toString()
+          .trim(),
+    );
+    final safeTitle = pdfSafeText(documentTitle);
+
+    pw.ImageProvider? logoProv;
+    final lb = branding.logoBytes;
+    if (lb != null && lb.length > 32) {
+      logoProv = pw.MemoryImage(lb);
+    }
+
+    final rua = (churchData['rua'] ?? churchData['address'] ?? '')
+        .toString()
+        .trim();
+    final qd = (churchData['quadraLoteNumero'] ?? '').toString().trim();
+    final ruaLine = rua.isEmpty
+        ? qd
+        : (qd.isEmpty ? rua : '$rua, $qd');
+    final bairro = (churchData['bairro'] ?? '').toString().trim();
+    final cidade = (churchData['cidade'] ??
+            churchData['CIDADE'] ??
+            churchData['localidade'] ??
+            '')
+        .toString()
+        .trim();
+    final uf = (churchData['estado'] ?? churchData['UF'] ?? churchData['uf'] ?? '')
+        .toString()
+        .trim();
+    final cepRaw = (churchData['cep'] ?? churchData['CEP'] ?? '').toString().trim();
+    final cep = _formatCepPdf(cepRaw);
+    final tel = (churchData['telefoneIgreja'] ??
+            churchData['telefone'] ??
+            churchData['whatsappIgreja'] ??
+            churchData['whatsapp'] ??
+            '')
+        .toString()
+        .trim();
+
+    String cityLine = '';
+    if (cidade.isNotEmpty && uf.isNotEmpty) {
+      cityLine = '$cidade - $uf';
+    } else if (cidade.isNotEmpty) {
+      cityLine = cidade;
+    } else if (uf.isNotEmpty) {
+      cityLine = uf;
+    }
+    if (cep.isNotEmpty) {
+      cityLine = cityLine.isEmpty ? 'CEP $cep' : '$cityLine · CEP $cep';
+    }
+
+    final addrParts = <String>[
+      if (ruaLine.isNotEmpty) ruaLine,
+      if (bairro.isNotEmpty) bairro,
+    ];
+
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+      children: [
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            if (logoProv != null)
+              pw.Container(
+                width: 78,
+                height: 78,
+                margin: const pw.EdgeInsets.only(right: 16, top: 2),
+                child: pw.Image(logoProv, fit: pw.BoxFit.contain),
+              ),
+            pw.Expanded(
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  if (churchName.isNotEmpty)
+                    pw.Text(
+                      churchName.toUpperCase(),
+                      style: pw.TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: pw.FontWeight.bold,
+                        color: _ink,
+                        letterSpacing: 0.35,
+                      ),
+                    ),
+                  if (churchName.isNotEmpty) pw.SizedBox(height: 6),
+                  if (addrParts.isNotEmpty)
+                    pw.Text(
+                      pdfSafeText(addrParts.join(' — ')),
+                      style: pw.TextStyle(fontSize: 9.2, color: _muted),
+                    ),
+                  if (cityLine.isNotEmpty) ...[
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      pdfSafeText(cityLine),
+                      style: pw.TextStyle(fontSize: 9.2, color: _muted),
+                    ),
+                  ],
+                  if (tel.isNotEmpty) ...[
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      pdfSafeText('Tel.: $tel'),
+                      style: pw.TextStyle(fontSize: 9.2, color: _muted),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+        pw.SizedBox(height: 10),
+        pw.Container(
+          height: 2.2,
+          decoration: pw.BoxDecoration(
+            color: accent,
+            borderRadius: pw.BorderRadius.circular(1),
+          ),
+        ),
+        pw.SizedBox(height: 8),
+        pw.Center(
+          child: pw.Text(
+            safeTitle,
+            style: pw.TextStyle(
+              fontSize: 11.5,
+              fontWeight: pw.FontWeight.bold,
+              color: accent,
+              letterSpacing: 0.2,
+            ),
+            textAlign: pw.TextAlign.center,
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _formatCepPdf(String raw) {
+    final d = raw.replaceAll(RegExp(r'\D'), '');
+    if (d.length != 8) return raw.trim();
+    return '${d.substring(0, 5)}-${d.substring(5)}';
+  }
+
   /// Rodapé: nome da igreja + página (sem marca da plataforma).
   static pw.Widget footer(pw.Context context, {String? churchName}) {
     final left = pdfSafeText(
@@ -384,10 +535,20 @@ class PdfSuperPremiumTheme {
     Uint8List? leftSignatureImageBytes,
     Uint8List? rightSignatureImageBytes,
     bool showDigitalSignatures = false,
+    PdfDigitalStampInput? leftDigitalStamp,
+    PdfDigitalStampInput? rightDigitalStamp,
   }) {
     final stroke = _accentStrokeSoft(accent);
-    pw.Widget slot(String title, String signerName, Uint8List? signatureBytes) {
-      final canShowSignature = showDigitalSignatures &&
+    pw.Widget slot(
+      String title,
+      String signerName,
+      Uint8List? signatureBytes,
+      PdfDigitalStampInput? digitalStamp,
+    ) {
+      final canShowDigitalStamp =
+          showDigitalSignatures && digitalStamp != null;
+      final canShowSignature = !canShowDigitalStamp &&
+          showDigitalSignatures &&
           signatureBytes != null &&
           signatureBytes.length > 24;
       return pw.Expanded(
@@ -426,7 +587,15 @@ class PdfSuperPremiumTheme {
                 textAlign: pw.TextAlign.center,
                 style: pw.TextStyle(fontSize: 7.6, color: _muted),
               ),
-              if (canShowSignature) ...[
+              if (canShowDigitalStamp) ...[
+                pw.SizedBox(height: 6),
+                pw.Center(
+                  child: pdfDigitalCertificateStampBlock(
+                    digitalStamp,
+                    maxWidth: 228,
+                  ),
+                ),
+              ] else if (canShowSignature) ...[
                 pw.SizedBox(height: 6),
                 pw.Center(
                   child: pw.SizedBox(
@@ -439,7 +608,7 @@ class PdfSuperPremiumTheme {
                   ),
                 ),
               ],
-              pw.SizedBox(height: signatureSpacePt),
+              pw.SizedBox(height: canShowDigitalStamp ? 8 : signatureSpacePt),
               pw.Container(
                 height: 2,
                 decoration: pw.BoxDecoration(
@@ -473,8 +642,8 @@ class PdfSuperPremiumTheme {
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        slot(leftTitle, leftSignerName, leftSignatureImageBytes),
-        slot(rightTitle, rightSignerName, rightSignatureImageBytes),
+        slot(leftTitle, leftSignerName, leftSignatureImageBytes, leftDigitalStamp),
+        slot(rightTitle, rightSignerName, rightSignatureImageBytes, rightDigitalStamp),
       ],
     );
   }
@@ -490,9 +659,12 @@ class PdfSuperPremiumTheme {
     String signerName = '',
     Uint8List? signatureImageBytes,
     bool showDigitalSignature = false,
+    PdfDigitalStampInput? digitalStamp,
   }) {
     final stroke = _accentStrokeSoft(accent);
-    final canShowSignature = showDigitalSignature &&
+    final canShowDigitalStamp = showDigitalSignature && digitalStamp != null;
+    final canShowSignature = !canShowDigitalStamp &&
+        showDigitalSignature &&
         signatureImageBytes != null &&
         signatureImageBytes.length > 24;
     return pw.Column(
@@ -534,7 +706,15 @@ class PdfSuperPremiumTheme {
                   color: _ink,
                 ),
               ),
-              if (canShowSignature) ...[
+              if (canShowDigitalStamp) ...[
+                pw.SizedBox(height: 8),
+                pw.Center(
+                  child: pdfDigitalCertificateStampBlock(
+                    digitalStamp,
+                    maxWidth: 248,
+                  ),
+                ),
+              ] else if (canShowSignature) ...[
                 pw.SizedBox(height: 8),
                 pw.Center(
                   child: pw.SizedBox(
@@ -547,7 +727,7 @@ class PdfSuperPremiumTheme {
                   ),
                 ),
               ],
-              pw.SizedBox(height: canShowSignature ? 8 : lineSpaceBeforeBarPt),
+              pw.SizedBox(height: canShowDigitalStamp ? 8 : lineSpaceBeforeBarPt),
               pw.Container(
                 width: double.infinity,
                 height: 2,

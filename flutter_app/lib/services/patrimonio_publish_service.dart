@@ -130,12 +130,13 @@ abstract final class PatrimonioPublishService {
       }
       onUploadProgress?.call(0.06);
 
-      final uploaded = await PatrimonioMediaUpload.uploadGalleryPhotosSequential(
+      final uploaded = await PatrimonioMediaUpload.uploadGalleryPhotosParallel(
         churchId: igrejaId,
         itemDocId: itemId,
         images: batch,
         startSlot: startSlot,
         skipPrepare: true,
+        maxParallel: 2,
         onBatchProgress: (p) => onUploadProgress?.call(0.06 + p * 0.78),
       );
 

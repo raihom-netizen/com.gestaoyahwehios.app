@@ -42,9 +42,13 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
+import 'package:gestao_yahweh/services/church_event_categories_load_service.dart';
+import 'package:gestao_yahweh/services/church_cadastro_address_service.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
@@ -260,6 +264,12 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   String get _tid => (_firestoreTenantId ?? widget.tenantId).trim();
   final GlobalKey<_FeedTabState> _feedTabKey = GlobalKey<_FeedTabState>();
   final GlobalKey<_FixosTabState> _fixosTabKey = GlobalKey<_FixosTabState>();
+  final GlobalKey<_GalleryArchiveTabState> _galleryTabKey =
+      GlobalKey<_GalleryArchiveTabState>();
+
+  String get _churchId => ChurchRepository.churchId(
+        (_firestoreTenantId ?? widget.tenantId).trim(),
+      );
 
   /// Alinhado às regras Firestore [canWriteMuralFeed]: gestor, pastoral, secretário, tesoureiro, líder depto.
   bool get _canWrite => AppPermissions.canManageChurchMuralEventsAgenda(
@@ -394,7 +404,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   void initState() {
     super.initState();
     logYahwehModuleScreen('eventos');
-    _firestoreTenantId = widget.tenantId;
+    _firestoreTenantId = ChurchRepository.churchId(widget.tenantId).trim();
     _tab = TabController(length: _canWrite ? 4 : 2, vsync: this);
     final startIndex =
         widget.initialTabIndex.clamp(0, (_tab.length - 1).clamp(0, 99)) as int;
@@ -467,11 +477,10 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
     unawaited(
-      ChurchRepository.listCacheFirst(
-        module: ChurchRepository.eventos,
-        churchIdHint: tid,
-        limit: YahwehPerformanceV4.adminExportBatchLimit,
-      ),
+      ChurchEventosLoadService.loadGallery(seedTenantId: tid),
+    );
+    unawaited(
+      ChurchEventosLoadService.loadFeed(seedTenantId: tid, limit: 20),
     );
   }
 
@@ -542,9 +551,13 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     );
     if (ok == true) {
       await _noticias.doc(doc.id).delete();
-      if (mounted)
+      ChurchEventosLoadService.removeFromRam(_churchId, [doc.id]);
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('Evento excluído.'));
+        _feedTabKey.currentState?._refresh();
+        _galleryTabKey.currentState?._refreshAfterDelete([doc.id]);
+      }
     }
   }
 
@@ -1372,8 +1385,11 @@ class _EventsManagerPageState extends State<EventsManagerPage>
             tabIndex: 1,
             controller: _tab,
             child: _GalleryArchiveTab(
-              tenantId: _tid,
+              key: _galleryTabKey,
+              tenantId: _churchId,
               noticias: _noticias,
+              canWrite: _canWrite,
+              onDeleteEvento: _excluirEvento,
             ),
           ),
           if (_canWrite)
@@ -1456,13 +1472,105 @@ class _EventCategoriesManagerSheet extends StatefulWidget {
       _EventCategoriesManagerSheetState();
 }
 
+class _EventsGalleryHeroHeader extends StatelessWidget {
+  final int total;
+  final bool fetching;
+  final VoidCallback onRefresh;
+
+  const _EventsGalleryHeroHeader({
+    required this.total,
+    required this.fetching,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFF97316),
+            Color(0xFF3B82F6),
+            Color(0xFFF472B6),
+          ],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFF97316).withValues(alpha: 0.25),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Galeria de Eventos',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$total álbum(ns) arquivados',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (fetching)
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: Colors.white,
+              ),
+            )
+          else
+            Material(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(12),
+              child: IconButton(
+                tooltip: 'Atualizar',
+                onPressed: onRefresh,
+                icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _GalleryArchiveTab extends StatefulWidget {
   final String tenantId;
   final CollectionReference<Map<String, dynamic>> noticias;
+  final bool canWrite;
+  final Future<void> Function(DocumentSnapshot<Map<String, dynamic>>)
+      onDeleteEvento;
 
   const _GalleryArchiveTab({
+    super.key,
     required this.tenantId,
     required this.noticias,
+    required this.canWrite,
+    required this.onDeleteEvento,
   });
 
   @override
@@ -1470,8 +1578,14 @@ class _GalleryArchiveTab extends StatefulWidget {
 }
 
 class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
-  late Future<QuerySnapshot<Map<String, dynamic>>> _future;
-  QuerySnapshot<Map<String, dynamic>>? _lastGoodGallerySnap;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _galleryDocs = const [];
+  bool _fetching = false;
+  String? _loadError;
+  bool _showingStaleCache = false;
+  bool _selectMode = false;
+  final Set<String> _selectedIds = {};
+  bool _bulkDeleting = false;
+
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchApplied = '';
   Timer? _searchDebounce;
@@ -1483,51 +1597,81 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   DateTime? _customFrom;
   DateTime? _customTo;
 
+  String get _churchId => ChurchRepository.churchId(widget.tenantId);
+
+  void _seedGalleryLocal() {
+    final cid = _churchId;
+    if (cid.isEmpty) {
+      _galleryDocs = const [];
+      _fetching = false;
+      return;
+    }
+    _galleryDocs =
+        ChurchEventosLoadService.peekRam(cid, limit: ChurchEventosLoadService.kGalleryLimit) ??
+            const [];
+    _fetching = true;
+    _loadError = null;
+    _showingStaleCache = _galleryDocs.isNotEmpty;
+  }
+
+  Future<void> _fetchGallery({bool forceFresh = false}) async {
+    final cid = _churchId;
+    if (cid.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _fetching = false;
+        _loadError = 'Igreja não identificada.';
+      });
+      return;
+    }
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final result = await ChurchEventosLoadService.loadGallery(
+        seedTenantId: cid,
+        forceRefresh: forceFresh,
+        forceServer: forceFresh,
+      );
+      if (!mounted) return;
+      setState(() {
+        _galleryDocs = result.docs;
+        _fetching = false;
+        _showingStaleCache = result.fromCache && !forceFresh;
+        if (result.docs.isEmpty && result.softError != null) {
+          _loadError = result.softError;
+        } else {
+          _loadError = null;
+        }
+      });
+      if (result.docs.isNotEmpty) {
+        _EventosNoticiasRamCache.put(cid, result.docs);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _fetching = false;
+        if (_galleryDocs.isEmpty) _loadError = '$e';
+      });
+    }
+  }
+
+  void _refreshAfterDelete(List<String> ids) {
+    if (!mounted) return;
+    setState(() {
+      _galleryDocs =
+          _galleryDocs.where((d) => !ids.contains(d.id)).toList();
+      _selectedIds.removeWhere(ids.contains);
+      if (_selectedIds.isEmpty) _selectMode = false;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     _searchCtrl.addListener(_onGallerySearchInput);
-    _future = _seedOrLoadGallery();
-    unawaited(_openGalleryFast());
-  }
-
-  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadGallery() {
-    final seed = widget.tenantId.trim();
-    if (seed.isEmpty) return _load();
-
-    final ram = _EventosNoticiasRamCache.peek(seed);
-    if (ram != null && ram.isNotEmpty) {
-      final snap = MergedFirestoreQuerySnapshot(ram);
-      _lastGoodGallerySnap = snap;
-      return Future.value(snap);
-    }
-
-    final mem = FirestoreReadResilience.peekLastGoodQuery(
-      _eventosNoticiasMemKey(seed, 250),
-    );
-    if (mem != null && mem.docs.isNotEmpty) {
-      _lastGoodGallerySnap = mem;
-      return Future.value(mem);
-    }
-
-    return _load();
-  }
-
-  Future<void> _openGalleryFast() async {
-    final tid = widget.tenantId.trim();
-    if (tid.isEmpty) return;
-    try {
-      final result = await ChurchEventosLoadService.loadFeed(
-        seedTenantId: tid,
-        limit: 250,
-      ).timeout(const Duration(milliseconds: 1800));
-      if (!mounted || result.docs.isEmpty) return;
-      _EventosNoticiasRamCache.put(tid, result.docs);
-      setState(() {
-        _lastGoodGallerySnap = result.snapshot;
-        _future = Future.value(result.snapshot);
-      });
-    } catch (_) {}
+    _seedGalleryLocal();
+    unawaited(_fetchGallery());
   }
 
   void _onGallerySearchInput() {
@@ -1548,20 +1692,100 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     super.dispose();
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _load() async {
-    final result = await ChurchEventosLoadService.loadFeed(
-      seedTenantId: widget.tenantId,
-      limit: 250,
-    );
-    if (result.docs.isNotEmpty) {
-      _EventosNoticiasRamCache.put(widget.tenantId, result.docs);
-      _lastGoodGallerySnap = result.snapshot;
-    }
-    return result.snapshot;
+  Future<void> _refresh() async {
+    setState(() {
+      _fetching = _galleryDocs.isEmpty;
+      _loadError = null;
+    });
+    await _fetchGallery(forceFresh: true);
   }
 
-  Future<void> _refresh() async {
-    setState(() => _future = _load());
+  void _toggleSelectMode() {
+    setState(() {
+      _selectMode = !_selectMode;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _deleteRefs(List<DocumentReference<Map<String, dynamic>>> refs) async {
+    if (refs.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Nada para excluir.')));
+      }
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+        title: const Text('Excluir eventos'),
+        content: Text(
+          refs.length == 1
+              ? 'Deseja excluir este evento da galeria?'
+              : 'Deseja excluir ${refs.length} evento(s) da galeria?',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _bulkDeleting = true);
+    try {
+      await ensureFirebaseReadyForPublishUpload();
+      const chunkSize = 400;
+      for (var i = 0; i < refs.length; i += chunkSize) {
+        final batch = ChurchRepository.batch();
+        final chunk = refs.sublist(
+            i, i + chunkSize > refs.length ? refs.length : i + chunkSize);
+        for (final r in chunk) {
+          batch.delete(r);
+        }
+        await batch.commit();
+      }
+      final ids = refs.map((r) => r.id).toList();
+      ChurchEventosLoadService.removeFromRam(_churchId, ids);
+      if (!mounted) return;
+      setState(() {
+        _galleryDocs = _galleryDocs.where((d) => !ids.contains(d.id)).toList();
+        _selectedIds.clear();
+        _selectMode = false;
+        _bulkDeleting = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Evento(s) excluído(s).'));
+    } catch (e) {
+      if (mounted) {
+        setState(() => _bulkDeleting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao excluir: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteSelected() async {
+    final refs = _selectedIds.map((id) => widget.noticias.doc(id)).toList();
+    await _deleteRefs(refs);
+  }
+
+  Future<void> _deleteFiltered(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) async {
+    await _deleteRefs(docs.map((d) => d.reference).toList());
+  }
+
+  Future<void> _deleteSingle(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+    await widget.onDeleteEvento(doc);
   }
 
   DateTime? _eventDate(Map<String, dynamic> data) {
@@ -1705,35 +1929,24 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      future: _future,
-      builder: (context, snap) {
-        if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar a galeria',
-            error: snap.error,
-            onRetry: _refresh,
-          );
-        }
-        if (snap.connectionState != ConnectionState.done || !snap.hasData) {
-          final fallback = _lastGoodGallerySnap;
-          if (fallback != null && fallback.docs.isNotEmpty) {
-            return _buildGalleryBody(fallback, now: DateTime.now());
-          }
-          return const _FeedSkeleton();
-        }
-        _lastGoodGallerySnap = snap.data;
-        final now = DateTime.now();
-        return _buildGalleryBody(snap.data!, now: now);
-      },
-    );
+    if (_loadError != null && _galleryDocs.isEmpty && !_fetching) {
+      return ChurchPanelErrorBody(
+        title: 'Não foi possível carregar a galeria',
+        error: _loadError,
+        onRetry: _refresh,
+      );
+    }
+    if (_fetching && _galleryDocs.isEmpty) {
+      return const ChurchPanelLoadingBody(itemCount: 6);
+    }
+    return _buildGalleryBody(_galleryDocs, now: DateTime.now());
   }
 
   Widget _buildGalleryBody(
-    QuerySnapshot<Map<String, dynamic>> snap, {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs, {
     required DateTime now,
   }) {
-        var docs = snap.docs
+        var docs = allDocs
             .where((d) =>
                 noticiaDocEhEventoSpecialFeed(d) &&
                 noticiaEventoEspecialCaiuDoFeedParaGaleria(d.data(), now))
@@ -1832,7 +2045,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
           }
         });
         final categories = <String>{
-          for (final d in snap.docs)
+          for (final d in allDocs)
             (d.data()['eventCategoryId'] ?? '').toString().trim()
         }.where((c) => c.isNotEmpty).toList()
           ..sort();
@@ -1860,11 +2073,24 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
               24,
             ),
             children: [
+              _EventsGalleryHeroHeader(
+                total: docs.length,
+                fetching: _fetching,
+                onRefresh: _refresh,
+              ),
+              if (_showingStaleCache)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 10),
+                  child: ChurchPanelOfflineStaleBanner(
+                    message: 'Modo offline — últimos eventos guardados.',
+                  ),
+                ),
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusLg),
                   border: Border.all(color: const Color(0xFFE2E8F0)),
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                 ),
@@ -1872,13 +2098,34 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                   children: [
                     TextField(
                       controller: _searchCtrl,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText: 'Pesquisar evento por título ou descrição',
-                        prefixIcon: Icon(Icons.search_rounded),
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
                         isDense: true,
-                        border: OutlineInputBorder(),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                          borderSide: BorderSide.none,
+                        ),
                       ),
                     ),
+                    if (widget.canWrite) ...[
+                      const SizedBox(height: 12),
+                      _MuralFeedSelectionRow(
+                        selectMode: _selectMode,
+                        selectedCount: _selectedIds.length,
+                        onToggleSelect: _toggleSelectMode,
+                        onExcluirPorPeriodo: () => _deleteFiltered(docs),
+                        onExcluirSelecionados: _deleteSelected,
+                      ),
+                    ],
+                    if (_bulkDeleting)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 10),
+                        child: LinearProgressIndicator(minHeight: 3),
+                      ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -2076,6 +2323,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                     final photos = eventNoticiaPhotoUrls(p);
                     final videos = eventNoticiaVideosFromDoc(p);
                     final dt = _eventDate(p);
+                    final selected = _selectedIds.contains(d.id);
                     return Material(
                       color: Colors.transparent,
                       borderRadius:
@@ -2086,6 +2334,16 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                         borderRadius:
                             BorderRadius.circular(ThemeCleanPremium.radiusLg),
                         onTap: () {
+                          if (_selectMode) {
+                            setState(() {
+                              if (selected) {
+                                _selectedIds.remove(d.id);
+                              } else {
+                                _selectedIds.add(d.id);
+                              }
+                            });
+                            return;
+                          }
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -2093,7 +2351,17 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                             ),
                           );
                         },
-                        child: Column(
+                        onLongPress: widget.canWrite && !_selectMode
+                            ? () {
+                                setState(() {
+                                  _selectMode = true;
+                                  _selectedIds.add(d.id);
+                                });
+                              }
+                            : null,
+                        child: Stack(
+                          children: [
+                            Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Expanded(
@@ -2103,8 +2371,12 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                                   borderRadius: BorderRadius.circular(
                                     ThemeCleanPremium.radiusLg,
                                   ),
-                                  border:
-                                      Border.all(color: const Color(0xFFE2E8F0)),
+                                  border: Border.all(
+                                    color: selected
+                                        ? ThemeCleanPremium.primary
+                                        : const Color(0xFFE2E8F0),
+                                    width: selected ? 2.2 : 1,
+                                  ),
                                   boxShadow: [
                                     BoxShadow(
                                       color: Colors.black.withValues(alpha: 0.06),
@@ -2252,6 +2524,55 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                                 ),
                               ),
                             ),
+                          ],
+                        ),
+                            if (_selectMode)
+                              Positioned(
+                                top: 8,
+                                left: 8,
+                                child: Material(
+                                  color: Colors.white.withValues(alpha: 0.95),
+                                  shape: const CircleBorder(),
+                                  child: SizedBox(
+                                    width: ThemeCleanPremium.minTouchTarget,
+                                    height: ThemeCleanPremium.minTouchTarget,
+                                    child: Checkbox(
+                                      value: selected,
+                                      activeColor: ThemeCleanPremium.primary,
+                                      onChanged: (_) {
+                                        setState(() {
+                                          if (selected) {
+                                            _selectedIds.remove(d.id);
+                                          } else {
+                                            _selectedIds.add(d.id);
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (widget.canWrite && !_selectMode)
+                              Positioned(
+                                top: 6,
+                                left: 6,
+                                child: Material(
+                                  color: Colors.white.withValues(alpha: 0.94),
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(12),
+                                    onTap: () => _deleteSingle(d),
+                                    child: const Padding(
+                                      padding: EdgeInsets.all(8),
+                                      child: Icon(
+                                        Icons.delete_outline_rounded,
+                                        size: 20,
+                                        color: Color(0xFFDC2626),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
@@ -2488,21 +2809,25 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
     unawaited(_reloadList());
   }
 
-  Future<void> _reloadList() async {
-    if (mounted) setState(() => _loadingList = true);
+  Future<void> _reloadList({bool forceRefresh = false}) async {
+    final seed = await _operationalTenantId();
+    final peek = ChurchEventCategoriesLoadService.peekRam(seed);
+    if (peek != null && peek.isNotEmpty && mounted) {
+      setState(() {
+        _docs = peek;
+        _loadingList = false;
+      });
+    } else if (mounted) {
+      setState(() => _loadingList = true);
+    }
     try {
-      final q = await ChurchTenantResilientReads.eventCategories(
-        widget.tenantId,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
+      final result = await ChurchEventCategoriesLoadService.load(
+        seedTenantId: seed,
+        forceRefresh: forceRefresh || peek == null,
       );
-      final list = q.docs.toList()
-        ..sort((a, b) => (a.data()['nome'] ?? '')
-            .toString()
-            .toLowerCase()
-            .compareTo((b.data()['nome'] ?? '').toString().toLowerCase()));
       if (mounted) {
         setState(() {
-          _docs = list;
+          _docs = result.docs;
           _loadingList = false;
         });
       }
@@ -2525,7 +2850,8 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
         }),
       );
       _nome.clear();
-      await _reloadList();
+      ChurchEventCategoriesLoadService.invalidate(tid);
+      await _reloadList(forceRefresh: true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Categoria adicionada.'),
@@ -2567,7 +2893,8 @@ class _EventCategoriesManagerSheetState extends State<_EventCategoriesManagerShe
       await FirestoreWebGuard.runChatWriteWithRecovery(
         () => doc.reference.delete(),
       );
-      await _reloadList();
+      ChurchEventCategoriesLoadService.invalidate(await _operationalTenantId());
+      await _reloadList(forceRefresh: true);
       if (mounted) setState(() {});
     } catch (e) {
       if (mounted) {
@@ -2787,9 +3114,10 @@ class _FeedTabState extends State<_FeedTab> {
   }
 
   Future<void> _bootstrapFeed() async {
-    final seed = widget.tenantId.trim();
+    final seed = ChurchRepository.churchId(widget.tenantId.trim());
     if (seed.isNotEmpty) {
-      final ram = _EventosNoticiasRamCache.peek(seed);
+      final ram = ChurchEventosLoadService.peekRam(seed, limit: _feedPageSize) ??
+          _EventosNoticiasRamCache.peek(seed);
       if (ram != null && ram.isNotEmpty) {
         final docs = ram.length > _feedPageSize
             ? ram.sublist(0, _feedPageSize)
@@ -2810,6 +3138,8 @@ class _FeedTabState extends State<_FeedTab> {
     unawaited(_primeEventsFromCache());
     if (_loadedDocs.isEmpty) {
       await _loadInitialEvents();
+    } else {
+      unawaited(_loadInitialEvents());
     }
   }
 
@@ -3037,6 +3367,11 @@ class _FeedTabState extends State<_FeedTab> {
     }
 
     if (mounted) {
+      final ids = refs.map((r) => r.id).toList();
+      ChurchEventosLoadService.removeFromRam(
+        ChurchRepository.churchId(widget.tenantId),
+        ids,
+      );
       ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Eventos excluídos.'));
       _selectedEventIds.clear();
@@ -6035,7 +6370,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     Uint8List? webBytes;
     String? mobilePath;
     if (kIsWeb) {
-      webBytes = await encoded.readAsBytes();
+      webBytes = await encoded
+          .readAsBytes()
+          .timeout(const Duration(seconds: 20));
       if (!mounted) return;
       setState(() {
         _newImages.add(webBytes!);
@@ -6094,6 +6431,40 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
+  Future<void> _patchEventDocPhotoAfterBackgroundUpload({
+    required String storagePath,
+    required String downloadUrl,
+    required int slotIndex,
+  }) async {
+    try {
+      final path = storagePath.trim();
+      if (path.isEmpty) return;
+      final url = sanitizeImageUrl(downloadUrl);
+      final paths = <String>[path];
+      await runFirestorePublishWithRecovery<void>(() async {
+        await _eventDocRef.set(
+          {
+            'type': 'evento',
+            'tenantId': _editorTenantId,
+            'churchId': _editorTenantId,
+            'imageStoragePath': path,
+            'imageStoragePaths': paths,
+            if (slotIndex == 0) 'fotoStoragePaths': paths,
+            if (url.isNotEmpty && isValidImageUrl(url)) ...{
+              'imageUrl': url,
+              'defaultImageUrl': url,
+              'imagem_url': url,
+              'imagemUrl': url,
+            },
+            'photoUploadState': 'uploaded',
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      });
+    } catch (_) {}
+  }
+
   Future<void> _uploadAttachedEventPhotoInBackground({
     Uint8List? webBytes,
     String? mobilePath,
@@ -6122,6 +6493,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       if (!mounted) return;
       if (url != null && url.isNotEmpty) {
+        final path = ChurchStorageLayout.eventPostPhotoPath(
+          _editorTenantId,
+          _eventDocRef.id,
+          slot,
+        );
         setState(() {
           _removePendingEventPhotoFromLists(
             webBytes: webBytes,
@@ -6129,6 +6505,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           );
           _existingUrls.add(url);
         });
+        unawaited(_patchEventDocPhotoAfterBackgroundUpload(
+          storagePath: path,
+          downloadUrl: url,
+          slotIndex: slot,
+        ));
         if (mounted) {
           ImmediateMediaAttachFeedback.showEnviadoEVinculado(context);
         }
@@ -6209,7 +6590,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   bool _loadingChurchAddress = false;
   String? _operationalTenantId;
 
-  String get _editorTenantId => ChurchPanelTenant.resolve(
+  String get _editorTenantId => ChurchRepository.churchId(
         (_operationalTenantId ?? '').isNotEmpty
             ? _operationalTenantId
             : widget.resolvedTenantId,
@@ -6297,26 +6678,41 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (_loadingChurchAddress) return;
     setState(() => _loadingChurchAddress = true);
     try {
-      final bundle = await ChurchTenantResilientReads.loadChurchAddressBundle(
-        _editorTenantId,
-        userUid: firebaseDefaultAuth.currentUser?.uid,
+      final churchId = ChurchRepository.churchId(
+        _operationalTenantId ?? widget.resolvedTenantId,
       );
-      final data = bundle.tenantData;
-      final endereco = _buildEnderecoFromTenant(data);
-      if (endereco.isEmpty) {
+      final peek = await ChurchCadastroAddressService.peekLocal(churchId);
+      ChurchCadastroAddressResult loaded;
+      if (peek != null && peek.hasAddress) {
+        loaded = peek;
+        unawaited(
+          ChurchCadastroAddressService.load(
+            seedTenantId: churchId,
+            forceRefresh: true,
+          ),
+        );
+      } else {
+        loaded = await ChurchCadastroAddressService.load(seedTenantId: churchId);
+      }
+      if (!loaded.hasAddress) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
-                'Cadastre o endereço da igreja em Cadastro da Igreja primeiro.'),
+              loaded.softError?.isNotEmpty == true
+                  ? loaded.softError!
+                  : 'Cadastre o endereço da igreja em Cadastro da Igreja primeiro.',
+            ),
           );
         }
         return;
       }
+      final data = loaded.data;
+      final endereco = loaded.formattedLine;
       final lat = data['latitude'];
       final lng = data['longitude'];
       if (mounted) {
         setState(() {
-          _operationalTenantId = bundle.firestoreTenantId;
+          _operationalTenantId = loaded.churchId;
           _useChurchLocation = true;
           _churchAddressText = endereco;
           _fillManualFieldsFromTenant(data);
@@ -6511,8 +6907,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   @override
   void initState() {
     super.initState();
-    _operationalTenantId = widget.resolvedTenantId.trim();
+    _operationalTenantId =
+        ChurchRepository.churchId(widget.resolvedTenantId).trim();
+    _firebaseBootstrapReady = true;
     _eventDocRef = widget.doc?.reference ?? widget.noticias.doc();
+    _seedEventCategoriesSync();
+    unawaited(_loadCategories());
+    unawaited(_bootstrapEventForm());
     final data = widget.doc?.data() ?? {};
     _title = TextEditingController(text: (data['title'] ?? '').toString());
     _bodyDescription = TextEditingController(
@@ -6606,16 +7007,23 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (v is Timestamp) _validUntil = v.toDate();
     } catch (_) {}
     _publicSite = data['publicSite'] != false;
-    unawaited(_bootstrapEventForm());
+  }
+
+  void _seedEventCategoriesSync() {
+    final ram = ChurchEventCategoriesLoadService.peekRam(_editorTenantId);
+    if (ram != null && ram.isNotEmpty) {
+      _categoryDocs = ram;
+      _loadingCategories = false;
+    } else {
+      _loadingCategories = true;
+    }
   }
 
   Future<void> _bootstrapEventForm() async {
     try {
       await EventoCreatePublishService.ensureReady(logLabel: 'evento_form');
-      final tid = ChurchRepository.churchId(widget.tenantId);
       if (mounted) {
         setState(() {
-          _operationalTenantId = tid.trim();
           _firebaseBootstrapReady = true;
           _firebaseBootstrapError = null;
         });
@@ -6623,12 +7031,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _firebaseBootstrapReady = false;
           _firebaseBootstrapError = formatUploadErrorForUser(e);
         });
       }
     }
-    await _loadCategories();
   }
 
   String _agendaCategoryKeyFromEvent() {
@@ -6722,15 +7128,20 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
-  Future<void> _loadCategories() async {
-    setState(() => _loadingCategories = true);
+  Future<void> _loadCategories({bool forceRefresh = false}) async {
+    if (!forceRefresh && _categoryDocs.isEmpty && mounted) {
+      setState(() => _loadingCategories = true);
+    }
     try {
-      final list = await ChurchEventosLoadService.loadEventCategories(
+      final result = await ChurchEventCategoriesLoadService.load(
         seedTenantId: _editorTenantId,
+        forceRefresh: forceRefresh,
       );
       if (mounted) {
         setState(() {
-          _categoryDocs = list;
+          if (result.docs.isNotEmpty || _categoryDocs.isEmpty) {
+            _categoryDocs = result.docs;
+          }
           _loadingCategories = false;
         });
       }
@@ -7396,7 +7807,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final hasVideo = firstVideoUrl.toString().trim().isNotEmpty;
     final ar = (aspectRatio ?? 1.0).clamp(0.45, 1.9);
 
-    final fotoPaths = EventosPublishVerificationService.storagePathsFromUrls(
+    final fotoPaths = EventosPublishVerificationService.storagePathsFromRefs(
       allUrlsSafe,
     );
     final videoPath = _eventVideos.isNotEmpty
@@ -7632,6 +8043,18 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
           'Aguarde a preparação das fotos terminar.',
+        ),
+      );
+      return;
+    }
+    if (!AppConnectivityService.instance.isOnline) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Sem ligação à internet. Conecte-se ao Wi‑Fi ou dados móveis para publicar o evento.',
+          ),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
         ),
       );
       return;
@@ -8135,7 +8558,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                 ),
               ),
-            ] else if (!_firebaseBootstrapReady) ...[
+            ] else if (!_firebaseBootstrapReady &&
+                _firebaseBootstrapError == null) ...[
               const SizedBox(height: 10),
               const LinearProgressIndicator(minHeight: 3),
             ],
@@ -8372,10 +8796,21 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                if (_loadingCategories)
+                if (_loadingCategories && _categoryDocs.isEmpty)
                   const Padding(
                     padding: EdgeInsets.only(bottom: 8),
                     child: LinearProgressIndicator(minHeight: 3),
+                  )
+                else if (_categoryDocs.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'Nenhuma categoria no cache. Toque em «Gerir categorias» ou verifique a ligação.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
                   ),
                 DropdownButtonFormField<String?>(
                   value: _eventCategoryId != null &&
@@ -8433,7 +8868,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           tenantId: widget.tenantId,
                         ),
                       );
-                      await _loadCategories();
+                      await _loadCategories(forceRefresh: true);
                     },
                     icon: const Icon(Icons.tune_rounded, size: 20),
                     label: const Text('Gerir categorias'),

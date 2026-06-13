@@ -3,9 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -38,14 +36,9 @@ class _BuscaGlobalWidgetState extends State<BuscaGlobalWidget> {
   Future<void> _resolveTenant() async {
     final hint = widget.tenantId.trim();
     if (hint.isEmpty) return;
-    try {
-      final tid = await TenantResolverService.resolveOperationalChurchDocId(hint);
-      if (!mounted) return;
-      setState(() => _resolvedTenantId = tid.isNotEmpty ? tid : hint);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _resolvedTenantId = hint);
-    }
+    final tid = ChurchRepository.churchId(hint);
+    if (!mounted) return;
+    setState(() => _resolvedTenantId = tid.isNotEmpty ? tid : hint);
   }
 
   CollectionReference<Map<String, dynamic>> _churchCol(String segment) {

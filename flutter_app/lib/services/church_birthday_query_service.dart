@@ -4,7 +4,6 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -28,14 +27,8 @@ abstract final class ChurchBirthdayQueryService {
   }
 
   static Future<List<String>> _clusterIds(String tid) async {
-    final ids = <String>{tid.trim()};
-    try {
-      for (final s in await TenantResolverService.getAllRelatedIgrejaDocIds(tid)) {
-        final t = s.trim();
-        if (t.isNotEmpty) ids.add(t);
-      }
-    } catch (_) {}
-    return ids.toList();
+    final id = tid.trim();
+    return id.isEmpty ? const [] : [id];
   }
 
   static int? _birthDayFromData(Map<String, dynamic> data) {

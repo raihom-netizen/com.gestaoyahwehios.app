@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
@@ -55,6 +56,7 @@ Future<Uint8List> buildChurchTransferLetterPdf({
   required Map<String, dynamic> churchData,
   Uint8List? signatureImageBytes,
   bool reserveManualSignatureSpace = false,
+  PdfDigitalStampInput? digitalStamp,
 }) async {
   if (!_churchLetterPdfAssetsWarmed) {
     await warmChurchLetterPdfAssets();
@@ -62,7 +64,6 @@ Future<Uint8List> buildChurchTransferLetterPdf({
   final doc = await PdfSuperPremiumTheme.newPdfDocument();
   final serifBody = _cachedSerifBodyFont ?? await _loadSerifBodyFont();
 
-  final extra = _churchHeaderExtraLines(churchData);
   final ink = PdfColor.fromInt(0xFF1E293B);
   final muted = PdfColor.fromInt(0xFF64748B);
   final oficioDate = pdfSafeText(_oficioDateLineExtensa(churchData));
@@ -80,6 +81,7 @@ Future<Uint8List> buildChurchTransferLetterPdf({
     signatureFrameColor: branding.accent,
     signatureImageBytes: signatureImageBytes,
     reserveManualSignatureSpace: reserveManualSignatureSpace,
+    digitalStamp: digitalStamp,
   );
 
   doc.addPage(
@@ -88,20 +90,19 @@ Future<Uint8List> buildChurchTransferLetterPdf({
       maxPages: 80,
       theme: doc.theme,
       pageTheme: pw.PageTheme(
-        // Margens um pouco mais estreitas para caber assinatura + rodapé numa folha.
-        margin: const pw.EdgeInsets.fromLTRB(48, 40, 48, 42),
+        margin: PdfSuperPremiumTheme.churchLetterPageMargin,
       ),
       header: (pw.Context ctx) {
         if (ctx.pageNumber != 1) return pw.SizedBox();
         return pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
-            PdfSuperPremiumTheme.header(
-              documentTitle,
+            PdfSuperPremiumTheme.oficioLetterHeader(
               branding: branding,
-              extraLines: extra,
+              churchData: churchData,
+              documentTitle: documentTitle,
             ),
-            pw.SizedBox(height: 8),
+            pw.SizedBox(height: 10),
             pw.Align(
               alignment: pw.Alignment.centerRight,
               child: pw.Text(
@@ -115,7 +116,7 @@ Future<Uint8List> buildChurchTransferLetterPdf({
                 textAlign: pw.TextAlign.right,
               ),
             ),
-            pw.SizedBox(height: 10),
+            pw.SizedBox(height: 12),
           ],
         );
       },
@@ -274,6 +275,7 @@ pw.Widget _normaCultaSignatureBlock(
   PdfColor? signatureFrameColor,
   Uint8List? signatureImageBytes,
   bool reserveManualSignatureSpace = false,
+  PdfDigitalStampInput? digitalStamp,
 }) {
   final t = sigPart.trim();
   if (t.isEmpty) return pw.SizedBox();
@@ -311,8 +313,10 @@ pw.Widget _normaCultaSignatureBlock(
   final lh = bodyStyle.lineSpacing ?? 1.45;
   final gap4 = fs * lh * 1.2;
   final frame = signatureFrameColor ?? PdfColor.fromInt(0xFF64748B);
-  final sigBytesOk = signatureImageBytes != null && signatureImageBytes.length > 24;
-  final sigImage = sigBytesOk ? pw.MemoryImage(signatureImageBytes) : null;
+  final sigBytesOk = digitalStamp == null &&
+      signatureImageBytes != null &&
+      signatureImageBytes.length > 24;
+  final sigImage = sigBytesOk ? pw.MemoryImage(signatureImageBytes!) : null;
   final nameStyle = bodyStyle.copyWith(
     fontSize: (bodyStyle.fontSize ?? 10.5) - 0.2,
     fontWeight: pw.FontWeight.bold,
@@ -326,7 +330,12 @@ pw.Widget _normaCultaSignatureBlock(
   const sigRasterHPt = 58.0;
 
   final sigChildren = <pw.Widget>[
-    if (sigImage != null) ...[
+    if (digitalStamp != null) ...[
+      ...pdfDigitalCertificateStampAboveLineWidgets(
+        digitalStamp,
+        maxWidth: maxSigBlockPt,
+      ),
+    ] else if (sigImage != null) ...[
       // Assinatura digital (imagem) imediatamente acima da linha do nome.
       pw.SizedBox(
         width: sigRasterWPt,
@@ -405,6 +414,7 @@ List<pw.Widget> _buildChurchLetterBodyWidgetsPremium(
   PdfColor? signatureFrameColor,
   Uint8List? signatureImageBytes,
   bool reserveManualSignatureSpace = false,
+  PdfDigitalStampInput? digitalStamp,
 }) {
   final raw = bodyAfterReplacements.replaceAll('\r\n', '\n').trim();
   if (raw.isEmpty) return [];
@@ -436,6 +446,7 @@ List<pw.Widget> _buildChurchLetterBodyWidgetsPremium(
       signatureFrameColor: signatureFrameColor,
       signatureImageBytes: signatureImageBytes,
       reserveManualSignatureSpace: reserveManualSignatureSpace,
+      digitalStamp: digitalStamp,
     ));
   }
   return out;

@@ -188,6 +188,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     return widget.role.trim().toLowerCase();
   }
 
+  bool get _canPurchaseLicense =>
+      AppPermissions.canPurchaseChurchLicense(_panelRole);
+
   void _syncPanelRoleFromChurch(Map<String, dynamic>? churchData) {
     final user = firebaseDefaultAuth.currentUser;
     final resolved = AuthGatePanelRole.resolve(
@@ -253,6 +256,18 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   Future<void> _openUpgradePlans() async {
     if (!mounted) return;
+    if (!_canPurchaseLicense) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Somente gestor, secretário ou tesoureiro pode renovar a licença. '
+            'Peça a um deles para gerar o pagamento.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     unawaited(ExpressRenewBootstrap.instance.warmUp());
     // iPhone: fluxo in-app (expresso) — evita cold start do Safari.
     if (IosPaymentsGate.shouldHidePayments && !kIsWeb) {
@@ -270,7 +285,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     }
     Navigator.push(
       context,
-      ThemeCleanPremium.fadeSlideRoute(const RenewPlanPage()),
+      ThemeCleanPremium.fadeSlideRoute(
+        RenewPlanPage(panelRole: _panelRole),
+      ),
     );
   }
 
@@ -1451,18 +1468,20 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                     ),
                   ),
                 ),
-                IconButton(
-                  tooltip: IosPaymentsGate.shouldHidePayments
-                      ? 'Atualizar plano'
-                      : 'Planos e assinatura',
-                  onPressed: () => unawaited(_openUpgradePlans()),
-                  // Material estável na web (subset de ícones arredondados pode falhar).
-                  icon: const Icon(Icons.emoji_events_rounded,
-                      color: Colors.white, size: 22),
-                  style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                ),
+                if (_canPurchaseLicense)
+                  IconButton(
+                    tooltip: IosPaymentsGate.shouldHidePayments
+                        ? 'Atualizar plano'
+                        : 'Planos e assinatura',
+                    onPressed: () => unawaited(_openUpgradePlans()),
+                    // Material estável na web (subset de ícones arredondados pode falhar).
+                    icon: const Icon(Icons.emoji_events_rounded,
+                        color: Colors.white, size: 22),
+                    style:
+                        IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                  ),
               ],
-              if (_isMobile)
+              if (_isMobile && _canPurchaseLicense)
                 IconButton(
                   icon: const Icon(Icons.emoji_events_rounded,
                       color: Colors.white, size: 22),
@@ -1780,84 +1799,94 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                 ThemeCleanPremium.spaceSm,
                 compact ? 6 : ThemeCleanPremium.spaceSm,
                 ThemeCleanPremium.spaceMd),
-            child: compact
-                ? Tooltip(
-                    message: IosPaymentsGate.shouldHidePayments
-                        ? 'Atualizar plano'
-                        : 'Adquirir plano',
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => unawaited(_openUpgradePlans()),
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
+            child: _canPurchaseLicense
+                ? (compact
+                    ? Tooltip(
+                        message: IosPaymentsGate.shouldHidePayments
+                            ? 'Atualizar plano'
+                            : 'Adquirir plano',
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => unawaited(_openUpgradePlans()),
                             borderRadius: BorderRadius.circular(
                                 ThemeCleanPremium.radiusMd),
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF0A3D91), Color(0xFF1565C0)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
+                            child: Container(
+                              width: double.infinity,
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusMd),
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xFF0A3D91),
+                                    Color(0xFF1565C0)
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                              ),
+                              child: const Icon(Icons.add_card_rounded,
+                                  size: 22,
+                                  color: ThemeCleanPremium.navSidebarAccent),
                             ),
                           ),
-                          child: const Icon(Icons.add_card_rounded,
-                              size: 22,
-                              color: ThemeCleanPremium.navSidebarAccent),
                         ),
-                      ),
-                    ),
-                  )
-                : Material(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                    child: InkWell(
-                      onTap: () => unawaited(_openUpgradePlans()),
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF0A3D91), Color(0xFF1565C0)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
+                      )
+                    : Material(
+                        borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd),
+                        child: InkWell(
+                          onTap: () => unawaited(_openUpgradePlans()),
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusMd),
+                              gradient: const LinearGradient(
+                                colors: [
+                                  Color(0xFF0A3D91),
+                                  Color(0xFF1565C0)
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: ThemeCleanPremium.navSidebar
+                                      .withOpacity(0.35),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.add_card_rounded,
+                                    size: 20,
+                                    color: ThemeCleanPremium.navSidebarAccent),
+                                const SizedBox(width: 10),
+                                Text(
+                                  IosPaymentsGate.shouldHidePayments
+                                      ? 'Atualizar plano'
+                                      : 'Adquirir Plano',
+                                  style: const TextStyle(
+                                      color:
+                                          ThemeCleanPremium.navSidebarAccent,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14),
+                                ),
+                              ],
+                            ),
                           ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: ThemeCleanPremium.navSidebar
-                                  .withOpacity(0.35),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.add_card_rounded,
-                                size: 20,
-                                color: ThemeCleanPremium.navSidebarAccent),
-                            const SizedBox(width: 10),
-                            Text(
-                              IosPaymentsGate.shouldHidePayments
-                                  ? 'Atualizar plano'
-                                  : 'Adquirir Plano',
-                              style: const TextStyle(
-                                  color: ThemeCleanPremium.navSidebarAccent,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
+                      ))
+                : const SizedBox.shrink(),
           ),
           const SizedBox(height: ThemeCleanPremium.spaceMd),
         ],
@@ -1998,60 +2027,61 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                     activeColor: ThemeCleanPremium.navSidebarAccent,
                   ),
                 ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 20),
-                child: Material(
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.of(context).pop();
-                      unawaited(_openUpgradePlans());
-                    },
+              if (_canPurchaseLicense)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 20),
+                  child: Material(
                     borderRadius:
                         BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: BoxDecoration(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF0A3D91), Color(0xFF1565C0)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.of(context).pop();
+                        unawaited(_openUpgradePlans());
+                      },
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusSm),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF0A3D91), Color(0xFF1565C0)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: ThemeCleanPremium.navSidebar
+                                  .withOpacity(0.3),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color:
-                                ThemeCleanPremium.navSidebar.withOpacity(0.3),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.add_card_rounded,
-                              size: 20,
-                              color: ThemeCleanPremium.navSidebarAccent),
-                          const SizedBox(width: 10),
-                          Text(
-                            IosPaymentsGate.shouldHidePayments
-                                ? 'Atualizar plano'
-                                : 'Adquirir Plano',
-                            style: const TextStyle(
-                                color: ThemeCleanPremium.navSidebarAccent,
-                                fontWeight: FontWeight.w600,
-                                fontSize: 14),
-                          ),
-                        ],
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.add_card_rounded,
+                                size: 20,
+                                color: ThemeCleanPremium.navSidebarAccent),
+                            const SizedBox(width: 10),
+                            Text(
+                              IosPaymentsGate.shouldHidePayments
+                                  ? 'Atualizar plano'
+                                  : 'Adquirir Plano',
+                              style: const TextStyle(
+                                  color: ThemeCleanPremium.navSidebarAccent,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -2417,7 +2447,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       child: SubscriptionExpiredPage(
         churchName: churchName,
         logoUrl: logoUrl,
-        onRenew: () => unawaited(_openUpgradePlans()),
+        canPurchaseLicense: _canPurchaseLicense,
+        onRenew: _canPurchaseLicense
+            ? () => unawaited(_openUpgradePlans())
+            : () {},
         onLogout: ChurchSignOutNavigation.signOutForAccountSwitch,
       ),
     );

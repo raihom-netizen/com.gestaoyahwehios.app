@@ -2,15 +2,15 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/roles_permissions.dart';
-import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/roles_permissions.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/church_visitantes_load_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -249,11 +249,16 @@ class _VisitorsPageState extends State<VisitorsPage> {
   int? _reportMonth;
   bool _reportExpanded = true;
 
+  /// Seleção múltipla — excluir individual, selecionados ou todos.
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = {};
+  bool _bulkDeleting = false;
+
   bool get _canManage => churchVisitorManagementRole(widget.role);
 
-  String get _tid => ChurchPanelTenant.resolve(
-        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
-      );
+  String get _tid => _effectiveTenantId.isNotEmpty
+      ? _effectiveTenantId
+      : ChurchRepository.churchId(widget.tenantId);
 
   String get _churchId => ChurchRepository.churchId(_tid);
 
@@ -272,7 +277,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
       return const MergedFirestoreQuerySnapshot([]);
     }
     final result = await ChurchVisitantesLoadService.load(
-      seedTenantId: tid,
+      seedTenantId: _churchId,
       forceRefresh: forceRefresh,
       forceServer: forceServer,
     );
@@ -280,24 +285,27 @@ class _VisitorsPageState extends State<VisitorsPage> {
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadVisitantes() {
-    final tid = _tid.trim();
-    if (tid.isEmpty) return _loadVisitantes();
+    final cid = _churchId.trim();
+    if (cid.isEmpty) {
+      return Future.value(const MergedFirestoreQuerySnapshot([]));
+    }
 
-    final ram = ChurchVisitantesLoadService.peekRam(tid);
-    if (ram != null && ram.isNotEmpty) {
+    final ram = ChurchVisitantesLoadService.peekRam(cid);
+    if (ram != null) {
       return Future.value(MergedFirestoreQuerySnapshot(ram));
     }
 
     final memKey = ChurchVisitantesLoadService.cacheKey(
-      _churchId,
+      cid,
       ChurchVisitantesLoadService.kDefaultLimit,
     );
     final mem = FirestoreReadResilience.peekLastGoodQuery(memKey);
-    if (mem != null && mem.docs.isNotEmpty) {
+    if (mem != null) {
       return Future.value(mem);
     }
 
-    return _loadVisitantes();
+    // Cache-first: lista vazia instantânea — rede actualiza em background.
+    return Future.value(const MergedFirestoreQuerySnapshot([]));
   }
 
   Future<void> _refreshVisitantesBackground() async {
@@ -320,8 +328,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
   @override
   void initState() {
     super.initState();
-    _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
+    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
     _visitantesFuture = _seedOrLoadVisitantes();
+    unawaited(ChurchVisitantesLoadService.ensureProvisioned(_churchId));
     unawaited(_refreshVisitantesBackground());
   }
 
@@ -329,8 +338,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
   void didUpdateWidget(covariant VisitorsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
+      _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
       _visitantesFuture = _seedOrLoadVisitantes();
+      unawaited(ChurchVisitantesLoadService.ensureProvisioned(_churchId));
       unawaited(_refreshVisitantesBackground());
     }
   }
@@ -353,27 +363,73 @@ class _VisitorsPageState extends State<VisitorsPage> {
                       style: IconButton.styleFrom(minimumSize: const Size(ThemeCleanPremium.minTouchTarget, ThemeCleanPremium.minTouchTarget)),
                     )
                   : null,
-              title: const Text('Visitantes / Primeiro Contato'),
+              title: Text(_selectionMode
+                  ? '${_selectedIds.length} selecionado(s)'
+                  : 'Visitantes / Primeiro Contato'),
               actions: [
-                IconButton(
-                  icon: Icon(Icons.refresh_rounded,
-                      color: ThemeCleanPremium.primary),
-                  onPressed: _refresh,
-                  tooltip: 'Atualizar',
-                  style: IconButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: ThemeCleanPremium.primary,
-                    elevation: 1,
-                    shadowColor: Colors.black26,
-                    minimumSize: const Size(
-                      ThemeCleanPremium.minTouchTarget,
-                      ThemeCleanPremium.minTouchTarget,
+                if (_canManage && _selectionMode) ...[
+                  TextButton(
+                    onPressed: _bulkDeleting ? null : _exitSelectionMode,
+                    child: const Text('Cancelar'),
+                  ),
+                ] else if (_canManage) ...[
+                  PopupMenuButton<String>(
+                    icon: Icon(Icons.more_vert_rounded,
+                        color: ThemeCleanPremium.primary),
+                    tooltip: 'Mais opções',
+                    onSelected: (v) {
+                      if (v == 'select') {
+                        setState(() => _selectionMode = true);
+                      } else if (v == 'delete_all') {
+                        _confirmDeleteAll(context);
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'select',
+                        child: Row(
+                          children: [
+                            Icon(Icons.checklist_rounded, size: 20),
+                            SizedBox(width: 10),
+                            Text('Selecionar vários'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'delete_all',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete_sweep_rounded,
+                                size: 20, color: ThemeCleanPremium.error),
+                            SizedBox(width: 10),
+                            Text('Excluir todos',
+                                style: TextStyle(color: ThemeCleanPremium.error)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (!_selectionMode)
+                  IconButton(
+                    icon: Icon(Icons.refresh_rounded,
+                        color: ThemeCleanPremium.primary),
+                    onPressed: _refresh,
+                    tooltip: 'Atualizar',
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: ThemeCleanPremium.primary,
+                      elevation: 1,
+                      shadowColor: Colors.black26,
+                      minimumSize: const Size(
+                        ThemeCleanPremium.minTouchTarget,
+                        ThemeCleanPremium.minTouchTarget,
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
-      floatingActionButton: _canManage
+      floatingActionButton: _canManage && !_selectionMode
           ? Container(
               decoration: BoxDecoration(
                 borderRadius:
@@ -413,7 +469,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
           errorTitle: 'Não foi possível carregar os visitantes',
           onRetry: _refresh,
           builder: (context, snap, {required bool showingStaleCache}) {
-            final allDocs = snap.docs;
+            final allDocs = snap.docs.where((d) => d.id != '_schema').toList();
             final allVisitors = allDocs
                 .map((d) => _VisitorData(id: d.id, data: d.data()))
                 .toList();
@@ -523,9 +579,35 @@ class _VisitorsPageState extends State<VisitorsPage> {
                             visitor: filtered[i],
                             tenantId: widget.tenantId,
                             canManage: _canManage,
-                            onTap: () => _openVisitorDetails(context, filtered[i]),
-                            onEdit: () => _openVisitorForm(context, visitor: filtered[i]),
-                            onDelete: () => _confirmDelete(context, filtered[i]),
+                            selectionMode: _selectionMode,
+                            selected: _selectedIds.contains(filtered[i].id),
+                            onSelectionChanged: _selectionMode
+                                ? (v) => setState(() {
+                                      if (v) {
+                                        _selectedIds.add(filtered[i].id);
+                                      } else {
+                                        _selectedIds.remove(filtered[i].id);
+                                      }
+                                    })
+                                : null,
+                            onTap: () {
+                              if (_selectionMode) {
+                                final id = filtered[i].id;
+                                setState(() {
+                                  if (_selectedIds.contains(id)) {
+                                    _selectedIds.remove(id);
+                                  } else {
+                                    _selectedIds.add(id);
+                                  }
+                                });
+                              } else {
+                                _openVisitorDetails(context, filtered[i]);
+                              }
+                            },
+                            onEdit: () => _openVisitorForm(context,
+                                visitor: filtered[i]),
+                            onDelete: () =>
+                                _confirmDelete(context, filtered[i]),
                           ),
                           childCount: filtered.length,
                         ),
@@ -538,7 +620,190 @@ class _VisitorsPageState extends State<VisitorsPage> {
           },
         ),
       ),
+      bottomNavigationBar: _canManage && _selectionMode
+          ? _buildSelectionBar()
+          : null,
     );
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Widget _buildSelectionBar() {
+    return Material(
+      elevation: 12,
+      color: Colors.white,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              TextButton(
+                onPressed: _bulkDeleting
+                    ? null
+                    : () => setState(() => _selectedIds.clear()),
+                child: const Text('Limpar'),
+              ),
+              Expanded(
+                child: Text(
+                  '${_selectedIds.length} selecionado(s)',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              TextButton(
+                onPressed: _bulkDeleting ? null : _selectAllVisible,
+                child: const Text('Todos'),
+              ),
+              const SizedBox(width: 4),
+              FilledButton.icon(
+                onPressed: _bulkDeleting || _selectedIds.isEmpty
+                    ? null
+                    : () => _confirmDeleteSelected(context),
+                icon: _bulkDeleting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.delete_outline_rounded, size: 20),
+                label: const Text('Excluir'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.error,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _selectAllVisible() async {
+    final snap = await _visitantesFuture;
+    if (!mounted) return;
+    final all = snap.docs
+        .where((d) => d.id != '_schema')
+        .map((d) => _VisitorData(id: d.id, data: d.data()))
+        .toList();
+    final filtered = _filteredVisitors(all);
+    setState(() {
+      _selectedIds.addAll(filtered.map((v) => v.id));
+    });
+  }
+
+  Future<void> _confirmDeleteSelected(BuildContext context) async {
+    if (_selectedIds.isEmpty) return;
+    final n = _selectedIds.length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        title: const Text('Excluir selecionados?'),
+        content: Text(
+          'Deseja excluir $n visitante(s)? Esta ação não pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    await _runBulkDelete(_selectedIds.toList());
+  }
+
+  Future<void> _confirmDeleteAll(BuildContext context) async {
+    final snap = await _visitantesFuture;
+    final ids = snap.docs
+        .where((d) => d.id != '_schema')
+        .map((d) => d.id)
+        .toList();
+    if (ids.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nenhum visitante para excluir.')),
+        );
+      }
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        title: const Text('Excluir TODOS os visitantes?'),
+        content: Text(
+          'Serão apagados ${ids.length} cadastro(s) de visitantes. '
+          'Esta ação é irreversível.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            child: const Text('Excluir todos'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    await _runBulkDelete(ids);
+  }
+
+  Future<void> _runBulkDelete(List<String> ids) async {
+    setState(() => _bulkDeleting = true);
+    try {
+      final n = await ChurchVisitantesLoadService.deleteVisitors(
+        seedTenantId: widget.tenantId,
+        docIds: ids,
+      );
+      if (!mounted) return;
+      _exitSelectionMode();
+      _refreshVisitantesBackground();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            n == 1 ? 'Visitante excluído' : '$n visitantes excluídos',
+            style: const TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao excluir: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _bulkDeleting = false);
+    }
   }
 
   Widget _buildTabBar(BuildContext context) {
@@ -841,38 +1106,19 @@ class _VisitorsPageState extends State<VisitorsPage> {
 
   // ─── Cadastro / Edição ──────────────────────────────────────────────────────
   void _openVisitorForm(BuildContext context, {_VisitorData? visitor}) {
-    final isMobile = ThemeCleanPremium.isMobile(context);
-    void onClose() {
-      if (mounted) _refresh();
-    }
-    if (isMobile) {
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => _VisitorFormSheet(
-          tenantId: widget.tenantId,
+    Navigator.of(context)
+        .push<bool>(
+      MaterialPageRoute<bool>(
+        fullscreenDialog: ThemeCleanPremium.isMobile(context),
+        builder: (_) => _VisitorFormPage(
+          churchId: _churchId,
           visitor: visitor,
         ),
-      ).then((_) => onClose());
-    } else {
-      showDialog(
-        context: context,
-        builder: (_) => Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-          ),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: _VisitorFormSheet(
-              tenantId: widget.tenantId,
-              visitor: visitor,
-              isDialog: true,
-            ),
-          ),
-        ),
-      ).then((_) => onClose());
-    }
+      ),
+    )
+        .then((saved) {
+      if (mounted && saved == true) _refreshVisitantesBackground();
+    });
   }
 
   // ─── Detalhes ───────────────────────────────────────────────────────────────
@@ -937,19 +1183,32 @@ class _VisitorsPageState extends State<VisitorsPage> {
       ),
     );
     if (confirmed == true && context.mounted) {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      await FirestoreWebGuard.runWithWebRecovery(
-        () => _visitantesRef.doc(visitor.id).delete(),
-        maxAttempts: 4,
-      );
-      await ChurchVisitantesLoadService.invalidate(widget.tenantId);
-      if (context.mounted) {
-        _refresh();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Visitante excluído', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green),
+      try {
+        await ChurchVisitantesLoadService.deleteVisitors(
+          seedTenantId: widget.tenantId,
+          docIds: [visitor.id],
         );
+        if (context.mounted) {
+          _refreshVisitantesBackground();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Visitante excluído',
+                style: TextStyle(color: Colors.white),
+              ),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Erro ao excluir: $e'),
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+          );
+        }
       }
     }
   }
@@ -1706,6 +1965,9 @@ class _VisitorCard extends StatelessWidget {
   final _VisitorData visitor;
   final String tenantId;
   final bool canManage;
+  final bool selectionMode;
+  final bool selected;
+  final ValueChanged<bool>? onSelectionChanged;
   final VoidCallback onTap;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
@@ -1714,6 +1976,9 @@ class _VisitorCard extends StatelessWidget {
     required this.visitor,
     required this.tenantId,
     required this.canManage,
+    this.selectionMode = false,
+    this.selected = false,
+    this.onSelectionChanged,
     required this.onTap,
     required this.onEdit,
     required this.onDelete,
@@ -1766,6 +2031,16 @@ class _VisitorCard extends StatelessWidget {
                     padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
                     child: Row(
                       children: [
+                        if (selectionMode) ...[
+                          Checkbox(
+                            value: selected,
+                            activeColor: _VisitorsPremiumTheme.orange,
+                            onChanged: onSelectionChanged == null
+                                ? null
+                                : (v) => onSelectionChanged!(v ?? false),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
                         _avatar(visitor.nome, accent),
                         const SizedBox(width: ThemeCleanPremium.spaceMd),
                         Expanded(
@@ -1891,7 +2166,7 @@ class _VisitorCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (canManage)
+                if (canManage && !selectionMode)
                   PopupMenuButton<String>(
                     icon: const Icon(Icons.more_vert_rounded, color: ThemeCleanPremium.onSurfaceVariant),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
@@ -1992,25 +2267,23 @@ class _VisitorCard extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Visitor Form (Bottom Sheet / Dialog)
+// Visitor Form — tela premium com voltar (Web / Android / iOS)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _VisitorFormSheet extends StatefulWidget {
-  final String tenantId;
+class _VisitorFormPage extends StatefulWidget {
+  final String churchId;
   final _VisitorData? visitor;
-  final bool isDialog;
 
-  const _VisitorFormSheet({
-    required this.tenantId,
+  const _VisitorFormPage({
+    required this.churchId,
     this.visitor,
-    this.isDialog = false,
   });
 
   @override
-  State<_VisitorFormSheet> createState() => _VisitorFormSheetState();
+  State<_VisitorFormPage> createState() => _VisitorFormPageState();
 }
 
-class _VisitorFormSheetState extends State<_VisitorFormSheet> {
+class _VisitorFormPageState extends State<_VisitorFormPage> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nomeCtrl;
   late final TextEditingController _telCtrl;
@@ -2019,9 +2292,17 @@ class _VisitorFormSheetState extends State<_VisitorFormSheet> {
   String _comoConheceu = 'Convite';
   bool _saving = false;
 
-  static const _origens = ['Convite', 'Redes Sociais', 'Passou na frente', 'Outro'];
+  static const _origens = [
+    'Convite',
+    'Redes Sociais',
+    'Passou na frente',
+    'Outro',
+  ];
 
   bool get _isEdit => widget.visitor != null;
+
+  String get _pathLabel =>
+      'igrejas/${widget.churchId.trim()}/visitantes';
 
   @override
   void initState() {
@@ -2045,12 +2326,54 @@ class _VisitorFormSheetState extends State<_VisitorFormSheet> {
     super.dispose();
   }
 
+  InputDecoration _fieldDecoration({
+    required String label,
+    required IconData icon,
+    int maxLines = 1,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      prefixIcon: Icon(icon, color: _VisitorsPremiumTheme.orange),
+      filled: true,
+      fillColor: const Color(0xFFFFF7ED),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        borderSide: BorderSide(
+          color: _VisitorsPremiumTheme.orange.withValues(alpha: 0.18),
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        borderSide: const BorderSide(
+          color: _VisitorsPremiumTheme.orange,
+          width: 1.6,
+        ),
+      ),
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: ThemeCleanPremium.spaceMd,
+        vertical: maxLines > 1 ? ThemeCleanPremium.spaceMd : 14,
+      ),
+    );
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
 
-    final op = ChurchRepository.churchId(widget.tenantId.trim());
-    final ref =         ChurchUiCollections.visitantes(op);
+    final churchId = widget.churchId.trim();
+    if (churchId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Igreja não identificada.')),
+        );
+      }
+      setState(() => _saving = false);
+      return;
+    }
 
     final payload = <String, dynamic>{
       'nome': _nomeCtrl.text.trim(),
@@ -2062,25 +2385,20 @@ class _VisitorFormSheetState extends State<_VisitorFormSheet> {
     };
 
     try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      await FirestoreWebGuard.runWithWebRecovery(() async {
-        if (_isEdit) {
-          await ref.doc(widget.visitor!.id).update(payload);
-        } else {
-          payload['status'] = 'Novo';
-          payload['createdAt'] = FieldValue.serverTimestamp();
-          payload['followupCount'] = 0;
-          await ref.add(payload);
-        }
-      }, maxAttempts: 4);
-      await ChurchVisitantesLoadService.invalidate(widget.tenantId);
-      if (mounted) Navigator.pop(context);
+      await ChurchVisitantesLoadService.saveVisitor(
+        churchId: churchId,
+        payload: payload,
+        existingDocId: _isEdit ? widget.visitor!.id : null,
+      );
+      unawaited(ChurchVisitantesLoadService.invalidate(churchId));
+      if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao salvar: $e'), backgroundColor: ThemeCleanPremium.error),
+          SnackBar(
+            content: Text('Erro ao salvar: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
         );
       }
     } finally {
@@ -2091,105 +2409,228 @@ class _VisitorFormSheetState extends State<_VisitorFormSheet> {
   @override
   Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
-    final body = Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _isEdit ? 'Editar Visitante' : 'Novo Visitante',
-                      style: tt.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded),
-                    constraints: const BoxConstraints(minWidth: ThemeCleanPremium.minTouchTarget, minHeight: ThemeCleanPremium.minTouchTarget),
-                  ),
-                ],
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceLg),
-              TextFormField(
-                controller: _nomeCtrl,
-                decoration: const InputDecoration(labelText: 'Nome *', prefixIcon: Icon(Icons.person_outline_rounded)),
-                textCapitalization: TextCapitalization.words,
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Informe o nome' : null,
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              TextFormField(
-                controller: _telCtrl,
-                decoration: const InputDecoration(labelText: 'Telefone', prefixIcon: Icon(Icons.phone_outlined)),
-                keyboardType: TextInputType.phone,
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              TextFormField(
-                controller: _emailCtrl,
-                decoration: const InputDecoration(labelText: 'E-mail', prefixIcon: Icon(Icons.email_outlined)),
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              DropdownButtonFormField<String>(
-                value: _comoConheceu,
-                decoration: const InputDecoration(labelText: 'Como conheceu a igreja', prefixIcon: Icon(Icons.info_outline_rounded)),
-                items: _origens.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
-                onChanged: (v) { if (v != null) setState(() => _comoConheceu = v); },
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
-              TextFormField(
-                controller: _obsCtrl,
-                decoration: const InputDecoration(labelText: 'Observações', prefixIcon: Icon(Icons.note_alt_outlined)),
-                maxLines: 3,
-                textCapitalization: TextCapitalization.sentences,
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceLg),
-              SizedBox(
-                height: ThemeCleanPremium.minTouchTarget,
-                child: FilledButton.icon(
-                  onPressed: _saving ? null : _save,
-                  icon: _saving
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.check_rounded),
-                  label: Text(_isEdit ? 'Salvar Alterações' : 'Cadastrar Visitante'),
-                ),
+    final isMobile = ThemeCleanPremium.isMobile(context);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          tooltip: 'Voltar',
+          onPressed: _saving ? null : () => Navigator.maybePop(context),
+          style: IconButton.styleFrom(
+            minimumSize: const Size(
+              ThemeCleanPremium.minTouchTarget,
+              ThemeCleanPremium.minTouchTarget,
+            ),
+          ),
+        ),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: _VisitorsPremiumTheme.heroGradient,
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x33F97316),
+                blurRadius: 18,
+                offset: Offset(0, 8),
               ),
             ],
           ),
         ),
+        title: Text(
+          _isEdit ? 'Editar visitante' : 'Novo visitante',
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+        ),
       ),
-    );
-
-    if (widget.isDialog) return body;
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(ThemeCleanPremium.radiusLg)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: ThemeCleanPremium.spaceSm),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 560),
+            child: SingleChildScrollView(
+              padding: ThemeCleanPremium.pagePadding(context),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  gradient: _VisitorsPremiumTheme.heroGradient,
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: const Icon(
+                                  Icons.person_add_alt_1_rounded,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: ThemeCleanPremium.spaceMd),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Primeiro contato',
+                                      style: tt.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Registo em $_pathLabel',
+                                      style: tt.bodySmall?.copyWith(
+                                        color: ThemeCleanPremium.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceLg),
+                          TextFormField(
+                            controller: _nomeCtrl,
+                            decoration: _fieldDecoration(
+                              label: 'Nome *',
+                              icon: Icons.person_outline_rounded,
+                            ),
+                            textCapitalization: TextCapitalization.words,
+                            validator: (v) => (v == null || v.trim().isEmpty)
+                                ? 'Informe o nome'
+                                : null,
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
+                          TextFormField(
+                            controller: _telCtrl,
+                            decoration: _fieldDecoration(
+                              label: 'Telefone',
+                              icon: Icons.phone_outlined,
+                            ),
+                            keyboardType: TextInputType.phone,
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
+                          TextFormField(
+                            controller: _emailCtrl,
+                            decoration: _fieldDecoration(
+                              label: 'E-mail',
+                              icon: Icons.email_outlined,
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
+                          DropdownButtonFormField<String>(
+                            value: _comoConheceu,
+                            decoration: _fieldDecoration(
+                              label: 'Como conheceu a igreja',
+                              icon: Icons.info_outline_rounded,
+                            ),
+                            borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd,
+                            ),
+                            items: _origens
+                                .map(
+                                  (o) => DropdownMenuItem(
+                                    value: o,
+                                    child: Text(o),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: _saving
+                                ? null
+                                : (v) {
+                                    if (v != null) {
+                                      setState(() => _comoConheceu = v);
+                                    }
+                                  },
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
+                          TextFormField(
+                            controller: _obsCtrl,
+                            decoration: _fieldDecoration(
+                              label: 'Observações',
+                              icon: Icons.note_alt_outlined,
+                              maxLines: 3,
+                            ),
+                            maxLines: 3,
+                            textCapitalization: TextCapitalization.sentences,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: ThemeCleanPremium.spaceLg),
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                        gradient: _VisitorsPremiumTheme.heroGradient,
+                        boxShadow: [
+                          BoxShadow(
+                            color: _VisitorsPremiumTheme.orange
+                                .withValues(alpha: 0.35),
+                            blurRadius: 16,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: SizedBox(
+                        height: ThemeCleanPremium.minTouchTarget + 4,
+                        child: FilledButton.icon(
+                          onPressed: _saving ? null : _save,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            foregroundColor: Colors.white,
+                            shadowColor: Colors.transparent,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusLg,
+                              ),
+                            ),
+                          ),
+                          icon: _saving
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.check_rounded),
+                          label: Text(
+                            _isEdit
+                                ? 'Salvar alterações'
+                                : 'Cadastrar visitante',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-          body,
-        ],
+        ),
       ),
     );
   }

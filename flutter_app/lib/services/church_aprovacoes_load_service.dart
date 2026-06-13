@@ -6,9 +6,8 @@ import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -19,14 +18,17 @@ class ChurchAprovacoesPendentesResult {
     required this.docs,
     required this.readSource,
     this.softError,
+    this.fromCache = false,
   });
 
   final String churchId;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
   final String readSource;
   final String? softError;
+  final bool fromCache;
 
   bool get isEmpty => docs.isEmpty;
+  bool get hasHardError => softError != null && softError!.trim().isNotEmpty;
 }
 
 /// Histórico de aprovações / reprovações no período.
@@ -50,12 +52,15 @@ class ChurchAprovacoesHistoricoResult {
   final String? softError;
 }
 
-/// Carga canónica — Aprovações rápidas (membros pendentes + histórico).
+/// Carga canónica — Aprovações rápidas (`igrejas/{churchId}/membros`).
+///
+/// **Regra:** lista vazia de pendentes = sucesso (não erro de rede).
+/// Cache Hive / RAM / memória Firestore sempre aceite, mesmo com 0 pendentes.
 abstract final class ChurchAprovacoesLoadService {
   ChurchAprovacoesLoadService._();
 
-  static const int kPendentesLimit = 120;
-  static const int kHistoricoPlainLimit = 500;
+  static const int kMembrosScanLimit = 500;
+  static const int kPendentesQueryLimit = 120;
 
   static final Map<
       String,
@@ -66,10 +71,10 @@ abstract final class ChurchAprovacoesLoadService {
 
   static const Duration _ramTtl = Duration(minutes: 20);
 
-  static String _resolve(String hint) => ChurchPanelTenant.resolve(hint.trim());
+  static String _resolve(String hint) => ChurchRepository.churchId(hint.trim());
 
   static String pendentesCacheKey(String churchId) =>
-      '${churchId.trim()}_membros_pendente_v2';
+      '${churchId.trim()}_membros_pendente_v3';
 
   static String historicoCacheKey(String churchId, DateTime start, DateTime end) =>
       '${churchId.trim()}_aprov_hist_${start.millisecondsSinceEpoch}_${end.millisecondsSinceEpoch}';
@@ -101,6 +106,18 @@ abstract final class ChurchAprovacoesLoadService {
     return hit.docs;
   }
 
+  static bool hasPendentesRam(String seedTenantId) {
+    final key = _resolve(seedTenantId);
+    if (key.isEmpty) return false;
+    final hit = _pendentesRam[key];
+    if (hit == null) return false;
+    if (DateTime.now().difference(hit.at) > _ramTtl) {
+      _pendentesRam.remove(key);
+      return false;
+    }
+    return true;
+  }
+
   static void _putPendentesRam(
     String churchId,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
@@ -130,6 +147,102 @@ abstract final class ChurchAprovacoesLoadService {
     return sorted;
   }
 
+  static ChurchAprovacoesPendentesResult _ok({
+    required String churchId,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
+    required String readSource,
+    bool fromCache = false,
+    String? softError,
+  }) {
+    final docs = _sortByNome(_filterPendentes(allDocs));
+    _putPendentesRam(churchId, docs);
+    return ChurchAprovacoesPendentesResult(
+      churchId: churchId,
+      docs: docs,
+      readSource: readSource,
+      fromCache: fromCache,
+      softError: softError,
+    );
+  }
+
+  /// Cache local (RAM → Hive → mem Firestore) — **0 pendentes também é válido**.
+  static Future<ChurchAprovacoesPendentesResult?> _tryLocalCaches(
+    String churchId,
+  ) async {
+    final ram = peekPendentesRam(churchId);
+    if (ram != null) {
+      return ChurchAprovacoesPendentesResult(
+        churchId: churchId,
+        docs: ram,
+        readSource: 'ram',
+        fromCache: true,
+      );
+    }
+
+    final memKey = pendentesCacheKey(churchId);
+    final mem = FirestoreReadResilience.peekLastGoodQuery(memKey);
+    if (mem != null) {
+      return _ok(
+        churchId: churchId,
+        allDocs: mem.docs,
+        readSource: 'firestore_mem',
+        fromCache: true,
+      );
+    }
+
+    try {
+      final hive = await TenantModuleHiveCache.readDocs(
+        churchId,
+        TenantModuleKeys.membros,
+      ).timeout(const Duration(seconds: 3));
+      if (hive.isNotEmpty) {
+        return _ok(
+          churchId: churchId,
+          allDocs: TenantModuleHiveCache.toQueryDocuments(hive),
+          readSource: 'hive',
+          fromCache: true,
+        );
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _fetchMembrosNetwork(String churchId, String cacheKey) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+
+    final result = await ChurchRepository.listCacheFirst(
+      module: ChurchRepository.membros,
+      churchIdHint: churchId,
+      limit: kMembrosScanLimit,
+      firestoreCacheKey: cacheKey,
+    );
+
+    if (result.items.isNotEmpty) return result.items;
+    if (result.error == null) return result.items;
+
+    final col = ChurchUiCollections.membros(churchId);
+    Future<QuerySnapshot<Map<String, dynamic>>> readPlain() =>
+        FirestoreReadResilience.getQuery(
+          col.limit(kMembrosScanLimit),
+          cacheKey: '${cacheKey}_plain',
+          maxAttempts: kIsWeb ? 4 : 3,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        );
+
+    final snap = kIsWeb
+        ? await FirestoreWebGuard.runWithWebRecovery(
+            readPlain,
+            maxAttempts: 4,
+          ).timeout(ChurchPanelReadTimeouts.queryCap)
+        : await readPlain().timeout(ChurchPanelReadTimeouts.queryCap);
+
+    return snap.docs;
+  }
+
   static Future<ChurchAprovacoesPendentesResult> loadPendentes({
     required String seedTenantId,
     bool forceRefresh = false,
@@ -144,137 +257,70 @@ abstract final class ChurchAprovacoesLoadService {
       );
     }
 
-    final ramKey = pendentesCacheKey(churchId);
+    final cacheKey = pendentesCacheKey(churchId);
 
     if (!forceRefresh) {
-      final ram = peekPendentesRam(churchId);
-      if (ram != null) {
-        return ChurchAprovacoesPendentesResult(
-          churchId: churchId,
-          docs: ram,
-          readSource: 'ram',
-        );
+      final local = await _tryLocalCaches(churchId);
+      if (local != null) {
+        unawaited(_refreshPendentesInBackground(churchId, cacheKey));
+        return local;
       }
-      final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
-      if (mem != null && mem.docs.isNotEmpty) {
-        final docs = _sortByNome(_filterPendentes(mem.docs));
-        _putPendentesRam(churchId, docs);
-        return ChurchAprovacoesPendentesResult(
-          churchId: churchId,
-          docs: docs,
-          readSource: 'firestore_mem',
-        );
-      }
-      try {
-        final hive = await TenantModuleHiveCache.readDocs(
-          churchId,
-          TenantModuleKeys.membros,
-        ).timeout(const Duration(seconds: 4));
-        if (hive.isNotEmpty) {
-          final docs = _sortByNome(
-            _filterPendentes(TenantModuleHiveCache.toQueryDocuments(hive)),
-          );
-          if (docs.isNotEmpty) {
-            _putPendentesRam(churchId, docs);
-            return ChurchAprovacoesPendentesResult(
-              churchId: churchId,
-              docs: docs,
-              readSource: 'hive',
-            );
-          }
-        }
-      } catch (_) {}
     }
 
     Object? lastError;
     try {
-      final docs = await _loadPendentesFirestore(churchId, ramKey);
-      _putPendentesRam(churchId, docs);
-      return ChurchAprovacoesPendentesResult(
+      final allDocs = await _fetchMembrosNetwork(churchId, cacheKey)
+          .timeout(ChurchPanelReadTimeouts.queryCap);
+      return _ok(
         churchId: churchId,
-        docs: docs,
-        readSource: 'firestore',
+        allDocs: allDocs,
+        readSource: 'network',
       );
     } catch (e) {
       lastError = e;
     }
 
-    try {
-      final snap = await IgrejaDirectFirestoreReads.listSubcollection(
-        churchId,
-        'membros',
-        moduleLabel: 'Aprovações',
-        limit: kHistoricoPlainLimit,
-        cacheKey: '${ramKey}_direct',
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
-      final docs = _sortByNome(_filterPendentes(snap.docs));
-      if (docs.isNotEmpty) {
-        _putPendentesRam(churchId, docs);
-        return ChurchAprovacoesPendentesResult(
-          churchId: churchId,
-          docs: docs,
-          readSource: 'direct_list',
-        );
-      }
-    } catch (e) {
-      lastError ??= e;
-    }
-
-    final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
-    if (mem != null && mem.docs.isNotEmpty) {
+    final fallback = await _tryLocalCaches(churchId);
+    if (fallback != null) {
       return ChurchAprovacoesPendentesResult(
         churchId: churchId,
-        docs: _sortByNome(_filterPendentes(mem.docs)),
-        readSource: 'fallback_mem',
-        softError: lastError?.toString(),
+        docs: fallback.docs,
+        readSource: '${fallback.readSource}_fallback',
+        fromCache: true,
+        softError: _humanizeError(lastError),
       );
     }
 
     return ChurchAprovacoesPendentesResult(
       churchId: churchId,
       docs: const [],
-      readSource: 'empty',
-      softError: lastError is TimeoutException
-          ? 'Tempo esgotado ao carregar pendentes.'
-          : lastError?.toString(),
+      readSource: 'failed',
+      softError: _humanizeError(lastError),
     );
   }
 
-  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _loadPendentesFirestore(String churchId, String cacheKey) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
-    final col = ChurchUiCollections.membros(churchId);
-
-    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> plainLoad() async {
-      final plain = await FirestoreReadResilience.getQuery(
-        col.limit(kHistoricoPlainLimit),
-        cacheKey: '${cacheKey}_plain',
-        maxAttempts: kIsWeb ? 4 : 3,
-        attemptTimeout: ChurchPanelReadTimeouts.attempt,
-      );
-      return _sortByNome(_filterPendentes(plain.docs));
-    }
-
-    if (kIsWeb) {
-      return FirestoreWebGuard.runWithWebRecovery(
-        plainLoad,
-        maxAttempts: 4,
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
-    }
-
+  static Future<void> _refreshPendentesInBackground(
+    String churchId,
+    String cacheKey,
+  ) async {
     try {
-      final snap = await FirestoreReadResilience.getQuery(
-        col.where('status', isEqualTo: 'pendente').limit(kPendentesLimit),
-        cacheKey: cacheKey,
-        maxAttempts: 3,
-        attemptTimeout: ChurchPanelReadTimeouts.attempt,
-      );
-      if (snap.docs.isNotEmpty) return _sortByNome(snap.docs);
+      final allDocs = await _fetchMembrosNetwork(churchId, cacheKey)
+          .timeout(ChurchPanelReadTimeouts.queryCap);
+      _ok(churchId: churchId, allDocs: allDocs, readSource: 'background');
     } catch (_) {}
+  }
 
-    return plainLoad();
+  static String? _humanizeError(Object? e) {
+    if (e == null) return null;
+    if (e is TimeoutException) {
+      return 'Tempo esgotado ao carregar. Verifique a conexão e tente novamente.';
+    }
+    final s = e.toString();
+    if (s.contains('permission-denied')) {
+      return 'Sem permissão para ver cadastros pendentes.';
+    }
+    if (s.length > 180) return '${s.substring(0, 177)}…';
+    return s;
   }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterHistorico(
@@ -320,9 +366,42 @@ abstract final class ChurchAprovacoesLoadService {
     }
 
     final cacheKey = historicoCacheKey(churchId, start, end);
+
     if (!forceRefresh) {
+      try {
+        final hive = await TenantModuleHiveCache.readDocs(
+          churchId,
+          TenantModuleKeys.membros,
+        ).timeout(const Duration(seconds: 3));
+        if (hive.isNotEmpty) {
+          final hiveDocs = TenantModuleHiveCache.toQueryDocuments(hive);
+          final approved = _filterHistorico(
+            hiveDocs,
+            status: 'ativo',
+            tsField: 'aprovadoEm',
+            start: start,
+            end: end,
+          );
+          final rejected = _filterHistorico(
+            hiveDocs,
+            status: 'reprovado',
+            tsField: 'reprovadoEm',
+            start: start,
+            end: end,
+          );
+          return ChurchAprovacoesHistoricoResult(
+            churchId: churchId,
+            approved: approved,
+            rejected: rejected,
+            readSource: 'hive',
+            rangeStart: start,
+            rangeEnd: end,
+          );
+        }
+      } catch (_) {}
+
       final mem = FirestoreReadResilience.peekLastGoodQuery(cacheKey);
-      if (mem != null && mem.docs.isNotEmpty) {
+      if (mem != null) {
         final approved = _filterHistorico(
           mem.docs,
           status: 'ativo',
@@ -337,61 +416,25 @@ abstract final class ChurchAprovacoesLoadService {
           start: start,
           end: end,
         );
-        if (approved.isNotEmpty || rejected.isNotEmpty) {
-          return ChurchAprovacoesHistoricoResult(
-            churchId: churchId,
-            approved: approved,
-            rejected: rejected,
-            readSource: 'firestore_mem',
-            rangeStart: start,
-            rangeEnd: end,
-          );
-        }
+        return ChurchAprovacoesHistoricoResult(
+          churchId: churchId,
+          approved: approved,
+          rejected: rejected,
+          readSource: 'firestore_mem',
+          rangeStart: start,
+          rangeEnd: end,
+        );
       }
     }
 
     Object? lastError;
     List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs = const [];
 
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
-
-    final col = ChurchUiCollections.membros(churchId);
-    final t0 = Timestamp.fromDate(start);
-    final t1 = Timestamp.fromDate(end);
-
-    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> plainAll() async {
-      Future<QuerySnapshot<Map<String, dynamic>>> read() =>
-          FirestoreReadResilience.getQuery(
-            col.limit(kHistoricoPlainLimit),
-            cacheKey: '${cacheKey}_plain',
-            maxAttempts: kIsWeb ? 4 : 3,
-            attemptTimeout: ChurchPanelReadTimeouts.attempt,
-          );
-
-      final snap = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(read, maxAttempts: 4)
-          : await read();
-      return snap.docs;
-    }
-
     try {
-      allDocs = await plainAll().timeout(ChurchPanelReadTimeouts.queryCap);
+      allDocs = await _fetchMembrosNetwork(churchId, cacheKey)
+          .timeout(ChurchPanelReadTimeouts.queryCap);
     } catch (e) {
       lastError = e;
-      try {
-        final snap = await IgrejaDirectFirestoreReads.listSubcollection(
-          churchId,
-          'membros',
-          moduleLabel: 'Aprovações histórico',
-          limit: kHistoricoPlainLimit,
-          cacheKey: '${cacheKey}_direct',
-        ).timeout(ChurchPanelReadTimeouts.queryCap);
-        allDocs = snap.docs;
-      } catch (e2) {
-        lastError ??= e2;
-      }
     }
 
     if (allDocs.isEmpty) {
@@ -402,7 +445,7 @@ abstract final class ChurchAprovacoesLoadService {
         readSource: 'empty',
         rangeStart: start,
         rangeEnd: end,
-        softError: lastError?.toString(),
+        softError: _humanizeError(lastError),
       );
     }
 
@@ -421,7 +464,11 @@ abstract final class ChurchAprovacoesLoadService {
       end: end,
     );
 
-    if (approved.isEmpty && rejected.isEmpty) {
+    if (approved.isEmpty && rejected.isEmpty && kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      final col = ChurchUiCollections.membros(churchId);
+      final t0 = Timestamp.fromDate(start);
+      final t1 = Timestamp.fromDate(end);
       try {
         final aSnap = await FirestoreWebGuard.runWithWebRecovery(
           () => col
@@ -451,21 +498,71 @@ abstract final class ChurchAprovacoesLoadService {
       } catch (_) {}
     }
 
-
     return ChurchAprovacoesHistoricoResult(
       churchId: churchId,
       approved: approved,
       rejected: rejected,
-      readSource: 'firestore',
+      readSource: 'network',
       rangeStart: start,
       rangeEnd: end,
-      softError: lastError?.toString(),
+      softError: lastError != null ? _humanizeError(lastError) : null,
     );
+  }
+
+  static void removePendentesFromRam(String seedTenantId, Iterable<String> docIds) {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return;
+    final ids = docIds.toSet();
+    final hit = _pendentesRam[churchId];
+    if (hit == null) return;
+    _pendentesRam[churchId] = (
+      docs: hit.docs.where((d) => !ids.contains(d.id)).toList(),
+      at: DateTime.now(),
+    );
+  }
+
+  static Future<int> deleteMembros({
+    required String seedTenantId,
+    required Iterable<String> docIds,
+  }) async {
+    final churchId = _resolve(seedTenantId);
+    final ids = docIds
+        .map((e) => e.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (ids.isEmpty || churchId.isEmpty) return 0;
+
+    const chunkSize = 450;
+    final col = ChurchUiCollections.membros(churchId);
+
+    for (var i = 0; i < ids.length; i += chunkSize) {
+      final end = (i + chunkSize > ids.length) ? ids.length : i + chunkSize;
+      final slice = ids.sublist(i, end);
+      final batch = ChurchRepository.batch();
+      for (final id in slice) {
+        batch.delete(col.doc(id));
+      }
+      await runFirestorePublishWithRecovery(
+        () => batch.commit(),
+        maxAttempts: kIsWeb ? 3 : 2,
+      );
+    }
+
+    removePendentesFromRam(churchId, ids);
+    await invalidate(seedTenantId);
+    return ids.length;
   }
 
   static Future<void> invalidate(String seedTenantId) async {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return;
     _pendentesRam.remove(churchId);
+    try {
+      await TenantModuleHiveCache.clearModule(
+        churchId,
+        TenantModuleKeys.membros,
+      );
+    } catch (_) {}
   }
 }

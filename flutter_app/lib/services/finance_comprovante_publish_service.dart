@@ -505,4 +505,85 @@ abstract final class FinanceComprovantePublishService {
       ),
     );
   }
+
+  /// Corrige lançamentos com `comprovanteUploadState: uploading` quando o ficheiro já está no Storage.
+  static Future<void> reconcileStuckComprovantes({
+    required String tenantId,
+    required Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    int maxChecks = 16,
+  }) async {
+    final churchId = ChurchRepository.churchId(tenantId.trim());
+    if (churchId.isEmpty) return;
+    var checked = 0;
+    for (final doc in docs) {
+      if (checked >= maxChecks) break;
+      final data = doc.data();
+      final state = (data[comprovanteUploadStateField] ?? '').toString();
+      if (state != EntityPublishStatus.uploading) continue;
+      checked++;
+
+      final storedPath = (data['comprovanteStoragePath'] ?? '').toString().trim();
+      final paths = <String>{
+        if (storedPath.isNotEmpty) storedPath,
+        comprovantePathFor(
+          tenantId: churchId,
+          lancamentoId: doc.id,
+          referenceDate: referenceDateFromMap(data),
+          ext: 'jpg',
+        ),
+        comprovantePathFor(
+          tenantId: churchId,
+          lancamentoId: doc.id,
+          referenceDate: referenceDateFromMap(data),
+          ext: 'pdf',
+        ),
+        comprovantePathFor(
+          tenantId: churchId,
+          lancamentoId: doc.id,
+          referenceDate: referenceDateFromMap(data),
+          ext: 'png',
+        ),
+      };
+
+      String? foundPath;
+      String? url;
+      for (final path in paths) {
+        try {
+          final ref = firebaseDefaultStorage.ref(path);
+          await ref.getMetadata().timeout(const Duration(seconds: 8));
+          foundPath = path;
+          url = await ref.getDownloadURL();
+          break;
+        } catch (_) {}
+      }
+
+      if (foundPath == null || url == null) {
+        final updatedAt = data['updatedAt'];
+        DateTime? at;
+        if (updatedAt is Timestamp) at = updatedAt.toDate();
+        if (at != null &&
+            DateTime.now().difference(at) > const Duration(hours: 2)) {
+          await markComprovanteUploadFailed(
+            docRef: doc.reference,
+            error: 'Upload não concluído — anexe o comprovante novamente.',
+          );
+        }
+        continue;
+      }
+
+      try {
+        await doc.reference.set(
+          comprovanteFieldsPatch(
+            url: url,
+            storagePath: foundPath,
+            mimeType: foundPath.endsWith('.pdf')
+                ? 'application/pdf'
+                : (foundPath.endsWith('.png') ? 'image/png' : 'image/jpeg'),
+            fileName: foundPath.split('/').last,
+          ),
+          SetOptions(merge: true),
+        );
+      } catch (_) {}
+    }
+  }
 }

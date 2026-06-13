@@ -635,7 +635,12 @@ class _SocialGridTileState extends State<_SocialGridTile> {
     final thumb = churchPublicPostThumbUrl(p);
     final cover = eventNoticiaFeedCoverHintUrl(p);
     final displayRef = (thumb != null && thumb.isNotEmpty) ? thumb : cover;
-    final path = eventNoticiaPhotoStoragePathAt(p, 0) ??
+    final path = eventNoticiaPhotoStoragePathAt(
+          p,
+          0,
+          docIdHint: widget.postId,
+          churchIdHint: widget.igrejaId,
+        ) ??
         eventNoticiaImageStoragePath(p);
     final poster = sanitizeImageUrl(
         (eventNoticiaDisplayVideoThumbnailUrl(p) ?? '').trim());

@@ -8,7 +8,10 @@ import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show firebaseStorageObjectPathFromHttpUrl;
+    show
+        firebaseStorageMediaUrlLooksLike,
+        firebaseStorageObjectPathFromHttpUrl,
+        normalizeFirebaseStorageObjectPath;
 
 /// Verificação obrigatória pós-gravação de eventos — evita falso sucesso.
 abstract final class EventosPublishVerificationService {
@@ -70,14 +73,31 @@ abstract final class EventosPublishVerificationService {
   static String collectionPathFor(String igrejaId) =>
       'igrejas/${igrejaId.trim()}/${ChurchTenantPostsCollections.eventos}';
 
-  static List<String> storagePathsFromUrls(Iterable<String> urls) {
+  /// Paths a partir de URLs https, `gs://` ou path bare `igrejas/.../eventos/...`.
+  static List<String> storagePathsFromRefs(Iterable<String> refs) {
     final out = <String>[];
-    for (final u in urls) {
-      final p = firebaseStorageObjectPathFromHttpUrl(u.trim());
-      if (p != null && p.isNotEmpty) out.add(p);
+    final seen = <String>{};
+    for (final raw in refs) {
+      final t = raw.trim();
+      if (t.isEmpty) continue;
+      String? path;
+      final low = t.toLowerCase();
+      if (low.startsWith('gs://')) {
+        path = normalizeFirebaseStorageObjectPath(t.substring(5));
+      } else if (!t.contains('://') && firebaseStorageMediaUrlLooksLike(t)) {
+        path = normalizeFirebaseStorageObjectPath(t);
+      } else {
+        path = firebaseStorageObjectPathFromHttpUrl(t);
+      }
+      if (path != null && path.isNotEmpty && seen.add(path)) {
+        out.add(path);
+      }
     }
     return out;
   }
+
+  static List<String> storagePathsFromUrls(Iterable<String> urls) =>
+      storagePathsFromRefs(urls);
 
   static String? hostedVideoStoragePath({
     required String igrejaId,

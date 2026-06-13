@@ -8,11 +8,13 @@ import 'package:gestao_yahweh/core/data/modules/church_chat_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_departamentos_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_doacoes_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_eventos_repository.dart';
+import 'package:gestao_yahweh/core/data/modules/church_fornecedores_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_financeiro_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_mercadopago_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_membros_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_module_repository_base.dart';
 import 'package:gestao_yahweh/core/data/modules/church_patrimonio_repository.dart';
+import 'package:gestao_yahweh/core/data/modules/church_pedidos_oracao_repository.dart';
 
 /// **ÚNICA** fachada de dados do Gestão YAHWEH — Web = Android = iOS.
 ///
@@ -42,9 +44,9 @@ abstract final class ChurchDataRepository {
   static const mercadopago = ChurchMercadoPagoRepository.instance;
   static const agenda = ChurchAgendaRepository.instance;
 
-  static final fornecedores = _FornecedoresRepo();
+  static const fornecedores = ChurchFornecedoresRepository.instance;
   static final escalas = _EscalasRepo();
-  static final pedidosOracao = _PedidosOracaoRepo();
+  static const pedidosOracao = ChurchPedidosOracaoRepository.instance;
   static final transferencias = _TransferenciasRepo();
   static final certificados = _CertificadosRepo();
   static final cartoes = _CartoesRepo();
@@ -90,25 +92,9 @@ abstract final class ChurchDataRepository {
   static void cancelAllListeners() => ChurchFirestoreAccess.cancelAllWatches();
 }
 
-final class _FornecedoresRepo extends ChurchModuleRepositoryBase {
-  _FornecedoresRepo()
-      : super(
-          moduleLabel: 'Fornecedores',
-          subcollection: ChurchDataPaths.fornecedores,
-        );
-}
-
 final class _EscalasRepo extends ChurchModuleRepositoryBase {
   _EscalasRepo()
       : super(moduleLabel: 'Escalas', subcollection: ChurchDataPaths.escalas);
-}
-
-final class _PedidosOracaoRepo extends ChurchModuleRepositoryBase {
-  _PedidosOracaoRepo()
-      : super(
-          moduleLabel: 'Pedidos Oração',
-          subcollection: ChurchDataPaths.pedidosOracao,
-        );
 }
 
 final class _TransferenciasRepo extends ChurchModuleRepositoryBase {

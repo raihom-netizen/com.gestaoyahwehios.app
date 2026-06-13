@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
@@ -184,7 +185,9 @@ class _RelatorioGastosFornecedoresPageState
     String rightName,
     Uint8List? leftSig,
     Uint8List? rightSig,
-    bool showDigital
+    bool showDigital,
+    PdfDigitalStampInput? leftDigitalStamp,
+    PdfDigitalStampInput? rightDigitalStamp,
   })?> _pickPdfSigners() async {
     final op = ChurchRepository.churchId(widget.tenantId.trim());
     final snap = await         ChurchUiCollections.membros(op)
@@ -200,6 +203,9 @@ class _RelatorioGastosFornecedoresPageState
             cargo: (m['CARGO'] ?? m['FUNCAO'] ?? m['cargo'] ?? '')
                 .toString()
                 .trim(),
+            cpf: (m['CPF'] ?? m['cpf'] ?? '')
+                .toString()
+                .replaceAll(RegExp(r'\D'), ''),
             assinatura:
                 (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim(),
           );
@@ -217,7 +223,9 @@ class _RelatorioGastosFornecedoresPageState
           String rightName,
           Uint8List? leftSig,
           Uint8List? rightSig,
-          bool showDigital
+          bool showDigital,
+          PdfDigitalStampInput? leftDigitalStamp,
+          PdfDigitalStampInput? rightDigitalStamp,
         })>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -288,9 +296,10 @@ class _RelatorioGastosFornecedoresPageState
                   onChanged: (v) => setDlg(() => showDigital = v),
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Carregar assinatura digital'),
-                  subtitle:
-                      const Text('Desative para assinatura manual no impresso.'),
+                  title: const Text('Selo de assinatura digital'),
+                  subtitle: const Text(
+                    'Certificado digital compacto (igreja + assinante).',
+                  ),
                 ),
               ],
             ),
@@ -302,7 +311,7 @@ class _RelatorioGastosFornecedoresPageState
             ),
             FilledButton(
               onPressed: () async {
-                ({String id, String nome, String cargo, String assinatura})?
+                ({String id, String nome, String cargo, String cpf, String assinatura})?
                     pick(String? id) {
                   if (id == null || id.isEmpty) return null;
                   for (final e in opts) {
@@ -313,19 +322,32 @@ class _RelatorioGastosFornecedoresPageState
 
                 final left = pick(leftId);
                 final right = pick(rightId);
-                Uint8List? leftSig;
-                Uint8List? rightSig;
+                Map<String, dynamic> churchData = {};
+                try {
+                  churchData =
+                      (await ChurchRepository.churchDoc(op).get()).data() ?? {};
+                } catch (_) {}
+                final churchName = churchTaxIdChurchNameFromMap(churchData);
+
+                PdfDigitalStampInput? leftStamp;
+                PdfDigitalStampInput? rightStamp;
                 if (showDigital) {
-                  if (left != null && left.assinatura.isNotEmpty) {
-                    leftSig = await ImageHelper.getBytesFromUrlOrNull(
-                      sanitizeImageUrl(left.assinatura),
-                      timeout: const Duration(seconds: 14),
+                  if (left != null) {
+                    leftStamp = PdfDigitalStampInput.now(
+                      signerName: left.nome,
+                      signerCpfDigits:
+                          left.cpf.length == 11 ? left.cpf : null,
+                      churchName: churchName,
+                      churchData: churchData,
                     );
                   }
-                  if (right != null && right.assinatura.isNotEmpty) {
-                    rightSig = await ImageHelper.getBytesFromUrlOrNull(
-                      sanitizeImageUrl(right.assinatura),
-                      timeout: const Duration(seconds: 14),
+                  if (right != null) {
+                    rightStamp = PdfDigitalStampInput.now(
+                      signerName: right.nome,
+                      signerCpfDigits:
+                          right.cpf.length == 11 ? right.cpf : null,
+                      churchName: churchName,
+                      churchData: churchData,
                     );
                   }
                 }
@@ -335,9 +357,11 @@ class _RelatorioGastosFornecedoresPageState
                   (
                     leftName: left?.nome ?? 'Responsável financeiro',
                     rightName: right?.nome ?? 'Responsável pastoral',
-                    leftSig: leftSig,
-                    rightSig: rightSig,
+                    leftSig: null,
+                    rightSig: null,
                     showDigital: showDigital,
+                    leftDigitalStamp: leftStamp,
+                    rightDigitalStamp: rightStamp,
                   ),
                 );
               },
@@ -442,6 +466,8 @@ class _RelatorioGastosFornecedoresPageState
               leftSignatureImageBytes: signerCfg.leftSig,
               rightSignatureImageBytes: signerCfg.rightSig,
               showDigitalSignatures: signerCfg.showDigital,
+              leftDigitalStamp: signerCfg.leftDigitalStamp,
+              rightDigitalStamp: signerCfg.rightDigitalStamp,
             ),
           ],
         ),

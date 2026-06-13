@@ -6,16 +6,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 
+import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/tenant/church_profile_loader.dart';
 
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 
 
@@ -270,6 +274,41 @@ abstract final class ChurchContextService {
 
   }
 
+  /// Hidrata perfil da igreja após bind — cadastro e módulos leem [currentChurchData].
+  static Future<void> _ensureChurchProfileLoaded(String churchId) async {
+    final id = _canonicalizePanelId(churchId);
+    if (id.isEmpty) return;
+    if (_currentChurchData != null && _currentChurchData!.isNotEmpty) return;
+
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final direct = await IgrejaDirectFirestoreReads.readIgrejaDoc(id);
+      if (direct != null && direct.data.isNotEmpty) {
+        bindChurchData(
+          churchId: id,
+          data: ChurchTenantFields.stamp(id, direct.data),
+        );
+        return;
+      }
+    } catch (_) {}
+
+    try {
+      final loaded = await ChurchProfileLoader.loadByChurchId(
+        id,
+        seedTenantId: _seedId ?? id,
+        userUid: _userUid,
+      ).timeout(kResolveTimeout);
+      if (loaded.data.isNotEmpty) {
+        bindChurchData(
+          churchId: id,
+          data: ChurchTenantFields.stamp(id, loaded.data),
+        );
+      }
+    } catch (_) {}
+  }
+
 
 
   /// Resolve e fixa [currentChurchId] — só aceita doc existente em `igrejas/{churchId}`.
@@ -369,9 +408,12 @@ abstract final class ChurchContextService {
             module: ChurchPanelLocalCache.moduleCadastro,
           );
           if (cached != null && cached.isNotEmpty) {
-            _currentChurchData = Map<String, dynamic>.from(cached);
+            _currentChurchData = Map<String, dynamic>.from(
+              ChurchTenantFields.stamp(boundId, cached),
+            );
           }
         }
+        await _ensureChurchProfileLoaded(boundId);
         return boundId;
       }
 
@@ -406,7 +448,9 @@ abstract final class ChurchContextService {
 
     _currentChurchId = id;
 
-    _currentChurchData = Map<String, dynamic>.from(data);
+    _currentChurchData = Map<String, dynamic>.from(
+      ChurchTenantFields.stamp(id, data),
+    );
 
     if (bootstrapMs != null) _lastBootstrapMs = bootstrapMs;
 

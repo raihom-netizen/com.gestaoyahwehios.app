@@ -23,7 +23,6 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
@@ -140,6 +139,7 @@ class _CalendarPageState extends State<CalendarPage>
   /// Dias (yyyy-MM-dd) com pelo menos uma escala de ministério — alerta no calendário.
   Set<String> _escalaDayKeys = {};
   bool _loading = false;
+  bool _fetching = false;
   String? _loadError;
   String _effectiveTenantId = '';
   late final AnimationController _slideCtrl;
@@ -843,10 +843,11 @@ class _CalendarPageState extends State<CalendarPage>
         permissions: widget.permissions,
       );
 
-  String get _tid =>
-      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
+  String get _tid => _churchId;
 
-  String get _churchId => ChurchRepository.churchId(_tid);
+  String get _churchId => ChurchRepository.churchId(
+        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+      );
 
   String _agendaCacheKey() {
     final (rangeStart, rangeEnd) = _computeLoadRange();
@@ -864,7 +865,7 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   Future<void> _bootstrapAgendaTenant() async {
-    final resolved = ChurchPanelTenant.resolve(widget.tenantId).trim();
+    final resolved = ChurchRepository.churchId(widget.tenantId).trim();
     if (resolved.isEmpty || !mounted) return;
     if (resolved == _effectiveTenantId) return;
     setState(() => _effectiveTenantId = resolved);
@@ -918,7 +919,7 @@ class _CalendarPageState extends State<CalendarPage>
   @override
   void initState() {
     super.initState();
-    _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
+    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
     _loadCustomTipos();
     unawaited(_loadEventCategories());
     final now = DateTime.now();
@@ -929,8 +930,9 @@ class _CalendarPageState extends State<CalendarPage>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    _hydrateAgendaFromRam();
     _seedAgendaDocsFromCache();
+    _hydrateAgendaFromRam();
+    _fetching = true;
     _restartAgendaSubscription();
     unawaited(_bootstrapAndLoadEvents());
     unawaited(PdfSuperPremiumTheme.loadRobotoPdfTheme());
@@ -949,7 +951,7 @@ class _CalendarPageState extends State<CalendarPage>
       start: start,
       end: end,
     );
-    if (ram != null && ram.isNotEmpty) {
+    if (ram != null) {
       _agendaDocs = ram;
       _loading = false;
       _rebuildMerged();
@@ -969,7 +971,7 @@ class _CalendarPageState extends State<CalendarPage>
   void didUpdateWidget(covariant CalendarPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
+      _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
       _legacyEventsByDay = {};
       _eventsByDay = {};
       _agendaDocs = [];
@@ -1081,7 +1083,7 @@ class _CalendarPageState extends State<CalendarPage>
       start: start,
       end: end,
     );
-    if (ram != null && ram.isNotEmpty && mounted) {
+    if (ram != null && mounted) {
       setState(() {
         _agendaDocs = ram;
         _loading = false;
@@ -1089,6 +1091,9 @@ class _CalendarPageState extends State<CalendarPage>
       _rebuildMerged();
     }
     try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
       final result = await ChurchAgendaLoadService.loadByStartTimeRange(
         seedTenantId: _churchId,
         start: start,
@@ -1099,14 +1104,20 @@ class _CalendarPageState extends State<CalendarPage>
       setState(() {
         _agendaDocs = result.docs;
         _loading = false;
+        _fetching = false;
         if (result.docs.isEmpty && result.softError != null) {
           _loadError ??= result.softError;
+        } else if (result.docs.isNotEmpty) {
+          _loadError = null;
         }
       });
       _rebuildMerged();
     } catch (e) {
-      if (mounted && _agendaDocs.isEmpty) {
-        setState(() => _loadError ??= e.toString());
+      if (mounted) {
+        setState(() {
+          _fetching = false;
+          if (_agendaDocs.isEmpty) _loadError ??= e.toString();
+        });
       }
     }
   }
@@ -1148,7 +1159,7 @@ class _CalendarPageState extends State<CalendarPage>
     if (snap.docs.isEmpty) return 0;
     const chunk = 450;
     for (var i = 0; i < snap.docs.length; i += chunk) {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = ChurchRepository.batch();
       for (final d in snap.docs.skip(i).take(chunk)) {
         batch.delete(d.reference);
       }
@@ -1536,7 +1547,7 @@ class _CalendarPageState extends State<CalendarPage>
     try {
       const chunk = 450;
       for (var i = 0; i < ids.length; i += chunk) {
-        final batch = FirebaseFirestore.instance.batch();
+        final batch = ChurchRepository.batch();
         for (final id in ids.skip(i).take(chunk)) {
           batch.delete(_agenda.doc(id));
         }
@@ -1652,8 +1663,8 @@ class _CalendarPageState extends State<CalendarPage>
     final map = <String, List<_CalendarEvent>>{};
     for (final doc in docs) {
       final d = doc.data();
-      final ts = d['startTime'] ?? d['startAt'];
-      if (ts is! Timestamp) continue;
+      final ts = ChurchAgendaLoadService.docStartTimestamp(d);
+      if (ts == null) continue;
       final dt = ts.toDate();
       final key = _dayKey(dt);
       final endRaw = d['endTime'] ?? d['endAt'];
@@ -1890,9 +1901,9 @@ class _CalendarPageState extends State<CalendarPage>
         _loadError = null;
       });
       _rebuildMerged();
-    } else if (_legacyEventsByDay.isEmpty) {
+    } else if (_legacyEventsByDay.isEmpty && _agendaDocs.isEmpty) {
       setState(() {
-        _loading = true;
+        _fetching = true;
         _loadError = null;
       });
     }
@@ -2039,13 +2050,17 @@ class _CalendarPageState extends State<CalendarPage>
     Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
         loadAgendaInterna() async {
       try {
-        final result = await ChurchAgendaLoadService.loadByStartTimeRange(
+        final result = await ChurchAgendaLoadService.loadAll(
           seedTenantId: _churchId,
-          start: start,
-          end: end,
           forceRefresh: forceRefresh,
         );
-        return result.docs;
+        final filtered = result.docs.where((d) {
+          final ts = ChurchAgendaLoadService.docStartTimestamp(d.data());
+          if (ts == null) return false;
+          final dt = ts.toDate();
+          return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
+        }).toList();
+        return filtered;
       } catch (e) {
         err ??= e is TimeoutException
             ? 'Tempo esgotado ao carregar agenda.'
@@ -2157,6 +2172,7 @@ class _CalendarPageState extends State<CalendarPage>
         _escalaDayKeys = escalaKeys;
         _agendaDocs = agendaDocs;
         _loading = false;
+        _fetching = false;
         _loadError = hasAnyData ? null : err;
       });
       if (map.isNotEmpty) {
@@ -4317,7 +4333,7 @@ class _CalendarPageState extends State<CalendarPage>
         .limit(25)
         .get();
     if (q.docs.isEmpty) return;
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = ChurchRepository.batch();
     for (final d in q.docs) {
       batch.delete(d.reference);
     }
@@ -6937,7 +6953,7 @@ class _CalendarPageState extends State<CalendarPage>
                               if (isSameDay(dayStart, dayEnd)) {
                                 final starts =
                                     _expandAgendaRecurrence(startBase, rec);
-                                final batch = FirebaseFirestore.instance.batch();
+                                final batch = ChurchRepository.batch();
                                 final seriesId = _agenda.doc().id;
                                 for (final st in starts) {
                                   final en = st.add(dur);
@@ -6987,7 +7003,7 @@ class _CalendarPageState extends State<CalendarPage>
                                 await batch.commit();
                               } else {
                                 // Vários dias: um documento na agenda por dia, mesmos horários em cada dia.
-                                final batch = FirebaseFirestore.instance.batch();
+                                final batch = ChurchRepository.batch();
                                 final seriesId = _agenda.doc().id;
                                 final daysCount =
                                     dayEnd.difference(dayStart).inDays + 1;

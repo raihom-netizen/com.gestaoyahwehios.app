@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -75,39 +75,63 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       ChurchUiCollections.membros(_churchId);
 
   void _seedPendentesFromCache() {
+    if (!ChurchAprovacoesLoadService.hasPendentesRam(_churchId)) return;
     final ram = ChurchAprovacoesLoadService.peekPendentesRam(_churchId);
-    if (ram != null && ram.isNotEmpty) {
-      _pendentesDocs = ram;
-      _pendentesLoading = false;
-    }
+    if (ram == null) return;
+    _pendentesDocs = ram;
+    _pendentesLoading = false;
   }
 
   Future<void> _loadPendentes({bool forceRefresh = false}) async {
     if (!mounted) return;
     setState(() {
-      _pendentesLoading = _pendentesDocs.isEmpty;
+      _pendentesLoading = _pendentesDocs.isEmpty &&
+          !ChurchAprovacoesLoadService.hasPendentesRam(_churchId);
       _pendentesError = null;
     });
     try {
       final result = await ChurchAprovacoesLoadService.loadPendentes(
         seedTenantId: _churchId,
         forceRefresh: forceRefresh,
+      ).timeout(
+        ChurchRepository.panelQueryTimeout,
+        onTimeout: () {
+          final ram = ChurchAprovacoesLoadService.peekPendentesRam(_churchId);
+          if (ram != null) {
+            return ChurchAprovacoesPendentesResult(
+              churchId: _churchId,
+              docs: ram,
+              readSource: 'timeout_ram',
+              fromCache: true,
+              softError: 'Rede lenta — exibindo última lista conhecida.',
+            );
+          }
+          throw TimeoutException('Tempo esgotado ao carregar pendentes.');
+        },
       );
       if (!mounted) return;
       setState(() {
         _pendentesDocs = result.docs;
         _pendentesLoading = false;
-        _pendentesError =
-            result.docs.isEmpty ? result.softError : null;
+        // Lista vazia sem pendentes = sucesso. Erro só se falhou de verdade.
+        _pendentesError = result.hasHardError && result.docs.isEmpty
+            ? result.softError
+            : null;
         _effectiveTenantId = result.churchId.isNotEmpty
             ? result.churchId
             : _effectiveTenantId;
       });
     } catch (e) {
       if (!mounted) return;
+      final ram = ChurchAprovacoesLoadService.peekPendentesRam(_churchId);
       setState(() {
         _pendentesLoading = false;
-        _pendentesError = e;
+        if (ram != null) {
+          _pendentesDocs = ram;
+          _pendentesError = null;
+        } else {
+          _pendentesError = e;
+        }
       });
     }
   }
@@ -121,6 +145,13 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       if (mounted) setState(() {});
     });
     _seedPendentesFromCache();
+    unawaited(
+      ChurchRepository.listCacheFirst(
+        module: ChurchRepository.membros,
+        churchIdHint: _churchId,
+        limit: 500,
+      ),
+    );
     unawaited(_loadPendentes());
   }
 
@@ -987,15 +1018,21 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
   int _yearFilter = DateTime.now().year;
   DateTime? _customStart;
   DateTime? _customEnd;
-  int _loadKey = 0;
+  late Future<_HistoryData> _historicoFuture;
   late final TextEditingController _periodoInicioCtrl;
   late final TextEditingController _periodoFimCtrl;
+
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = {};
+  bool _bulkDeleting = false;
+  _HistoryData? _lastData;
 
   @override
   void initState() {
     super.initState();
     _periodoInicioCtrl = TextEditingController();
     _periodoFimCtrl = TextEditingController();
+    _historicoFuture = _loadHistorico();
   }
 
   @override
@@ -1047,12 +1084,213 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
       seedTenantId: widget.churchId,
       rangeStart: range.$1,
       rangeEnd: range.$2,
+    ).timeout(
+      const Duration(seconds: 24),
+      onTimeout: () => ChurchAprovacoesHistoricoResult(
+        churchId: widget.churchId,
+        approved: const [],
+        rejected: const [],
+        readSource: 'timeout',
+        rangeStart: range.$1,
+        rangeEnd: range.$2,
+        softError: 'Tempo esgotado ao carregar histórico.',
+      ),
     );
     return _HistoryData.fromSnapshots(
       range.$1,
       range.$2,
       MergedFirestoreQuerySnapshot(result.approved),
       MergedFirestoreQuerySnapshot(result.rejected),
+    );
+  }
+
+  void _refreshHistorico() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+      _historicoFuture = _loadHistorico();
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  Future<void> _confirmDeleteHistoricoOne(_HistoryEvent event) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir do histórico?'),
+        content: Text(
+          event.aprovado
+              ? 'Remover «${event.nome}» da igreja? A ficha do membro será apagada.'
+              : 'Remover o registro reprovado de «${event.nome}»?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _runHistoricoDelete([event.docId]);
+  }
+
+  Future<void> _confirmDeleteHistoricoSelected(int count) async {
+    if (_selectedIds.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir selecionados?'),
+        content: Text(
+          'Apagar $count registro(s) do histórico? Membros aprovados serão removidos da igreja.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _runHistoricoDelete(_selectedIds.toList());
+  }
+
+  Future<void> _confirmDeleteHistoricoAll() async {
+    final data = _lastData;
+    if (data == null || data.events.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nenhum registro para excluir.')),
+      );
+      return;
+    }
+    final ids = data.events.map((e) => e.docId).toList();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir TODO o histórico do período?'),
+        content: Text(
+          'Serão apagados ${ids.length} registro(s). Membros aprovados deixarão de existir na igreja.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            child: const Text('Excluir todos'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _runHistoricoDelete(ids);
+  }
+
+  Future<void> _runHistoricoDelete(List<String> ids) async {
+    setState(() => _bulkDeleting = true);
+    try {
+      final n = await ChurchAprovacoesLoadService.deleteMembros(
+        seedTenantId: widget.churchId,
+        docIds: ids,
+      );
+      if (!mounted) return;
+      _exitSelectionMode();
+      _refreshHistorico();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            n == 1 ? 'Registro excluído' : '$n registros excluídos',
+            style: const TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao excluir: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _bulkDeleting = false);
+    }
+  }
+
+  Widget _buildHistoricoSelectionBar() {
+    return Material(
+      elevation: 12,
+      color: Colors.white,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              TextButton(
+                onPressed: _bulkDeleting ? null : _exitSelectionMode,
+                child: const Text('Cancelar'),
+              ),
+              Expanded(
+                child: Text(
+                  '${_selectedIds.length} selecionado(s)',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              TextButton(
+                onPressed: _bulkDeleting || _lastData == null
+                    ? null
+                    : () => setState(() {
+                          _selectedIds
+                            ..clear()
+                            ..addAll(_lastData!.events.map((e) => e.docId));
+                        }),
+                child: const Text('Todos'),
+              ),
+              const SizedBox(width: 4),
+              FilledButton.icon(
+                onPressed: _bulkDeleting || _selectedIds.isEmpty
+                    ? null
+                    : () => _confirmDeleteHistoricoSelected(_selectedIds.length),
+                icon: _bulkDeleting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.delete_outline_rounded, size: 20),
+                label: const Text('Excluir'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.error,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1067,7 +1305,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
       _periodoFimCtrl.text = formatBrDateDdMmYyyy(
         DateTime(_customEnd!.year, _customEnd!.month, _customEnd!.day),
       );
-      _loadKey++;
+      _historicoFuture = _loadHistorico();
     });
   }
 
@@ -1101,7 +1339,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
       _customEnd = endDay;
       _periodoInicioCtrl.text = formatBrDateDdMmYyyy(start);
       _periodoFimCtrl.text = formatBrDateDdMmYyyy(endDay);
-      _loadKey++;
+      _historicoFuture = _loadHistorico();
     });
   }
 
@@ -1144,7 +1382,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
       _periodoFimCtrl.text = formatBrDateDdMmYyyy(
         DateTime(range.end.year, range.end.month, range.end.day),
       );
-      _loadKey++;
+      _historicoFuture = _loadHistorico();
     });
   }
 
@@ -1253,8 +1491,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
         '${DateFormat('dd/MM/yyyy').format(range.$1)} — ${DateFormat('dd/MM/yyyy').format(range.$2)}';
 
     return FutureBuilder<_HistoryData>(
-      key: ValueKey(_loadKey),
-      future: _loadHistorico(),
+      future: _historicoFuture,
       builder: (context, snap) {
         if (snap.hasError) {
           return Padding(
@@ -1262,7 +1499,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
             child: ChurchPanelErrorBody(
               title: 'Não foi possível carregar o histórico',
               error: snap.error,
-              onRetry: () => setState(() => _loadKey++),
+              onRetry: _refreshHistorico,
             ),
           );
         }
@@ -1270,9 +1507,13 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
           return const ChurchPanelLoadingBody();
         }
         final data = snap.data!;
+        _lastData = data;
 
-        return Padding(
-          padding: ThemeCleanPremium.pagePadding(context).copyWith(bottom: 32),
+        return Column(
+          children: [
+            Expanded(
+              child: Padding(
+          padding: ThemeCleanPremium.pagePadding(context).copyWith(bottom: 8),
           child: CustomScrollView(
             primary: false,
             physics: const AlwaysScrollableScrollPhysics(),
@@ -1460,7 +1701,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
                           icon: Icons.calendar_month_rounded,
                           onTap: () => setState(() {
                             _preset = _HistoryPreset.mesAtual;
-                            _loadKey++;
+                            _historicoFuture = _loadHistorico();
                           }),
                         ),
                         _filterChip(
@@ -1469,7 +1710,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
                           icon: Icons.date_range_rounded,
                           onTap: () => setState(() {
                             _preset = _HistoryPreset.trimestre;
-                            _loadKey++;
+                            _historicoFuture = _loadHistorico();
                           }),
                         ),
                         _filterChip(
@@ -1478,7 +1719,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
                           icon: Icons.timelapse_rounded,
                           onTap: () => setState(() {
                             _preset = _HistoryPreset.ultimos90;
-                            _loadKey++;
+                            _historicoFuture = _loadHistorico();
                           }),
                         ),
                         _filterChip(
@@ -1488,7 +1729,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
                           onTap: () => setState(() {
                             _preset = _HistoryPreset.ano;
                             _yearFilter = DateTime.now().year;
-                            _loadKey++;
+                            _historicoFuture = _loadHistorico();
                           }),
                         ),
                         _filterChip(
@@ -1549,7 +1790,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
                                         setState(() {
                                           _yearFilter = y;
                                           _preset = _HistoryPreset.ano;
-                                          _loadKey++;
+                                          _historicoFuture = _loadHistorico();
                                         });
                                       },
                                     ),
@@ -1884,10 +2125,54 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
                 children: [
                   Icon(Icons.list_alt_rounded, color: ThemeCleanPremium.primary, size: 22),
                   const SizedBox(width: 8),
-                  Text(
-                    'Linha do tempo (${data.events.length})',
-                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  Expanded(
+                    child: Text(
+                      'Linha do tempo (${data.events.length})',
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                    ),
                   ),
+                  if (_selectionMode)
+                    TextButton(
+                      onPressed: _bulkDeleting ? null : _exitSelectionMode,
+                      child: const Text('Cancelar'),
+                    )
+                  else
+                    PopupMenuButton<String>(
+                      icon: Icon(Icons.more_vert_rounded,
+                          color: ThemeCleanPremium.primary),
+                      tooltip: 'Opções do histórico',
+                      onSelected: (v) {
+                        if (v == 'select') {
+                          setState(() => _selectionMode = true);
+                        } else if (v == 'delete_all') {
+                          _confirmDeleteHistoricoAll();
+                        }
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(
+                          value: 'select',
+                          child: Row(
+                            children: [
+                              Icon(Icons.checklist_rounded, size: 20),
+                              SizedBox(width: 10),
+                              Text('Selecionar vários'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete_all',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete_sweep_rounded,
+                                  size: 20, color: ThemeCleanPremium.error),
+                              SizedBox(width: 10),
+                              Text('Excluir todos do período',
+                                  style: TextStyle(color: ThemeCleanPremium.error)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
@@ -1926,13 +2211,43 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
                 delegate: SliverChildBuilderDelegate(
                   (context, i) {
                     final e = data.events[i];
-                    return _HistoricoTile(event: e);
+                    final selected = _selectedIds.contains(e.docId);
+                    return _HistoricoTile(
+                      event: e,
+                      selectionMode: _selectionMode,
+                      selected: selected,
+                      onSelectionChanged: _selectionMode
+                          ? (v) => setState(() {
+                                if (v) {
+                                  _selectedIds.add(e.docId);
+                                } else {
+                                  _selectedIds.remove(e.docId);
+                                }
+                              })
+                          : null,
+                      onDelete: _selectionMode
+                          ? null
+                          : () => _confirmDeleteHistoricoOne(e),
+                      onTap: _selectionMode
+                          ? () => setState(() {
+                                if (selected) {
+                                  _selectedIds.remove(e.docId);
+                                } else {
+                                  _selectedIds.add(e.docId);
+                                }
+                              })
+                          : null,
+                    );
                   },
                   childCount: data.events.length,
                 ),
               ),
             ],
           ),
+        ),
+            ),
+            if (_selectionMode) _buildHistoricoSelectionBar(),
+          ],
         );
       },
     );
@@ -2337,24 +2652,51 @@ class _BarMensalChart extends StatelessWidget {
 
 class _HistoricoTile extends StatelessWidget {
   final _HistoryEvent event;
+  final bool selectionMode;
+  final bool selected;
+  final ValueChanged<bool>? onSelectionChanged;
+  final VoidCallback? onDelete;
+  final VoidCallback? onTap;
 
-  const _HistoricoTile({required this.event});
+  const _HistoricoTile({
+    required this.event,
+    this.selectionMode = false,
+    this.selected = false,
+    this.onSelectionChanged,
+    this.onDelete,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final cor = event.aprovado ? ThemeCleanPremium.success : ThemeCleanPremium.error;
     final rotulo = event.aprovado ? 'Aprovado' : 'Reprovado';
-    return Container(
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: cor.withValues(alpha: 0.25)),
+        border: Border.all(
+          color: selectionMode && selected
+              ? _AprovacoesPremiumTheme.emerald
+              : cor.withValues(alpha: 0.25),
+          width: selectionMode && selected ? 2 : 1,
+        ),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
       child: Row(
         children: [
+          if (selectionMode)
+            Checkbox(
+              value: selected,
+              activeColor: _AprovacoesPremiumTheme.emerald,
+              onChanged: onSelectionChanged == null
+                  ? null
+                  : (v) => onSelectionChanged!(v ?? false),
+            ),
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -2386,8 +2728,22 @@ class _HistoricoTile extends StatelessWidget {
               ],
             ),
           ),
+          if (!selectionMode && onDelete != null)
+            IconButton(
+              icon: Icon(Icons.delete_outline_rounded,
+                  color: ThemeCleanPremium.error.withValues(alpha: 0.85)),
+              tooltip: 'Excluir',
+              onPressed: onDelete,
+              style: IconButton.styleFrom(
+                minimumSize: const Size(
+                  ThemeCleanPremium.minTouchTarget,
+                  ThemeCleanPremium.minTouchTarget,
+                ),
+              ),
+            ),
         ],
       ),
+    ),
     );
   }
 }

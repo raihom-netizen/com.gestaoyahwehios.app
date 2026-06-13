@@ -154,6 +154,16 @@ async function mergeDepartmentDocs(
   return merged;
 }
 
+function postIsPublishedForPanel(data: Record<string, unknown>): boolean {
+  if (data.ativo === false) return false;
+  if (data.publicado === false) return false;
+  const st = String(data.status ?? "").trim().toLowerCase();
+  if (st === "erro" || st === "error") return false;
+  const ps = String(data.publishState ?? "").trim().toLowerCase();
+  if (ps === "failed" || ps === "erro") return false;
+  return true;
+}
+
 async function mergeRecentPosts(
   db: admin.firestore.Firestore,
   clusterIds: string[],
@@ -178,7 +188,9 @@ async function mergeRecentPosts(
       functions.logger.warn(`panelDashboardCache: merge ${collection}`, { id, e });
     }
   }
-  const docs = Array.from(byId.values());
+  const docs = Array.from(byId.values()).filter((d) =>
+    postIsPublishedForPanel(d.data() as Record<string, unknown>),
+  );
   docs.sort((a, b) => {
     const av = a.data()[orderField];
     const bv = b.data()[orderField];
@@ -345,7 +357,33 @@ function pickPhotoUrl(data: Record<string, unknown>): string {
 function pickAvisoCoverUrl(data: Record<string, unknown>): string {
   const direct = pickPhotoUrl(data);
   if (direct) return direct;
-  const lists = [data.photoUrls, data.photos, data.images, data.fotos];
+  const pathKeys = [
+    "imageStoragePath",
+    "image_storage_path",
+    "coverStoragePath",
+    "photoStoragePath",
+  ];
+  for (const k of pathKeys) {
+    const v = data[k];
+    if (typeof v === "string" && v.trim().includes("igrejas/")) {
+      return v.trim();
+    }
+  }
+  const pathList = data.imageStoragePaths ?? data.fotoStoragePaths;
+  if (Array.isArray(pathList)) {
+    for (const e of pathList) {
+      if (typeof e === "string" && e.trim().includes("igrejas/")) {
+        return e.trim();
+      }
+    }
+  }
+  const lists = [
+    data.photoUrls,
+    data.photos,
+    data.images,
+    data.fotos,
+    data.imageUrls,
+  ];
   for (const raw of lists) {
     if (!Array.isArray(raw)) continue;
     for (const e of raw) {

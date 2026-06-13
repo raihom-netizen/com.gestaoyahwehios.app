@@ -5,8 +5,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// - **Transferência**: sempre movimenta saldo (valor já saiu de uma conta e entrou na outra).
 /// - **Receita** (`entrada`): só após `recebimentoConfirmado == true`. Ausente = legado → conta como recebido.
 /// - **Despesa** (`saida`): só após `pagamentoConfirmado == true`. Ausente = legado → conta como pago.
+import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
+
 String _financeTipoLower(Map<String, dynamic> data) =>
-    (data['type'] ?? data['tipo'] ?? '').toString().toLowerCase();
+    financeInferTipo(data);
 
 /// Receita registrada mas ainda **não confirmada** como recebida (`recebimentoConfirmado == false`).
 bool financeLancamentoPendenteRecebimento(Map<String, dynamic> data) {

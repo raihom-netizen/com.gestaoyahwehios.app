@@ -180,6 +180,21 @@
       <p style="margin-top: 16px; font-size: 15px; font-weight: 600">A carregar Gestão Yahweh…</p>
     </div>
     <style>
+      /* Seleção/cópia de texto — web (painel, site público, cadastro, master). */
+      html,
+      body,
+      flutter-view,
+      .flt-text-editable,
+      .selectable-text {
+        user-select: text;
+        -webkit-user-select: text;
+      }
+      input,
+      textarea,
+      [contenteditable='true'] {
+        user-select: text;
+        -webkit-user-select: text;
+      }
       @keyframes gyh-spin {
         to {
           transform: rotate(360deg);

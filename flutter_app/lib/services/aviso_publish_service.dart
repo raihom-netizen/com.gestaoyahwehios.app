@@ -3,8 +3,8 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
@@ -53,6 +53,39 @@ abstract final class AvisoPublishService {
   }) async {
     final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
     final docId = docRef.id;
+    final hasNewPhotos =
+        (newImagesBytes?.isNotEmpty ?? false) ||
+        (newImagePaths?.isNotEmpty ?? false);
+
+    // Com fotos novas: publish STRICT (Storage → Firestore). Não enfileirar silenciosamente.
+    if (hasNewPhotos) {
+      await EcoFirePublishBootstrap.ensureHard(
+        logLabel: 'aviso_publish_strict',
+        strict: true,
+      );
+      final id = await _publishOnline(
+        docRef: docRef,
+        tenantId: tenantId,
+        churchId: churchId,
+        docId: docId,
+        corePayload: corePayload,
+        isNewDoc: isNewDoc,
+        existingUrls: existingUrls,
+        startSlotIndex: startSlotIndex,
+        newImagesBytes: newImagesBytes,
+        newImagePaths: newImagePaths,
+        publicSite: publicSite,
+        calendarDate: calendarDate,
+        syncCalendar: syncCalendar,
+        onUploadProgress: onUploadProgress,
+      );
+      await AvisosPublishVerificationService.verifyPublishedMedia(
+        docRef,
+        minPhotos: 1,
+      );
+      return id;
+    }
+
     return EcoFireResilientPublish.runOrQueue(
       logLabel: 'aviso_publish',
       optimisticResult: docId,
@@ -104,13 +137,16 @@ abstract final class AvisoPublishService {
     bool syncCalendar = true,
     void Function(double progress)? onUploadProgress,
   }) async {
-    await EcoFirePublishBootstrap.ensureHard(logLabel: 'aviso_publish');
-    ChurchPublishFlowLog.avisoStart();
-
-    final existingPaths = _pathsFromRefs(existingUrls);
     final hasNewPhotos =
         (newImagesBytes?.isNotEmpty ?? false) ||
         (newImagePaths?.isNotEmpty ?? false);
+    await EcoFirePublishBootstrap.ensureHard(
+      logLabel: 'aviso_publish',
+      strict: hasNewPhotos,
+    );
+    ChurchPublishFlowLog.avisoStart();
+
+    final existingPaths = _pathsFromRefs(existingUrls);
 
     var photoUrls =
         await EcoFireFeedPublishService.refsToPlayableUrls(existingUrls);

@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/ui/pages/firebase_bootstrap_recovery_page.dart';
 import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_selectable_scope.dart';
 import 'package:gestao_yahweh/core/offline/offline_first_coordinator.dart';
 import 'package:gestao_yahweh/services/app_session_stability.dart';
 import 'package:gestao_yahweh/url_strategy.dart';
@@ -507,6 +508,9 @@ void main() async {
     runApp(
       MaterialApp(
         title: 'Gestão Yahweh',
+        builder: (context, child) => GestaoYahwehSelectableScope(
+          child: child ?? const SizedBox.shrink(),
+        ),
         home: FirebaseBootstrapRecoveryPage(
           result: firebaseBoot,
           onRecovered: runGestaoYahwehAfterFirebaseBootstrap,
@@ -1129,7 +1133,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
                   child: MediaQuery(
                     data: MediaQuery.of(context)
                         .copyWith(alwaysUse24HourFormat: true),
-                    child: c,
+                    child: GestaoYahwehSelectableScope(child: c),
                   ),
                 ),
               ),

@@ -190,6 +190,32 @@ function isChurchManagerRole(role: string): boolean {
   return ["MASTER", "ADMIN", "ADM", "GESTOR"].includes(role);
 }
 
+/** Licença SaaS — só gestor, admin, secretário ou tesoureiro gera pagamento MP. */
+function canPurchaseChurchLicenseRole(role: string): boolean {
+  const r = String(role || "").trim().toUpperCase();
+  if (["MASTER", "ADMIN", "ADM", "GESTOR"].includes(r)) return true;
+  if (r === "SECRETARIO" || r === "SECRETARIA" || r === "SECRETÁRIO" || r === "SECRETÁRIA") {
+    return true;
+  }
+  if (r === "TESOUREIRO" || r === "TESOURARIA") return true;
+  if (r === "ADMINISTRADOR" || r === "ADMINISTRADORA") return true;
+  const low = String(role || "").trim().toLowerCase();
+  return [
+    "gestor",
+    "admin",
+    "adm",
+    "master",
+    "secretario",
+    "secretaria",
+    "secretário",
+    "secretária",
+    "tesoureiro",
+    "tesouraria",
+    "administrador",
+    "administradora",
+  ].includes(low);
+}
+
 async function resolveRoleFromTokenOrDb(uid: string, tokenRole: unknown): Promise<string> {
   const tokenNormalized = normalizeRole(tokenRole);
   if (tokenNormalized) return tokenNormalized;
@@ -1871,6 +1897,16 @@ export const createMpPreapproval = functions
 
     const token = await admin.auth().getUser(context.auth.uid);
     const claims = (token.customClaims || {}) as any;
+    const role = await resolveRoleFromTokenOrDb(
+      context.auth.uid,
+      claims.role ?? claims.nivel ?? claims.perfil
+    );
+    if (!canPurchaseChurchLicenseRole(role)) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "Somente gestor, secretario ou tesoureiro pode gerar pagamento de licenca."
+      );
+    }
     const tenantId = String(claims.igrejaId || "").trim();
     if (!tenantId) {
       throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
@@ -2008,6 +2044,16 @@ export const createMpPixPayment = functions
 
     const token = await admin.auth().getUser(context.auth.uid);
     const claims = (token.customClaims || {}) as any;
+    const role = await resolveRoleFromTokenOrDb(
+      context.auth.uid,
+      claims.role ?? claims.nivel ?? claims.perfil
+    );
+    if (!canPurchaseChurchLicenseRole(role)) {
+      throw new functions.https.HttpsError(
+        "permission-denied",
+        "Somente gestor, secretario ou tesoureiro pode gerar pagamento de licenca."
+      );
+    }
     const tenantId = String(claims.igrejaId || "").trim();
     if (!tenantId) {
       throw new functions.https.HttpsError("failed-precondition", "igrejaId ausente");
@@ -7452,6 +7498,13 @@ export {
 export { resolveStorageDisplayUrls } from "./storageDisplayUrls";
 
 export { backfillMemberCodigos } from "./memberCodigo";
+
+export {
+  backfillChurchTenantFields,
+  stampIgrejaSubdocTenantFields,
+  stampIgrejaChatMessageTenantFields,
+  backfillChurchTenantFieldsForChurch,
+} from "./churchTenantFieldsBackfill";
 
 export { scheduledPurgeStalePendingUploads } from "./purgeStalePendingUploads";
 export { scheduledCleanupOrphanFiles } from "./cleanupOrphanFiles";

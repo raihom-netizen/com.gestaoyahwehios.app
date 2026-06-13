@@ -26,7 +26,6 @@ import 'package:gestao_yahweh/services/church_firestore_collection_migration_ser
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
@@ -44,6 +43,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_broadcast_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_whatsapp_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_list_preview.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
@@ -63,7 +63,26 @@ import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
-enum _HubConversasFilter { all, unread, favorites, archived }
+enum _HubConversasFilter { all, unread, favorites, groups, archived }
+
+/// Conversa activa no split Web (lista + thread lado a lado).
+class _SplitThreadSelection {
+  const _SplitThreadSelection({
+    required this.threadId,
+    required this.title,
+    required this.isDepartment,
+    this.peerUid,
+    this.departmentId,
+    this.initialDraftText,
+  });
+
+  final String threadId;
+  final String title;
+  final bool isDepartment;
+  final String? peerUid;
+  final String? departmentId;
+  final String? initialDraftText;
+}
 
 /// Cache RAM — grupos/departamentos instantâneos ao reabrir o Chat (aba Grupos).
 abstract final class _ChatHubDepartmentsRamCache {
@@ -182,6 +201,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   QuerySnapshot<Map<String, dynamic>>? _lastGoodChatThreadsSnap;
   bool _chatPushEnabled = true;
   _HubConversasFilter _conversasFilter = _HubConversasFilter.all;
+  _SplitThreadSelection? _splitSelected;
   final _searchCtrl = TextEditingController();
   final _membersFilterCtrl = TextEditingController();
   final _deptFilterCtrl = TextEditingController();
@@ -533,17 +553,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final p = peekTenantRaw.trim();
     if (p.isEmpty || p == resolvedTid) return true;
     if (ChurchContextService.panelChurchId(p) == resolvedTid) return true;
-    if (ChurchRepository.churchId(p) == resolvedTid) return true;
-    try {
-      final related = await TenantResolverService.getAllRelatedIgrejaDocIds(
-        resolvedTid,
-      );
-      if (related.contains(p)) return true;
-      final relatedPeek =
-          await TenantResolverService.getAllRelatedIgrejaDocIds(p);
-      if (relatedPeek.contains(resolvedTid)) return true;
-    } catch (_) {}
-    return false;
+    return ChurchRepository.churchId(p) == resolvedTid;
   }
 
   Future<void> _tryConsumePendingChatThread({int attempt = 0}) async {
@@ -628,21 +638,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         dmTitle = _looksLikeFirebaseUid(peer) ? 'Membro' : peer;
       }
 
-      final nav = Navigator.of(context);
-      await nav.push(
-        MaterialPageRoute<void>(
-          fullscreenDialog: true,
-          builder: (_) => ChurchChatThreadPage(
-            tenantId: tid,
-            threadId: pending.threadId,
-            title: dmTitle,
-            isDepartment: false,
-            peerUid: peer,
-            memberRole: widget.role,
-            memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-            initialDraftText: pending.initialDraftText,
-          ),
-        ),
+      _openChatThreadPage(
+        tid: tid,
+        threadId: pending.threadId,
+        title: dmTitle,
+        isDepartment: false,
+        peerUid: peer,
+        initialDraftText: pending.initialDraftText,
       );
       if (mounted) {
         unawaited(_primeConversasListFromFallback(tid));
@@ -657,24 +659,16 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     if (pending == null || pending.threadId != threadId) return;
     final data = snap.data() ?? {};
     final type = (data['type'] ?? '').toString();
-    final nav = Navigator.of(context);
     if (type == 'department') {
       final deptId = (data['departmentId'] ?? '').toString();
       final rawTitle = (data['title'] ?? 'Grupo').toString().trim();
       final title = rawTitle.isEmpty ? 'Grupo' : rawTitle;
-      await nav.push(
-        MaterialPageRoute<void>(
-          fullscreenDialog: true,
-          builder: (_) => ChurchChatThreadPage(
-            tenantId: tid,
-            threadId: pending.threadId,
-            title: title,
-            isDepartment: true,
-            departmentId: deptId.isEmpty ? null : deptId,
-            memberRole: widget.role,
-            memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-          ),
-        ),
+      _openChatThreadPage(
+        tid: tid,
+        threadId: pending.threadId,
+        title: title,
+        isDepartment: true,
+        departmentId: deptId.isEmpty ? null : deptId,
       );
       return;
     }
@@ -696,20 +690,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       if (dmTitle.isEmpty) {
         dmTitle = _looksLikeFirebaseUid(peer) ? 'Membro' : peer;
       }
-      await nav.push(
-        MaterialPageRoute<void>(
-          fullscreenDialog: true,
-          builder: (_) => ChurchChatThreadPage(
-            tenantId: tid,
-            threadId: pending.threadId,
-            title: dmTitle,
-            isDepartment: false,
-            peerUid: peer,
-            memberRole: widget.role,
-            memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-            initialDraftText: pending.initialDraftText,
-          ),
-        ),
+      _openChatThreadPage(
+        tid: tid,
+        threadId: pending.threadId,
+        title: dmTitle,
+        isDepartment: false,
+        peerUid: peer,
+        initialDraftText: pending.initialDraftText,
       );
     }
   }
@@ -2258,6 +2245,95 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
   }
 
+  bool _useWhatsAppSplitLayout(BuildContext context) =>
+      kIsWeb &&
+      widget.embeddedInShell &&
+      MediaQuery.sizeOf(context).width >= 900;
+
+  void _openChatThreadPage({
+    required String tid,
+    required String threadId,
+    required String title,
+    required bool isDepartment,
+    String? peerUid,
+    String? departmentId,
+    String? initialDraftText,
+  }) {
+    if (_useWhatsAppSplitLayout(context)) {
+      setState(() {
+        _splitSelected = _SplitThreadSelection(
+          threadId: threadId,
+          title: title,
+          isDepartment: isDepartment,
+          peerUid: peerUid,
+          departmentId: departmentId,
+          initialDraftText: initialDraftText,
+        );
+      });
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => ChurchChatThreadPage(
+          tenantId: tid,
+          threadId: threadId,
+          title: title,
+          isDepartment: isDepartment,
+          peerUid: peerUid,
+          departmentId: departmentId,
+          memberRole: widget.role,
+          memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+          initialDraftText: initialDraftText,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWhatsAppWebSplit(String tid, Widget listPanel) {
+    final sel = _splitSelected;
+    return Material(
+      color: ChurchChatWhatsAppTheme.hubBackground,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 400,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(
+                  right: BorderSide(
+                    color: Colors.black.withValues(alpha: 0.08),
+                  ),
+                ),
+              ),
+              child: listPanel,
+            ),
+          ),
+          Expanded(
+            child: sel == null
+                ? const ChurchChatWhatsAppSplitEmptyPane()
+                : ChurchChatThreadPage(
+                    key: ValueKey(sel.threadId),
+                    tenantId: tid,
+                    threadId: sel.threadId,
+                    title: sel.title,
+                    isDepartment: sel.isDepartment,
+                    peerUid: sel.peerUid,
+                    departmentId: sel.departmentId,
+                    memberRole: widget.role,
+                    memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
+                    initialDraftText: sel.initialDraftText,
+                    embeddedInSplitPanel: true,
+                    onSplitPanelClose: () =>
+                        setState(() => _splitSelected = null),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final tid = _resolvedTenantId;
@@ -2386,6 +2462,11 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
 
     if (webPanelEmbedded) {
+      if (_useWhatsAppSplitLayout(context)) {
+        return SizedBox.expand(
+          child: _buildWhatsAppWebSplit(tid, hubCore),
+        );
+      }
       return SizedBox.expand(child: hubCore);
     }
 
@@ -2559,9 +2640,22 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 }
 
                 threads.add(
-                  _CompactConversasFilterDropdown(
+                  ChurchChatWhatsAppFilterChips<_HubConversasFilter>(
                     selected: _conversasFilter,
                     onSelected: (f) => setState(() => _conversasFilter = f),
+                    items: const [
+                      _HubConversasFilter.all,
+                      _HubConversasFilter.unread,
+                      _HubConversasFilter.favorites,
+                      _HubConversasFilter.groups,
+                    ],
+                    labelFor: (f) => switch (f) {
+                      _HubConversasFilter.all => 'Tudo',
+                      _HubConversasFilter.unread => 'Não lidas',
+                      _HubConversasFilter.favorites => 'Favoritas',
+                      _HubConversasFilter.groups => 'Grupos',
+                      _HubConversasFilter.archived => 'Arquivadas',
+                    },
                   ),
                 );
 
@@ -2650,6 +2744,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       (d) => _chatHubThreadIsUnreadForUser(d.data(), uid),
                     );
                     break;
+                  case _HubConversasFilter.groups:
+                    sel = conversasFiltered.where(_docIsDepartmentThread);
+                    break;
                   case _HubConversasFilter.archived:
                     break;
                   case _HubConversasFilter.all:
@@ -2703,6 +2800,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                                 ? 'Sem favoritas. Toque numa conversa e use Favoritar.'
                                 : _conversasFilter == _HubConversasFilter.archived
                                     ? 'Sem conversas arquivadas.'
+                                    : _conversasFilter == _HubConversasFilter.groups
+                                        ? 'Sem grupos de departamento.'
                                     : _conversasFilter == _HubConversasFilter.unread
                                     ? 'Sem mensagens não lidas.'
                                     : streamError != null &&
@@ -2984,19 +3083,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             threadData: deptThreadById[threadId],
             reorderIndex: reorderIndex,
             onOpenChat: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  fullscreenDialog: true,
-                  builder: (_) => ChurchChatThreadPage(
-                    tenantId: tid,
-                    threadId: threadId,
-                    title: d.name,
-                    isDepartment: true,
-                    departmentId: d.id,
-                    memberRole: widget.role,
-                    memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-                  ),
-                ),
+              _openChatThreadPage(
+                tid: tid,
+                threadId: threadId,
+                title: d.name,
+                isDepartment: true,
+                departmentId: d.id,
               );
             },
             onOpenMembers: () =>
@@ -3163,20 +3255,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
 
     if (!context.mounted) return;
-    final nav = Navigator.of(context, rootNavigator: true);
-    await nav.push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => ChurchChatThreadPage(
-          tenantId: tid,
-          threadId: threadId,
-          title: title,
-          isDepartment: false,
-          peerUid: peerUid,
-          memberRole: widget.role,
-          memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-        ),
-      ),
+    _openChatThreadPage(
+      tid: tid,
+      threadId: threadId,
+      title: title,
+      isDepartment: false,
+      peerUid: peerUid,
     );
   }
 
@@ -3296,19 +3380,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       isPinned: prefs.isPinned(loc.threadId),
       isMuted: prefs.isMutedThread(loc.threadId),
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            fullscreenDialog: true,
-            builder: (_) => ChurchChatThreadPage(
-              tenantId: tid,
-              threadId: loc.threadId,
-              title: fullTitle,
-              isDepartment: false,
-              peerUid: peer,
-              memberRole: widget.role,
-              memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-            ),
-          ),
+        _openChatThreadPage(
+          tid: tid,
+          threadId: loc.threadId,
+          title: fullTitle,
+          isDepartment: false,
+          peerUid: peer,
         );
       },
     );
@@ -3425,6 +3502,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       isFavorite: prefs.isFavorite(doc.id),
       isPinned: prefs.isPinned(doc.id),
       isMuted: prefs.isMutedThread(doc.id),
+      isActive: _splitSelected?.threadId == doc.id,
       selectionMode: selectionMode,
       selected: selected,
       onTap: () {
@@ -3432,19 +3510,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           onToggleSelected?.call();
           return;
         }
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            fullscreenDialog: true,
-            builder: (_) => ChurchChatThreadPage(
-              tenantId: tid,
-              threadId: doc.id,
-              title: fullTitle,
-              isDepartment: false,
-              peerUid: peer,
-              memberRole: widget.role,
-              memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-            ),
-          ),
+        _openChatThreadPage(
+          tid: tid,
+          threadId: doc.id,
+          title: fullTitle,
+          isDepartment: false,
+          peerUid: peer,
         );
       },
       onLongPress: selectionMode
@@ -3500,19 +3571,12 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       isPinned: prefs.isPinned(threadId),
       isMuted: prefs.isMutedThread(threadId),
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            fullscreenDialog: !kIsWeb,
-            builder: (_) => ChurchChatThreadPage(
-              tenantId: tid,
-              threadId: threadId,
-              title: entry.name,
-              isDepartment: true,
-              departmentId: entry.id,
-              memberRole: widget.role,
-              memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-            ),
-          ),
+        _openChatThreadPage(
+          tid: tid,
+          threadId: threadId,
+          title: entry.name,
+          isDepartment: true,
+          departmentId: entry.id,
         );
       },
       onLongPress: () => _showThreadActionsSheet(
@@ -3594,20 +3658,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       isFavorite: prefs.isFavorite(doc.id),
       isPinned: prefs.isPinned(doc.id),
       isMuted: prefs.isMutedThread(doc.id),
+      isActive: _splitSelected?.threadId == doc.id,
       onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            fullscreenDialog: true,
-            builder: (_) => ChurchChatThreadPage(
-              tenantId: tid,
-              threadId: doc.id,
-              title: fullTitle,
-              isDepartment: true,
-              departmentId: deptId,
-              memberRole: widget.role,
-              memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-            ),
-          ),
+        _openChatThreadPage(
+          tid: tid,
+          threadId: doc.id,
+          title: fullTitle,
+          isDepartment: true,
+          departmentId: deptId,
         );
       },
       onLongPress: () => _showThreadActionsSheet(
@@ -3650,6 +3708,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     bool isMuted = false,
     bool selectionMode = false,
     bool selected = false,
+    bool isActive = false,
     bool subtitleIsTyping = false,
     int subtitleMaxLines = 1,
     Widget? trailing,
@@ -3661,7 +3720,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
             : isUnread
                 ? ThemeCleanPremium.primary
                 : Colors.transparent;
-  final rowBg = isUnread
+  final rowBg = isActive
+        ? ChurchChatWhatsAppTheme.activeRowBackground
+        : isUnread
         ? ThemeCleanPremium.primary.withValues(alpha: 0.06)
         : isPinned
             ? ThemeCleanPremium.primary.withValues(alpha: 0.04)
@@ -3889,21 +3950,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       titleB: picked.name,
     );
     final threadId = ChatHubOperations.dmThreadId(uid, picked.uid);
-    final nav = Navigator.of(context, rootNavigator: true);
-    if (!nav.mounted) return;
-    await nav.push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => ChurchChatThreadPage(
-          tenantId: tid,
-          threadId: threadId,
-          title: picked.name,
-          isDepartment: false,
-          peerUid: picked.uid,
-          memberRole: widget.role,
-          memberCpfDigits: widget.cpf.replaceAll(RegExp(r'\D'), ''),
-        ),
-      ),
+    if (!context.mounted) return;
+    _openChatThreadPage(
+      tid: tid,
+      threadId: threadId,
+      title: picked.name,
+      isDepartment: false,
+      peerUid: picked.uid,
     );
   }
 }
@@ -3949,7 +4002,7 @@ class _ChatSearchBarState extends State<_ChatSearchBar> {
           fontSize: compact ? 14 : 15,
         ),
         decoration: InputDecoration(
-          hintText: 'Pesquisar',
+          hintText: 'Pesquisar ou começar uma nova conversa',
           hintStyle: TextStyle(
             color: ThemeCleanPremium.onSurfaceVariant,
             fontSize: compact ? 14 : 15,
@@ -4888,54 +4941,6 @@ class _DeptGroupPremiumStripCard extends StatelessWidget {
             ],
           ),
         );
-  }
-}
-
-class _CompactConversasFilterDropdown extends StatelessWidget {
-  const _CompactConversasFilterDropdown({
-    required this.selected,
-    required this.onSelected,
-  });
-
-  final _HubConversasFilter selected;
-  final ValueChanged<_HubConversasFilter> onSelected;
-
-  static String _label(_HubConversasFilter f) => switch (f) {
-        _HubConversasFilter.all => 'Todas',
-        _HubConversasFilter.unread => 'Não lidas',
-        _HubConversasFilter.favorites => 'Favoritas',
-        _HubConversasFilter.archived => 'Arquivadas',
-      };
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<_HubConversasFilter>(
-          isDense: true,
-          isExpanded: true,
-          value: selected,
-          icon: const Icon(Icons.expand_more_rounded, size: 20),
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF065F46),
-          ),
-          dropdownColor: ThemeCleanPremium.cardBackground,
-          items: [
-            for (final f in _HubConversasFilter.values)
-              DropdownMenuItem(
-                value: f,
-                child: Text(_label(f)),
-              ),
-          ],
-          onChanged: (v) {
-            if (v != null) onSelected(v);
-          },
-        ),
-      ),
-    );
   }
 }
 

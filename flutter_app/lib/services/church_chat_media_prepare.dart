@@ -6,6 +6,7 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:gestao_yahweh/services/web_image_compress_service.dart';
 
 /// Compressão obrigatória para fotos do Chat Igreja (nunca envia original).
 class PreparedChatImage {
@@ -74,6 +75,17 @@ abstract final class ChurchChatMediaPrepare {
     }
     if (bytes != null && bytes.isNotEmpty) {
       final source = Uint8List.fromList(bytes);
+      if (kIsWeb) {
+        final full = await WebImageCompressService.compressBytes(
+          input: source,
+          profile: MediaImageProfile.chat,
+        );
+        final thumb = await WebImageCompressService.compressBytes(
+          input: source,
+          profile: MediaImageProfile.thumb,
+        );
+        return _buildPrepared(full, thumb);
+      }
       final full = await _encodeWebp(
         source,
         minSide: imageMaxEdge,
@@ -153,6 +165,14 @@ abstract final class ChurchChatMediaPrepare {
     required int quality,
   }) async {
     if (raw.isEmpty) return raw;
+    if (kIsWeb) {
+      return WebImageCompressService.compressBytes(
+        input: raw,
+        profile: minSide <= thumbEdge
+            ? MediaImageProfile.thumb
+            : MediaImageProfile.chat,
+      );
+    }
     for (final format in [CompressFormat.webp, CompressFormat.jpeg]) {
       try {
         final out = await FlutterImageCompress.compressWithList(

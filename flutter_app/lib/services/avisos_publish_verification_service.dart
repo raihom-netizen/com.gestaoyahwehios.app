@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/event_noticia_media.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
@@ -111,6 +112,34 @@ abstract final class AvisosPublishVerificationService {
     } catch (e) {
       rememberLastError(kStorageVerifyFailedMessage);
       rethrow;
+    }
+  }
+
+  static const String kPhotosVerifyFailedMessage =
+      'Falha ao publicar fotos do aviso.\nNenhuma imagem confirmada no Storage/Firestore.';
+
+  /// Confirma doc publicado com pelo menos [minPhotos] referências de mídia.
+  static Future<void> verifyPublishedMedia(
+    DocumentReference<Map<String, dynamic>> docRef, {
+    int minPhotos = 1,
+  }) async {
+    final snap = await verifyDocumentExists(docRef);
+    final data = snap.data() ?? {};
+    if (data['publicado'] == false || (data['status'] ?? '').toString() == 'erro') {
+      rememberLastError(kPhotosVerifyFailedMessage);
+      throw StateError(
+        (data['publishError'] ?? kPhotosVerifyFailedMessage).toString(),
+      );
+    }
+    final urls = eventNoticiaPhotoUrls(data);
+    final paths = (data['imageStoragePaths'] as List?)
+            ?.map((e) => e.toString().trim())
+            .where((p) => p.isNotEmpty)
+            .length ??
+        0;
+    if (urls.length < minPhotos && paths < minPhotos) {
+      rememberLastError(kPhotosVerifyFailedMessage);
+      throw StateError(kPhotosVerifyFailedMessage);
     }
   }
 

@@ -30,6 +30,7 @@ import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/church_department_list.dart'
@@ -2091,7 +2092,9 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
     String rightName,
     Uint8List? leftSig,
     Uint8List? rightSig,
-    bool showDigital
+    bool showDigital,
+    PdfDigitalStampInput? leftDigitalStamp,
+    PdfDigitalStampInput? rightDigitalStamp,
   })?> _pickFinanceReportSigners() async {
     var raw = _RelatoriosMembersDataCache.peek(widget.tenantId) ?? const [];
     if (raw.isEmpty) {
@@ -2107,12 +2110,16 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
               .trim();
           final assinatura =
               (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim();
+          final cpf = (m['CPF'] ?? m['cpf'] ?? '')
+              .toString()
+              .replaceAll(RegExp(r'\D'), '');
           final id = (m['id'] ?? '').toString();
           return (
             id: id,
             nome: nome,
             cargo: cargo,
             assinatura: assinatura,
+            cpf: cpf,
           );
         })
         .where((e) => e.nome.isNotEmpty && e.id.isNotEmpty)
@@ -2130,7 +2137,9 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
           String rightName,
           Uint8List? leftSig,
           Uint8List? rightSig,
-          bool showDigital
+          bool showDigital,
+          PdfDigitalStampInput? leftDigitalStamp,
+          PdfDigitalStampInput? rightDigitalStamp,
         })>(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -2195,9 +2204,10 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                     onChanged: (v) => setDlg(() => showDigital = v),
                     dense: true,
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Carregar assinatura digital'),
+                    title: const Text('Selo de assinatura digital'),
                     subtitle: const Text(
-                        'Desative para gerar apenas linhas para assinatura manual.'),
+                      'Certificado digital compacto (igreja + assinante).',
+                    ),
                   ),
                 ],
               ),
@@ -2209,7 +2219,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
               ),
               FilledButton(
                 onPressed: () async {
-                  ({String id, String nome, String cargo, String assinatura})? byId(
+                  ({String id, String nome, String cargo, String assinatura, String cpf})? byId(
                       String? id) {
                     if (id == null || id.isEmpty) return null;
                     for (final e in members) {
@@ -2220,14 +2230,32 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
 
                   final left = byId(leftId);
                   final right = byId(rightId);
-                  Uint8List? leftSig;
-                  Uint8List? rightSig;
+                  Map<String, dynamic> churchData = {};
+                  try {
+                    churchData = (await _tenantRef.get()).data() ?? {};
+                  } catch (_) {}
+                  final churchName = churchTaxIdChurchNameFromMap(churchData);
+
+                  PdfDigitalStampInput? leftStamp;
+                  PdfDigitalStampInput? rightStamp;
                   if (showDigital) {
-                    if (left != null && left.assinatura.isNotEmpty) {
-                      leftSig = await _loadSignerSignatureBytes(left.assinatura);
+                    if (left != null) {
+                      leftStamp = PdfDigitalStampInput.now(
+                        signerName: left.nome,
+                        signerCpfDigits:
+                            left.cpf.length == 11 ? left.cpf : null,
+                        churchName: churchName,
+                        churchData: churchData,
+                      );
                     }
-                    if (right != null && right.assinatura.isNotEmpty) {
-                      rightSig = await _loadSignerSignatureBytes(right.assinatura);
+                    if (right != null) {
+                      rightStamp = PdfDigitalStampInput.now(
+                        signerName: right.nome,
+                        signerCpfDigits:
+                            right.cpf.length == 11 ? right.cpf : null,
+                        churchName: churchName,
+                        churchData: churchData,
+                      );
                     }
                   }
                   if (!ctx.mounted) return;
@@ -2236,9 +2264,11 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                     (
                       leftName: left?.nome ?? 'Tesoureiro(a)',
                       rightName: right?.nome ?? 'Pastor Presidente',
-                      leftSig: leftSig,
-                      rightSig: rightSig,
+                      leftSig: null,
+                      rightSig: null,
                       showDigital: showDigital,
+                      leftDigitalStamp: leftStamp,
+                      rightDigitalStamp: rightStamp,
                     ),
                   );
                 },
@@ -2479,6 +2509,8 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
               leftSignatureImageBytes: signerSel.leftSig,
               rightSignatureImageBytes: signerSel.rightSig,
               showDigitalSignatures: signerSel.showDigital,
+              leftDigitalStamp: signerSel.leftDigitalStamp,
+              rightDigitalStamp: signerSel.rightDigitalStamp,
             ),
           ],
         ),

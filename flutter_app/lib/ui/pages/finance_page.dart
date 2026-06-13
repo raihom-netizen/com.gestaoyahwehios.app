@@ -1,4 +1,4 @@
-import 'dart:async' show Timer, StreamSubscription, unawaited;
+import 'dart:async' show StreamSubscription, TimeoutException, Timer, unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -18,8 +18,6 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_ui.dart';
@@ -31,15 +29,18 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
+import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/pages/finance_receitas_recorrentes_tabs.dart';
@@ -55,6 +56,7 @@ import 'package:gestao_yahweh/utils/finance_firestore_resilience.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
@@ -276,6 +278,8 @@ class _FinancePdfSignerSelection {
   final Uint8List? leftSignatureBytes;
   final Uint8List? rightSignatureBytes;
   final bool showDigitalSignatures;
+  final PdfDigitalStampInput? leftDigitalStamp;
+  final PdfDigitalStampInput? rightDigitalStamp;
 
   const _FinancePdfSignerSelection({
     required this.leftName,
@@ -283,6 +287,8 @@ class _FinancePdfSignerSelection {
     required this.leftSignatureBytes,
     required this.rightSignatureBytes,
     required this.showDigitalSignatures,
+    this.leftDigitalStamp,
+    this.rightDigitalStamp,
   });
 }
 
@@ -313,25 +319,43 @@ Future<_FinancePdfSignerSelection?> _pickFinancePdfSigners(
   );
   if (picked == null || !context.mounted) return null;
 
-  Uint8List? leftSig;
-  Uint8List? rightSig;
+  Map<String, dynamic> churchData = {};
+  String churchName = '';
+  try {
+    final snap = await ChurchRepository.churchDoc(tenantId).get();
+    churchData = snap.data() ?? {};
+    churchName = churchTaxIdChurchNameFromMap(churchData);
+  } catch (_) {}
+
+  PdfDigitalStampInput? leftStamp;
+  PdfDigitalStampInput? rightStamp;
   if (picked.digital) {
-    final leftUrl = (picked.left?.assinaturaUrl ?? '').trim();
-    if (leftUrl.isNotEmpty) {
-      leftSig = await _financeTryLoadSignatureBytes(leftUrl);
+    if (picked.left != null) {
+      leftStamp = PdfDigitalStampInput.now(
+        signerName: picked.left!.nome,
+        signerCpfDigits: picked.left!.cpfDigits,
+        churchName: churchName,
+        churchData: churchData,
+      );
     }
-    final rightUrl = (picked.right?.assinaturaUrl ?? '').trim();
-    if (rightUrl.isNotEmpty) {
-      rightSig = await _financeTryLoadSignatureBytes(rightUrl);
+    if (picked.right != null) {
+      rightStamp = PdfDigitalStampInput.now(
+        signerName: picked.right!.nome,
+        signerCpfDigits: picked.right!.cpfDigits,
+        churchName: churchName,
+        churchData: churchData,
+      );
     }
   }
 
   return _FinancePdfSignerSelection(
     leftName: picked.left?.nome ?? 'Tesoureiro(a)',
     rightName: picked.right?.nome ?? 'Pastor Presidente',
-    leftSignatureBytes: leftSig,
-    rightSignatureBytes: rightSig,
+    leftSignatureBytes: null,
+    rightSignatureBytes: null,
     showDigitalSignatures: picked.digital,
+    leftDigitalStamp: leftStamp,
+    rightDigitalStamp: rightStamp,
   );
 }
 
@@ -347,6 +371,8 @@ Future<void> exportFinanceiroRelatorioPdf({
   Uint8List? leftSignatureBytes,
   Uint8List? rightSignatureBytes,
   bool showDigitalSignatures = false,
+  PdfDigitalStampInput? leftDigitalStamp,
+  PdfDigitalStampInput? rightDigitalStamp,
 }) async {
   if (docs.isEmpty) {
     if (context.mounted) {
@@ -429,6 +455,8 @@ Future<void> exportFinanceiroRelatorioPdf({
             leftSignatureImageBytes: leftSignatureBytes,
             rightSignatureImageBytes: rightSignatureBytes,
             showDigitalSignatures: showDigitalSignatures,
+            leftDigitalStamp: leftDigitalStamp,
+            rightDigitalStamp: rightDigitalStamp,
           ),
         ],
       ),
@@ -458,6 +486,8 @@ Future<void> exportFinanceiroDespesasPorFornecedorPdf({
   Uint8List? leftSignatureBytes,
   Uint8List? rightSignatureBytes,
   bool showDigitalSignatures = false,
+  PdfDigitalStampInput? leftDigitalStamp,
+  PdfDigitalStampInput? rightDigitalStamp,
 }) async {
   final despesas = docs.where((d) {
     final m = d.data();
@@ -549,6 +579,8 @@ Future<void> exportFinanceiroDespesasPorFornecedorPdf({
             leftSignatureImageBytes: leftSignatureBytes,
             rightSignatureImageBytes: rightSignatureBytes,
             showDigitalSignatures: showDigitalSignatures,
+            leftDigitalStamp: leftDigitalStamp,
+            rightDigitalStamp: rightDigitalStamp,
           ),
         ],
       ),
@@ -915,11 +947,14 @@ class _FinancePageState extends State<FinancePage>
   /// Mesmo critério que Eventos/Chat: doc operacional (cluster irmão) ganha sobre hint.
   String? _firestoreTenantId;
   bool _financeBootstrapDone = false;
-  String get _tid => ChurchPanelTenant.resolve(
-        (_firestoreTenantId ?? '').isNotEmpty
-            ? _firestoreTenantId
-            : widget.tenantId,
-      );
+  String get _tid {
+    final hint = (_firestoreTenantId ?? '').trim().isNotEmpty
+        ? _firestoreTenantId!.trim()
+        : widget.tenantId.trim();
+    return ChurchRepository.churchId(hint).isNotEmpty
+        ? ChurchRepository.churchId(hint)
+        : hint;
+  }
 
   DocumentReference<Map<String, dynamic>> get _tenantRef =>
       ChurchUiCollections.churchDoc(_tid);
@@ -1007,47 +1042,58 @@ class _FinancePageState extends State<FinancePage>
 
   Future<void> _bootstrapFirestoreTenant() async {
     if (!mounted) return;
-    final hint = widget.tenantId.trim();
-    final bound = ChurchContext.currentChurchId?.trim() ?? '';
-    final initial = bound.isNotEmpty
-        ? bound
-        : (ChurchPanelTenant.resolve(hint).isNotEmpty
-            ? ChurchPanelTenant.resolve(hint)
-            : ChurchContextService.panelChurchId(hint));
+    final churchId = ChurchRepository.churchId(widget.tenantId);
+    if (churchId.isEmpty) {
+      setState(() {
+        _firestoreTenantId = null;
+        _financeBootstrapDone = true;
+      });
+      return;
+    }
     setState(() {
-      _firestoreTenantId = initial.isEmpty ? null : initial;
+      _firestoreTenantId = churchId;
       _financeBootstrapDone = true;
     });
     _startFinanceRealtimeSync();
-    unawaited(_probeFinanceCollection());
+    unawaited(_warmFinanceData(churchId));
     unawaited(_resolveOperationalTenantInBackground());
-    unawaited(ChurchFinanceLoadService.loadLancamentos(
-      seedTenantId: _tid,
-      limit: YahwehPerformanceV4.financeChartsSampleLimit,
-    ));
-    unawaited(ChurchFinanceLoadService.loadContas(seedTenantId: _tid));
   }
 
-  Future<void> _probeFinanceCollection() async {
-    final churchId = ChurchRepository.resolveChurchId(_tid);
-    if (churchId.isEmpty) return;
-    final result = await ChurchRepository.listCacheFirst(
-      module: ChurchRepository.financeiro,
-      churchIdHint: churchId,
-      limit: 50,
-    );
-    ChurchModuleQueryProbe.logSuccess(
-      module: 'Financeiro',
-      churchId: churchId,
-      path: result.collectionPath,
-      totalDocs: result.count,
-    );
-    if (result.error != null) {
+  Future<void> _warmFinanceData(String tenantId) async {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final results = await Future.wait([
+        ChurchFinanceLoadService.loadLancamentos(
+          seedTenantId: tid,
+          limit: YahwehPerformanceV4.financeChartsSampleLimit,
+        ),
+        ChurchFinanceLoadService.loadContas(seedTenantId: tid),
+      ]);
+      if (mounted) {
+        _notifyFinanceChanged();
+      }
+      unawaited(
+        FinanceComprovantePublishService.reconcileStuckComprovantes(
+          tenantId: tid,
+          docs: results[0].docs,
+        ),
+      );
+      ChurchModuleQueryProbe.logSuccess(
+        module: 'Financeiro',
+        churchId: ChurchFinanceLoadService.resolveChurchId(tid),
+        path: 'igrejas/${ChurchFinanceLoadService.resolveChurchId(tid)}/finance',
+        totalDocs: results[0].docs.length,
+      );
+    } catch (e) {
       ChurchModuleQueryProbe.logError(
         module: 'Financeiro',
-        churchId: churchId,
-        path: result.collectionPath,
-        error: result.error!,
+        churchId: ChurchFinanceLoadService.resolveChurchId(tid),
+        path: 'igrejas/${ChurchFinanceLoadService.resolveChurchId(tid)}/finance',
+        error: '$e',
       );
     }
   }
@@ -1055,27 +1101,13 @@ class _FinancePageState extends State<FinancePage>
   Future<void> _resolveOperationalTenantInBackground() async {
     try {
       final tid = ChurchRepository.churchId(widget.tenantId);
-      if (!mounted) return;
-      if (tid.trim().isNotEmpty && tid != _firestoreTenantId) {
+      if (!mounted || tid.isEmpty) return;
+      if (tid != _firestoreTenantId) {
         setState(() => _firestoreTenantId = tid);
         _notifyFinanceChanged();
       }
-      final effective = _tid;
       unawaited(
-        FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(
-          effective,
-        ),
-      );
-      unawaited(
-        Future.wait([
-          ChurchTenantResilientReads.financeRecent(
-            effective,
-            limit: YahwehPerformanceV4.financeChartsSampleLimit,
-          ),
-          ChurchTenantResilientReads.contas(effective),
-          ChurchTenantResilientReads.despesasFixas(effective),
-          ChurchTenantResilientReads.receitasRecorrentes(effective),
-        ]).catchError((_) => <void>[]),
+        FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(tid),
       );
     } catch (_) {}
   }
@@ -1089,7 +1121,7 @@ class _FinancePageState extends State<FinancePage>
     final idx = rawTab < 0 ? 0 : (rawTab > 7 ? 7 : rawTab);
     _tabCtrl = TabController(length: 8, vsync: this, initialIndex: idx);
     unawaited(_bootstrapFirestoreTenant());
-    _prewarmFinanceCaches(ChurchPanelTenant.resolve(widget.tenantId));
+    _prewarmFinanceCaches(ChurchRepository.churchId(widget.tenantId));
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_warmupBankBrandingAssets());
     });
@@ -1633,6 +1665,8 @@ class _FinancePageState extends State<FinancePage>
       leftSignatureBytes: signers.leftSignatureBytes,
       rightSignatureBytes: signers.rightSignatureBytes,
       showDigitalSignatures: signers.showDigitalSignatures,
+      leftDigitalStamp: signers.leftDigitalStamp,
+      rightDigitalStamp: signers.rightDigitalStamp,
     );
   }
 }
@@ -1691,7 +1725,7 @@ Map<String, _TotaisContaMesResumo> _totaisReceitaDespesaPorContaNoMes(
     final dt = _financeLancamentoInstant(data);
     if (!inMes(dt)) continue;
     if (!financeLancamentoEfetivadoParaSaldo(data)) continue;
-    final tipo = (data['type'] ?? '').toString().toLowerCase();
+    final tipo = financeInferTipo(data);
     final valor = _parseValor(data['amount'] ?? data['valor']);
     if (valor == 0) continue;
 
@@ -2095,6 +2129,7 @@ class _ResumoTabState extends State<_ResumoTab> {
   late Future<List<dynamic>> _combinedFuture;
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedFinanceDocs;
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedContasDocs;
+  String? _loadHint;
   String _periodFilter = 'mes_atual';
   DateTime? _periodStart;
   DateTime? _periodEnd;
@@ -2170,63 +2205,69 @@ class _ResumoTabState extends State<_ResumoTab> {
   }
 
   Future<List<dynamic>> _loadFinanceBundle({required bool forceFresh}) async {
-    final tid = widget.tenantId;
+    final tid = ChurchRepository.churchId(widget.tenantId);
     final limit = YahwehPerformanceV4.financeChartsSampleLimit;
-    final l = await (forceFresh
-        ? ChurchFinanceLoadService.loadLancamentos(
-            seedTenantId: tid,
-            limit: limit,
-            forceRefresh: true,
-            forceServer: true,
-          )
-        : ChurchFinanceLoadService.loadLancamentos(
-            seedTenantId: tid,
-            limit: limit,
-          ));
-    final c = await (forceFresh
-        ? ChurchFinanceLoadService.loadContas(
-            seedTenantId: tid,
-            forceRefresh: true,
-            forceServer: true,
-          )
-        : ChurchFinanceLoadService.loadContas(seedTenantId: tid));
+    final l = await ChurchFinanceLoadService.loadLancamentos(
+      seedTenantId: tid,
+      limit: limit,
+      forceRefresh: forceFresh,
+      forceServer: forceFresh,
+    );
+    final c = await ChurchFinanceLoadService.loadContas(
+      seedTenantId: tid,
+      forceRefresh: forceFresh,
+      forceServer: forceFresh,
+    );
     final s = await FinanceTenantSettings.load(tid);
+    if (mounted && l.softError != null && l.docs.isEmpty && _seedFinanceDocs?.isEmpty != false) {
+      _loadHint = l.softError;
+    } else if (mounted && l.docs.isNotEmpty) {
+      _loadHint = null;
+    }
     return [l.snapshot, c.snapshot, s];
   }
 
+  void _seedFinanceCaches(int limit) {
+    final churchId = ChurchRepository.churchId(widget.tenantId);
+    _seedFinanceDocs =
+        ChurchFinanceLoadService.peekLancamentosRam(churchId, limit: limit) ??
+            const [];
+    _seedContasDocs =
+        ChurchFinanceLoadService.peekContasRam(churchId) ?? const [];
+  }
+
   void _reloadFutures({bool forceFresh = false}) {
-    final tid = widget.tenantId;
     final limit = YahwehPerformanceV4.financeChartsSampleLimit;
 
     if (!forceFresh) {
-      _seedFinanceDocs =
-          ChurchFinanceLoadService.peekLancamentosRam(tid, limit: limit);
-      _seedContasDocs = ChurchFinanceLoadService.peekContasRam(tid);
+      _seedFinanceCaches(limit);
+    } else {
+      _seedFinanceDocs ??= const [];
+      _seedContasDocs ??= const [];
     }
 
     final instantBundle = <dynamic>[
-      MergedFirestoreQuerySnapshot(_seedFinanceDocs ?? const []),
-      MergedFirestoreQuerySnapshot(_seedContasDocs ?? const []),
+      MergedFirestoreQuerySnapshot(_seedFinanceDocs!),
+      MergedFirestoreQuerySnapshot(_seedContasDocs!),
       const FinanceTenantSettings(),
     ];
     _combinedFuture = Future.value(instantBundle);
 
-    Future<List<dynamic>> loadAll() => _loadFinanceBundle(forceFresh: forceFresh)
-        .timeout(
-      kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
-      onTimeout: () => instantBundle,
-    );
-
-    unawaited(loadAll().then((fresh) {
+    unawaited(_loadFinanceBundle(forceFresh: forceFresh).then((fresh) {
       if (!mounted) return;
       setState(() {
         final fs = fresh[0] as QuerySnapshot<Map<String, dynamic>>;
         final cs = fresh[1] as QuerySnapshot<Map<String, dynamic>>;
-        if (fs.docs.isNotEmpty) _seedFinanceDocs = fs.docs;
-        if (cs.docs.isNotEmpty) _seedContasDocs = cs.docs;
+        _seedFinanceDocs = fs.docs;
+        _seedContasDocs = cs.docs;
         _combinedFuture = Future.value(fresh);
       });
-    }).catchError((_) {}));
+    }).catchError((e) {
+      if (!mounted) return;
+      if ((_seedFinanceDocs ?? const []).isEmpty) {
+        setState(() => _loadHint = '$e');
+      }
+    }));
 
     _future = _combinedFuture.then(
       (v) => v[0] as QuerySnapshot<Map<String, dynamic>>,
@@ -2374,6 +2415,18 @@ class _ResumoTabState extends State<_ResumoTab> {
             onRetry: _refresh,
           );
         }
+        if (_loadHint != null &&
+            (snap.data == null ||
+                (snap.data!.isNotEmpty &&
+                    (snap.data![0] as QuerySnapshot<Map<String, dynamic>>)
+                        .docs
+                        .isEmpty))) {
+          return ChurchPanelErrorBody(
+            title: 'Não foi possível carregar o financeiro',
+            error: _loadHint,
+            onRetry: _refresh,
+          );
+        }
         if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return const ChurchPanelLoadingBody();
         }
@@ -2386,9 +2439,9 @@ class _ResumoTabState extends State<_ResumoTab> {
         final settings = snap.data != null && snap.data!.length > 2
             ? snap.data![2] as FinanceTenantSettings
             : const FinanceTenantSettings();
-        final allDocs = financeSnap?.docs ?? [];
+        final allDocs = financeSnap?.docs ?? _seedFinanceDocs ?? [];
         final docs = allDocs.where((d) {
-          final dt = _parseDate(d.data()['createdAt'] ?? d.data()['date']);
+          final dt = financeLancamentoDate(d.data());
           return _inRange(dt);
         }).toList();
         final contasDocs = contasSnap?.docs ?? [];
@@ -2403,14 +2456,13 @@ class _ResumoTabState extends State<_ResumoTab> {
         final despesasPorCat = <String, double>{};
         for (final d in docs) {
           final data = d.data();
-          final tipo = (data['type'] ?? 'entrada').toString().toLowerCase();
+          final tipo = financeInferTipo(data);
           if (tipo == 'transferencia') continue;
           if (!financeLancamentoEfetivadoParaSaldo(data)) continue;
           final valor = _parseValor(data['amount'] ?? data['valor']);
-          final dt = _parseDate(data['createdAt'] ?? data['date']);
+          final dt = financeLancamentoDate(data);
           final cat = (data['categoria'] ?? 'Outros').toString().trim();
-          final isEntrada =
-              tipo.contains('entrada') || tipo.contains('receita');
+          final isEntrada = financeIsEntrada(data);
 
           if (isEntrada) {
             totalReceitas += valor;
@@ -2422,7 +2474,7 @@ class _ResumoTabState extends State<_ResumoTab> {
                 emptyLabel: 'Outros');
           }
 
-          if (dt.year == now.year) {
+          if (dt != null && dt.year == now.year) {
             if (isEntrada) {
               entradasMes[dt.month] = (entradasMes[dt.month] ?? 0) + valor;
             } else {
@@ -2436,7 +2488,7 @@ class _ResumoTabState extends State<_ResumoTab> {
         double aReceberPendente = 0, aPagarPendente = 0;
         for (final d in docs) {
           final data = d.data();
-          final tipo = (data['type'] ?? 'entrada').toString().toLowerCase();
+          final tipo = financeInferTipo(data);
           if (tipo == 'transferencia') continue;
           final valor = _parseValor(data['amount'] ?? data['valor']);
           if (financeLancamentoPendenteRecebimento(data)) {
@@ -3154,7 +3206,14 @@ class _ResumoTabState extends State<_ResumoTab> {
     }
 
     if (kIsWeb) {
-      return resumoBody(const PanelFinanceAccountsSnapshot());
+      return FutureBuilder<PanelFinanceAccountsSnapshot>(
+        future: PanelFinanceAccountsSnapshotService.readOnce(widget.tenantId),
+        builder: (context, accountsSnap) {
+          final accountsCache =
+              accountsSnap.data ?? const PanelFinanceAccountsSnapshot();
+          return resumoBody(accountsCache);
+        },
+      );
     }
     return StreamBuilder<PanelFinanceAccountsSnapshot>(
       stream: ChurchFinanceRealtimeService.watchAccountBalances(widget.tenantId),
@@ -4078,73 +4137,71 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   late Future<List<dynamic>> _combinedFuture;
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedFinanceDocs;
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedContasDocs;
+  String? _loadHint;
   int _financeFetchLimit = YahwehPerformanceV4.financeListInitialLimit;
 
   Future<List<dynamic>> _loadLancamentosBundle({required bool forceFresh}) async {
-    final tid = widget.tenantId;
-    final l = await (forceFresh
-        ? ChurchFinanceLoadService.loadLancamentos(
-            seedTenantId: tid,
-            limit: _financeFetchLimit,
-            forceRefresh: true,
-            forceServer: true,
-          )
-        : ChurchFinanceLoadService.loadLancamentos(
-            seedTenantId: tid,
-            limit: _financeFetchLimit,
-          ));
-    final c = await (forceFresh
-        ? ChurchFinanceLoadService.loadContas(
-            seedTenantId: tid,
-            forceRefresh: true,
-            forceServer: true,
-          )
-        : ChurchFinanceLoadService.loadContas(seedTenantId: tid));
+    final tid = ChurchRepository.churchId(widget.tenantId);
+    final l = await ChurchFinanceLoadService.loadLancamentos(
+      seedTenantId: tid,
+      limit: _financeFetchLimit,
+      forceRefresh: forceFresh,
+      forceServer: forceFresh,
+    );
+    final c = await ChurchFinanceLoadService.loadContas(
+      seedTenantId: tid,
+      forceRefresh: forceFresh,
+      forceServer: forceFresh,
+    );
+    if (mounted && l.softError != null && l.docs.isEmpty) {
+      _loadHint = l.softError;
+    } else if (mounted && l.docs.isNotEmpty) {
+      _loadHint = null;
+    }
     return [l.snapshot, c.snapshot];
   }
 
+  void _seedLancamentosCaches() {
+    final churchId = ChurchRepository.churchId(widget.tenantId);
+    _seedFinanceDocs =
+        ChurchFinanceLoadService.peekLancamentosRam(
+              churchId,
+              limit: _financeFetchLimit,
+            ) ??
+            const [];
+    _seedContasDocs =
+        ChurchFinanceLoadService.peekContasRam(churchId) ?? const [];
+  }
+
   void _reloadFutures({bool forceFresh = false}) {
-    final tid = widget.tenantId;
-
     if (!forceFresh) {
-      _seedFinanceDocs = ChurchFinanceLoadService.peekLancamentosRam(
-        tid,
-        limit: _financeFetchLimit,
-      );
-      _seedContasDocs = ChurchFinanceLoadService.peekContasRam(tid);
-    }
-
-    Future<List<dynamic>> loadAll() => _loadLancamentosBundle(forceFresh: forceFresh)
-        .timeout(
-      ChurchPanelReadTimeouts.queryCap,
-      onTimeout: () => [
-        MergedFirestoreQuerySnapshot(_seedFinanceDocs ?? const []),
-        MergedFirestoreQuerySnapshot(_seedContasDocs ?? const []),
-      ],
-    );
-
-    final hasSeed = !forceFresh &&
-        ((_seedFinanceDocs?.isNotEmpty ?? false) ||
-            (_seedContasDocs?.isNotEmpty ?? false));
-
-    if (hasSeed) {
-      _combinedFuture = Future.value([
-        MergedFirestoreQuerySnapshot(_seedFinanceDocs ?? const []),
-        MergedFirestoreQuerySnapshot(_seedContasDocs ?? const []),
-      ]);
-      unawaited(loadAll().then((fresh) {
-        if (!mounted) return;
-        setState(() {
-          final fs = fresh[0] as QuerySnapshot<Map<String, dynamic>>;
-          final cs = fresh[1] as QuerySnapshot<Map<String, dynamic>>;
-          _seedFinanceDocs = fs.docs;
-          _seedContasDocs = cs.docs;
-          _combinedFuture = Future.value(fresh);
-        });
-      }));
+      _seedLancamentosCaches();
     } else {
-      _combinedFuture = loadAll();
+      _seedFinanceDocs ??= const [];
+      _seedContasDocs ??= const [];
     }
+
+    final instantBundle = <dynamic>[
+      MergedFirestoreQuerySnapshot(_seedFinanceDocs!),
+      MergedFirestoreQuerySnapshot(_seedContasDocs!),
+    ];
+    _combinedFuture = Future.value(instantBundle);
+
+    unawaited(_loadLancamentosBundle(forceFresh: forceFresh).then((fresh) {
+      if (!mounted) return;
+      setState(() {
+        final fs = fresh[0] as QuerySnapshot<Map<String, dynamic>>;
+        final cs = fresh[1] as QuerySnapshot<Map<String, dynamic>>;
+        _seedFinanceDocs = fs.docs;
+        _seedContasDocs = cs.docs;
+        _combinedFuture = Future.value(fresh);
+      });
+    }).catchError((e) {
+      if (!mounted) return;
+      if ((_seedFinanceDocs ?? const []).isEmpty) {
+        setState(() => _loadHint = '$e');
+      }
+    }));
 
     _future = _combinedFuture.then(
       (v) => v[0] as QuerySnapshot<Map<String, dynamic>>,
@@ -4193,6 +4250,18 @@ class _LancamentosTabState extends State<_LancamentosTab> {
           return ChurchPanelErrorBody(
             title: 'Não foi possível carregar os lançamentos',
             error: snap.error,
+            onRetry: _refresh,
+          );
+        }
+        if (_loadHint != null &&
+            (snap.data == null ||
+                (snap.data!.isNotEmpty &&
+                    (snap.data![0] as QuerySnapshot<Map<String, dynamic>>)
+                        .docs
+                        .isEmpty))) {
+          return ChurchPanelErrorBody(
+            title: 'Não foi possível carregar os lançamentos',
+            error: _loadHint,
             onRetry: _refresh,
           );
         }
@@ -7454,21 +7523,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       ChurchContextService.panelChurchId(ChurchRepository.churchId(tenantId));
   if (effectiveTenantId.isEmpty) return false;
 
-  try {
-    await _ensureFinanceWriteReady();
-  } catch (e) {
-    if (!_financeTreatSilentSuccess(context, e, tenantId: effectiveTenantId)) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(formatFirebaseErrorForUser(e)),
-            backgroundColor: ThemeCleanPremium.error,
-          ),
-        );
-      }
-    }
-    return false;
-  }
+  unawaited(_ensureFinanceWriteReady().catchError((_) {}));
 
   final op = effectiveTenantId;
   final financeCol = ChurchUiCollections.financeiro(op);
@@ -8254,6 +8309,21 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   }
 
   try {
+    if (comprovanteAnexo != null &&
+        !AppConnectivityService.instance.isOnline) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Sem ligação à internet. Conecte-se para enviar o comprovante.',
+            ),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
+      return false;
+    }
+
     await _ensureFinanceWriteReady();
 
     Future<void> persistComprovante({
@@ -8501,6 +8571,20 @@ Future<void> uploadFinanceComprovanteForLancamento(
     title: jaTem ? 'Trocar comprovante' : 'Anexar comprovante',
   );
   if (picked == null) return;
+
+  if (!AppConnectivityService.instance.isOnline) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+            'Sem ligação à internet. Conecte-se para enviar o comprovante.',
+          ),
+          backgroundColor: ThemeCleanPremium.error,
+        ),
+      );
+    }
+    return;
+  }
 
   if (!context.mounted) return;
 

@@ -4811,7 +4811,7 @@ class _MembersPageState extends State<MembersPage> {
             (member.data['assinaturaStoragePath'] ?? '').toString().trim();
         if (oldPath.isNotEmpty) {
           try {
-            await FirebaseStorage.instance.ref(oldPath).delete();
+            await firebaseDefaultStorage.ref(oldPath).delete();
           } catch (_) {}
         }
         final oldAss = sanitizeImageUrl(
@@ -4843,7 +4843,7 @@ class _MembersPageState extends State<MembersPage> {
           (member.data['assinaturaStoragePath'] ?? '').toString().trim();
       if (oldPath.isNotEmpty) {
         try {
-          await FirebaseStorage.instance.ref(oldPath).delete();
+          await firebaseDefaultStorage.ref(oldPath).delete();
         } catch (_) {}
       }
       final uAss = sanitizeImageUrl(

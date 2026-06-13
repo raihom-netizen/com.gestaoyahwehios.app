@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -176,17 +177,15 @@ abstract final class ChurchProfileLoader {
               ref,
               cacheKey: 'church_direct_$id',
               maxAttempts: kIsWeb ? 4 : 3,
-              attemptTimeout: kIsWeb
-                  ? const Duration(seconds: 12)
-                  : const Duration(seconds: 12),
+              attemptTimeout: ChurchPanelReadTimeouts.attempt,
             );
 
         final snap = kIsWeb
             ? await FirestoreWebGuard.runWithWebRecovery(
                 readServer,
                 maxAttempts: 4,
-              )
-            : await readServer();
+              ).timeout(ChurchPanelReadTimeouts.churchDocCap)
+            : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
 
         if (!snap.exists) {
           docConfirmedMissing = true;
@@ -205,24 +204,6 @@ abstract final class ChurchProfileLoader {
       } catch (e) {
         lastReadError = e;
       }
-    }
-
-    if (!kIsWeb &&
-        (data.isEmpty ||
-            TenantResolverService.churchProfileRichnessScore(data) < 6)) {
-      try {
-        final richest =
-            await TenantResolverService.richestChurchProfileForCadastro(
-          id,
-          preferServer: false,
-        ).timeout(const Duration(seconds: 10));
-        if (richest.isNotEmpty &&
-            TenantResolverService.churchProfileRichnessScore(richest) >
-                TenantResolverService.churchProfileRichnessScore(data)) {
-          data = Map<String, dynamic>.from(richest);
-          readSource = 'cluster_sibling';
-        }
-      } catch (_) {}
     }
 
     if (data.isEmpty && lastReadError != null) {
@@ -265,8 +246,7 @@ abstract final class ChurchProfileLoader {
     bool forceRefresh = false,
     bool directDocOnly = false,
   }) async {
-    final totalTimeout =
-        kIsWeb ? const Duration(seconds: 22) : const Duration(seconds: 15);
+    final totalTimeout = ChurchPanelReadTimeouts.churchDocCap;
     return loadChurchDataInner(
       seedTenantId: seedTenantId,
       userUid: userUid,

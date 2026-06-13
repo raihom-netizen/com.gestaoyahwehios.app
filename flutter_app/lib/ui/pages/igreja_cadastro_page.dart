@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/carteirinha_validade_church.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
@@ -36,7 +37,6 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -59,7 +59,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/ui/widgets/default_church_logo_asset.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
-import 'package:gestao_yahweh/debug/agent_debug_log.dart';
+import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 
 /// Gera slug (link/domínio) a partir do nome da igreja: normaliza, remove acentos e palavras comuns, usa hífens.
 String _slugFromChurchName(String name) {
@@ -395,12 +395,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
     try {
       await _bootstrapCadastroInner(forceRefresh: forceRefresh).timeout(
-        Duration(seconds: kIsWeb ? 18 : 24),
+        ChurchPanelReadTimeouts.churchDocCap,
         onTimeout: () => throw TimeoutException('cadastro_bootstrap'),
       );
     } on TimeoutException {
       if (!mounted) return;
-      final id = (_operationalTenantId ?? ChurchPanelTenant.resolve(widget.tenantId)).trim();
+      final id = (_operationalTenantId ?? ChurchRepository.churchId(widget.tenantId)).trim();
       if (id.isNotEmpty) {
         _operationalTenantId ??= id;
         _logoStoragePath ??= ChurchStorageLayout.churchIdentityLogoPath(id);
@@ -420,7 +420,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       });
     } catch (e) {
       if (!mounted) return;
-      final id = (_operationalTenantId ?? ChurchPanelTenant.resolve(widget.tenantId)).trim();
+      final id = (_operationalTenantId ?? ChurchRepository.churchId(widget.tenantId)).trim();
       if (id.isNotEmpty) {
         _operationalTenantId ??= id;
         _logoStoragePath ??= ChurchStorageLayout.churchIdentityLogoPath(id);
@@ -445,7 +445,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   Future<void> _bootstrapCadastroInner({bool forceRefresh = false}) async {
     final seed = widget.tenantId.trim();
-    final churchId = ChurchPanelTenant.resolve(seed);
+    final churchId = ChurchRepository.churchId(seed);
 
     if (churchId.isEmpty) {
       if (!mounted) return;
@@ -471,6 +471,19 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
     if (loaded.data.isNotEmpty) {
       unawaited(ChurchCadastroLoadService.persistAfterLoad(loaded));
+      ChurchModuleQueryProbe.logSuccess(
+        module: 'Cadastro Igreja',
+        churchId: loaded.churchId,
+        path: 'igrejas/${loaded.churchId}',
+        totalDocs: loaded.data.length,
+      );
+    } else if (loaded.softError != null) {
+      ChurchModuleQueryProbe.logError(
+        module: 'Cadastro Igreja',
+        churchId: churchId,
+        path: 'igrejas/$churchId',
+        error: loaded.softError!,
+      );
     }
 
     if (loaded.softError != null &&
@@ -516,7 +529,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (tid.isEmpty) return;
     try {
       final loaded = await ChurchRepository.loadByChurchId(tid).timeout(
-        Duration(seconds: kIsWeb ? 12 : 16),
+        ChurchPanelReadTimeouts.churchDocCap,
       );
       if (!mounted || loaded.data.isEmpty) return;
       _hydrateFormFromFirestoreDoc(loaded.churchId, loaded.data);
@@ -581,30 +594,28 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   void initState() {
     super.initState();
     _nameCtrl.addListener(_onNameChanged);
-    final resolved = ChurchPanelTenant.resolve(widget.tenantId.trim());
+    final resolved = ChurchRepository.churchId(widget.tenantId.trim());
     if (resolved.isNotEmpty) {
       _operationalTenantId = resolved;
       _logoStoragePath = ChurchStorageLayout.churchIdentityLogoPath(resolved);
-      // Shell já tem churchId — nunca spinner infinito (cache-first como mobile).
-      _cadastroBootstrapDone = true;
     }
     final ctxData = ChurchContextService.currentChurchData;
     final ctxId = ChurchContextService.currentChurchId;
     if (ctxData != null &&
         ctxId != null &&
         ctxId.isNotEmpty &&
-        TenantResolverService.churchProfileRichnessScore(ctxData) >=
-            ChurchCadastroLoadService.kMinProfileScore) {
+        ctxData.isNotEmpty &&
+        ChurchRepository.churchId(ctxId) == resolved) {
       _applyChurchDataResult(
         ChurchDataLoadResult(
           seedTenantId: widget.tenantId.trim(),
-          churchId: ctxId,
-          firestorePath: 'igrejas/$ctxId',
+          churchId: resolved,
+          firestorePath: 'igrejas/$resolved',
           data: Map<String, dynamic>.from(ctxData),
           fieldCount: ctxData.length,
           loadedAt: DateTime.now(),
           readSource: 'session_context_sync',
-          logoStoragePath: ChurchStorageLayout.churchIdentityLogoPath(ctxId),
+          logoStoragePath: ChurchStorageLayout.churchIdentityLogoPath(resolved),
         ),
       );
     } else {
@@ -1111,7 +1122,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     const chunk = 400;
     final list = refs.toList();
     for (var i = 0; i < list.length; i += chunk) {
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = ChurchRepository.batch();
       final end = (i + chunk > list.length) ? list.length : i + chunk;
       for (var j = i; j < end; j++) {
         batch.delete(list[j]);
@@ -1707,7 +1718,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     final p = storagePath?.trim() ?? '';
     if (p.isEmpty) return;
     try {
-      await FirebaseStorage.instance.ref(p).delete();
+      await firebaseDefaultStorage.ref(p).delete();
     } catch (_) {}
     final lower = p.toLowerCase();
     if (lower.endsWith('.jpg') ||
@@ -1717,7 +1728,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final base = dot < 0 ? p : p.substring(0, dot);
       for (final suffix in <String>['_thumb.jpg', '_card.jpg', '_full.jpg']) {
         try {
-          await FirebaseStorage.instance.ref('$base$suffix').delete();
+          await firebaseDefaultStorage.ref('$base$suffix').delete();
         } catch (_) {}
       }
       // Extensão Resize Images: `thumb_<baseDoFicheiro>.jpg` junto a `logo_igreja.png`
@@ -1727,7 +1738,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         final fileBase = p.substring(slash + 1, dot);
         if (fileBase.isNotEmpty) {
           try {
-            await FirebaseStorage.instance
+            await firebaseDefaultStorage
                 .ref('$dir/thumb_$fileBase.jpg')
                 .delete();
           } catch (_) {}
@@ -1762,7 +1773,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       await _deleteChurchLogoStorageObjectAndVariants(_logoStoragePath);
       // Mantém só a identidade canónica em PNG: remove legado `.jpg` no mesmo sítio.
       try {
-        await FirebaseStorage.instance
+        await firebaseDefaultStorage
             .ref(
                 ChurchStorageLayout.churchIdentityLogoPathJpgLegacy(resolvedId))
             .delete();
@@ -1949,7 +1960,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         tenantId: tenantDocId,
         tenantData: data,
         preferStoragePath: path,
-      ).timeout(const Duration(seconds: 12));
+      ).timeout(ChurchPanelReadTimeouts.warmCap);
       if (!mounted) return;
       final clean = sanitizeImageUrl(resolved ?? '');
       if (clean.isEmpty || !isValidImageUrl(clean)) return;
@@ -2799,7 +2810,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   @override
   Widget build(BuildContext context) {
     if (!_cadastroBootstrapDone &&
-        ChurchPanelTenant.resolve(widget.tenantId).isEmpty) {
+        ChurchRepository.churchId(widget.tenantId).isEmpty) {
       return Scaffold(
         backgroundColor: ThemeCleanPremium.surface,
         appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
@@ -2808,7 +2819,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
     if (_cadastroBootstrapError != null &&
         (_operationalTenantId ?? '').trim().isEmpty &&
-        ChurchPanelTenant.resolve(widget.tenantId).isEmpty) {
+        ChurchRepository.churchId(widget.tenantId).isEmpty) {
       return Scaffold(
         backgroundColor: ThemeCleanPremium.surface,
         appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
@@ -2919,6 +2930,55 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                   const SizedBox(
                                       height: ThemeCleanPremium.spaceLg),
                                   _buildChurchFirestoreIdBanner(resolvedId),
+                                  if (!_formHydrated &&
+                                      _nameCtrl.text.trim().isEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                        top: ThemeCleanPremium.spaceMd,
+                                        bottom: ThemeCleanPremium.spaceSm,
+                                      ),
+                                      child: Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                          vertical: 12,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: ThemeCleanPremium.primary
+                                              .withValues(alpha: 0.06),
+                                          borderRadius: BorderRadius.circular(
+                                            ThemeCleanPremium.radiusSm,
+                                          ),
+                                          border: Border.all(
+                                            color: ThemeCleanPremium.primary
+                                                .withValues(alpha: 0.18),
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: ThemeCleanPremium.primary,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Text(
+                                                'Carregando igrejas/$resolvedId…',
+                                                style: TextStyle(
+                                                  fontSize: 12.5,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.grey.shade700,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                   _buildCadastroJaExisteChip(),
                                   const SizedBox(
                                       height: ThemeCleanPremium.spaceLg),

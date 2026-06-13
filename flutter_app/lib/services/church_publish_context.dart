@@ -1,13 +1,11 @@
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
 /// churchId único para gravações — Web / Android / iOS (sem tenant/alias).
 abstract final class ChurchPublishContext {
   ChurchPublishContext._();
 
-  static String churchIdForPublish(String seedTenantId) {
-    final id = ChurchPanelTenant.require(seedTenantId);
-    return id;
-  }
+  static String churchIdForPublish(String seedTenantId) =>
+      ChurchRepository.requireChurchId(seedTenantId);
 
   static Future<String> churchIdForPublishAsync(String seedTenantId) async =>
       churchIdForPublish(seedTenantId);

@@ -176,6 +176,12 @@ abstract final class EventoPublishService {
       ChurchPublishFlowLog.uploadOk('evento $docId (${slots.length} fotos)');
       onUploadProgress?.call(0.72);
 
+      if (uploadedPaths.isEmpty) {
+        throw StateError(
+          'Não foi possível enviar as fotos do evento. Verifique a conexão e tente de novo.',
+        );
+      }
+
       if (uploadedPaths.isNotEmpty) {
         await ChurchStorageMetadataVerify.assertAllExist(
           uploadedPaths,
@@ -280,7 +286,7 @@ abstract final class EventoPublishService {
 
   static List<String> _pathsFromRefs(List<String> refs) {
     final deduped = dedupeImageRefsByStorageIdentity(refs);
-    return [...EventosPublishVerificationService.storagePathsFromUrls(deduped)];
+    return [...EventosPublishVerificationService.storagePathsFromRefs(deduped)];
   }
 
   static double _aspectRatioFromPayload(Map<String, dynamic> payload) {

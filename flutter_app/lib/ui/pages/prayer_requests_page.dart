@@ -3,16 +3,12 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/services/church_pedidos_oracao_load_service.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/church_pedidos_oracao_load_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// E-mail na ficha do membro (várias chaves usadas no app).
 String _emailFromMemberData(Map<String, dynamic> data) {
@@ -72,16 +68,19 @@ class PrayerRequestsPage extends StatefulWidget {
 class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   /// Filtro por status: Todos | Respondidas | Não Respondidas
   String _filtroStatus = 'Todos';
-  late Future<QuerySnapshot<Map<String, dynamic>>> _pedidosFuture;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _pedidosDocs = const [];
+  bool _fetching = false;
+  String? _loadError;
+  bool _showingStaleCache = false;
   String _effectiveTenantId = '';
 
-  String get _tid => ChurchPanelTenant.resolve(
-        _effectiveTenantId.isNotEmpty
-            ? _effectiveTenantId
-            : widget.tenantId,
-      );
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = {};
+  bool _bulkDeleting = false;
 
-  String get _churchId => ChurchRepository.churchId(_tid);
+  String get _churchId => ChurchRepository.churchId(
+        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+      );
 
   bool? _respondidaFilterFromStatus() {
     if (_filtroStatus == 'Respondidas') return true;
@@ -89,87 +88,86 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     return null;
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadPedidos({
-    bool forceRefresh = false,
-    bool forceServer = false,
-  }) async {
-    final tid = _tid.trim();
-    if (tid.isEmpty) {
-      return const MergedFirestoreQuerySnapshot([]);
+  void _seedPedidosLocal() {
+    final churchId = _churchId;
+    if (churchId.isEmpty) {
+      _pedidosDocs = const [];
+      _fetching = false;
+      return;
     }
-    final result = await ChurchPedidosOracaoLoadService.load(
-      seedTenantId: tid,
-      respondidaFilter: _respondidaFilterFromStatus(),
-      forceRefresh: forceRefresh,
-      forceServer: forceServer,
-    );
-    return result.snapshot;
+    _pedidosDocs = ChurchPedidosOracaoLoadService.peekRam(
+          churchId,
+          respondidaFilter: _respondidaFilterFromStatus(),
+        ) ??
+        const [];
+    _fetching = true;
+    _loadError = null;
+    _showingStaleCache = _pedidosDocs.isNotEmpty;
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadPedidos() {
-    final tid = _tid.trim();
-    if (tid.isEmpty) {
-      return Future.value(const MergedFirestoreQuerySnapshot([]));
+  Future<void> _fetchPedidos({bool forceFresh = false}) async {
+    final churchId = _churchId;
+    if (churchId.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _fetching = false;
+        _loadError = 'Igreja não identificada.';
+      });
+      return;
     }
-
-    final ram = ChurchPedidosOracaoLoadService.peekRam(
-      tid,
-      respondidaFilter: _respondidaFilterFromStatus(),
-    );
-    if (ram != null && ram.isNotEmpty) {
-      return Future.value(MergedFirestoreQuerySnapshot(ram));
-    }
-
-    final memKey = ChurchPedidosOracaoLoadService.cacheKey(
-      tid,
-      _respondidaFilterFromStatus(),
-      ChurchPedidosOracaoLoadService.kDefaultLimit,
-    );
-    final mem = FirestoreReadResilience.peekLastGoodQuery(memKey);
-    if (mem != null && mem.docs.isNotEmpty) {
-      return Future.value(mem);
-    }
-
-    return _loadPedidos();
-  }
-
-  Future<void> _openPedidosFast() async {
-    final tid = _tid.trim();
-    if (tid.isEmpty) return;
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final snap = await _loadPedidos(forceRefresh: true);
+      final result = await ChurchPedidosOracaoLoadService.load(
+        seedTenantId: churchId,
+        respondidaFilter: _respondidaFilterFromStatus(),
+        forceRefresh: forceFresh,
+        forceServer: forceFresh,
+      );
       if (!mounted) return;
-      setState(() => _pedidosFuture = Future.value(snap));
-    } catch (_) {}
+      setState(() {
+        _pedidosDocs = result.docs;
+        _fetching = false;
+        _showingStaleCache = result.fromCache && !forceFresh;
+        if (result.docs.isEmpty && result.softError != null) {
+          _loadError = result.softError;
+        } else {
+          _loadError = null;
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _fetching = false;
+        if (_pedidosDocs.isEmpty) _loadError = '$e';
+      });
+    }
   }
 
   void _refreshPedidos({bool forceRefresh = false}) {
     setState(() {
-      _pedidosFuture = _loadPedidos(
-        forceRefresh: forceRefresh,
-        forceServer: forceRefresh,
-      );
+      _fetching = true;
+      _loadError = null;
     });
+    unawaited(_fetchPedidos(forceFresh: forceRefresh));
   }
 
   @override
   void initState() {
     super.initState();
-    _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
-    _pedidosFuture = _seedOrLoadPedidos();
-    unawaited(_openPedidosFast());
+    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
+    _seedPedidosLocal();
+    unawaited(_fetchPedidos());
   }
 
   @override
   void didUpdateWidget(covariant PrayerRequestsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId).trim();
-      _pedidosFuture = _seedOrLoadPedidos();
-      unawaited(_openPedidosFast());
+      _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
+      _seedPedidosLocal();
+      unawaited(_fetchPedidos());
     }
   }
 
@@ -202,9 +200,6 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     'Gratidão': Color(0xFFB45309),
     'Outro': Color(0xFF424242),
   };
-
-  CollectionReference<Map<String, dynamic>> get _col =>
-      ChurchUiCollections.pedidosOracao(_churchId);
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
 
@@ -254,38 +249,13 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     if (uid == null) return;
     final removing = orandoUids.contains(uid);
     try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.runWithWebRecovery(
-          () async {
-            if (removing) {
-              await _col.doc(docId).update({
-                'orandoUids': FieldValue.arrayRemove([uid]),
-                'orandoCount': FieldValue.increment(-1),
-              });
-            } else {
-              await _col.doc(docId).update({
-                'orandoUids': FieldValue.arrayUnion([uid]),
-                'orandoCount': FieldValue.increment(1),
-              });
-            }
-          },
-          maxAttempts: 4,
-        );
-      } else if (removing) {
-        await _col.doc(docId).update({
-          'orandoUids': FieldValue.arrayRemove([uid]),
-          'orandoCount': FieldValue.increment(-1),
-        });
-      } else {
-        await _col.doc(docId).update({
-          'orandoUids': FieldValue.arrayUnion([uid]),
-          'orandoCount': FieldValue.increment(1),
-        });
-      }
-      if (mounted) {
-        unawaited(ChurchPedidosOracaoLoadService.invalidate(_tid));
-        _refreshPedidos(forceRefresh: true);
-      }
+      await ChurchPedidosOracaoLoadService.toggleOrando(
+        churchId: _churchId,
+        docId: docId,
+        uid: uid,
+        removing: removing,
+      );
+      if (mounted) unawaited(_fetchPedidos(forceFresh: true));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -297,18 +267,11 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
 
   Future<void> _marcarRespondida(String docId) async {
     try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.runWithWebRecovery(
-          () => _col.doc(docId).update({'respondida': true}),
-          maxAttempts: 4,
-        );
-      } else {
-        await _col.doc(docId).update({'respondida': true});
-      }
-      if (mounted) {
-        unawaited(ChurchPedidosOracaoLoadService.invalidate(_tid));
-        _refreshPedidos(forceRefresh: true);
-      }
+      await ChurchPedidosOracaoLoadService.marcarRespondida(
+        churchId: _churchId,
+        docId: docId,
+      );
+      if (mounted) unawaited(_fetchPedidos(forceFresh: true));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -338,655 +301,216 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     );
     if (ok == true) {
       try {
-        if (kIsWeb) {
-          await FirestoreWebGuard.runWithWebRecovery(
-            () => _col.doc(docId).delete(),
-            maxAttempts: 4,
-          );
-        } else {
-          await _col.doc(docId).delete();
-        }
+        await ChurchPedidosOracaoLoadService.deletePedidos(
+          seedTenantId: _churchId,
+          docIds: [docId],
+        );
         if (mounted) {
-          unawaited(ChurchPedidosOracaoLoadService.invalidate(_tid));
-          _refreshPedidos(forceRefresh: true);
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pedido excluído.', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green));
+          unawaited(_fetchPedidos(forceFresh: true));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Pedido excluído.',
+                  style: TextStyle(color: Colors.white)),
+              backgroundColor: Colors.green));
         }
       } catch (e) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao excluir: $e')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Erro ao excluir: $e')));
+        }
       }
     }
   }
 
-  /// Decoração “super premium” para o sheet de novo/editar pedido.
-  static BoxDecoration get _prayerSheetDecoration => BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(ThemeCleanPremium.radiusLg)),
-        border: Border.all(color: const Color(0xFFE8EDF3)),
-        boxShadow: ThemeCleanPremium.softUiCardShadow,
-      );
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
 
-  static const Color _chipBorderUnselected = Color(0xFFCBD5E1);
-  static const Color _chipLabelUnselected = Color(0xFF334155);
-
-  /// Categoria: contraste explícito (ChoiceChip + tema M3 gerava texto claro em fundo claro).
-  Widget _buildPrayerCategoriaChip({
-    required String cat,
-    required String selectedCat,
-    required ValueChanged<String> onSelect,
-  }) {
-    final sel = selectedCat == cat;
-    final accent = _categoriaTexto[cat] ?? const Color(0xFF475569);
-    final fill = _categoriaCores[cat] ?? const Color(0xFFF1F5F9);
+  Widget _buildSelectionBar() {
     return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => onSelect(cat),
-        borderRadius: BorderRadius.circular(14),
-        splashColor: accent.withValues(alpha: 0.14),
-        highlightColor: accent.withValues(alpha: 0.06),
-        child: Ink(
-          decoration: BoxDecoration(
-            color: sel ? fill : Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: sel ? accent : _chipBorderUnselected,
-              width: sel ? 2 : 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: sel
-                    ? accent.withValues(alpha: 0.22)
-                    : Colors.black.withValues(alpha: 0.06),
-                blurRadius: sel ? 12 : 5,
-                offset: const Offset(0, 2),
+      elevation: 12,
+      color: Colors.white,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              TextButton(
+                onPressed: _bulkDeleting
+                    ? null
+                    : () => setState(() => _selectedIds.clear()),
+                child: const Text('Limpar'),
+              ),
+              Expanded(
+                child: Text(
+                  '${_selectedIds.length} selecionado(s)',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              TextButton(
+                onPressed: _bulkDeleting ? null : () => _selectAllFromSnap(),
+                child: const Text('Todos'),
+              ),
+              const SizedBox(width: 4),
+              FilledButton.icon(
+                onPressed: _bulkDeleting || _selectedIds.isEmpty
+                    ? null
+                    : () => _confirmDeleteSelected(_selectedIds.length),
+                icon: _bulkDeleting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.delete_outline_rounded, size: 20),
+                label: const Text('Excluir'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.error,
+                  foregroundColor: Colors.white,
+                ),
               ),
             ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (sel) ...[
-                  Icon(Icons.check_circle_rounded, size: 18, color: accent),
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  cat,
-                  style: TextStyle(
-                    color: sel ? accent : _chipLabelUnselected,
-                    fontWeight: sel ? FontWeight.w800 : FontWeight.w600,
-                    fontSize: 13.5,
-                    height: 1.2,
-                    letterSpacing: 0.15,
-                  ),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );
+  }
+
+  Future<void> _selectAllFromSnap() async {
+    if (!mounted) return;
+    final ids = _pedidosDocs
+        .where((d) => _canSee(d.data()))
+        .map((d) => d.id)
+        .toList();
+    setState(() => _selectedIds.addAll(ids));
+  }
+
+  Future<void> _confirmDeleteSelected(int count) async {
+    if (_selectedIds.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir selecionados?'),
+        content: Text(
+          'Deseja excluir $count pedido(s)? Esta ação não pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _runBulkDelete(_selectedIds.toList());
+  }
+
+  Future<void> _confirmDeleteAll() async {
+    if (!mounted) return;
+    final ids = _pedidosDocs.map((d) => d.id).toList();
+    if (ids.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nenhum pedido para excluir.')),
+        );
+      }
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir TODOS os pedidos?'),
+        content: Text(
+          'Serão apagados ${ids.length} pedido(s) de oração. Esta ação é irreversível.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            child: const Text('Excluir todos'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await _runBulkDelete(ids);
+  }
+
+  Future<void> _runBulkDelete(List<String> ids) async {
+    setState(() => _bulkDeleting = true);
+    try {
+      final n = await ChurchPedidosOracaoLoadService.deletePedidos(
+        seedTenantId: _churchId,
+        docIds: ids,
+      );
+      if (!mounted) return;
+      _exitSelectionMode();
+      unawaited(_fetchPedidos(forceFresh: true));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            n == 1 ? 'Pedido excluído' : '$n pedidos excluídos',
+            style: const TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao excluir: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _bulkDeleting = false);
+    }
+  }
+
+  Future<void> _openPrayerForm({
+    QueryDocumentSnapshot<Map<String, dynamic>>? editDoc,
+  }) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        fullscreenDialog: ThemeCleanPremium.isMobile(context),
+        builder: (_) => _PrayerRequestFormPage(
+          tenantId: widget.tenantId,
+          churchId: _churchId,
+          editDoc: editDoc,
+          abrirSeletorMembros: _abrirSeletorMembros,
+        ),
+      ),
+    );
+    if (mounted && saved == true) {
+      unawaited(_fetchPedidos(forceFresh: true));
+    }
   }
 
   void _abrirFormularioEdicao(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
-    final textoCtrl = TextEditingController(text: (data['texto'] ?? '').toString());
-    String categoria = (data['categoria'] ?? 'Outro').toString();
-    bool publico = data['publico'] == true;
-    final destRaw = data['destinatariosEmails'];
-    List<String> destinatariosEmails = destRaw is List ? destRaw.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toSet().toList() : [];
-    String visibilidade = publico ? 'publico' : (destinatariosEmails.isNotEmpty ? 'membros' : 'lideres');
-    final formKey = GlobalKey<FormState>();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => Container(
-          decoration: _prayerSheetDecoration,
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(ctx).size.height * 0.92,
-          ),
-          child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(ThemeCleanPremium.radiusLg)),
-            child: Column(
-              children: [
-                Container(
-                  width: double.infinity,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        ThemeCleanPremium.primary.withValues(alpha: 0.45),
-                        ThemeCleanPremium.primaryLight.withValues(alpha: 0.2),
-                      ],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.only(
-                      left: ThemeCleanPremium.spaceLg,
-                      right: ThemeCleanPremium.spaceLg,
-                      top: ThemeCleanPremium.spaceMd,
-                      bottom: MediaQuery.of(ctx).viewInsets.bottom +
-                          ThemeCleanPremium.spaceLg,
-                    ),
-                    child: Form(
-                      key: formKey,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Center(
-                            child: Container(
-                              width: 40,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade300,
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: ThemeCleanPremium.spaceMd),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Editar Pedido de Oração',
-                                  style: Theme.of(ctx)
-                                      .textTheme
-                                      .titleLarge
-                                      ?.copyWith(fontWeight: FontWeight.w800),
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: ThemeCleanPremium.primary,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: ThemeCleanPremium.spaceSm,
-                                    vertical: ThemeCleanPremium.spaceXs,
-                                  ),
-                                ),
-                                child: const Text('Cancelar'),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: ThemeCleanPremium.spaceLg),
-                          TextFormField(
-                            controller: textoCtrl,
-                            maxLines: 4,
-                            maxLength: 500,
-                            decoration: const InputDecoration(
-                              labelText: 'Seu pedido de oração',
-                              hintText: 'Compartilhe aqui seu pedido...',
-                              alignLabelWithHint: true,
-                            ),
-                            validator: (v) => (v == null || v.trim().isEmpty)
-                                ? 'Informe o pedido'
-                                : null,
-                          ),
-                          const SizedBox(height: ThemeCleanPremium.spaceMd),
-                          Text('Categoria',
-                              style: Theme.of(ctx).textTheme.titleSmall),
-                          const SizedBox(height: ThemeCleanPremium.spaceXs),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: _categoriasForm
-                                .map(
-                                  (c) => _buildPrayerCategoriaChip(
-                                    cat: c,
-                                    selectedCat: categoria,
-                                    onSelect: (v) =>
-                                        setLocal(() => categoria = v),
-                                  ),
-                                )
-                                .toList(),
-                          ),
-                          const SizedBox(height: ThemeCleanPremium.spaceMd),
-                          Text('Quem pode ver',
-                              style: Theme.of(ctx).textTheme.titleSmall),
-                          const SizedBox(height: ThemeCleanPremium.spaceXs),
-                          ...['publico', 'lideres', 'membros'].map(
-                              (v) => RadioListTile<String>(
-                                    title: Text(v == 'publico'
-                                        ? 'Público (todos os membros)'
-                                        : v == 'lideres'
-                                            ? 'Apenas líderes'
-                                            : 'Membros selecionados'),
-                                    value: v,
-                                    groupValue: visibilidade,
-                                    onChanged: (val) => setLocal(() =>
-                                        visibilidade = val ?? visibilidade),
-                                    dense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                  )),
-                          if (visibilidade == 'membros') ...[
-                            const SizedBox(height: 8),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final picked = await _abrirSeletorMembros(
-                                    ctx, widget.tenantId, destinatariosEmails);
-                                if (ctx.mounted && picked != null) {
-                                  setLocal(() => destinatariosEmails = picked);
-                                }
-                              },
-                              icon: const Icon(Icons.people_rounded, size: 20),
-                              label: Text(destinatariosEmails.isEmpty
-                                  ? 'Selecionar membros'
-                                  : '${destinatariosEmails.length} membro(s) selecionado(s)'),
-                            ),
-                          ],
-                          const SizedBox(height: ThemeCleanPremium.spaceLg),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: SizedBox(
-                                  height: ThemeCleanPremium.minTouchTarget,
-                                  child: OutlinedButton(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: ThemeCleanPremium.primary,
-                                      side: BorderSide(
-                                        color: ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.55),
-                                        width: 1.5,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(14),
-                                      ),
-                                      textStyle: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                    onPressed: () => Navigator.pop(ctx),
-                                    child: const Text('Cancelar'),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: ThemeCleanPremium.spaceSm),
-                              Expanded(
-                                flex: 2,
-                                child: SizedBox(
-                                  height: ThemeCleanPremium.minTouchTarget,
-                                  child: FilledButton.icon(
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: ThemeCleanPremium.primary,
-                                      foregroundColor: Colors.white,
-                                      elevation: 0,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(14),
-                                      ),
-                                      textStyle: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                    onPressed: () async {
-                                      if (!formKey.currentState!.validate()) {
-                                        return;
-                                      }
-                                      final pub = visibilidade == 'publico';
-                                      final dest = visibilidade == 'membros'
-                                          ? destinatariosEmails
-                                          : <String>[];
-                                      if (visibilidade == 'membros' &&
-                                          dest.isEmpty) {
-                                        ScaffoldMessenger.of(ctx).showSnackBar(
-                                            const SnackBar(
-                                                content: Text(
-                                                    'Selecione pelo menos um membro.')));
-                                        return;
-                                      }
-                                      try {
-                                        Future<void> save() => _col.doc(doc.id).update({
-                                          'texto': textoCtrl.text.trim(),
-                                          'categoria': categoria,
-                                          'publico': pub,
-                                          'destinatariosEmails': dest,
-                                        });
-                                        if (kIsWeb) {
-                                          await FirestoreWebGuard.runWithWebRecovery(
-                                            save,
-                                            maxAttempts: 4,
-                                          );
-                                        } else {
-                                          await save();
-                                        }
-                                        if (ctx.mounted) {
-                                          unawaited(ChurchPedidosOracaoLoadService.invalidate(_tid));
-                                          _refreshPedidos(forceRefresh: true);
-                                          Navigator.pop(ctx);
-                                          ScaffoldMessenger.of(ctx)
-                                              .showSnackBar(const SnackBar(
-                                                  content: Text(
-                                                      'Pedido atualizado!')));
-                                        }
-                                      } catch (e) {
-                                        if (ctx.mounted) {
-                                          ScaffoldMessenger.of(ctx)
-                                              .showSnackBar(SnackBar(
-                                                  content: Text(
-                                                      'Erro ao salvar: $e')));
-                                        }
-                                      }
-                                    },
-                                    icon: const Icon(Icons.save_rounded),
-                                    label: const Text('Salvar alterações'),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    _openPrayerForm(editDoc: doc);
   }
 
   void _abrirFormulario() {
-    final textoCtrl = TextEditingController();
-    String categoria = 'Outro';
-    String visibilidade = 'publico';
-    List<String> destinatariosEmails = [];
-    final formKey = GlobalKey<FormState>();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) => Container(
-          decoration: _prayerSheetDecoration,
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(ctx).size.height * 0.92,
-          ),
-          child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(
-                top: Radius.circular(ThemeCleanPremium.radiusLg)),
-            child: Column(
-              children: [
-                Container(
-                  width: double.infinity,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        ThemeCleanPremium.primary.withValues(alpha: 0.45),
-                        ThemeCleanPremium.primaryLight.withValues(alpha: 0.2),
-                      ],
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: EdgeInsets.only(
-                      left: ThemeCleanPremium.spaceLg,
-                      right: ThemeCleanPremium.spaceLg,
-                      top: ThemeCleanPremium.spaceMd,
-                      bottom: MediaQuery.of(ctx).viewInsets.bottom +
-                          ThemeCleanPremium.spaceLg,
-                    ),
-                    child: Form(
-                      key: formKey,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Center(
-                            child: Container(
-                              width: 40,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade300,
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: ThemeCleanPremium.spaceMd),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Novo Pedido de Oração',
-                                  style: Theme.of(ctx)
-                                      .textTheme
-                                      .titleLarge
-                                      ?.copyWith(fontWeight: FontWeight.w800),
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: ThemeCleanPremium.primary,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: ThemeCleanPremium.spaceSm,
-                                    vertical: ThemeCleanPremium.spaceXs,
-                                  ),
-                                ),
-                                child: const Text('Cancelar'),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: ThemeCleanPremium.spaceLg),
-                          TextFormField(
-                            controller: textoCtrl,
-                            maxLines: 4,
-                            maxLength: 500,
-                            decoration: const InputDecoration(
-                              labelText: 'Seu pedido de oração',
-                              hintText: 'Compartilhe aqui seu pedido...',
-                              alignLabelWithHint: true,
-                            ),
-                            validator: (v) => (v == null || v.trim().isEmpty)
-                                ? 'Informe o pedido'
-                                : null,
-                          ),
-                          const SizedBox(height: ThemeCleanPremium.spaceMd),
-                          Text('Categoria',
-                              style: Theme.of(ctx).textTheme.titleSmall),
-                          const SizedBox(height: ThemeCleanPremium.spaceXs),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: _categoriasForm
-                                .map(
-                                  (c) => _buildPrayerCategoriaChip(
-                                    cat: c,
-                                    selectedCat: categoria,
-                                    onSelect: (v) =>
-                                        setLocal(() => categoria = v),
-                                  ),
-                                )
-                                .toList(),
-                          ),
-                          const SizedBox(height: ThemeCleanPremium.spaceMd),
-                          Text('Quem pode ver',
-                              style: Theme.of(ctx).textTheme.titleSmall),
-                          const SizedBox(height: ThemeCleanPremium.spaceXs),
-                          ...['publico', 'lideres', 'membros'].map(
-                              (v) => RadioListTile<String>(
-                                    title: Text(v == 'publico'
-                                        ? 'Público (todos os membros)'
-                                        : v == 'lideres'
-                                            ? 'Apenas líderes'
-                                            : 'Membros selecionados'),
-                                    value: v,
-                                    groupValue: visibilidade,
-                                    onChanged: (val) => setLocal(() =>
-                                        visibilidade = val ?? visibilidade),
-                                    dense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                  )),
-                          if (visibilidade == 'membros') ...[
-                            const SizedBox(height: 8),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                final picked = await _abrirSeletorMembros(
-                                    ctx, widget.tenantId, destinatariosEmails);
-                                if (ctx.mounted && picked != null) {
-                                  setLocal(() => destinatariosEmails = picked);
-                                }
-                              },
-                              icon: const Icon(Icons.people_rounded, size: 20),
-                              label: Text(destinatariosEmails.isEmpty
-                                  ? 'Selecionar membros'
-                                  : '${destinatariosEmails.length} membro(s) selecionado(s)'),
-                            ),
-                          ],
-                          const SizedBox(height: ThemeCleanPremium.spaceLg),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: SizedBox(
-                                  height: ThemeCleanPremium.minTouchTarget,
-                                  child: OutlinedButton(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: ThemeCleanPremium.primary,
-                                      side: BorderSide(
-                                        color: ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.55),
-                                        width: 1.5,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(14),
-                                      ),
-                                      textStyle: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                    onPressed: () => Navigator.pop(ctx),
-                                    child: const Text('Cancelar'),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: ThemeCleanPremium.spaceSm),
-                              Expanded(
-                                flex: 2,
-                                child: SizedBox(
-                                  height: ThemeCleanPremium.minTouchTarget,
-                                  child: FilledButton.icon(
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: ThemeCleanPremium.primary,
-                                      foregroundColor: Colors.white,
-                                      elevation: 0,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(14),
-                                      ),
-                                      textStyle: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                    onPressed: () async {
-                                      if (!formKey.currentState!.validate()) {
-                                        return;
-                                      }
-                                      final user = _currentUser;
-                                      if (user == null) {
-                                        if (ctx.mounted) {
-                                          ScaffoldMessenger.of(ctx).showSnackBar(
-                                              const SnackBar(
-                                                  content: Text(
-                                                      'Faça login para enviar.')));
-                                        }
-                                        return;
-                                      }
-                                      if (visibilidade == 'membros' &&
-                                          destinatariosEmails.isEmpty) {
-                                        ScaffoldMessenger.of(ctx).showSnackBar(
-                                            const SnackBar(
-                                                content: Text(
-                                                    'Selecione pelo menos um membro.')));
-                                        return;
-                                      }
-                                      final publico =
-                                          visibilidade == 'publico';
-                                      final dest = visibilidade == 'membros'
-                                          ? destinatariosEmails
-                                          : <String>[];
-                                      try {
-                                        Future<void> save() => _col.add({
-                                          'texto': textoCtrl.text.trim(),
-                                          'categoria': categoria,
-                                          'publico': publico,
-                                          'destinatariosEmails': dest,
-                                          'autorNome': user.displayName ??
-                                              user.email ??
-                                              'Membro',
-                                          'autorUid': user.uid,
-                                          'createdAt':
-                                              FieldValue.serverTimestamp(),
-                                          'orandoCount': 0,
-                                          'orandoUids': <String>[],
-                                          'respondida': false,
-                                        });
-                                        if (kIsWeb) {
-                                          await FirestoreWebGuard.runWithWebRecovery(
-                                            save,
-                                            maxAttempts: 4,
-                                          );
-                                        } else {
-                                          await save();
-                                        }
-                                        if (ctx.mounted) {
-                                          unawaited(ChurchPedidosOracaoLoadService.invalidate(_tid));
-                                          _refreshPedidos(forceRefresh: true);
-                                          Navigator.pop(ctx);
-                                          ScaffoldMessenger.of(ctx).showSnackBar(
-                                              const SnackBar(
-                                                  content: Text(
-                                                    'Pedido enviado com sucesso!',
-                                                    style: TextStyle(
-                                                        color: Colors.white),
-                                                  ),
-                                                  backgroundColor:
-                                                      Colors.green));
-                                        }
-                                      } catch (e) {
-                                        if (ctx.mounted) {
-                                          ScaffoldMessenger.of(ctx)
-                                              .showSnackBar(SnackBar(
-                                                  content: Text(
-                                                      'Erro ao enviar: $e')));
-                                        }
-                                      }
-                                    },
-                                    icon: const Icon(Icons.send_rounded),
-                                    label: const Text('Enviar Pedido'),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
+    _openPrayerForm();
   }
+
 
   /// Abre bottom sheet para selecionar membros; retorna lista de emails ou null se cancelar.
   Future<List<String>?> _abrirSeletorMembros(BuildContext context, String tenantId, List<String> selecionadosIniciais) async {
@@ -1308,9 +832,64 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                       ),
                     )
                   : null,
-              title: const Text('Pedidos de Oração'),
+              title: Text(_selectionMode
+                  ? '${_selectedIds.length} selecionado(s)'
+                  : 'Pedidos de Oração'),
+              actions: [
+                if (_isLeader && _selectionMode)
+                  TextButton(
+                    onPressed: _bulkDeleting ? null : _exitSelectionMode,
+                    child: const Text('Cancelar'),
+                  )
+                else if (_isLeader) ...[
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert_rounded),
+                    tooltip: 'Mais opções',
+                    onSelected: (v) {
+                      if (v == 'select') {
+                        setState(() => _selectionMode = true);
+                      } else if (v == 'delete_all') {
+                        _confirmDeleteAll();
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'select',
+                        child: Row(
+                          children: [
+                            Icon(Icons.checklist_rounded, size: 20),
+                            SizedBox(width: 10),
+                            Text('Selecionar vários'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete_all',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete_sweep_rounded,
+                                size: 20, color: ThemeCleanPremium.error),
+                            SizedBox(width: 10),
+                            Text('Excluir todos',
+                                style:
+                                    TextStyle(color: ThemeCleanPremium.error)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                if (!_selectionMode)
+                  IconButton(
+                    icon: const Icon(Icons.refresh_rounded),
+                    onPressed: () => _refreshPedidos(forceRefresh: true),
+                    tooltip: 'Atualizar',
+                  ),
+              ],
             ),
-      floatingActionButton: Container(
+      floatingActionButton: _selectionMode
+          ? null
+          : Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           gradient: _PrayerPremiumTheme.heroGradient,
@@ -1348,108 +927,159 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
-                child: ResilientPanelQueryFutureBuilder(
-                  future: _pedidosFuture,
-                  errorTitle: 'Não foi possível carregar os pedidos de oração',
-                  onRetry: () => _refreshPedidos(forceRefresh: true),
-                  builder: (context, snap, {required bool showingStaleCache}) {
-                    final docs = snap.docs;
-                    final visibleDocs =
-                        docs.where((d) => _canSee(d.data())).toList();
-                    final pendentes = visibleDocs
-                        .where((d) => d.data()['respondida'] != true)
-                        .length;
-                    final respondidas = visibleDocs.length - pendentes;
-                    var orandoTotal = 0;
-                    for (final d in visibleDocs) {
-                      final c = d.data()['orandoCount'];
-                      orandoTotal += c is int ? c : 0;
-                    }
-
-                    return CustomScrollView(
-                      slivers: [
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              padding.left,
-                              padding.top,
-                              padding.right,
-                              8,
-                            ),
-                            child: _PrayerHeroHeader(
-                              total: visibleDocs.length,
-                              pendentes: pendentes,
-                              respondidas: respondidas,
-                              orandoTotal: orandoTotal,
-                            ),
-                          ),
-                        ),
-                        if (showingStaleCache)
-                          const SliverToBoxAdapter(
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 16),
-                              child: ChurchPanelOfflineStaleBanner(
-                                message:
-                                    'Modo offline — últimos pedidos guardados.',
-                              ),
-                            ),
-                          ),
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: padding.left,
-                              vertical: 8,
-                            ),
-                            child: Row(
-                              children: [
-                                for (var i = 0; i < _filtrosStatus.length; i++) ...[
-                                  if (i > 0) const SizedBox(width: 8),
-                                  Expanded(
-                                    child: _PrayerFilterChip(
-                                      label: _filtrosStatus[i],
-                                      selected: _filtroStatus == _filtrosStatus[i],
-                                      onTap: () {
-                                        setState(() {
-                                          _filtroStatus = _filtrosStatus[i];
-                                          _pedidosFuture = _seedOrLoadPedidos();
-                                        });
-                                        unawaited(_openPedidosFast());
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                        if (visibleDocs.isEmpty)
-                          SliverFillRemaining(
-                            hasScrollBody: false,
-                            child: _buildEmptyState(tt),
-                          )
-                        else
-                          SliverPadding(
-                            padding: EdgeInsets.only(
-                              left: padding.left,
-                              right: padding.right,
-                              bottom: 96,
-                            ),
-                            sliver: SliverList(
-                              delegate: SliverChildBuilderDelegate(
-                                (context, i) =>
-                                    _buildCard(visibleDocs[i]),
-                                childCount: visibleDocs.length,
-                              ),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
+                child: _buildPedidosBody(padding, tt),
               ),
             ],
           ),
         ),
+      ),
+      bottomNavigationBar:
+          _isLeader && _selectionMode ? _buildSelectionBar() : null,
+    );
+  }
+
+  Widget _buildPedidosBody(EdgeInsets padding, TextTheme tt) {
+    if (_loadError != null && _pedidosDocs.isEmpty && !_fetching) {
+      return ChurchPanelErrorBody(
+        title: 'Não foi possível carregar os pedidos de oração',
+        error: _loadError,
+        onRetry: () => _refreshPedidos(forceRefresh: true),
+      );
+    }
+
+    final visibleDocs =
+        _pedidosDocs.where((d) => _canSee(d.data())).toList();
+    final pendentes =
+        visibleDocs.where((d) => d.data()['respondida'] != true).length;
+    final respondidas = visibleDocs.length - pendentes;
+    var orandoTotal = 0;
+    for (final d in visibleDocs) {
+      final c = d.data()['orandoCount'];
+      orandoTotal += c is int ? c : 0;
+    }
+
+    return RefreshIndicator(
+      onRefresh: () async => _fetchPedidos(forceFresh: true),
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                padding.left,
+                padding.top,
+                padding.right,
+                8,
+              ),
+              child: _PrayerHeroHeader(
+                total: visibleDocs.length,
+                pendentes: pendentes,
+                respondidas: respondidas,
+                orandoTotal: orandoTotal,
+              ),
+            ),
+          ),
+          if (_showingStaleCache)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: ChurchPanelOfflineStaleBanner(
+                  message: 'Modo offline — últimos pedidos guardados.',
+                ),
+              ),
+            ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: padding.left,
+                vertical: 8,
+              ),
+              child: Row(
+                children: [
+                  for (var i = 0; i < _filtrosStatus.length; i++) ...[
+                    if (i > 0) const SizedBox(width: 8),
+                    Expanded(
+                      child: _PrayerFilterChip(
+                        label: _filtrosStatus[i],
+                        selected: _filtroStatus == _filtrosStatus[i],
+                        onTap: () {
+                          setState(() {
+                            _filtroStatus = _filtrosStatus[i];
+                            _seedPedidosLocal();
+                          });
+                          unawaited(_fetchPedidos(forceFresh: true));
+                        },
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (visibleDocs.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _fetching
+                  ? const Center(child: ChurchPanelLoadingBody(itemCount: 4))
+                  : _buildEmptyState(tt),
+            )
+          else
+            SliverPadding(
+              padding: EdgeInsets.only(
+                left: padding.left,
+                right: padding.right,
+                bottom: 96,
+              ),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, i) {
+                    if (i >= visibleDocs.length) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2.5),
+                          ),
+                        ),
+                      );
+                    }
+                    final doc = visibleDocs[i];
+                    final id = doc.id;
+                    return GestureDetector(
+                      onTap: _selectionMode && _isLeader
+                          ? () => setState(() {
+                                if (_selectedIds.contains(id)) {
+                                  _selectedIds.remove(id);
+                                } else {
+                                  _selectedIds.add(id);
+                                }
+                              })
+                          : null,
+                      child: _buildCard(
+                        doc,
+                        selectionMode: _selectionMode && _isLeader,
+                        selected: _selectedIds.contains(id),
+                        onSelectionChanged: _selectionMode && _isLeader
+                            ? (v) => setState(() {
+                                  if (v) {
+                                    _selectedIds.add(id);
+                                  } else {
+                                    _selectedIds.remove(id);
+                                  }
+                                })
+                            : null,
+                      ),
+                    );
+                  },
+                  childCount: visibleDocs.length + (_fetching ? 1 : 0),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1526,7 +1156,12 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     );
   }
 
-  Widget _buildCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  Widget _buildCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc, {
+    bool selectionMode = false,
+    bool selected = false,
+    ValueChanged<bool>? onSelectionChanged,
+  }) {
     final data = doc.data();
     final nome = (data['autorNome'] ?? 'Membro').toString();
     final texto = (data['texto'] ?? '').toString();
@@ -1548,9 +1183,12 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: respondida
-              ? const Color(0xFF86EFAC).withValues(alpha: 0.6)
-              : catFg.withValues(alpha: 0.18),
+          color: selectionMode && selected
+              ? _PrayerPremiumTheme.rose
+              : respondida
+                  ? const Color(0xFF86EFAC).withValues(alpha: 0.6)
+                  : catFg.withValues(alpha: 0.18),
+          width: selectionMode && selected ? 2 : 1,
         ),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
@@ -1568,6 +1206,17 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (selectionMode)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8, top: 4),
+                        child: Checkbox(
+                          value: selected,
+                          activeColor: _PrayerPremiumTheme.rose,
+                          onChanged: onSelectionChanged == null
+                              ? null
+                              : (v) => onSelectionChanged(v ?? false),
+                        ),
+                      ),
                     Container(
                       width: 46,
                       height: 46,
@@ -1619,7 +1268,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                         ],
                       ),
                     ),
-                    if (_canManage(data))
+                    if (_canManage(data) && !selectionMode)
                       PopupMenuButton<String>(
                         icon: Icon(Icons.more_horiz_rounded,
                             color: Colors.grey.shade600),
@@ -2050,6 +1699,427 @@ class _OrandoButtonState extends State<_OrandoButton>
                 ),
               ],
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Formulário dedicado — Voltar + gravação rápida via [ChurchPedidosOracaoLoadService].
+class _PrayerRequestFormPage extends StatefulWidget {
+  final String tenantId;
+  final String churchId;
+  final QueryDocumentSnapshot<Map<String, dynamic>>? editDoc;
+  final Future<List<String>?> Function(
+    BuildContext context,
+    String tenantId,
+    List<String> selecionadosIniciais,
+  ) abrirSeletorMembros;
+
+  const _PrayerRequestFormPage({
+    required this.tenantId,
+    required this.churchId,
+    this.editDoc,
+    required this.abrirSeletorMembros,
+  });
+
+  @override
+  State<_PrayerRequestFormPage> createState() => _PrayerRequestFormPageState();
+}
+
+class _PrayerRequestFormPageState extends State<_PrayerRequestFormPage> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _textoCtrl;
+  late String _categoria;
+  late String _visibilidade;
+  late List<String> _destinatariosEmails;
+  bool _saving = false;
+
+  static const _categorias = _PrayerRequestsPageState._categoriasForm;
+  static const _categoriaCores = _PrayerRequestsPageState._categoriaCores;
+  static const _categoriaTexto = _PrayerRequestsPageState._categoriaTexto;
+
+  bool get _isEdit => widget.editDoc != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final data = widget.editDoc?.data();
+    _textoCtrl = TextEditingController(text: (data?['texto'] ?? '').toString());
+    _categoria = (data?['categoria'] ?? 'Outro').toString();
+    final publico = data?['publico'] == true;
+    final destRaw = data?['destinatariosEmails'];
+    _destinatariosEmails = destRaw is List
+        ? destRaw
+            .map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toSet()
+            .toList()
+        : [];
+    if (_isEdit) {
+      _visibilidade = publico
+          ? 'publico'
+          : (_destinatariosEmails.isNotEmpty ? 'membros' : 'lideres');
+    } else {
+      _visibilidade = 'publico';
+    }
+  }
+
+  @override
+  void dispose() {
+    _textoCtrl.dispose();
+    super.dispose();
+  }
+
+  InputDecoration _fieldDecoration({
+    required String label,
+    required String hint,
+  }) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      alignLabelWithHint: true,
+      filled: true,
+      fillColor: const Color(0xFFFDF2F8),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        borderSide: BorderSide.none,
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        borderSide: BorderSide(
+          color: _PrayerPremiumTheme.rose.withValues(alpha: 0.18),
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        borderSide: const BorderSide(
+          color: _PrayerPremiumTheme.rose,
+          width: 1.6,
+        ),
+      ),
+      contentPadding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+    );
+  }
+
+  Widget _categoriaChip(String cat) {
+    final sel = _categoria == cat;
+    final accent = _categoriaTexto[cat] ?? const Color(0xFF475569);
+    final fill = _categoriaCores[cat] ?? const Color(0xFFF1F5F9);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => setState(() => _categoria = cat),
+        borderRadius: BorderRadius.circular(14),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: sel ? fill : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: sel ? accent : const Color(0xFFCBD5E1),
+              width: sel ? 2 : 1,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (sel) ...[
+                  Icon(Icons.check_circle_rounded, size: 18, color: accent),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  cat,
+                  style: TextStyle(
+                    color: sel ? accent : const Color(0xFF334155),
+                    fontWeight: sel ? FontWeight.w800 : FontWeight.w600,
+                    fontSize: 13.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    if (_visibilidade == 'membros' && _destinatariosEmails.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecione pelo menos um membro.')),
+      );
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (!_isEdit && user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Faça login para enviar.')),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+
+    final publico = _visibilidade == 'publico';
+    final dest = _visibilidade == 'membros'
+        ? _destinatariosEmails
+        : <String>[];
+
+    final payload = <String, dynamic>{
+      'texto': _textoCtrl.text.trim(),
+      'categoria': _categoria,
+      'publico': publico,
+      'destinatariosEmails': dest,
+    };
+
+    if (!_isEdit && user != null) {
+      payload['autorNome'] = user.displayName ?? user.email ?? 'Membro';
+      payload['autorUid'] = user.uid;
+    }
+
+    try {
+      await ChurchPedidosOracaoLoadService.savePedido(
+        churchId: widget.churchId,
+        payload: payload,
+        existingDocId: _isEdit ? widget.editDoc!.id : null,
+      );
+      unawaited(ChurchPedidosOracaoLoadService.invalidate(
+        ChurchRepository.churchId(widget.tenantId),
+      ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _isEdit ? 'Pedido atualizado.' : 'Pedido enviado com sucesso!',
+              style: const TextStyle(color: Colors.white),
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao salvar: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    final isMobile = ThemeCleanPremium.isMobile(context);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          tooltip: 'Voltar',
+          onPressed: _saving ? null : () => Navigator.maybePop(context),
+          style: IconButton.styleFrom(
+            minimumSize: const Size(
+              ThemeCleanPremium.minTouchTarget,
+              ThemeCleanPremium.minTouchTarget,
+            ),
+          ),
+        ),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: _PrayerPremiumTheme.heroGradient,
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x33EC4899),
+                blurRadius: 18,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+        ),
+        title: Text(
+          _isEdit ? 'Editar Pedido de Oração' : 'Novo Pedido de Oração',
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+        ),
+      ),
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 560),
+            child: SingleChildScrollView(
+              padding: ThemeCleanPremium.pagePadding(context),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          TextFormField(
+                            controller: _textoCtrl,
+                            maxLines: 5,
+                            maxLength: 500,
+                            enabled: !_saving,
+                            decoration: _fieldDecoration(
+                              label: 'Seu pedido de oração',
+                              hint: 'Compartilhe aqui seu pedido...',
+                            ),
+                            validator: (v) => (v == null || v.trim().isEmpty)
+                                ? 'Informe o pedido'
+                                : null,
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
+                          Text('Categoria', style: tt.titleSmall),
+                          const SizedBox(height: ThemeCleanPremium.spaceXs),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _categorias.map(_categoriaChip).toList(),
+                          ),
+                          const SizedBox(height: ThemeCleanPremium.spaceMd),
+                          Text('Quem pode ver', style: tt.titleSmall),
+                          const SizedBox(height: ThemeCleanPremium.spaceXs),
+                          ...['publico', 'lideres', 'membros'].map(
+                            (v) => RadioListTile<String>(
+                              title: Text(
+                                v == 'publico'
+                                    ? 'Público (todos os membros)'
+                                    : v == 'lideres'
+                                        ? 'Apenas líderes'
+                                        : 'Membros selecionados',
+                              ),
+                              value: v,
+                              groupValue: _visibilidade,
+                              onChanged: _saving
+                                  ? null
+                                  : (val) => setState(
+                                        () => _visibilidade = val ?? _visibilidade,
+                                      ),
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              activeColor: _PrayerPremiumTheme.rose,
+                            ),
+                          ),
+                          if (_visibilidade == 'membros') ...[
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              onPressed: _saving
+                                  ? null
+                                  : () async {
+                                      final picked =
+                                          await widget.abrirSeletorMembros(
+                                        context,
+                                        widget.tenantId,
+                                        _destinatariosEmails,
+                                      );
+                                      if (mounted && picked != null) {
+                                        setState(
+                                            () => _destinatariosEmails = picked);
+                                      }
+                                    },
+                              icon: const Icon(Icons.people_rounded, size: 20),
+                              label: Text(
+                                _destinatariosEmails.isEmpty
+                                    ? 'Selecionar membros'
+                                    : '${_destinatariosEmails.length} membro(s) selecionado(s)',
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: ThemeCleanPremium.spaceLg),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: ThemeCleanPremium.minTouchTarget,
+                            child: OutlinedButton(
+                              onPressed:
+                                  _saving ? null : () => Navigator.maybePop(context),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: _PrayerPremiumTheme.rose,
+                                side: BorderSide(
+                                  color: _PrayerPremiumTheme.rose
+                                      .withValues(alpha: 0.55),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: const Text(
+                                'Voltar',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: ThemeCleanPremium.spaceSm),
+                        Expanded(
+                          flex: 2,
+                          child: SizedBox(
+                            height: ThemeCleanPremium.minTouchTarget,
+                            child: FilledButton.icon(
+                              onPressed: _saving ? null : _save,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: _PrayerPremiumTheme.rose,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              icon: _saving
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Icon(_isEdit
+                                      ? Icons.save_rounded
+                                      : Icons.send_rounded),
+                              label: Text(
+                                _isEdit ? 'Salvar' : 'Enviar Pedido',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),

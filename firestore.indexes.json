@@ -585,6 +585,13 @@
       ]
     },
     {
+      "collectionGroup": "escala_templates",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "title", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "membros",
       "queryScope": "COLLECTION",
       "fields": [

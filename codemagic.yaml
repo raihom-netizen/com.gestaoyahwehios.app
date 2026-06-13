@@ -510,7 +510,13 @@ workflows:
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           bash "$ROOT/scripts/codemagic_ios_validate_ipa_before_upload.sh"
+      - name: Gravar asc_build_number_floor (anti-90189 próximo build)
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          bash "$ROOT/scripts/codemagic_ios_stamp_asc_floor.sh"
       # Upload TestFlight: integração nativa Codemagic — só GestaoYahweh.ipa (sem ã/espaços no path).
+      # PROIBIDO «Retry» só em Publishing — gera 90189 Redundant Binary Upload (mesmo CFBundleVersion).
       # Evita o passo lento «app-store-connect publish» (CLI) que faz polling 30 em 30 s e falha com timeout.
     artifacts:
       - flutter_app/build/ios/ipa/GestaoYahweh.ipa
@@ -519,6 +525,7 @@ workflows:
       - flutter_app/build/ios/archive/Runner.xcarchive/dSYMs/**
       - build/ios/archive/Runner.xcarchive/dSYMs/**
       - /tmp/xcodebuild_logs/*.log
+      - flutter_app/ios/asc_build_number_floor.txt
       # Se CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM=1 num build, o PEM fica aqui para copiar ao secret.
       - bootstrap_signing_output/**
     publishing:

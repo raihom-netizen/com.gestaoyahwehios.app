@@ -11,6 +11,7 @@ class SubscriptionExpiredPage extends StatelessWidget {
   final String? logoUrl;
   final VoidCallback onRenew;
   final VoidCallback onLogout;
+  final bool canPurchaseLicense;
 
   const SubscriptionExpiredPage({
     super.key,
@@ -18,10 +19,12 @@ class SubscriptionExpiredPage extends StatelessWidget {
     required this.onRenew,
     required this.onLogout,
     this.logoUrl,
+    this.canPurchaseLicense = true,
   });
 
   Future<void> _openSupportWhatsApp() async {
-    final phone = AppConstants.masterSupportWhatsApp.replaceAll(RegExp(r'[^0-9]'), '');
+    final phone =
+        AppConstants.masterSupportWhatsApp.replaceAll(RegExp(r'[^0-9]'), '');
     if (phone.isEmpty) return;
     final uri = Uri.parse(
       'https://wa.me/$phone?text=${Uri.encodeComponent('Olá, preciso de suporte para renovar a assinatura do sistema.')}',
@@ -83,47 +86,55 @@ class SubscriptionExpiredPage extends StatelessWidget {
                                     fit: BoxFit.cover,
                                     memCacheWidth: 180,
                                     memCacheHeight: 180,
-                                    errorWidget: const Icon(Icons.church_rounded, color: Color(0xFF0052CC), size: 32),
+                                    errorWidget: const Icon(Icons.church_rounded,
+                                        color: Color(0xFF0052CC), size: 32),
                                   )
-                                : const Icon(Icons.church_rounded, color: Color(0xFF0052CC), size: 32),
+                                : const Icon(Icons.church_rounded,
+                                    color: Color(0xFF0052CC), size: 32),
                           ),
                         ),
                       ),
                       const SizedBox(height: 16),
-                      const Icon(Icons.lock_rounded, color: Color(0xFFDC2626), size: 34),
+                      const Icon(Icons.lock_rounded,
+                          color: Color(0xFFDC2626), size: 34),
                       const SizedBox(height: 10),
                       const Text(
                         'Assinatura Suspensa',
-                        style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                            fontSize: 24, fontWeight: FontWeight.w800),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        '$churchName está com acesso bloqueado após o período de carência.',
+                        canPurchaseLicense
+                            ? '$churchName está com acesso bloqueado após o período de carência.'
+                            : '$churchName está com acesso bloqueado. Somente o gestor, '
+                                'secretário ou tesoureiro pode gerar o pagamento da licença.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey.shade700, height: 1.35),
+                        style: TextStyle(
+                            color: Colors.grey.shade700, height: 1.35),
                       ),
                       const SizedBox(height: 22),
-                      // Em iOS sob o gate, o botao leva para a tela
-                      // "Atualizar plano" que abre o site externo.
-                      SizedBox(
-                        width: double.infinity,
-                        height: 52,
-                        child: ElevatedButton.icon(
-                          onPressed: onRenew,
-                          icon: const Icon(Icons.workspace_premium_rounded),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF0052CC),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                          label: Text(
-                            IosPaymentsGate.shouldHidePayments
-                                ? 'Atualizar plano'
-                                : 'Renovar Licença / Pagar Agora',
+                      if (canPurchaseLicense)
+                        SizedBox(
+                          width: double.infinity,
+                          height: 52,
+                          child: ElevatedButton.icon(
+                            onPressed: onRenew,
+                            icon: const Icon(Icons.workspace_premium_rounded),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0052CC),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                            label: Text(
+                              IosPaymentsGate.shouldHidePayments
+                                  ? 'Atualizar plano'
+                                  : 'Renovar Licença / Pagar Agora',
+                            ),
                           ),
                         ),
-                      ),
                       const SizedBox(height: 10),
                       if (AppConstants.masterSupportWhatsApp.trim().isNotEmpty)
                         TextButton.icon(

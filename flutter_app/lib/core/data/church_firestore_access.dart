@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
+import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/performance/firebase_query_audit.dart';
@@ -182,11 +183,15 @@ abstract final class ChurchFirestoreAccess {
       await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
     }
     final ref = collectionRef(churchId, subcollectionName).doc(docId);
+    final payload = ChurchTenantFields.stamp(
+      churchId.trim(),
+      Map<String, dynamic>.from(data),
+    );
     await ChurchModuleFirestoreAudit.traceQuery(
       module: module,
       churchId: churchId,
       path: ref.path,
-      run: () => ref.set(data, SetOptions(merge: merge)),
+      run: () => ref.set(payload, SetOptions(merge: merge)),
     );
   }
 
@@ -200,11 +205,15 @@ abstract final class ChurchFirestoreAccess {
       await FirestoreWebGuard.prepareForCriticalWrite().catchError((_) {});
     }
     final col = collectionRef(churchId, subcollectionName);
+    final payload = ChurchTenantFields.stamp(
+      churchId.trim(),
+      Map<String, dynamic>.from(data),
+    );
     await ChurchModuleFirestoreAudit.traceQuery(
       module: module,
       churchId: churchId,
       path: col.path,
-      run: () => col.add(data),
+      run: () => col.add(payload),
     );
   }
 

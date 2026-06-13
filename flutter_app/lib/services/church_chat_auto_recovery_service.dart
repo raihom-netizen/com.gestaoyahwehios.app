@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/services/chat_strict_publish_service.dart';
 import 'package:gestao_yahweh/services/church_chat_message_fields.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
@@ -30,11 +30,7 @@ abstract final class ChurchChatAutoRecoveryService {
       await ensureFirebaseReadyForChatSend();
       final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
       if (uid.isEmpty) return;
-      final tenantId =
-          await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
-        '',
-        userUid: uid,
-      );
+      final tenantId = (ChurchContext.currentChurchId ?? '').trim();
       if (tenantId.isEmpty) return;
       YahwehFlowLog.chatStart();
       final n = await recoverStuckForTenant(tenantId, uid: uid);
@@ -97,15 +93,18 @@ abstract final class ChurchChatAutoRecoveryService {
       // Storage OK mas Firestore ainda em uploading — finaliza sem esperar cutoff.
       if (type != 'text' &&
           ChurchChatMessageFields.isUploadInProgress(data)) {
-        final finalized = await ChatStrictPublishService.tryFinalizeIfStorageReady(
-          tenantId: tenantId,
-          threadId: threadId,
-          messageId: doc.id,
-          data: data,
-        );
-        if (finalized) {
-          fixed++;
-          continue;
+        final sp = ChurchChatMessageFields.storagePath(data);
+        if (sp.isNotEmpty) {
+          final finalized = await ChatStrictPublishService.tryFinalizeIfStorageReady(
+            tenantId: tenantId,
+            threadId: threadId,
+            messageId: doc.id,
+            data: data,
+          );
+          if (finalized) {
+            fixed++;
+            continue;
+          }
         }
       }
 
@@ -199,15 +198,19 @@ abstract final class ChurchChatAutoRecoveryService {
 
         if (type != 'text' &&
             ChurchChatMessageFields.isUploadInProgress(data)) {
-          final finalized = await ChatStrictPublishService.tryFinalizeIfStorageReady(
-            tenantId: tenantId,
-            threadId: threadId,
-            messageId: doc.id,
-            data: data,
-          );
-          if (finalized) {
-            fixed++;
-            continue;
+          final sp = ChurchChatMessageFields.storagePath(data);
+          if (sp.isNotEmpty) {
+            final finalized =
+                await ChatStrictPublishService.tryFinalizeIfStorageReady(
+              tenantId: tenantId,
+              threadId: threadId,
+              messageId: doc.id,
+              data: data,
+            );
+            if (finalized) {
+              fixed++;
+              continue;
+            }
           }
         }
 

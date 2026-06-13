@@ -3,7 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_corpo_admin_roles.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
@@ -50,7 +50,7 @@ abstract final class ChurchPanelLeadershipLoadService {
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
-    final churchId = ChurchPanelTenant.resolve(seedTenantId.trim());
+    final churchId = ChurchRepository.churchId(seedTenantId.trim());
     if (churchId.isEmpty) return const [];
 
     final panel =

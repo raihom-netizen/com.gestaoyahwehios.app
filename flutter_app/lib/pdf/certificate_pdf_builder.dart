@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
+
 part 'certificate_pdf_gala_append.part.dart';
 
 String _normCasamentoNomeChave(String s) =>
@@ -516,11 +518,17 @@ pw.Widget _certPdfAssinaturaColumnaLimpa({
 
   final children = <pw.Widget>[
     if (digital) ...[
-      ..._certPdfLegalStampTailWidgets(
-        input: input,
-        signatory: s,
-        compact: compact,
-        leadSpacing: false,
+      pw.Center(
+        child: pdfDigitalCertificateStampBlock(
+          PdfDigitalStampInput(
+            signerName: s.nome,
+            signerCpfDigits: s.cpfDigits,
+            churchName: input.nomeIgreja,
+            dadosLine: input.digitalSignatureDadosLine,
+            compact: compact,
+          ),
+          maxWidth: lineW * 1.2,
+        ),
       ),
       pw.SizedBox(height: compact ? 5.0 : 7.0),
     ] else if (showRasterSig) ...[

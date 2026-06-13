@@ -160,11 +160,12 @@ abstract final class FinanceComprovanteAttachService {
       );
       if (xfile == null) return null;
       if (!context.mounted) return null;
-      final bytes = await xfile.readAsBytes();
-      if (bytes.isEmpty) {
+      final raw = await xfile.readAsBytes();
+      if (raw.isEmpty) {
         _showSnack(context, 'Não foi possível ler a foto da câmera.');
         return null;
       }
+      final bytes = await ImageHelper.compressPatrimonioPhotoForUpload(raw);
       if (bytes.lengthInBytes > maxBytes) {
         _showSnack(context, 'Foto grande demais. Limite: 5 MB.');
         return null;
@@ -255,21 +256,20 @@ abstract final class FinanceComprovanteAttachService {
       );
       if (xfile == null) return null;
       if (!context.mounted) return null;
-      final bytes = await xfile.readAsBytes();
-      if (bytes.isEmpty) {
+      final raw = await xfile.readAsBytes();
+      if (raw.isEmpty) {
         _showSnack(context, 'Não foi possível ler a imagem.');
         return null;
       }
+      final bytes = await ImageHelper.compressPatrimonioPhotoForUpload(raw);
       if (bytes.lengthInBytes > maxBytes) {
         _showSnack(context, 'Imagem grande demais. Limite: 5 MB.');
         return null;
       }
-      final lower = xfile.name.toLowerCase();
-      final mime = lower.endsWith('.png') ? 'image/png' : 'image/jpeg';
       return FinanceComprovanteAttachment(
         bytes: bytes,
         fileName: xfile.name,
-        mimeType: mime,
+        mimeType: 'image/webp',
       );
     } catch (e) {
       _showSnack(
@@ -280,26 +280,21 @@ abstract final class FinanceComprovanteAttachService {
     }
   }
 
-  /// PDF passa direto; imagens comprimidas levemente (sem tratar PDF como foto).
+  /// PDF passa direto; imagens WebP leve (patrimônio/feed).
   static Future<({Uint8List bytes, String mimeType})> prepareUploadBytes(
     FinanceComprovanteAttachment attachment,
   ) async {
     if (attachment.isPdf) {
       return (bytes: attachment.bytes, mimeType: 'application/pdf');
     }
-    if (attachment.bytes.length <= 900000) {
-      return (bytes: attachment.bytes, mimeType: attachment.mimeType);
+    if (attachment.mimeType.contains('webp') &&
+        attachment.bytes.length <= 900000) {
+      return (bytes: attachment.bytes, mimeType: 'image/webp');
     }
-    final compressed = await ImageHelper.compressImage(
+    final compressed = await ImageHelper.compressPatrimonioPhotoForUpload(
       attachment.bytes,
-      minWidth: 1200,
-      minHeight: 900,
-      quality: 82,
     );
-    final mime = attachment.mimeType.contains('png')
-        ? 'image/png'
-        : 'image/jpeg';
-    return (bytes: compressed, mimeType: mime);
+    return (bytes: compressed, mimeType: 'image/webp');
   }
 
   static Future<void> viewFromDoc(

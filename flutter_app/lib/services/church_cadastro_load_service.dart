@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
+import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -51,8 +53,7 @@ abstract final class ChurchCadastroLoadService {
   /// Perfil mínimo útil (nome + pelo menos endereço ou gestor).
   static const int kMinProfileScore = 5;
 
-  static Duration get _networkTimeout =>
-      kIsWeb ? const Duration(seconds: 15) : const Duration(seconds: 20);
+  static Duration get _networkTimeout => ChurchPanelReadTimeouts.churchDocCap;
 
   static String _logoPathFor(String churchId, Map<String, dynamic>? data) {
     return ChurchBrandService.logoPathFromData(data, churchId: churchId) ??
@@ -84,10 +85,10 @@ abstract final class ChurchCadastroLoadService {
       );
 
   static String _resolveChurchId(String seedTenantId) {
-    return ChurchPanelTenant.resolve(
-      seedTenantId.trim().isNotEmpty
-          ? seedTenantId.trim()
-          : (ChurchContextService.currentChurchId ?? ''),
+    final seed = seedTenantId.trim();
+    if (seed.isNotEmpty) return ChurchRepository.churchId(seed);
+    return ChurchRepository.churchId(
+      ChurchContextService.currentChurchId ?? '',
     );
   }
 
@@ -103,7 +104,7 @@ abstract final class ChurchCadastroLoadService {
     final ctxData = ChurchContextService.currentChurchData;
     if (ctxData != null &&
         ctxId.isNotEmpty &&
-        ChurchPanelTenant.resolve(ctxId) == churchId &&
+        ChurchRepository.churchId(ctxId) == churchId &&
         ctxData.isNotEmpty) {
       return _resultFromData(
         seed: seed,
@@ -158,6 +159,24 @@ abstract final class ChurchCadastroLoadService {
     }
 
     Object? loadError;
+
+    // Doc único — leitura directa primeiro (menos camadas; web com recovery 4×).
+    try {
+      final direct = await IgrejaDirectFirestoreReads.readIgrejaDoc(churchId);
+      if (direct != null &&
+          direct.data.isNotEmpty &&
+          _isUsableProfile(direct.data)) {
+        return _resultFromData(
+          seed: seed,
+          churchId: direct.docId,
+          data: ChurchTenantFields.stamp(direct.docId, direct.data),
+          readSource: 'direct_read',
+        );
+      }
+    } catch (e) {
+      loadError = e;
+    }
+
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady()
@@ -174,7 +193,7 @@ abstract final class ChurchCadastroLoadService {
         return _resultFromData(
           seed: seed,
           churchId: loaded.churchId,
-          data: loaded.data,
+          data: ChurchTenantFields.stamp(loaded.churchId, loaded.data),
           readSource: loaded.readSource,
         );
       }
@@ -184,6 +203,20 @@ abstract final class ChurchCadastroLoadService {
       loadError = e;
     } catch (e) {
       loadError = e;
+    }
+
+    try {
+      final direct = await IgrejaDirectFirestoreReads.readIgrejaDoc(churchId);
+      if (direct != null && direct.data.isNotEmpty) {
+        return _resultFromData(
+          seed: seed,
+          churchId: direct.docId,
+          data: ChurchTenantFields.stamp(direct.docId, direct.data),
+          readSource: 'direct_read',
+        );
+      }
+    } catch (e) {
+      loadError ??= e;
     }
 
     if (!forceRefresh) {

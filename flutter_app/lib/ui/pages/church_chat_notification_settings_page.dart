@@ -6,7 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
@@ -60,19 +61,10 @@ class _ChurchChatNotificationSettingsPageState
     if (raw.isEmpty) {
       return;
     }
-    try {
-      final tid =
-          await TenantResolverService.resolveEffectiveTenantIdPreferringUserBinding(
-        raw,
-        userUid: u,
-      );
-      if (mounted) {
-        setState(() => _effectiveTenantId = tid.trim());
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(() => _effectiveTenantId = raw);
-      }
+    final bound = ChurchContextService.currentChurchId?.trim() ?? '';
+    final tid = bound.isNotEmpty ? bound : ChurchRepository.churchId(raw);
+    if (mounted) {
+      setState(() => _effectiveTenantId = tid.trim().isNotEmpty ? tid.trim() : raw);
     }
   }
 

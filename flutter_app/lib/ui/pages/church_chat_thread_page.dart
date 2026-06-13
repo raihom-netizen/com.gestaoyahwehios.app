@@ -77,6 +77,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chat_video_message_bubble.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_peer_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_profile_photo_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_whatsapp_theme.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_save_media.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:image_picker/image_picker.dart';
@@ -162,6 +163,10 @@ class ChurchChatThreadPage extends StatefulWidget {
   /// Texto inicial no campo de mensagem (ex.: parabéns de aniversário).
   final String? initialDraftText;
 
+  /// Web split — conversa embutida ao lado da lista (sem push fullscreen).
+  final bool embeddedInSplitPanel;
+  final VoidCallback? onSplitPanelClose;
+
   const ChurchChatThreadPage({
     super.key,
     required this.tenantId,
@@ -173,6 +178,8 @@ class ChurchChatThreadPage extends StatefulWidget {
     this.memberCpfDigits = '',
     this.departmentId,
     this.initialDraftText,
+    this.embeddedInSplitPanel = false,
+    this.onSplitPanelClose,
   });
 
   @override
@@ -286,6 +293,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _bindChatFirestoreStreams(_tid);
     unawaited(_primeRecentMessagesFromCacheOrServer());
     unawaited(_initChatThreadTenantAndStreams());
+    unawaited(_bootstrapThreadUploads());
     Future<void>.delayed(const Duration(seconds: 18), () {
       if (!mounted) return;
       unawaited(
@@ -335,7 +343,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           threadId: widget.threadId,
         ),
       );
-      Future<void>.delayed(const Duration(seconds: 4), () {
+      Future<void>.delayed(const Duration(seconds: 2), () {
         if (mounted) unawaited(_bootstrapThreadUploads());
       });
     });
@@ -383,6 +391,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           tenantId: _tid,
           threadId: widget.threadId,
           uid: uid,
+          maxAge: const Duration(minutes: 1),
         );
       }
     } catch (_) {}
@@ -596,17 +605,21 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   ) {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     if (uid.isEmpty) return;
-    for (final doc in docs.take(10)) {
+    for (final doc in docs) {
       final m = doc.data();
       if ((m['senderUid'] ?? '').toString() != uid) continue;
       if (!ChurchChatMessageFields.isUploadInProgress(m)) continue;
+      final sp = ChurchChatMessageFields.storagePath(m);
+      if (sp.isEmpty) continue;
       unawaited(
         ChatStrictPublishService.tryFinalizeIfStorageReady(
           tenantId: _tid,
           threadId: widget.threadId,
           messageId: doc.id,
           data: m,
-        ),
+        ).then((ok) {
+          if (ok && mounted) setState(() {});
+        }),
       );
     }
   }
@@ -2027,57 +2040,78 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   }) async {
     if (bytes != null && bytes.isNotEmpty) {
       final u8 = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
-      pending.previewBytes ??= u8;
+      if (pending.kind == 'image' &&
+          (pending.previewBytes == null || pending.previewBytes!.isEmpty)) {
+        pending.previewBytes = u8;
+      }
+      if (u8.length <= 48 * 1024 * 1024) {
+        unawaited(
+          ChurchChatPendingMediaCache.put(
+            tenantId: _tid,
+            threadId: widget.threadId,
+            localId: pending.localId,
+            bytes: u8,
+          ),
+        );
+      }
       return u8;
     }
+
+    final cached = await ChurchChatPendingMediaCache.get(
+      tenantId: _tid,
+      threadId: widget.threadId,
+      localId: pending.localId,
+    );
+    if (cached != null && cached.isNotEmpty) {
+      if (pending.kind == 'image' &&
+          (pending.previewBytes == null || pending.previewBytes!.isEmpty)) {
+        pending.previewBytes = cached;
+      }
+      return cached;
+    }
+
     if (pending.previewBytes != null && pending.previewBytes!.isNotEmpty) {
       return pending.previewBytes;
     }
-    if (kIsWeb) {
-      final cached = await ChurchChatPendingMediaCache.get(
-        tenantId: _tid,
-        threadId: widget.threadId,
-        localId: pending.localId,
-      );
-      if (cached != null && cached.isNotEmpty) {
-        pending.previewBytes = cached;
-        return cached;
-      }
-      return null;
-    }
+
     final path = localPath?.trim() ?? pending.localPath?.trim() ?? '';
-    if (path.isNotEmpty) {
-      pending.localPath ??= path;
-      if (pending.kind == 'image') {
-        try {
-          pending.previewBytes = await SafeImageBytes.fromPath(
-            path,
-            maxEdge: 320,
-            quality: 62,
-          );
-          if (mounted) setState(() {});
-        } catch (_) {}
+    if (path.isEmpty) return null;
+
+    pending.localPath ??= path;
+    if (pending.kind == 'image' && !kIsWeb) {
+      try {
+        pending.previewBytes = await SafeImageBytes.fromPath(
+          path,
+          maxEdge: 320,
+          quality: 62,
+        );
+        if (mounted) setState(() {});
+      } catch (_) {}
+    }
+
+    if (kIsWeb) return null;
+
+    // Vídeo/documento/áudio: upload via putFile com path persistente.
+    if (pending.kind != 'image') return null;
+
+    try {
+      final raw = await churchChatReadFileBytes(path);
+      if (raw.isEmpty) return null;
+      final u8 = raw is Uint8List ? raw : Uint8List.fromList(raw);
+      if (u8.length <= 48 * 1024 * 1024) {
+        unawaited(
+          ChurchChatPendingMediaCache.put(
+            tenantId: _tid,
+            threadId: widget.threadId,
+            localId: pending.localId,
+            bytes: u8,
+          ),
+        );
       }
+      return u8;
+    } catch (_) {
       return null;
     }
-    if (path.isEmpty) return null;
-    final raw = await churchChatReadFileBytes(path);
-    if (raw == null || raw.isEmpty) return null;
-    final u8 = raw is Uint8List ? raw : Uint8List.fromList(raw);
-    if (pending.kind == 'image') {
-      pending.previewBytes = u8;
-    }
-    if (u8.length <= 48 * 1024 * 1024) {
-      unawaited(
-        ChurchChatPendingMediaCache.put(
-          tenantId: _tid,
-          threadId: widget.threadId,
-          localId: pending.localId,
-          bytes: u8,
-        ),
-      );
-    }
-    return u8;
   }
 
   int? _maxBytesForChatKind(String kind) {
@@ -2601,24 +2635,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   p.firestoreMessageId = null;
                   p.storagePath = null;
                   if (mounted) setState(() {});
-                  unawaited(() async {
-                    await ChurchChatFastSendService.sendMedia(
-                      tenantId: _tid,
-                      threadId: widget.threadId,
-                      pending: p,
-                      bytes: p.previewBytes != null
-                          ? p.previewBytes!.toList()
-                          : null,
-                      localPath: p.localPath,
-                      onProgress: (prog) => _setPendingProgress(p.localId, prog),
-                      onSuccess: () => _removePending(p.localId),
-                      onError: (msg) {
-                        p.failed = true;
-                        p.errorMessage = msg;
-                        if (mounted) setState(() {});
-                      },
-                    );
-                  }());
+                  unawaited(_runPendingMediaUpload(
+                    pending: p,
+                    bytes: null,
+                    localPath: p.localPath,
+                  ));
                 },
                 child: const Text('Tentar de novo'),
               ),
@@ -2923,20 +2944,19 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         _prefs.isBlockedPeer(widget.peerUid!);
     final webPhoneFrame = kIsWeb && MediaQuery.sizeOf(context).width >= 720;
     final scaffold = Scaffold(
-      backgroundColor: const Color(0xFFE0F2FE),
+      backgroundColor: ChurchChatWhatsAppTheme.threadBackground,
       appBar: AppBar(
         toolbarHeight: 48,
         elevation: 0,
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: churchChatWhatsPremiumLinearGradient,
-          ),
-        ),
+        backgroundColor: ChurchChatWhatsAppTheme.header,
         foregroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        leading: widget.embeddedInSplitPanel
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+        automaticallyImplyLeading: !widget.embeddedInSplitPanel,
         titleSpacing: 0,
         actions: [
           IconButton(
@@ -3504,8 +3524,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             role: widget.memberRole,
           ),
           Expanded(
-            child: DecoratedBox(
-        decoration: churchChatThreadBackgroundDecoration,
+            child: ColoredBox(
+        color: ChurchChatWhatsAppTheme.threadBackground,
         child: Column(
           children: [
             if (_searchingMessages)
@@ -3728,7 +3748,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         final ps = _threadPeerSeenAt;
                         final dsRaw = ChurchChatMessageFields.uploadCompleted(m)
                             ? ChatThreadOperations.deliverySent
-                            : ChurchChatMessageFields.status(m);
+                            : (ChurchChatMessageFields.storagePath(m).isNotEmpty &&
+                                    ChurchChatMessageFields.storageVerified(m))
+                                ? ChatThreadOperations.deliverySent
+                                : ChurchChatMessageFields.status(m);
                         final peerRead = dsRaw ==
                                 ChatThreadOperations.deliveryRead ||
                             (ps != null &&
@@ -3767,8 +3790,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                         final maxBubbleW = _chatBubbleMaxWidth(context);
                         final bubbleDecoration = mine
                             ? BoxDecoration(
-                                gradient: ChurchChatSenderPalette
-                                    .outgoingBubbleGradient,
+                                color: ChurchChatSenderPalette
+                                    .outgoingBubbleBackground,
                                 borderRadius:
                                     ChurchChatSenderPalette.bubbleBorderRadius(
                                   mine: true,
@@ -3953,9 +3976,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             child: SafeArea(
             top: false,
             child: Material(
-              elevation: 8,
-              shadowColor: Colors.black26,
-              color: ThemeCleanPremium.surface,
+              elevation: 0,
+              color: ChurchChatWhatsAppTheme.inputBarBackground,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -4028,8 +4050,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 children: [
                   IconButton(
                     onPressed: _voiceRecording ? null : _showAttachmentSheet,
-                    icon: Icon(Icons.attach_file_rounded,
-                        color: ThemeCleanPremium.onSurfaceVariant),
+                    icon: const Icon(
+                      Icons.add_rounded,
+                      color: Color(0xFF54656F),
+                    ),
                     tooltip: 'Foto, vídeo, documento…',
                   ),
                   if (widget.isDepartment &&
@@ -4093,7 +4117,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                       decoration: InputDecoration(
                         hintText: _voiceRecording
                             ? 'A gravar…'
-                            : 'Mensagem',
+                            : 'Digite uma mensagem',
                         hintStyle: TextStyle(
                           color: ThemeCleanPremium.onSurfaceVariant,
                         ),
@@ -4104,9 +4128,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                 onPressed: _voiceRecording
                                     ? null
                                     : _openExpressionSheet,
-                                icon: Icon(
-                                  Icons.emoji_emotions_rounded,
-                                  color: ThemeCleanPremium.primary,
+                                icon: const Icon(
+                                  Icons.emoji_emotions_outlined,
+                                  color: Color(0xFF54656F),
                                 ),
                               ),
                         prefixIconConstraints: const BoxConstraints(
@@ -4114,28 +4138,18 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                           minHeight: 44,
                         ),
                         filled: true,
-                        fillColor: ThemeCleanPremium.cardBackground,
+                        fillColor: Colors.white,
                         border: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                          borderSide: BorderSide(
-                            color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                          ),
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                          borderSide: BorderSide(
-                            color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                          ),
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
                         ),
                         focusedBorder: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                          borderSide: BorderSide(
-                            color: ThemeCleanPremium.primary.withValues(alpha: 0.45),
-                            width: 1.5,
-                          ),
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: 6, vertical: 10),
@@ -4149,8 +4163,10 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                   ),
                   IconButton(
                     onPressed: _voiceRecording ? null : _sendText,
-                    icon: Icon(Icons.send_rounded,
-                        color: ThemeCleanPremium.primary),
+                    icon: const Icon(
+                      Icons.send_rounded,
+                      color: ChurchChatWhatsAppTheme.header,
+                    ),
                   ),
                 ],
               ),
@@ -4595,7 +4611,8 @@ class _MessageBody extends StatelessWidget {
                             },
                           ),
                         ),
-                        if (uploadInProgress)
+                        if (uploadInProgress &&
+                            ChurchChatMessageFields.storagePath(data).isEmpty)
                           Positioned.fill(
                             child: ColoredBox(
                               color: Colors.black.withValues(alpha: 0.35),

@@ -8,7 +8,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -27,7 +26,6 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart' show StableChurchLogo;
@@ -381,13 +379,20 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   final Set<String> _managedDeptIds = {};
 
   String _effectiveTenantId = '';
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedTemplates;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedInstances;
-  List<_DeptItem>? _seedDepts;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _templatesDocs = const [];
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _instancesDocs = const [];
+  List<_DeptItem> _deptsItems = const [];
+  bool _templatesFetching = false;
+  bool _instancesFetching = false;
+  bool _deptsFetching = false;
+  String? _templatesLoadHint;
+  String? _instancesLoadHint;
 
   DocumentReference<Map<String, dynamic>> _churchDoc(String tid) => ChurchUiCollections.churchDoc(tid);
-  CollectionReference<Map<String, dynamic>> _templatesCol(String tid) => _churchDoc(tid).collection('escala_templates');
-  CollectionReference<Map<String, dynamic>> _instancesCol(String tid) => _churchDoc(tid).collection('escalas');
+  CollectionReference<Map<String, dynamic>> _templatesCol(String tid) =>
+      ChurchUiCollections.escalaTemplates(tid);
+  CollectionReference<Map<String, dynamic>> _instancesCol(String tid) =>
+      ChurchUiCollections.escalas(tid);
   CollectionReference<Map<String, dynamic>> _departmentsCol(String tid) => _churchDoc(tid).collection('departamentos');
   CollectionReference<Map<String, dynamic>> _membersCol(String tid) => _churchDoc(tid).collection('membros');
 
@@ -399,20 +404,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   Color _colorForDept(int index) => _deptColors[index % _deptColors.length];
 
   Future<String> _resolveTenantAndSeedPresets() async {
-    final hint = widget.tenantId.trim();
-    try {
-      final tid = ChurchRepository.churchId(widget.tenantId).isNotEmpty
-          ? ChurchRepository.churchId(widget.tenantId)
-          : hint;
-      if (mounted && tid != _effectiveTenantId) {
-        setState(() => _effectiveTenantId = tid);
-        _refreshAllData(tid);
-      }
-      unawaited(_seedPresetsInBackground(tid));
-      return tid;
-    } catch (_) {
-      return hint.isNotEmpty ? hint : widget.tenantId;
+    final tid = ChurchRepository.churchId(widget.tenantId);
+    if (mounted && tid.isNotEmpty && tid != _effectiveTenantId) {
+      setState(() => _effectiveTenantId = tid);
     }
+    unawaited(_seedPresetsInBackground(tid));
+    return tid.isNotEmpty ? tid : widget.tenantId.trim();
   }
 
   Future<void> _seedPresetsInBackground(String tid) async {
@@ -424,15 +421,6 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     } catch (_) {}
   }
 
-  void _refreshAllData(String tid) {
-    setState(() {
-      _deptsFuture = _loadDepartmentsForTenant(tid);
-      _templatesFuture = _fetchTemplates(tid);
-      _instancesFuture = _fetchEscalas(tid);
-      _tenantFuture = _churchDoc(tid).get();
-    });
-  }
-
   Future<QuerySnapshot<Map<String, dynamic>>> _fetchTemplates(
     String tid, {
     bool forceServer = false,
@@ -442,6 +430,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       forceServer: forceServer,
     );
     await ChurchSchedulesLoadService.persistTemplates(r);
+    if (mounted) {
+      setState(() => _templatesLoadHint = r.softError);
+    }
     return r.snapshot;
   }
 
@@ -451,74 +442,88 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }) async {
     final r = await ChurchSchedulesLoadService.loadEscalas(
       seedTenantId: tid,
-      limit: 500,
+      limit: 200,
       forceServer: forceServer,
     );
     await ChurchSchedulesLoadService.persistEscalas(r);
+    if (mounted) {
+      setState(() => _instancesLoadHint = r.softError);
+    }
     return r.snapshot;
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _schedulesSnapshotFuture(
-    String tid,
-    Future<QuerySnapshot<Map<String, dynamic>>> Function(String tid) loader,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>>? seed, {
-    required bool templates,
-  }) {
-    if (seed != null && seed.isNotEmpty) {
-      unawaited(loader(tid).then((snap) {
-        if (!mounted || snap.docs.isEmpty) return;
-        setState(() {
-          if (templates) {
-            _seedTemplates = snap.docs;
-            _templatesFuture = Future.value(snap);
-          } else {
-            _seedInstances = snap.docs;
-            _instancesFuture = Future.value(snap);
-          }
-        });
-      }).catchError((_) {}));
-      return Future.value(MergedFirestoreQuerySnapshot(seed));
-    }
-    return loader(tid).timeout(
-      kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
-      onTimeout: () => MergedFirestoreQuerySnapshot(seed ?? const []),
-    );
+  String get _churchId => ChurchRepository.churchId(
+        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+      );
+
+  void _syncLegacyFutures() {
+    _templatesFuture =
+        Future.value(MergedFirestoreQuerySnapshot(_templatesDocs));
+    _instancesFuture =
+        Future.value(MergedFirestoreQuerySnapshot(_instancesDocs));
+    _deptsFuture = _deptsItems.isNotEmpty
+        ? Future.value(_deptsItems)
+        : _loadDepartmentsForTenant(_churchId);
+    _tenantFuture = _churchDoc(_churchId).get();
   }
 
-  Future<void> _openSchedulesFast() async {
-    final seed = ChurchPanelTenant.resolve(widget.tenantId.trim());
-    if (seed.isEmpty) return;
-
-    final ramEscalas = ChurchSchedulesLoadService.peekEscalasRam(seed, limit: 500);
-    final ramTemplates =
-        ChurchSchedulesLoadService.peekTemplatesRam(seed, limit: 120);
-    final ram = _SchedulesPageRamCache.peek(seed);
-    if (mounted) {
-      setState(() {
-        if (ram != null) {
-          _seedDepts = ram.depts;
-          _seedTemplates = ram.templates;
-          _seedInstances = ram.instances;
-        } else {
-          if (ramTemplates != null && ramTemplates.isNotEmpty) {
-            _seedTemplates = ramTemplates;
-          }
-          if (ramEscalas != null && ramEscalas.isNotEmpty) {
-            _seedInstances = ramEscalas;
-          }
-        }
-      });
+  void _seedSchedulesPanel() {
+    final churchId = _churchId;
+    if (churchId.isEmpty) {
+      _templatesDocs = const [];
+      _instancesDocs = const [];
+      _deptsItems = const [];
+      _templatesFetching = false;
+      _instancesFetching = false;
+      _deptsFetching = false;
+      _syncLegacyFutures();
+      return;
     }
+    final ram = _SchedulesPageRamCache.peek(churchId);
+    if (ram != null) {
+      _templatesDocs = ram.templates;
+      _instancesDocs = ram.instances;
+      _deptsItems = ram.depts;
+    } else {
+      _templatesDocs =
+          ChurchSchedulesLoadService.peekTemplatesRam(churchId, limit: 120) ??
+              const [];
+      _instancesDocs =
+          ChurchSchedulesLoadService.peekEscalasRam(churchId, limit: 200) ??
+              const [];
+      _deptsItems = const [];
+    }
+    _templatesFetching = true;
+    _instancesFetching = true;
+    _deptsFetching = _deptsItems.isEmpty;
+    _templatesLoadHint = null;
+    _instancesLoadHint = null;
+    _syncLegacyFutures();
+  }
 
+  Future<void> _fetchSchedulesPanel({bool forceFresh = false}) async {
+    final churchId = _churchId;
+    if (churchId.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _templatesFetching = false;
+        _instancesFetching = false;
+        _deptsFetching = false;
+        _templatesLoadHint = 'Igreja não identificada.';
+        _instancesLoadHint = _templatesLoadHint;
+      });
+      return;
+    }
+    _effectiveTenantId = churchId;
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       final results = await Future.wait<Object>([
-        _fetchTemplates(seed),
-        _fetchEscalas(seed),
-        _loadDepartmentsForTenant(seed),
-      ]);
+        _fetchTemplates(churchId, forceServer: forceFresh),
+        _fetchEscalas(churchId, forceServer: forceFresh),
+        _loadDepartmentsForTenant(churchId),
+      ]).timeout(ChurchPanelReadTimeouts.queryCap);
       if (!mounted) return;
       final templates =
           (results[0] as QuerySnapshot<Map<String, dynamic>>).docs;
@@ -526,20 +531,38 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           (results[1] as QuerySnapshot<Map<String, dynamic>>).docs;
       final depts = results[2] as List<_DeptItem>;
       _SchedulesPageRamCache.put(
-        seed,
+        churchId,
         templates: templates,
         instances: instances,
         depts: depts,
       );
       setState(() {
-        _seedTemplates = templates;
-        _seedInstances = instances;
-        _seedDepts = depts;
-        _templatesFuture = Future.value(results[0] as QuerySnapshot<Map<String, dynamic>>);
-        _instancesFuture = Future.value(results[1] as QuerySnapshot<Map<String, dynamic>>);
-        _deptsFuture = Future.value(depts);
+        _templatesDocs = templates;
+        _instancesDocs = instances;
+        _deptsItems = depts;
+        _templatesFetching = false;
+        _instancesFetching = false;
+        _deptsFetching = false;
+        _syncLegacyFutures();
+        if (templates.isEmpty && instances.isNotEmpty && _tab.index == 0) {
+          _tab.animateTo(1);
+        }
       });
-    } catch (_) {}
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _templatesFetching = false;
+        _instancesFetching = false;
+        _deptsFetching = false;
+        if (_templatesDocs.isEmpty) {
+          _templatesLoadHint ??= '$e';
+        }
+        if (_instancesDocs.isEmpty) {
+          _instancesLoadHint ??= '$e';
+        }
+        _syncLegacyFutures();
+      });
+    }
   }
 
   Future<List<_DeptItem>> _loadDepartmentsForTenant(String tid) async {
@@ -718,21 +741,51 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   void _refreshTemplates() {
-    final tid = ChurchPanelTenant.resolve(
-      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
-    );
+    final tid = _churchId;
     setState(() {
-      _templatesFuture = _fetchTemplates(tid, forceServer: true);
+      _templatesFetching = true;
+      _templatesLoadHint = null;
     });
+    unawaited(
+      _fetchTemplates(tid, forceServer: true).then((snap) {
+        if (!mounted) return;
+        setState(() {
+          _templatesDocs = snap.docs;
+          _templatesFetching = false;
+          _templatesFuture = Future.value(snap);
+        });
+      }).catchError((e) {
+        if (!mounted) return;
+        setState(() {
+          _templatesFetching = false;
+          if (_templatesDocs.isEmpty) _templatesLoadHint = '$e';
+        });
+      }),
+    );
   }
 
   void _refreshInstances() {
-    final tid = ChurchPanelTenant.resolve(
-      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
-    );
+    final tid = _churchId;
     setState(() {
-      _instancesFuture = _fetchEscalas(tid, forceServer: true);
+      _instancesFetching = true;
+      _instancesLoadHint = null;
     });
+    unawaited(
+      _fetchEscalas(tid, forceServer: true).then((snap) {
+        if (!mounted) return;
+        setState(() {
+          _instancesDocs = snap.docs;
+          _instancesFetching = false;
+          _instancesFuture = Future.value(snap);
+        });
+      }).catchError((e) {
+        if (!mounted) return;
+        setState(() {
+          _instancesFetching = false;
+          if (_instancesDocs.isEmpty) _instancesLoadHint = '$e';
+        });
+      }),
+    );
   }
 
   Future<void> _exportEscalaInstancePdf(DocumentSnapshot<Map<String, dynamic>> doc) async {
@@ -1357,27 +1410,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   void initState() {
     super.initState();
     logYahwehModuleScreen('escalas');
-    _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId.trim());
+    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
     _tab = TabController(length: 3, vsync: this);
-    unawaited(_openSchedulesFast());
+    _seedSchedulesPanel();
+    unawaited(_fetchSchedulesPanel());
     _effectiveTidFuture = _resolveTenantAndSeedPresets();
-    final seed = _effectiveTenantId;
-    _seedTemplates = ChurchSchedulesLoadService.peekTemplatesRam(seed, limit: 120);
-    _seedInstances = ChurchSchedulesLoadService.peekEscalasRam(seed, limit: 500);
-    _deptsFuture = _loadDepartmentsForTenant(seed);
-    _templatesFuture = _schedulesSnapshotFuture(
-      seed,
-      _fetchTemplates,
-      _seedTemplates,
-      templates: true,
-    );
-    _instancesFuture = _schedulesSnapshotFuture(
-      seed,
-      _fetchEscalas,
-      _seedInstances,
-      templates: false,
-    );
-    _tenantFuture = _churchDoc(seed).get();
     _effectiveTidFuture.then((tid) async {
       try {
         final s = await DepartmentMemberIntegrationService.managedDepartmentIdsForCpf(
@@ -2314,94 +2351,142 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
   // ── Tab: Modelos ───────────────────────────────────────────────────────────
   Widget _buildTemplatesTab() {
-    return FutureBuilder<List<_DeptItem>>(
-      future: _deptsFuture,
-      builder: (context, deptSnap) {
-        return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                future: _templatesFuture,
-                builder: (context, snap) {
-                if (snap.hasError) {
-                  return Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: ChurchPanelErrorBody(
-                      title: 'Não foi possível carregar os modelos de escala',
-                      error: snap.error,
-                      onRetry: _refreshTemplates,
-                    ),
-                  );
-                }
-                if (snap.connectionState == ConnectionState.waiting &&
-                    !snap.hasData &&
-                    (_seedTemplates == null || _seedTemplates!.isEmpty)) {
-                  return const ChurchPanelLoadingBody();
-                }
-                var docs = snap.data?.docs ?? _seedTemplates ?? [];
-                if (_canWriteFull) {
-                  // todos os modelos
-                } else if (_scopedDeptLeader) {
-                  docs = docs
-                      .where((d) => _managedDeptIds
-                          .contains((d.data()['departmentId'] ?? '').toString()))
-                      .toList();
-                } else {
-                  docs = [];
-                }
-                if (docs.isEmpty) {
-                  return Center(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.event_note_rounded, size: 64, color: Colors.grey.shade400),
-                      const SizedBox(height: 16),
-                      Text('Nenhum modelo de escala.', style: TextStyle(fontSize: 16, color: Colors.grey.shade600)),
-                      if (_canWrite) ...[
-                        const SizedBox(height: 16),
-                        FilledButton.icon(onPressed: () => _editTemplate(), icon: const Icon(Icons.add_rounded), label: const Text('Criar modelo')),
-                      ],
-                    ]),
-                  );
-                }
-                final allDepts = deptSnap.data ?? _seedDepts ?? [];
-                  return RefreshIndicator(
-                  onRefresh: () async => _refreshTemplates(),
-                  child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
-                    itemCount: docs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (_, i) {
-                    final tplDeptId =
-                        (docs[i].data()['departmentId'] ?? '').toString();
-                    final canTpl = _canWriteFull ||
-                        _managedDeptIds.contains(tplDeptId);
-                    return _TemplateCard(
-                    doc: docs[i],
-                    deptColor: _colorForDept(allDepts.indexWhere((d) => d.id == (docs[i].data()['departmentId'] ?? '')).clamp(0, 99)),
-                    canWrite: canTpl,
-                    canGenerate: canTpl,
-                    onEdit: () => _editTemplate(doc: docs[i]),
-                    onGenerate: () => _generate(docs[i]),
-                    onDelete: () async {
-                      final ok = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text('Excluir modelo?'),
-                          content: const Text('Escalas já geradas não serão afetadas.'),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-                            FilledButton(onPressed: () => Navigator.pop(ctx, true), style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error), child: const Text('Excluir')),
-                          ],
-                        ),
-                      );
-                      if (ok == true) {
-                        await docs[i].reference.delete();
-                        if (mounted) _refreshTemplates();
-                      }
-                    },
-                  );
-                  },
+    if (_templatesLoadHint != null &&
+        _templatesDocs.isEmpty &&
+        !_templatesFetching) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: ChurchPanelErrorBody(
+          title: 'Não foi possível carregar os modelos de escala',
+          error: _templatesLoadHint,
+          onRetry: _refreshTemplates,
+        ),
+      );
+    }
+    var docs = _templatesDocs;
+    if (_canWriteFull) {
+      // todos os modelos
+    } else if (_scopedDeptLeader) {
+      docs = docs
+          .where((d) => _managedDeptIds
+              .contains((d.data()['departmentId'] ?? '').toString()))
+          .toList();
+    } else {
+      docs = [];
+    }
+    if (docs.isEmpty) {
+      final hasInstances = _instancesDocs.isNotEmpty;
+      return Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.event_note_rounded, size: 64, color: Colors.grey.shade400),
+          const SizedBox(height: 16),
+          Text(
+            hasInstances
+                ? 'Nenhum modelo cadastrado.\nAs escalas já geradas estão na aba «Escalas geradas».'
+                : _templatesFetching
+                    ? 'Carregando modelos…'
+                    : 'Nenhum modelo de escala.',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+          ),
+          if (hasInstances) ...[
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () => _tab.animateTo(1),
+              icon: const Icon(Icons.calendar_month_rounded),
+              label: const Text('Ver escalas geradas'),
+            ),
+          ],
+          if (_canWrite) ...[
+            const SizedBox(height: 16),
+            FilledButton.icon(
+                onPressed: () => _editTemplate(),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Criar modelo')),
+          ],
+          if (_templatesLoadHint != null &&
+              _templatesLoadHint!.trim().isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                _templatesLoadHint!,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+              ),
+            ),
+          ],
+          if (_templatesFetching) ...[
+            const SizedBox(height: 16),
+            const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
+            ),
+          ],
+        ]),
+      );
+    }
+    final allDepts = _deptsItems;
+    return RefreshIndicator(
+      onRefresh: () async => _refreshTemplates(),
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 80),
+        itemCount: docs.length + (_templatesFetching ? 1 : 0),
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (_, i) {
+          if (i >= docs.length) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+              ),
+            );
+          }
+          final tplDeptId = (docs[i].data()['departmentId'] ?? '').toString();
+          final canTpl =
+              _canWriteFull || _managedDeptIds.contains(tplDeptId);
+          return _TemplateCard(
+            doc: docs[i],
+            deptColor: _colorForDept(allDepts
+                .indexWhere(
+                    (d) => d.id == (docs[i].data()['departmentId'] ?? ''))
+                .clamp(0, 99)),
+            canWrite: canTpl,
+            canGenerate: canTpl,
+            onEdit: () => _editTemplate(doc: docs[i]),
+            onGenerate: () => _generate(docs[i]),
+            onDelete: () async {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Excluir modelo?'),
+                  content:
+                      const Text('Escalas já geradas não serão afetadas.'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: const Text('Cancelar')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(ctx, true),
+                        style: FilledButton.styleFrom(
+                            backgroundColor: ThemeCleanPremium.error),
+                        child: const Text('Excluir')),
+                  ],
                 ),
               );
+              if (ok == true) {
+                await docs[i].reference.delete();
+                if (mounted) _refreshTemplates();
+              }
             },
           );
         },
+      ),
     );
   }
 
@@ -3115,43 +3200,20 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
   // ── Tab: Escalas Geradas ───────────────────────────────────────────────────
   Widget _buildInstancesTab() {
-    return FutureBuilder<List<_DeptItem>>(
-      future: _deptsFuture,
-      builder: (context, deptSnap) {
-        final allDepts = deptSnap.data ?? _seedDepts ?? [];
-        return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          future: _instancesFuture,
-          builder: (context, snap) {
-            if (snap.hasError) {
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: ChurchPanelErrorBody(
-                  title: 'Não foi possível carregar as escalas',
-                  error: snap.error,
-                  onRetry: _refreshInstances,
-                ),
-              );
-            }
-            final hasSeed =
-                _seedInstances != null && _seedInstances!.isNotEmpty;
-            if ((snap.connectionState == ConnectionState.waiting ||
-                    !snap.hasData) &&
-                !hasSeed) {
-              return RefreshIndicator(
-                onRefresh: () async => _refreshInstances(),
-                child: CustomScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                    SliverToBoxAdapter(child: _buildInstancesTabHeader(allDepts)),
-                    const SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: Center(child: ChurchPanelLoadingBody()),
-                    ),
-                  ],
-                ),
-              );
-            }
-            final allDocs = snap.data?.docs ?? _seedInstances ?? [];
+    final allDepts = _deptsItems;
+    if (_instancesLoadHint != null &&
+        _instancesDocs.isEmpty &&
+        !_instancesFetching) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: ChurchPanelErrorBody(
+          title: 'Não foi possível carregar as escalas',
+          error: _instancesLoadHint,
+          onRetry: _refreshInstances,
+        ),
+      );
+    }
+    final allDocs = _instancesDocs;
             var deptFiltered = _filterDeptId.isEmpty
                 ? allDocs
                 : allDocs
@@ -3173,6 +3235,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
             final bottomPad = showSelBar ? 88.0 : 80.0;
 
             if (docs.isEmpty) {
+              final totalLoaded = allDocs.length;
               return RefreshIndicator(
                 onRefresh: () async => _refreshInstances(),
                 child: CustomScrollView(
@@ -3191,10 +3254,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                                 size: 56, color: Colors.grey.shade400),
                             const SizedBox(height: 12),
                             Text(
-                              'Nenhuma escala no período.',
+                              totalLoaded > 0
+                                  ? 'Nenhuma escala no filtro atual ($totalLoaded carregada(s)).'
+                                  : _instancesFetching
+                                      ? 'Carregando escalas…'
+                                      : 'Nenhuma escala encontrada.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
-                                color: Colors.grey.shade700,
+                                fontSize: 16,
+                                color: Colors.grey.shade600,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -3208,6 +3276,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                                 color: Colors.grey.shade600,
                               ),
                             ),
+                            if (_instancesFetching) ...[
+                              const SizedBox(height: 16),
+                              const SizedBox(
+                                width: 28,
+                                height: 28,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2.5),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -3405,10 +3482,6 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   ),
               ],
             );
-          },
-        );
-      },
-    );
   }
 
   // ── Tab: Relatórios super premium (igreja, título CAIXA ALTA, gráficos, drill-down) ──

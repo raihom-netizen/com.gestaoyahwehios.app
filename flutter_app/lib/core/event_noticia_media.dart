@@ -3,6 +3,7 @@
 library;
 
 import 'package:cloud_firestore/cloud_firestore.dart' show Timestamp;
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         dedupeImageRefsByStorageIdentity,
@@ -382,8 +383,47 @@ String? eventNoticiaImageStoragePath(Map<String, dynamic>? data) {
   return null;
 }
 
+/// Path canónico `eventos/{postId}/banner_evento.jpg` quando o doc não tem metadados mas a foto existe no Storage.
+String? eventNoticiaCanonicalPhotoPathFallback(
+  Map<String, dynamic>? data, {
+  required String docId,
+  int index = 0,
+  String? churchIdOverride,
+}) {
+  if (data == null || docId.trim().isEmpty || index < 0) return null;
+  if ((data['type'] ?? '').toString() != 'evento') return null;
+  if (!_eventDocShouldTryCanonicalPhotoPath(data)) return null;
+  var churchId = churchIdOverride?.trim() ?? '';
+  if (churchId.isEmpty) {
+    for (final k in ['churchId', 'tenantId', 'igrejaId', 'canonicalTenantId']) {
+      final v = (data[k] ?? '').toString().trim();
+      if (v.isNotEmpty) {
+        churchId = v;
+        break;
+      }
+    }
+  }
+  if (churchId.isEmpty) return null;
+  return ChurchStorageLayout.eventPostPhotoPath(churchId, docId.trim(), index);
+}
+
+bool _eventDocShouldTryCanonicalPhotoPath(Map<String, dynamic> data) {
+  if (data['publicado'] == true) return true;
+  final status = (data['status'] ?? '').toString().trim();
+  if (status == 'publicado' || status == 'published') return true;
+  final ps = (data['photoUploadState'] ?? data['publishState'] ?? '')
+      .toString()
+      .toLowerCase();
+  return ps.contains('upload') || ps == 'pending_sync';
+}
+
 /// Caminho Storage da foto no índice [index] (lista [imageStoragePaths] ou primeiro [eventNoticiaImageStoragePath]).
-String? eventNoticiaPhotoStoragePathAt(Map<String, dynamic>? data, int index) {
+String? eventNoticiaPhotoStoragePathAt(
+  Map<String, dynamic>? data,
+  int index, {
+  String? docIdHint,
+  String? churchIdHint,
+}) {
   if (data == null || index < 0) return null;
   for (final key in ['imageStoragePaths', 'fotoStoragePaths']) {
     final list = data[key];
@@ -394,7 +434,18 @@ String? eventNoticiaPhotoStoragePathAt(Map<String, dynamic>? data, int index) {
       }
     }
   }
-  if (index == 0) return eventNoticiaImageStoragePath(data);
+  if (index == 0) {
+    final direct = eventNoticiaImageStoragePath(data);
+    if (direct != null && direct.isNotEmpty) return direct;
+    if (docIdHint != null && docIdHint.trim().isNotEmpty) {
+      return eventNoticiaCanonicalPhotoPathFallback(
+        data,
+        docId: docIdHint.trim(),
+        index: index,
+        churchIdOverride: churchIdHint,
+      );
+    }
+  }
   return null;
 }
 
@@ -474,12 +525,25 @@ String eventNoticiaFeedCoverHintUrl(Map<String, dynamic>? p) {
 }
 
 /// Há algo para exibir na faixa visual do post (capa/thumb resolvível).
-bool eventNoticiaPostHasFeedCoverRow(Map<String, dynamic>? p, {String coverHint = ''}) {
+bool eventNoticiaPostHasFeedCoverRow(
+  Map<String, dynamic>? p, {
+  String coverHint = '',
+  String? docIdHint,
+}) {
   if (p == null) return coverHint.isNotEmpty;
   final h = coverHint.isNotEmpty ? sanitizeImageUrl(coverHint) : '';
   if (h.isNotEmpty && _isUsableFeedCoverRef(h)) return true;
   if (eventNoticiaFeedCoverHintUrl(p).isNotEmpty) return true;
   if (eventNoticiaImageStoragePath(p) != null) return true;
+  if (docIdHint != null &&
+      docIdHint.trim().isNotEmpty &&
+      eventNoticiaCanonicalPhotoPathFallback(
+            p,
+            docId: docIdHint.trim(),
+          ) !=
+          null) {
+    return true;
+  }
   if (eventNoticiaThumbStoragePath(p) != null) return true;
   final hosted = eventNoticiaHostedVideoPlayUrl(p);
   if (hosted != null && hosted.isNotEmpty) {

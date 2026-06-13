@@ -2402,9 +2402,14 @@ class ChurchChatService {
     String? albumGroupId,
     int albumIndex = 0,
     int albumCount = 1,
+    /// Após [EcoFireStorageUpload.putData] concluído — evita re-verificação lenta na Web.
+    bool skipStorageVerify = false,
   }) async {
     ChurchPublishFlowLog.chatStart();
     await ensureFirebaseReadyForChatSend();
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+    }
     final resolvedTenant =
         await ChatPublishVerificationService.resolveTenantForPublish(
       seedTenantId: tenantId,
@@ -2419,10 +2424,12 @@ class ChurchChatService {
       tenantId: resolvedTenant,
       threadId: threadId,
     );
-    await assertChatMediaUploaded(
-      storagePath,
-      thumbStoragePath: thumbStoragePath,
-    );
+    if (!skipStorageVerify) {
+      await assertChatMediaUploaded(
+        storagePath,
+        thumbStoragePath: thumbStoragePath,
+      );
+    }
     final uid = firebaseDefaultAuth.currentUser!.uid;
     final expiresAt =
         Timestamp.fromDate(DateTime.now().add(mediaRetention));

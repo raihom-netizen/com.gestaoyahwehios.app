@@ -65,7 +65,10 @@ abstract final class EcoFireFeedPublishService {
     String? localPath,
     void Function(double progress)? onProgress,
   }) async {
-    await EcoFirePublishBootstrap.ensureHard(logLabel: 'feed_photo_slot');
+    await EcoFirePublishBootstrap.ensureHard(
+      logLabel: 'feed_photo_slot',
+      strict: true,
+    );
     EcoFireFlow.log('FEED_PHOTO slot $postType/$postId#$slotIndex');
 
     Uint8List raw;
@@ -108,7 +111,7 @@ abstract final class EcoFireFeedPublishService {
     );
   }
 
-  /// Lote — web (bytes) ou mobile (paths).
+  /// Lote — web (bytes) ou mobile (paths). Até 3 uploads em paralelo.
   static Future<List<EcoFireFeedPhotoSlot>> uploadPendingPhotoSlots({
     required String tenantId,
     required String postType,
@@ -118,24 +121,33 @@ abstract final class EcoFireFeedPublishService {
     List<String>? localPaths,
     void Function(double progress)? onProgress,
   }) async {
-    final slots = <EcoFireFeedPhotoSlot>[];
+    const maxParallel = 3;
+
     if (kIsWeb) {
       final images = bytesList ?? const <Uint8List>[];
-      for (var i = 0; i < images.length; i++) {
-        slots.add(
-          await uploadPhotoSlot(
-            tenantId: tenantId,
-            postType: postType,
-            postId: postId,
-            slotIndex: startSlotIndex + i,
-            bytes: images[i],
-            onProgress: onProgress == null
-                ? null
-                : (p) => onProgress((i + p) / images.length),
-          ),
+      if (images.isEmpty) return const [];
+      final slots = List<EcoFireFeedPhotoSlot?>.filled(images.length, null);
+      var completed = 0;
+
+      Future<void> uploadOne(int i) async {
+        slots[i] = await uploadPhotoSlot(
+          tenantId: tenantId,
+          postType: postType,
+          postId: postId,
+          slotIndex: startSlotIndex + i,
+          bytes: images[i],
         );
+        completed++;
+        onProgress?.call(completed / images.length);
       }
-      return slots;
+
+      for (var start = 0; start < images.length; start += maxParallel) {
+        final end = (start + maxParallel).clamp(0, images.length);
+        await Future.wait([
+          for (var i = start; i < end; i++) uploadOne(i),
+        ]);
+      }
+      return slots.whereType<EcoFireFeedPhotoSlot>().toList();
     }
 
     final paths = localPaths
@@ -143,25 +155,34 @@ abstract final class EcoFireFeedPublishService {
             .where((p) => p.isNotEmpty)
             .toList() ??
         const <String>[];
-    for (var i = 0; i < paths.length; i++) {
+    if (paths.isEmpty) return const [];
+
+    final slots = List<EcoFireFeedPhotoSlot?>.filled(paths.length, null);
+    var completed = 0;
+
+    Future<void> uploadOne(int i) async {
       final f = File(paths[i]);
       if (!await f.exists()) {
         throw StateError('Foto ${i + 1} não encontrada no aparelho.');
       }
-      slots.add(
-        await uploadPhotoSlot(
-          tenantId: tenantId,
-          postType: postType,
-          postId: postId,
-          slotIndex: startSlotIndex + i,
-          localPath: paths[i],
-          onProgress: onProgress == null
-              ? null
-              : (p) => onProgress((i + p) / paths.length),
-        ),
+      slots[i] = await uploadPhotoSlot(
+        tenantId: tenantId,
+        postType: postType,
+        postId: postId,
+        slotIndex: startSlotIndex + i,
+        localPath: paths[i],
       );
+      completed++;
+      onProgress?.call(completed / paths.length);
     }
-    return slots;
+
+    for (var start = 0; start < paths.length; start += maxParallel) {
+      final end = (start + maxParallel).clamp(0, paths.length);
+      await Future.wait([
+        for (var i = start; i < end; i++) uploadOne(i),
+      ]);
+    }
+    return slots.whereType<EcoFireFeedPhotoSlot>().toList();
   }
 
   /// Converte paths ou URLs mistos em URLs HTTPS para o Firestore.

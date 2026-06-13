@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -133,7 +133,7 @@ abstract final class ChurchDonationLoadService {
   }
 
   static Future<bool> loadMercadoPagoConfigReady(String churchId) async {
-    final id = ChurchPanelTenant.resolve(churchId);
+    final id = ChurchRepository.churchId(churchId);
     if (id.isEmpty) return false;
 
     final cached = peekConfigReadyRam(id);
@@ -159,7 +159,7 @@ abstract final class ChurchDonationLoadService {
   static Future<List<DonationMpConta>> _loadContasFirestoreFull(
     String churchId,
   ) async {
-    final id = ChurchPanelTenant.resolve(churchId);
+    final id = ChurchRepository.churchId(churchId);
     if (id.isEmpty) return const [];
 
     final cacheKey = contasCacheKey(id);
@@ -201,7 +201,7 @@ abstract final class ChurchDonationLoadService {
     required String churchId,
     bool forceRefresh = false,
   }) async {
-    final id = ChurchPanelTenant.resolve(churchId);
+    final id = ChurchRepository.churchId(churchId);
     if (id.isEmpty) return const [];
 
     if (!forceRefresh) {
@@ -277,7 +277,7 @@ abstract final class ChurchDonationLoadService {
     required String seedTenantId,
     bool forceRefresh = false,
   }) async {
-    final churchId = ChurchPanelTenant.resolve(seedTenantId.trim());
+    final churchId = ChurchRepository.churchId(seedTenantId.trim());
     if (churchId.isEmpty) {
       return const ChurchDonationLoadResult(
         churchId: '',

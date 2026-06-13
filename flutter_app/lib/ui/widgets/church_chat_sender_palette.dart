@@ -40,22 +40,21 @@ abstract final class ChurchChatSenderPalette {
     return c.withValues(alpha: 0.28);
   }
 
-  /// Bolha enviada — gradiente Super Premium (teal → menta).
+  /// Bolha enviada — verde WhatsApp clássico (#D9FDD3).
+  static const Color outgoingBubbleBackground = Color(0xFFD9FDD3);
+
+  /// Gradiente suave (fallback em mídia/album).
   static const LinearGradient outgoingBubbleGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: [
-      Color(0xFFBBF7D0),
-      Color(0xFF6EE7B7),
-      Color(0xFF5EEAD4),
+      Color(0xFFD9FDD3),
+      Color(0xFFDCF8C6),
     ],
   );
 
-  /// Fallback sólido (legado / overlays).
-  static const Color outgoingBubbleBackground = Color(0xFFD8F3E8);
-
-  /// DM recebida — branco com leve tinta lavanda.
-  static const Color incomingDmBubbleBackground = Color(0xFFFAFAFF);
+  /// DM recebida — branco puro (WhatsApp).
+  static const Color incomingDmBubbleBackground = Color(0xFFFFFFFF);
 
   static BorderRadius bubbleBorderRadius({required bool mine}) {
     const r = 14.0;

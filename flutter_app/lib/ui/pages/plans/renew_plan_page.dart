@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/data/planos_oficiais.dart';
 import 'package:gestao_yahweh/services/billing_service.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/express_renew_bootstrap.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/payment_ui_feedback_service.dart';
@@ -50,11 +51,15 @@ class RenewPlanPage extends StatefulWidget {
   /// do Mercado Pago (ex.: `/atualizar-plano?from=ios_app`).
   final String? expressCheckoutReturnPath;
 
+  /// Papel no painel (gestor, secretário, tesoureiro…) — gate de pagamento de licença.
+  final String? panelRole;
+
   const RenewPlanPage({
     super.key,
     this.embeddedInShell = false,
     this.expressMode = false,
     this.expressCheckoutReturnPath,
+    this.panelRole,
   });
 
   @override
@@ -98,6 +103,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   /// Modo expresso — exibe a tela final «Pagamento confirmado» em vez de
   /// redirecionar (já que o utilizador veio do site público / iPhone).
   bool _expressPaymentDone = false;
+  String _resolvedPanelRole = 'membro';
   /// Primeiro snapshot só estabelece linha de base — evita "pagamento confirmado" ao abrir Planos com licença já paga.
   bool _billingBaselineEstablished = false;
   bool _wasBillingPaidAtBaseline = false;
@@ -292,16 +298,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   }
 
   void _schedulePaymentPrefetch() {
-    if (_paymentPix) {
-      unawaited(_schedulePixPrefetch());
-      return;
-    }
-    if (_usesAnnualCardConfirmFlow &&
-        _expressPayStep == _ExpressPayStep.confirm) {
-      unawaited(_scheduleCheckoutPrefetch(requireConfirmFlow: true));
-    } else {
-      unawaited(_scheduleCheckoutPrefetch(requireConfirmFlow: false));
-    }
+    // Pagamento MP só após toque explícito em «Gerar pagamento» / «Confirmar e pagar».
   }
 
   Future<void> _schedulePixPrefetch() async {
@@ -471,6 +468,9 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   @override
   void initState() {
     super.initState();
+    final hint = (widget.panelRole ?? '').trim().toLowerCase();
+    if (hint.isNotEmpty) _resolvedPanelRole = hint;
+    unawaited(_resolvePanelRoleFromAuth());
     final boot = ExpressRenewBootstrap.instance;
     final cachedPlans = boot.cachedPlans;
     if (cachedPlans != null) {
@@ -492,9 +492,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
         });
         if (church != null) _applyChurchBillingSnapshot(church);
       }
-      _schedulePaymentPrefetch();
     }));
-    _schedulePaymentPrefetch();
     _planPricesSub =
         PlanPriceService.watchEffectivePlanConfigs().listen((cfg) {
       if (mounted) setState(() => _effectiveConfigs = cfg);
@@ -895,6 +893,11 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   }
 
   Future<void> _startSubscription() async {
+    if (!widget.expressMode && !_canPurchaseLicense) {
+      setState(() => _err =
+          'Somente gestor, secretário ou tesoureiro pode gerar o pagamento.');
+      return;
+    }
     setState(() {
       _loading = true;
       _err = null;
@@ -909,16 +912,12 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
             'Saia, entre de novo com a conta de gestor e aguarde alguns segundos.';
       }
       if (_paymentPix) {
-        final pixPrefetchOk = _prefetchedPix != null &&
-            _pixPrefetchKey == _currentPixPrefetchKey;
-        final pix = pixPrefetchOk
-            ? _prefetchedPix!
-            : await _billing.createMpPixPayment(
-                planId: _selected,
-                billingCycle: _billingAnnual
-                    ? BillingCycle.annual
-                    : BillingCycle.monthly,
-              );
+        final pix = await _billing.createMpPixPayment(
+          planId: _selected,
+          billingCycle: _billingAnnual
+              ? BillingCycle.annual
+              : BillingCycle.monthly,
+        );
         if (!pix.isValid) throw 'Não foi possível gerar o PIX.';
         if (!mounted) return;
         setState(() => _pixSession = pix);
@@ -936,19 +935,15 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
         } else {
           returnPath = null;
         }
-        final prefetchOk = _prefetchedCheckout != null &&
-            _prefetchKey == _currentPrefetchKey;
-        final session = prefetchOk
-            ? _prefetchedCheckout!
-            : await _billing.createMpCheckout(
-                planId: _selected,
-                billingCycle: _billingAnnual
-                    ? BillingCycle.annual
-                    : BillingCycle.monthly,
-                paymentMethod: PaymentMethod.card,
-                installments: installments,
-                returnPath: returnPath,
-              );
+        final session = await _billing.createMpCheckout(
+          planId: _selected,
+          billingCycle: _billingAnnual
+              ? BillingCycle.annual
+              : BillingCycle.monthly,
+          paymentMethod: PaymentMethod.card,
+          installments: installments,
+          returnPath: returnPath,
+        );
         await _openCardCheckout(session);
       }
     } catch (e) {
@@ -959,12 +954,88 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     }
   }
 
+  Future<void> _resolvePanelRoleFromAuth() async {
+    if ((widget.panelRole ?? '').trim().isNotEmpty) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      final token = await user.getIdTokenResult();
+      final claims = token.claims ?? {};
+      final role = (claims['role'] ?? claims['nivel'] ?? claims['perfil'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      if (role.isNotEmpty && mounted) {
+        setState(() => _resolvedPanelRole = role);
+      }
+    } catch (_) {}
+  }
+
+  String get _effectivePanelRole {
+    final fromWidget = (widget.panelRole ?? '').trim().toLowerCase();
+    if (fromWidget.isNotEmpty) return fromWidget;
+    return _resolvedPanelRole;
+  }
+
+  bool get _canPurchaseLicense =>
+      AppPermissions.canPurchaseChurchLicense(_effectivePanelRole);
+
+  Widget _buildLicensePaymentForbidden(BuildContext context) {
+    return Scaffold(
+      appBar: widget.embeddedInShell
+          ? null
+          : AppBar(title: const Text('Licença da igreja')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.lock_outline_rounded,
+                    size: 56, color: Colors.grey.shade600),
+                const SizedBox(height: 16),
+                Text(
+                  'Renovação só pela liderança',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Somente o gestor, secretário ou tesoureiro da igreja pode '
+                  'gerar o pagamento da licença. Peça a um deles para abrir '
+                  '«Adquirir plano» e confirmar o pagamento.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                FilledButton(
+                  onPressed: _exitRenewPage,
+                  child: const Text('Voltar'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Apple Guideline 3.1.1 — em iOS com `exibir_pagamento_ios=false` o app se
     // comporta como Reader/SaaS: sem precos, sem botoes de cobranca direta.
     // No modo expresso (vindo do site público) a flag não se aplica — esse
     // fluxo só roda na web, onde o pagamento é permitido.
+    if (!widget.expressMode && !_canPurchaseLicense) {
+      return _buildLicensePaymentForbidden(context);
+    }
     if (!widget.expressMode && IosPaymentsGate.shouldHidePayments) {
       return IosPaymentUnavailableView(embedded: widget.embeddedInShell);
     }

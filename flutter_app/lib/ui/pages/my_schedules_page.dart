@@ -7,13 +7,12 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
-import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/schedule_swap_service.dart';
 import 'package:gestao_yahweh/ui/pages/member_schedule_availability_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -711,8 +710,8 @@ abstract final class _MySchedulesRamCache {
     String cpfDigits,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    if (docs.isEmpty) return;
-    _byKey[_key(tenantId, cpfDigits)] = (docs: List.from(docs), at: DateTime.now());
+    _byKey[_key(tenantId, cpfDigits)] =
+        (docs: List.from(docs), at: DateTime.now());
   }
 }
 
@@ -747,7 +746,9 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   String _cpfDigits = '';
   String _effectiveTenantId = '';
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _allDocs = [];
-  bool _loading = true;
+  bool _loading = false;
+  bool _fetching = false;
+  String? _loadError;
   /// `month` = lista só no mês de [_monthCursor] (setas anterior/próximo).
   String _dateFilter = 'month';
   DateTime _monthCursor = DateTime(DateTime.now().year, DateTime.now().month, 1);
@@ -765,53 +766,95 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   void initState() {
     super.initState();
     _cpfDigits = widget.cpf.replaceAll(RegExp(r'[^0-9]'), '');
-    _effectiveTenantId = widget.tenantId.trim();
-    unawaited(_openMySchedulesFast());
-    unawaited(_bootstrap());
+    _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
+    _seedFromCaches(_churchId);
+    _fetching = true;
+    unawaited(_initLoad());
   }
 
-  Future<void> _openMySchedulesFast() async {
-    final seed = ChurchPanelTenant.resolve(
-      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
-    );
-    if (seed.isEmpty) {
-      if (mounted) setState(() => _loading = false);
+  String get _churchId => ChurchRepository.churchId(
+        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+      );
+
+  void _seedFromCaches(String churchId) {
+    if (churchId.isEmpty) return;
+    final ram = (_cpfDigits.length == 11 && !_isAdmin)
+        ? ChurchSchedulesLoadService.peekMemberEscalasRam(
+            churchId,
+            _cpfDigits,
+          )
+        : null;
+    final docs = ram ??
+        ChurchSchedulesLoadService.peekEscalasRam(churchId) ??
+        _MySchedulesRamCache.peek(churchId, _cpfDigits);
+    if (docs != null && mounted) {
+      setState(() {
+        _allDocs = _sortDocsSync(docs);
+        _loading = false;
+        _fetching = true;
+      });
+    }
+  }
+
+  Future<void> _initLoad() async {
+    final churchId = _churchId;
+    if (churchId.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadError = 'Igreja não identificada.';
+        });
+      }
       return;
     }
-
-    final ram = ChurchSchedulesLoadService.peekEscalasRam(seed, limit: 200) ??
-        _MySchedulesRamCache.peek(seed, _cpfDigits);
-    if (ram != null && ram.isNotEmpty && mounted) {
-      final filtered = await _filterAndSortSchedulesForUser(seed, ram)
-          .timeout(const Duration(seconds: 10), onTimeout: () => ram);
-      setState(() {
-        _allDocs = filtered;
-        _loading = false;
-      });
-    }
+    _effectiveTenantId = churchId;
+    _seedFromCaches(churchId);
 
     try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      if (_cpfDigits.length != 11 && !_isAdmin) {
+        await _hydrateCpfFromMemberRecord().timeout(
+          const Duration(seconds: 6),
+          onTimeout: () {},
+        );
       }
-      final result = await ChurchSchedulesLoadService.loadEscalas(
-        seedTenantId: seed,
-        limit: 200,
-      ).timeout(
-        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
-      );
+      await _load(silent: _allDocs.isNotEmpty);
+    } catch (e) {
       if (!mounted) return;
-      await ChurchSchedulesLoadService.persistEscalas(result);
-      final docs = await _filterAndSortSchedulesForUser(seed, result.docs)
-          .timeout(const Duration(seconds: 10), onTimeout: () => result.docs);
-      _MySchedulesRamCache.put(seed, _cpfDigits, docs);
-      setState(() {
-        _allDocs = docs;
-        _loading = false;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (_allDocs.isEmpty) {
+        setState(() {
+          _loading = false;
+          _fetching = false;
+          _loadError = '$e';
+        });
+      } else {
+        setState(() => _fetching = false);
+      }
     }
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortDocsSync(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> source,
+  ) {
+    final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(source);
+    docs.sort((a, b) {
+      final da = (a.data()['date'] as Timestamp?)?.toDate();
+      final db = (b.data()['date'] as Timestamp?)?.toDate();
+      if (da == null || db == null) return 0;
+      return da.compareTo(db);
+    });
+    return docs;
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterForUserSync(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> source,
+  ) {
+    if (_isAdmin) return _sortDocsSync(source);
+    if (_cpfDigits.length == 11) {
+      return _sortDocsSync(
+        ChurchSchedulesLoadService.filterByMemberCpfs(source, _cpfDigits),
+      );
+    }
+    return const [];
   }
 
   Future<String> _tenantIdForOperations() async {
@@ -847,12 +890,12 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     if (_cpfDigits.length == 11) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    final tid = _effectiveTenantId.isNotEmpty
-        ? _effectiveTenantId
-        : widget.tenantId.trim();
-    if (tid.isEmpty) return;
-    final op = ChurchRepository.churchId(tid.trim());
-    final col = ChurchUiCollections.membros(op);
+    final churchId = _churchId;
+    if (churchId.isEmpty) return;
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+    final col = ChurchUiCollections.membros(churchId);
 
     Future<bool> applyFirst(QuerySnapshot<Map<String, dynamic>> snap) async {
       if (snap.docs.isEmpty) return false;
@@ -896,107 +939,121 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     }
   }
 
-  Future<void> _bootstrap() async {
-    unawaited(_hydrateCpfFromMemberRecord());
-    if (mounted) unawaited(_load(silent: true));
-  }
-
-  bool get _isAdmin {
-    final r = widget.role.toLowerCase();
-    return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
-  }
-
-  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _filterAndSortSchedulesForUser(
-    String tid,
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> source,
-  ) async {
-    if (_isAdmin) {
-      final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(source);
-      docs.sort((a, b) {
-        final da = (a.data()['date'] as Timestamp?)?.toDate();
-        final db = (b.data()['date'] as Timestamp?)?.toDate();
-        if (da == null || db == null) return 0;
-        return da.compareTo(db);
+  Future<void> _load({bool silent = false, bool forceRefresh = false}) async {
+    if (!silent && _allDocs.isEmpty && mounted) {
+      setState(() {
+        _fetching = true;
+        _loading = false;
       });
-      return docs;
-    }
-
-    final op = ChurchRepository.churchId(tid.trim());
-    final members = ChurchUiCollections.membros(op);
-    final deptIds = await _loadMemberDepartments(members);
-    final map = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
-    if (_cpfDigits.isNotEmpty) {
-      for (final d in source) {
-        final raw = d.data()['memberCpfs'];
-        if (raw is! List) continue;
-        for (final e in raw) {
-          final c = e.toString().replaceAll(RegExp(r'[^0-9]'), '');
-          if (c == _cpfDigits) {
-            map[d.id] = d;
-            break;
-          }
-        }
-      }
-    }
-    if (deptIds.isNotEmpty) {
-      final deptSet = deptIds.toSet();
-      for (final d in source) {
-        final dep = (d.data()['departmentId'] ?? '').toString();
-        if (dep.isNotEmpty && deptSet.contains(dep)) {
-          map.putIfAbsent(d.id, () => d);
-        }
-      }
-    }
-    final docs = map.values.toList()
-      ..sort((a, b) {
-        final da = (a.data()['date'] as Timestamp?)?.toDate();
-        final db = (b.data()['date'] as Timestamp?)?.toDate();
-        if (da == null || db == null) return 0;
-        return da.compareTo(db);
-      });
-    return docs;
-  }
-
-  Future<void> _load({bool silent = false}) async {
-    if (!silent || _allDocs.isEmpty) {
-      if (mounted && _allDocs.isEmpty) setState(() => _loading = true);
+    } else if (mounted) {
+      setState(() => _fetching = true);
     }
     try {
-      final hint = widget.tenantId.trim();
-      var tid = ChurchRepository.churchId(hint);
-      if (tid.isEmpty) {
-        tid = _effectiveTenantId.isNotEmpty ? _effectiveTenantId : hint;
+      final churchId = _churchId;
+      if (churchId.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _loadError = 'Igreja não identificada.';
+          });
+        }
+        return;
       }
-      tid = ChurchPanelTenant.resolve(tid);
-      if (mounted && tid != _effectiveTenantId) {
-        setState(() => _effectiveTenantId = tid);
+      if (mounted && churchId != _effectiveTenantId) {
+        setState(() => _effectiveTenantId = churchId);
       }
 
-      if (_cpfDigits.length != 11) {
-        unawaited(_hydrateCpfFromMemberRecord());
+      if (_cpfDigits.length != 11 && !_isAdmin) {
+        await _hydrateCpfFromMemberRecord().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {},
+        );
       }
 
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final result = await ChurchSchedulesLoadService.loadEscalas(
-        seedTenantId: tid,
-        limit: 200,
-        forceRefresh: !silent,
-      );
+
+      final ChurchSchedulesLoadResult result;
+      if (_isAdmin) {
+        result = await ChurchSchedulesLoadService.loadEscalas(
+          seedTenantId: churchId,
+          limit: 200,
+          forceRefresh: forceRefresh,
+        );
+      } else if (_cpfDigits.length == 11) {
+        result = await ChurchSchedulesLoadService.loadEscalasForMember(
+          seedTenantId: churchId,
+          cpfDigits: _cpfDigits,
+          limit: 200,
+          forceRefresh: forceRefresh,
+        );
+      } else {
+        result = await ChurchSchedulesLoadService.loadEscalas(
+          seedTenantId: churchId,
+          limit: 200,
+          forceRefresh: forceRefresh,
+        );
+      }
+
       await ChurchSchedulesLoadService.persistEscalas(result);
-      final docs = await _filterAndSortSchedulesForUser(tid, result.docs);
-      _MySchedulesRamCache.put(tid, _cpfDigits, docs);
+      final docs = _filterForUserSync(result.docs);
+      _MySchedulesRamCache.put(churchId, _cpfDigits, docs);
+
       if (mounted) {
         setState(() {
           _allDocs = docs;
           _loading = false;
+          _fetching = false;
+          _loadError = result.softError != null && docs.isEmpty
+              ? result.softError
+              : null;
         });
       }
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
+
+      if (!_isAdmin && _cpfDigits.length == 11) {
+        unawaited(_mergeDepartmentEscalas(churchId, result.docs));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _fetching = false;
+          _loadError = _allDocs.isEmpty ? '$e' : null;
+        });
+      }
     }
+  }
+
+  /// Escalas do departamento do membro — merge em background (não bloqueia abertura).
+  Future<void> _mergeDepartmentEscalas(
+    String churchId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> source,
+  ) async {
+    if (_cpfDigits.isEmpty) return;
+    final members = ChurchUiCollections.membros(churchId);
+    final deptIds = await _loadMemberDepartments(members);
+    if (deptIds.isEmpty || !mounted) return;
+    final deptSet = deptIds.toSet();
+    final map = {for (final d in _allDocs) d.id: d};
+    for (final d in source) {
+      final dep = (d.data()['departmentId'] ?? '').toString();
+      if (dep.isNotEmpty && deptSet.contains(dep)) {
+        map.putIfAbsent(d.id, () => d);
+      }
+    }
+    if (!mounted) return;
+    final merged = _sortDocsSync(map.values.toList());
+    if (merged.length == _allDocs.length) return;
+    setState(() {
+      _allDocs = merged;
+      _MySchedulesRamCache.put(churchId, _cpfDigits, merged);
+    });
+  }
+
+  bool get _isAdmin {
+    final r = widget.role.toLowerCase();
+    return r == 'adm' || r == 'admin' || r == 'gestor' || r == 'master';
   }
 
   /// Documentos filtrados pelo período selecionado (sem widget de calendário em grelha).
@@ -1602,16 +1659,25 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                   color: Colors.grey.shade600,
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Altere o filtro acima ou aguarde o líder publicar novas escalas.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade500,
-                  height: 1.35,
+              if (_fetching) ...[
+                const SizedBox(height: 16),
+                const SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
                 ),
-              ),
+              ] else ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Altere o filtro acima ou aguarde o líder publicar novas escalas.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey.shade500,
+                    height: 1.35,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -1648,11 +1714,27 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       ),
       body: SafeArea(
         top: !widget.embeddedInShell,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
+        child: _loading && _allDocs.isEmpty
+            ? const Center(child: ChurchPanelLoadingBody())
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (_loadError != null &&
+                      _loadError!.trim().isNotEmpty &&
+                      _allDocs.isEmpty)
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        pagePad.left,
+                        widget.embeddedInShell ? 8 : 12,
+                        pagePad.right,
+                        0,
+                      ),
+                      child: ChurchPanelErrorBody(
+                        title: 'Não foi possível carregar suas escalas',
+                        error: _loadError,
+                        onRetry: () => _load(),
+                      ),
+                    ),
                   if (isMobile)
                     Padding(
                       padding: EdgeInsets.fromLTRB(
@@ -1684,7 +1766,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                     ),
                   Expanded(
                     child: RefreshIndicator(
-                      onRefresh: _load,
+                      onRefresh: () => _load(forceRefresh: true),
                       child: CustomScrollView(
                         physics: const AlwaysScrollableScrollPhysics(
                           parent: BouncingScrollPhysics(),
