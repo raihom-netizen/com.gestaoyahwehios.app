@@ -3,14 +3,14 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
-import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
-import 'package:gestao_yahweh/core/yahweh_church_profile_engine.dart';
+import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga do Cadastro da Igreja — leitura directa `igrejas/{churchId}`.
@@ -69,10 +69,91 @@ abstract final class ChurchCadastroLoadService {
   static bool _isUsableProfile(Map<String, dynamic>? data) =>
       _profileScore(data) >= kMinProfileScore;
 
+  /// Agregados KPI/financeiro não alimentam inputs — ficam fora do estado do formulário.
+  static const Set<String> _heavyRootKeys = {
+    'dashboardAggregates',
+    'financeAggregates',
+    'membersDirectorySnapshot',
+    'membersDirectory',
+    'panelFeedCache',
+    'lastFinanceSnapshot',
+  };
+
+  static const List<String> _identityFieldKeys = [
+    'name',
+    'nome',
+    'NOME',
+    'NOME_IGREJA',
+    'cnpj',
+    'CNPJ',
+    'cep',
+    'rua',
+    'endereco',
+    'gestorNome',
+    'gestor_nome',
+    'slug',
+    'slugId',
+    'telefone',
+    'phone',
+  ];
+
+  /// Só campos do cadastro — evita re-render pesado com mapas agregados do doc raiz.
+  static Map<String, dynamic> sliceCadastroFormFields(Map<String, dynamic> raw) {
+    if (raw.isEmpty) return const {};
+    final out = Map<String, dynamic>.from(raw);
+    for (final k in _heavyRootKeys) {
+      out.remove(k);
+    }
+    return out;
+  }
+
+  static bool _hasIdentityField(Map<String, dynamic> data) {
+    final slice = sliceCadastroFormFields(data);
+    for (final k in _identityFieldKeys) {
+      final v = slice[k];
+      if (v != null && v.toString().trim().isNotEmpty) return true;
+    }
+    return false;
+  }
+
   static bool _hasMinimalCadastroFields(Map<String, dynamic>? data) {
     if (data == null || data.isEmpty) return false;
-    if (ChurchRootAggregatesParser.rootDocHasAggregateHints(data)) return true;
-    return _isUsableProfile(data);
+    if (_isUsableProfile(data)) return true;
+    return _hasIdentityField(data);
+  }
+
+  static Future<({String docId, Map<String, dynamic> data})?> _readCadastroDocOnce(
+    String churchId,
+  ) async {
+    final id = churchId.trim();
+    if (id.isEmpty) return null;
+
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady()
+          .timeout(const Duration(seconds: 2), onTimeout: () {})
+          .catchError((_) {});
+    }
+
+    try {
+      final snap = await FirestoreReadResilience.getDocument(
+        ChurchFirestoreAccess.churchDoc(id),
+        cacheKey: 'cadastro_form_$id',
+        maxAttempts: kIsWeb ? 2 : 2,
+        attemptTimeout: Duration(seconds: kIsWeb ? 8 : 6),
+      ).timeout(Duration(seconds: kIsWeb ? 14 : 10));
+
+      if (!snap.exists) return null;
+      final raw = snap.data();
+      if (raw == null || raw.isEmpty) return null;
+      return (
+        docId: snap.id,
+        data: sliceCadastroFormFields(Map<String, dynamic>.from(raw)),
+      );
+    } on TimeoutException {
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   static ChurchCadastroLoadResult _resultFromData({
@@ -158,18 +239,23 @@ abstract final class ChurchCadastroLoadService {
     if (!forceRefresh) {
       final local = await tryLocalSources(seedTenantId: seed);
       if (local != null && _hasMinimalCadastroFields(local.data)) {
-        if (!kIsWeb) {
-          return local;
-        }
+        return _resultFromData(
+          seed: seed,
+          churchId: churchId,
+          data: sliceCadastroFormFields(local.data),
+          readSource: local.readSource,
+        );
+      }
+      if (local != null && local.data.isNotEmpty) {
         paintedLocal = local;
       }
     }
 
     Object? loadError;
 
-    // Doc único — leitura directa primeiro (menos camadas; web com recovery 4×).
+    // Doc único — getDoc cache-first (sem snapshots); timeout curto para não travar a UI.
     try {
-      final direct = await IgrejaDirectFirestoreReads.readIgrejaDoc(churchId);
+      final direct = await _readCadastroDocOnce(churchId);
       if (direct != null &&
           direct.data.isNotEmpty &&
           _hasMinimalCadastroFields(direct.data)) {
@@ -213,7 +299,7 @@ abstract final class ChurchCadastroLoadService {
     }
 
     try {
-      final direct = await IgrejaDirectFirestoreReads.readIgrejaDoc(churchId);
+      final direct = await _readCadastroDocOnce(churchId);
       if (direct != null && direct.data.isNotEmpty) {
         return _resultFromData(
           seed: seed,
@@ -232,7 +318,7 @@ abstract final class ChurchCadastroLoadService {
         return _resultFromData(
           seed: seed,
           churchId: churchId,
-          data: paintedLocal.data,
+          data: sliceCadastroFormFields(paintedLocal.data),
           readSource: paintedLocal.readSource,
           softError: errMsg ??
               'Sincronização parcial. Toque em «Atualizar» para tentar de novo.',
@@ -244,7 +330,7 @@ abstract final class ChurchCadastroLoadService {
         return _resultFromData(
           seed: seed,
           churchId: churchId,
-          data: local.data,
+          data: sliceCadastroFormFields(local.data),
           readSource: local.readSource,
           softError: errMsg ??
               'Sincronização parcial. Toque em «Atualizar» para tentar de novo.',
@@ -279,14 +365,15 @@ abstract final class ChurchCadastroLoadService {
   /// Persiste perfil completo após leitura bem-sucedida.
   static Future<void> persistAfterLoad(ChurchCadastroLoadResult result) async {
     if (result.data.isEmpty) return;
+    final slim = sliceCadastroFormFields(result.data);
     ChurchContextService.bindChurchData(
       churchId: result.churchId,
-      data: result.data,
+      data: slim,
     );
     await ChurchPanelLocalCache.saveMap(
       churchId: result.churchId,
       module: ChurchPanelLocalCache.moduleCadastro,
-      data: result.data,
+      data: slim,
     );
   }
 }

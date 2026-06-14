@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/chat_engine/chat_thread_repository.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
+import 'package:gestao_yahweh/services/church_chat_send_callbacks.dart';
 
 /// **Motor de Mensagens** — porta única do Chat Igreja (estilo WhatsApp, sem adaptações).
 ///
@@ -136,8 +137,8 @@ abstract final class ChatMessagingEngine {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
     List<String>? mentionedUids,
-    void Function(bool ok)? onComplete,
-    void Function(String message)? onError,
+    ChurchChatSendCompleteCallback? onComplete,
+    ChurchChatSendErrorCallback? onError,
   }) {
     ChurchChatInstantSendService.enqueueText(
       tenantId: churchId,

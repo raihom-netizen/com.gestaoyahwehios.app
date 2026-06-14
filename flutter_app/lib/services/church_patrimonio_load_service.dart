@@ -69,6 +69,33 @@ abstract final class ChurchPatrimonioLoadService {
   }) =>
       _peekRam(_resolve(seedTenantId), limit);
 
+  /// Qualquer entrada RAM deste tenant (warm loadAll alimenta chaves diferentes de limit 20).
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekRamAny(
+    String seedTenantId,
+  ) {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return null;
+    for (final limit in [
+      kDefaultAllLimit,
+      kDefaultListLimit,
+      200,
+      80,
+      50,
+    ]) {
+      final hit = _peekRam(churchId, limit);
+      if (hit != null && hit.isNotEmpty) return hit;
+    }
+    final prefix = '${churchId}_patrimonio_';
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? best;
+    for (final e in _ram.entries) {
+      if (!e.key.startsWith(prefix) || e.value.docs.isEmpty) continue;
+      if (best == null || e.value.docs.length > best.length) {
+        best = e.value.docs;
+      }
+    }
+    return best;
+  }
+
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekRam(
     String churchId,
     int limit,
@@ -89,6 +116,56 @@ abstract final class ChurchPatrimonioLoadService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
     _ram[key] = (docs: List.from(docs), at: DateTime.now());
+  }
+
+  /// Injeta bem na RAM após save otimista (lista instantânea antes do Firestore).
+  static void seedOptimisticDoc({
+    required String seedTenantId,
+    required String itemId,
+    required Map<String, dynamic> data,
+  }) {
+    final churchId = _resolve(seedTenantId);
+    final id = itemId.trim();
+    if (churchId.isEmpty || id.isEmpty) return;
+
+    final path = 'igrejas/$churchId/patrimonio/$id';
+    final docs = TenantModuleHiveCache.toQueryDocuments([
+      {
+        'path': path,
+        'id': id,
+        'data': Map<String, dynamic>.from(data),
+      },
+    ]);
+    if (docs.isEmpty) return;
+
+    final sorted = _sortByNome(_mergeDocIntoList(peekRamAny(churchId), docs.first));
+    for (final limit in [
+      kDefaultAllLimit,
+      kDefaultListLimit,
+      200,
+      80,
+      50,
+    ]) {
+      _putRam(cacheKey(churchId, limit), sorted);
+    }
+  }
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _mergeDocIntoList(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? existing,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    var replaced = false;
+    for (final d in existing ?? const []) {
+      if (d.id == doc.id) {
+        out.add(doc);
+        replaced = true;
+      } else {
+        out.add(d);
+      }
+    }
+    if (!replaced) out.add(doc);
+    return out;
   }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortByNome(
@@ -151,8 +228,27 @@ abstract final class ChurchPatrimonioLoadService {
     final capped = FirebasePerformanceLimits.capListLimit('patrimonio', limit);
 
     if (!forceRefresh && !forceServer) {
+      final anyRam = peekRamAny(churchId);
+      if (anyRam != null && anyRam.isNotEmpty) {
+        final docs = _sortByNome(anyRam);
+        _putRam(ramKey, docs);
+        unawaited(_refreshInBackground(
+          churchId: churchId,
+          ramKey: ramKey,
+          limit: capped,
+          reference: reference,
+        ));
+        return ChurchPatrimonioLoadResult(
+          churchId: churchId,
+          docs: docs,
+          readSource: 'ram_any',
+          collectionPath: path,
+          fromCache: true,
+        );
+      }
+
       final ramHit = _peekRam(churchId, limit);
-      if (ramHit != null) {
+      if (ramHit != null && ramHit.isNotEmpty) {
         unawaited(_refreshInBackground(
           churchId: churchId,
           ramKey: ramKey,
@@ -166,6 +262,8 @@ abstract final class ChurchPatrimonioLoadService {
           collectionPath: path,
           fromCache: true,
         );
+      } else if (ramHit != null && ramHit.isEmpty) {
+        _ram.remove(ramKey);
       }
 
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
@@ -284,7 +382,7 @@ abstract final class ChurchPatrimonioLoadService {
       );
     }
 
-    final ramFallback = _peekRam(churchId, limit);
+    final ramFallback = peekRamAny(churchId) ?? _peekRam(churchId, limit);
     if (ramFallback != null) {
       return ChurchPatrimonioLoadResult(
         churchId: churchId,

@@ -237,6 +237,55 @@ abstract final class YahwehSkeletonLoading {
     );
   }
 
+  /// Cadastro da Igreja — campos do formulário enquanto getDoc() resolve.
+  static Widget cadastroForm() {
+    return _shimmer(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            height: 56,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            height: 56,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            height: 158,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            ),
+          ),
+          const SizedBox(height: 16),
+          ...List.generate(
+            4,
+            (_) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Container(
+                height: 52,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Genérico para [ChurchPanelLoadingBody] e painéis.
   static Widget panelList({int itemCount = 5}) {
     return membrosList(itemCount: itemCount);

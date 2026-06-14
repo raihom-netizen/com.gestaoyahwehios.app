@@ -111,6 +111,107 @@ class ChurchPanelOfflineStaleBanner extends StatelessWidget {
   }
 }
 
+/// Faixa discreta — sincronização em segundo plano (não bloqueia o conteúdo).
+class ChurchPanelSyncBanner extends StatelessWidget {
+  const ChurchPanelSyncBanner({
+    super.key,
+    this.message = 'Sincronizando… a mostrar dados guardados enquanto atualiza.',
+  });
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFFFF8E1),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.amber.shade800,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.amber.shade900,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Erro bloqueante só quando não há dados locais; senão faixa offline/sync.
+class ChurchPanelResilientLoadBanner extends StatelessWidget {
+  const ChurchPanelResilientLoadBanner({
+    super.key,
+    required this.hasLocalData,
+    required this.isSyncing,
+    this.showStaleCache = false,
+    this.errorTitle = 'Não foi possível carregar',
+    this.error,
+    this.onRetry,
+    this.staleMessage,
+    this.syncMessage,
+  });
+
+  final bool hasLocalData;
+  final bool isSyncing;
+  final bool showStaleCache;
+  final String errorTitle;
+  final Object? error;
+  final VoidCallback? onRetry;
+  final String? staleMessage;
+  final String? syncMessage;
+
+  @override
+  Widget build(BuildContext context) {
+    if (hasLocalData) {
+      if (isSyncing) {
+        return ChurchPanelSyncBanner(
+          message: (syncMessage != null && syncMessage!.isNotEmpty)
+              ? syncMessage!
+              : 'Sincronizando… a mostrar dados guardados enquanto atualiza.',
+        );
+      }
+      if (showStaleCache) {
+        return ChurchPanelOfflineStaleBanner(
+          message: staleMessage ??
+              'Modo offline — últimos dados guardados. Puxe para atualizar.',
+        );
+      }
+      return const SizedBox.shrink();
+    }
+    if (error == null && !isSyncing) return const SizedBox.shrink();
+    if (isSyncing && error == null) {
+      return ChurchPanelSyncBanner(
+        message: (syncMessage != null && syncMessage!.isNotEmpty)
+            ? syncMessage!
+            : 'Sincronizando…',
+      );
+    }
+    return ChurchPanelErrorBody(
+      title: errorTitle,
+      error: error,
+      onRetry: onRetry,
+    );
+  }
+}
+
 /// [FutureBuilder] com fallback à última query bem-sucedida (sistema completo).
 class ResilientPanelQueryFutureBuilder extends StatefulWidget {
   const ResilientPanelQueryFutureBuilder({

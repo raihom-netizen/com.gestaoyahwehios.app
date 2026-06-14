@@ -43,6 +43,8 @@ import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_address_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
@@ -328,6 +330,20 @@ class InstagramMuralState extends State<InstagramMural> {
   String get _logoUrl => churchTenantLogoUrl(_tenantData);
 
   Timer? _feedSkeletonCapTimer;
+  Timer? _feedWebLoadCap;
+
+  void _startFeedWebLoadCap() {
+    if (!kIsWeb) return;
+    _feedWebLoadCap?.cancel();
+    _feedWebLoadCap = Timer(const Duration(seconds: 14), () {
+      if (!mounted) return;
+      if (!_isFeedInitialLoading && !_isFeedPageLoading) return;
+      setState(() {
+        _isFeedInitialLoading = false;
+        _isFeedPageLoading = false;
+      });
+    });
+  }
 
   @override
   void initState() {
@@ -339,6 +355,7 @@ class InstagramMuralState extends State<InstagramMural> {
         setState(() => _isFeedInitialLoading = false);
       }
     });
+    _startFeedWebLoadCap();
     unawaited(_primeFeedFromPersistedCache());
     unawaited(_bootstrapFirestoreTenant());
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -445,6 +462,7 @@ class InstagramMuralState extends State<InstagramMural> {
         limit: _feedPageSize,
       ).timeout(const Duration(milliseconds: 2800));
       if (hit.docs.isNotEmpty) {
+        ChurchAvisosLoadService.putRam(tid, hit.docs);
         _AvisosFeedRamCache.put(tid, hit.docs);
         applyDocs(hit.docs);
       }
@@ -547,7 +565,7 @@ class InstagramMuralState extends State<InstagramMural> {
         : ChurchUiCollections.churchDoc(igrejaId)
             .collection(ChurchTenantPostsCollections.avisos);
     if (!mounted) return;
-    final result = await Navigator.push<bool>(
+    final result = await Navigator.push<Object?>(
       context,
       MaterialPageRoute(
           builder: (_) => MuralAvisoEditorPage(
@@ -559,7 +577,21 @@ class InstagramMuralState extends State<InstagramMural> {
                 churchSlug: widget.churchSlug,
               )),
     );
-    if (result == true && mounted) {
+    if (!mounted) return;
+    if (result == true) {
+      await _loadFeedPage(reset: true);
+      return;
+    }
+    if (result is! Map) return;
+    final ok = result['ok'];
+    if (ok != true && ok != 'true') return;
+    final background = result['bg'] == true || result['bg'] == 'true';
+    if (background) {
+      if (_feedLiveSub == null) {
+        unawaited(_startFeedLiveSync());
+      }
+      unawaited(_loadFeedPage(reset: false));
+    } else {
       await _loadFeedPage(reset: true);
     }
   }
@@ -664,6 +696,7 @@ class InstagramMuralState extends State<InstagramMural> {
       }
       _isFeedPageLoading = true;
     });
+    _startFeedWebLoadCap();
 
     try {
       Query<Map<String, dynamic>> q = _feedBaseQuery().limit(_feedPageSize);
@@ -675,8 +708,12 @@ class InstagramMuralState extends State<InstagramMural> {
         final hit = await ChurchAvisosLoadService.loadFeed(
           seedTenantId: _tid,
           limit: _feedPageSize,
-        );
+        ).timeout(const Duration(seconds: 14));
         snap = hit.snapshot;
+        if (hit.docs.isNotEmpty) {
+          ChurchAvisosLoadService.putRam(_tid, hit.docs, limit: _feedPageSize);
+          unawaited(ChurchAvisosLoadService.persistAfterLoad(hit));
+        }
         if (hit.softError != null && hit.docs.isEmpty && mounted) {
           _feedLoadError = hit.softError;
         }
@@ -744,6 +781,7 @@ class InstagramMuralState extends State<InstagramMural> {
         }
       }
     } finally {
+      _feedWebLoadCap?.cancel();
       if (mounted && requestEpoch == _feedRequestEpoch) {
         setState(() {
           _isFeedInitialLoading = false;
@@ -1072,6 +1110,7 @@ class InstagramMuralState extends State<InstagramMural> {
   void dispose() {
     _feedSearchDebounce?.cancel();
     _feedSkeletonCapTimer?.cancel();
+    _feedWebLoadCap?.cancel();
     _feedSearchCtrl.dispose();
     _feedLiveSub?.cancel();
     super.dispose();
@@ -2000,7 +2039,7 @@ class _PostCardState extends State<_PostCard>
               !publishFailed)
             _buildCompactTitleStrip(title, '', isEvento),
 
-          if ((mediaUploading || publishFailed) && carouselLen == 0)
+          if (carouselLen == 0)
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
               child: FutureBuilder<List<Uint8List>?>(
@@ -2011,6 +2050,8 @@ class _PostCardState extends State<_PostCard>
                 builder: (context, pendingSnap) {
                   final pending = pendingSnap.data;
                   if (pending != null && pending.isNotEmpty) {
+                    final uploadActive = mediaUploading ||
+                        GlobalUploadProgress.instance.state.value != null;
                     return AspectRatio(
                       aspectRatio: 4 / 3,
                       child: ClipRRect(
@@ -2025,7 +2066,7 @@ class _PostCardState extends State<_PostCard>
                                 fit: BoxFit.cover,
                               ),
                             ),
-                            if (mediaUploading)
+                            if (uploadActive)
                               Align(
                                 alignment: Alignment.bottomCenter,
                                 child: Container(
@@ -2048,7 +2089,9 @@ class _PostCardState extends State<_PostCard>
                                       ),
                                       const SizedBox(width: 8),
                                       Text(
-                                        'Carregando mídia…',
+                                        uploadActive
+                                            ? 'A publicar fotos…'
+                                            : 'Pré-visualização local',
                                         style: GoogleFonts.inter(
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
@@ -2063,6 +2106,9 @@ class _PostCardState extends State<_PostCard>
                         ),
                       ),
                     );
+                  }
+                  if (!publishFailed) {
+                    return const SizedBox.shrink();
                   }
                   if (publishFailed) {
                     return AspectRatio(
@@ -3453,6 +3499,309 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     return (bytes: null, paths: paths);
   }
 
+  bool _validateAvisoPublishInputs({
+    required bool isNewDoc,
+    required List<String> existingUrls,
+  }) {
+    if (_title.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar('Informe o título.'),
+      );
+      return false;
+    }
+    final hasPhotos = existingUrls.isNotEmpty || _newPhotoCount > 0;
+    if (isNewDoc && !hasPhotos) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.errorSnackBarWithRetry(
+          'Adicione pelo menos uma foto válida ao aviso.',
+        ),
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /// Comprime novas fotos (~150 KB) antes do upload Storage (`capa_aviso.jpg`).
+  Future<List<Uint8List>> _prepareCompressedAvisoPhotosForPublish() async {
+    final out = <Uint8List>[];
+    if (kIsWeb) {
+      for (final raw in _newImages) {
+        if (raw.isEmpty) continue;
+        final compressed = await ChurchInstantUploadPipeline.prepareImageBytes(
+          raw,
+          postType: kChurchPostTypeAviso,
+        );
+        if (compressed.isNotEmpty) out.add(compressed);
+      }
+      return out;
+    }
+    for (final path in FeedEditorMediaService.existingValidPaths(_newImagePaths)) {
+      final compressed = await ChurchInstantUploadPipeline.prepareImageBytes(
+        Uint8List(0),
+        localPath: path,
+        postType: kChurchPostTypeAviso,
+      );
+      if (compressed.isNotEmpty) out.add(compressed);
+    }
+    return out;
+  }
+
+  Future<void> _saveAvisoOptimistic() async {
+    final isNewDoc = widget.doc == null && !_draftStubEnsured;
+    final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+    if (!_validateAvisoPublishInputs(
+      isNewDoc: isNewDoc,
+      existingUrls: existingUrls,
+    )) {
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      List<Uint8List> compressedPhotos;
+      try {
+        compressedPhotos = await _prepareCompressedAvisoPhotosForPublish();
+      } catch (e, st) {
+        ChurchPublishFlowLog.logCatch(e, st, label: 'aviso_compress');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.errorSnackBarWithRetry(
+              formatUploadErrorForUser(e),
+              onRetry: _save,
+            ),
+          );
+        }
+        return;
+      }
+      if (isNewDoc &&
+          compressedPhotos.isEmpty &&
+          existingUrls.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.errorSnackBarWithRetry(
+              'Não foi possível preparar as fotos. Tente outras imagens.',
+              onRetry: _save,
+            ),
+          );
+        }
+        return;
+      }
+      final ctx = await _prepareAvisoPublishContext();
+      var aspectRatio = 1.0;
+      if (existingUrls.isNotEmpty) {
+        final prev = widget.doc?.data()?['media_info'];
+        if (prev is Map) {
+          final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+          if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
+        }
+      }
+      final corePayload = _buildCorePayload(
+        allUrls: existingUrls,
+        aspectRatio: aspectRatio,
+        isNewDoc: isNewDoc,
+      );
+      corePayload.remove('videoUrl');
+      corePayload['media_info'] = <String, dynamic>{
+        'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
+        'tipo': 'image',
+      };
+      await _publishAvisoLinear(
+        docRef: ctx.docRef,
+        publishTenantId: ctx.igrejaId,
+        isNewDoc: isNewDoc,
+        existingUrls: existingUrls,
+        corePayload: corePayload,
+        compressedNewPhotos: compressedPhotos,
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _saveEventoOptimistic() async {
+    final isNewDoc = widget.doc == null && !_draftStubEnsured;
+    final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+    if (_title.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar('Informe o título.'),
+      );
+      return;
+    }
+    final hasPhotos = existingUrls.isNotEmpty || _newPhotoCount > 0;
+    final hasVideoLink = _videoUrl.text.trim().isNotEmpty;
+    if (isNewDoc && !hasPhotos && !hasVideoLink) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.errorSnackBarWithRetry(
+          'Adicione pelo menos uma foto ou um vídeo ao evento.',
+        ),
+      );
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      List<Uint8List> compressedPhotos;
+      try {
+        compressedPhotos = await _prepareCompressedEventPhotosForPublish();
+      } catch (e, st) {
+        ChurchPublishFlowLog.logCatch(e, st, label: 'mural_evento_compress');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.errorSnackBarWithRetry(
+              formatUploadErrorForUser(e),
+              onRetry: _save,
+            ),
+          );
+        }
+        return;
+      }
+      final ctx = await _prepareEventoPublishContext();
+      var aspectRatio = 1.0;
+      if (existingUrls.isNotEmpty) {
+        final prev = widget.doc?.data()?['media_info'];
+        if (prev is Map) {
+          final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
+          if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
+        }
+      }
+      if (compressedPhotos.isNotEmpty) {
+        await MuralPostPendingMediaCache.put(
+          tenantId: ctx.igrejaId,
+          postId: ctx.docRef.id,
+          images: compressedPhotos,
+        );
+      }
+      final corePayload = _buildCorePayload(
+        allUrls: existingUrls,
+        aspectRatio: aspectRatio,
+        isNewDoc: isNewDoc,
+      );
+      corePayload.remove('videoUrl');
+      corePayload['media_info'] = <String, dynamic>{
+        'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
+        'tipo': hasVideoLink ? 'video' : 'image',
+      };
+      await _publishEventoLinear(
+        docRef: ctx.docRef,
+        publishTenantId: ctx.igrejaId,
+        isNewDoc: isNewDoc,
+        existingUrls: existingUrls,
+        corePayload: corePayload,
+        compressedNewPhotos: compressedPhotos,
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<List<Uint8List>> _prepareCompressedEventPhotosForPublish() async {
+    final out = <Uint8List>[];
+    if (kIsWeb) {
+      for (final raw in _newImages) {
+        if (raw.isEmpty) continue;
+        final compressed = await ChurchInstantUploadPipeline.prepareImageBytes(
+          raw,
+          postType: kChurchPostTypeEvento,
+        );
+        if (compressed.isNotEmpty) out.add(compressed);
+      }
+      return out;
+    }
+    for (final path in FeedEditorMediaService.existingValidPaths(_newImagePaths)) {
+      final compressed = await ChurchInstantUploadPipeline.prepareImageBytes(
+        Uint8List(0),
+        localPath: path,
+        postType: kChurchPostTypeEvento,
+      );
+      if (compressed.isNotEmpty) out.add(compressed);
+    }
+    return out;
+  }
+
+  Future<void> _publishEventoLinear({
+    required DocumentReference<Map<String, dynamic>> docRef,
+    required String publishTenantId,
+    required bool isNewDoc,
+    required List<String> existingUrls,
+    required Map<String, dynamic> corePayload,
+    required List<Uint8List> compressedNewPhotos,
+  }) async {
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    final titulo = _title.text.trim();
+    final startSlot = existingUrls.length;
+    final videoPath = _videoStoragePathForMuralEvento(publishTenantId, docRef.id);
+    final hasVideo = videoPath != null || _videoUrl.text.trim().isNotEmpty;
+
+    unawaited(
+      EventosPublishVerificationService.logPublishPhase(
+        phase: 'before',
+        igrejaId: publishTenantId,
+        uid: uid,
+        titulo: titulo,
+        eventoId: docRef.id,
+        fotos: EventosPublishVerificationService.storagePathsFromUrls(
+          _existingUrls,
+        ),
+      ),
+    );
+
+    EcofirePublishProgressUi.schedule<void>(
+      context: context,
+      uploadLabel: 'A enviar fotos e vídeo…',
+      saveLabel: 'A gravar evento…',
+      distributeLabel: 'A notificar e publicar no site…',
+      successMessage:
+          isNewDoc ? 'Evento publicado com sucesso.' : 'Evento atualizado.',
+      closeEditor: () {
+        if (mounted) {
+          Navigator.pop(context, <String, dynamic>{
+            'ok': true,
+            'bg': true,
+            'docId': docRef.id,
+          });
+        }
+      },
+      action: (reportProgress) async {
+        try {
+          await EventoStrictPublishService.publish(
+            docRef: docRef,
+            tenantId: publishTenantId,
+            corePayload: corePayload,
+            isNewDoc: isNewDoc,
+            existingUrls: existingUrls,
+            startSlotIndex: startSlot,
+            hasVideo: hasVideo,
+            newImagesBytes:
+                compressedNewPhotos.isNotEmpty ? compressedNewPhotos : null,
+            newImagePaths: null,
+            videoStoragePath: videoPath,
+            localVideoPath: null,
+            publicSite: _publicSite,
+            eventStartAt: _eventStartAtForSave(),
+            location: _localSalvo(),
+            syncAgenda: _eventStartAtForSave() != null,
+            onUploadProgress: reportProgress,
+          );
+          await MuralPostPendingMediaCache.remove(
+            tenantId: publishTenantId,
+            postId: docRef.id,
+          );
+          unawaited(
+            EventosPublishVerificationService.logPublishPhase(
+              phase: 'after',
+              igrejaId: publishTenantId,
+              uid: uid,
+              titulo: titulo,
+              eventoId: docRef.id,
+            ),
+          );
+          EventosPublishVerificationService.clearLastError();
+        } catch (e) {
+          EventosPublishVerificationService.rememberLastError(e);
+          rethrow;
+        }
+      },
+    );
+  }
+
   void _clearNewPhotosAfterPublish() {
     _newImages.clear();
     _newImagePaths.clear();
@@ -4427,11 +4776,19 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     required bool isNewDoc,
     required List<String> existingUrls,
     required Map<String, dynamic> corePayload,
+    required List<Uint8List> compressedNewPhotos,
   }) async {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final titulo = _title.text.trim();
     final startSlot = existingUrls.length;
-    final pendingPhotos = _newPhotosForPublish();
+
+    if (compressedNewPhotos.isNotEmpty) {
+      await MuralPostPendingMediaCache.put(
+        tenantId: publishTenantId,
+        postId: docRef.id,
+        images: compressedNewPhotos,
+      );
+    }
 
     unawaited(
       AvisosPublishVerificationService.logPublishPhase(
@@ -4454,33 +4811,49 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       successMessage:
           isNewDoc ? 'Aviso publicado com sucesso.' : 'Aviso atualizado.',
       closeEditor: () {
-        if (mounted) Navigator.pop(context, true);
+        if (mounted) {
+          Navigator.pop(context, <String, dynamic>{
+            'ok': true,
+            'bg': true,
+            'docId': docRef.id,
+          });
+        }
       },
       action: (reportProgress) async {
-        await YahwehCentralEngineService.executeInstantSaveAviso(
-          docRef: docRef,
-          tenantId: publishTenantId,
-          corePayload: corePayload,
-          isNewDoc: isNewDoc,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlot,
-          newImagesBytes: pendingPhotos.bytes,
-          newImagePaths: pendingPhotos.paths,
-          publicSite: _publicSite,
-          calendarDate: _validUntil,
-          syncCalendar: _validUntil != null,
-          onUploadProgress: reportProgress,
-        );
-        unawaited(
-          AvisosPublishVerificationService.logPublishPhase(
-            phase: 'after',
-            igrejaId: publishTenantId,
-            uid: uid,
-            titulo: titulo,
-            docId: docRef.id,
-          ),
-        );
-        AvisosPublishVerificationService.clearLastError();
+        try {
+          await YahwehCentralEngineService.executeInstantSaveAviso(
+            docRef: docRef,
+            tenantId: publishTenantId,
+            corePayload: corePayload,
+            isNewDoc: isNewDoc,
+            existingUrls: existingUrls,
+            startSlotIndex: startSlot,
+            newImagesBytes:
+                compressedNewPhotos.isNotEmpty ? compressedNewPhotos : null,
+            newImagePaths: null,
+            publicSite: _publicSite,
+            calendarDate: _validUntil,
+            syncCalendar: _validUntil != null,
+            onUploadProgress: reportProgress,
+          );
+          await MuralPostPendingMediaCache.remove(
+            tenantId: publishTenantId,
+            postId: docRef.id,
+          );
+          unawaited(
+            AvisosPublishVerificationService.logPublishPhase(
+              phase: 'after',
+              igrejaId: publishTenantId,
+              uid: uid,
+              titulo: titulo,
+              docId: docRef.id,
+            ),
+          );
+          AvisosPublishVerificationService.clearLastError();
+        } catch (e) {
+          AvisosPublishVerificationService.rememberLastError(e);
+          rethrow;
+        }
       },
     );
   }
@@ -4492,27 +4865,19 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           .showSnackBar(ThemeCleanPremium.successSnackBar('Informe o título.'));
       return;
     }
+    if (widget.type == 'aviso') {
+      await _saveAvisoOptimistic();
+      return;
+    }
+    if (widget.type == 'evento') {
+      await _saveEventoOptimistic();
+      return;
+    }
     setState(() => _saving = true);
     try {
-      final isAviso = widget.type == 'aviso';
-      final isEvento = widget.type == 'evento';
-      if (isEvento) {
-        ChurchPublishFlowLog.eventoStart();
-      }
-      late final DocumentReference<Map<String, dynamic>> docRef;
-      late final String publishTenantId;
-      if (isAviso) {
-        final ctx = await _prepareAvisoPublishContext();
-        docRef = ctx.docRef;
-        publishTenantId = ctx.igrejaId;
-      } else if (isEvento) {
-        final ctx = await _prepareEventoPublishContext();
-        docRef = ctx.docRef;
-        publishTenantId = ctx.igrejaId;
-      } else {
-        docRef = _editorPostRef;
-        publishTenantId = _editorTenantId;
-      }
+      await ensureFirebaseReadyToPublish(logLabel: 'mural_aviso_save');
+      final docRef = _editorPostRef;
+      final publishTenantId = _editorTenantId;
       final isNewDoc = widget.doc == null && !_draftStubEnsured;
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       var aspectRatio = 1.0;
@@ -4522,105 +4887,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           final oar = prev['aspect_ratio'] ?? prev['aspectRatio'];
           if (oar is num) aspectRatio = oar.toDouble().clamp(0.4, 2.3);
         }
-      }
-      if (isAviso) {
-        final corePayload = _buildCorePayload(
-          allUrls: existingUrls,
-          aspectRatio: aspectRatio,
-          isNewDoc: isNewDoc,
-        );
-        corePayload.remove('videoUrl');
-        corePayload['media_info'] = <String, dynamic>{
-          'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
-          'tipo': 'image',
-        };
-        await _publishAvisoLinear(
-          docRef: docRef,
-          publishTenantId: publishTenantId,
-          isNewDoc: isNewDoc,
-          existingUrls: existingUrls,
-          corePayload: corePayload,
-        );
-        return;
-      }
-      final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
-      final titulo = _title.text.trim();
-      if (isEvento) {
-        unawaited(
-          EventosPublishVerificationService.logPublishPhase(
-            phase: 'before',
-            igrejaId: publishTenantId,
-            uid: uid,
-            titulo: titulo,
-            eventoId: docRef.id,
-            fotos: EventosPublishVerificationService.storagePathsFromUrls(
-              _existingUrls,
-            ),
-          ),
-        );
-        final startSlot = existingUrls.length;
-        final pendingPhotos = _newPhotosForPublish();
-        final corePayload = _buildCorePayload(
-          allUrls: existingUrls,
-          aspectRatio: aspectRatio,
-          isNewDoc: isNewDoc,
-        );
-        corePayload.remove('videoUrl');
-        corePayload['media_info'] = <String, dynamic>{
-          'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
-          'tipo': (_videoUrl.text.trim().isNotEmpty ||
-                  _videoStoragePathForMuralEvento(
-                        publishTenantId,
-                        docRef.id,
-                      ) !=
-                      null)
-              ? 'video'
-              : 'image',
-        };
-        final videoPath =
-            _videoStoragePathForMuralEvento(publishTenantId, docRef.id);
-        EcofirePublishProgressUi.schedule<void>(
-          context: context,
-          uploadLabel: 'A enviar fotos e vídeo…',
-          saveLabel: 'A gravar evento…',
-          distributeLabel: 'A notificar e publicar no site…',
-          successMessage: isNewDoc
-              ? 'Evento publicado com sucesso.'
-              : 'Evento atualizado.',
-          closeEditor: () {
-            if (mounted) Navigator.pop(context, true);
-          },
-          action: (reportProgress) async {
-            await EventoStrictPublishService.publish(
-              docRef: docRef,
-              tenantId: publishTenantId,
-              corePayload: corePayload,
-              isNewDoc: isNewDoc,
-              existingUrls: existingUrls,
-              startSlotIndex: startSlot,
-              hasVideo: videoPath != null || _videoUrl.text.trim().isNotEmpty,
-              newImagesBytes: pendingPhotos.bytes,
-              newImagePaths: pendingPhotos.paths,
-              videoStoragePath: videoPath,
-              publicSite: _publicSite,
-              eventStartAt: _eventStartAtForSave(),
-              location: _localSalvo(),
-              syncAgenda: _eventStartAtForSave() != null,
-              onUploadProgress: reportProgress,
-            );
-            unawaited(
-              EventosPublishVerificationService.logPublishPhase(
-                phase: 'after',
-                igrejaId: publishTenantId,
-                uid: uid,
-                titulo: titulo,
-                eventoId: docRef.id,
-              ),
-            );
-            EventosPublishVerificationService.clearLastError();
-          },
-        );
-        return;
       }
       final payload = _buildCorePayload(
         allUrls: existingUrls,
@@ -5147,7 +5413,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
                                 ),
                                 Text(
                                   isAvisoEditor
-                                      ? 'Serão enviadas antes de publicar'
+                                      ? 'Comprimidas (~150 KB) — publicação rápida'
                                       : 'Banner + galeria no Storage da igreja',
                                   style: TextStyle(
                                     fontSize: 12,

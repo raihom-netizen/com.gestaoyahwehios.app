@@ -18,8 +18,8 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class YahwehReportsEngineFetcher {
   YahwehReportsEngineFetcher._();
 
-  static const int kFinanceReportLimit = 2500;
-  static const int kPatrimonioReportLimit = 800;
+  static const int kFinanceReportLimit = 500;
+  static const int kPatrimonioReportLimit = 200;
   static const int kMembrosReportLimit = 800;
 
   /// Referência aceite — **não** usar em runtime fixo; só documentação/DEBUG.

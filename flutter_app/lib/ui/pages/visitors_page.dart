@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/services/church_visitantes_load_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -230,6 +231,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _webLoadCap?.cancel();
     super.dispose();
   }
   DateTime? _filtroData;
@@ -237,6 +239,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
   int? _filtroMes;
   int? _filtroAno;
   late Future<QuerySnapshot<Map<String, dynamic>>> _visitantesFuture;
+  Timer? _webLoadCap;
+  int _visitantesLoadGen = 0;
+  bool _visitantesLoadPending = true;
 
   /// Doc operacional (slug/alias) — resolve em background sem bloquear a lista.
   String _effectiveTenantId = '';
@@ -281,66 +286,165 @@ class _VisitorsPageState extends State<VisitorsPage> {
       forceRefresh: forceRefresh,
       forceServer: forceServer,
     );
+    if (result.docs.isNotEmpty) {
+      ChurchVisitantesLoadService.putRam(result.churchId, result.docs);
+      unawaited(ChurchVisitantesLoadService.persistAfterLoad(result));
+    }
     return result.snapshot;
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadVisitantes() async {
+  QuerySnapshot<Map<String, dynamic>>? _peekInstantVisitantesSnap() {
     final cid = _churchId.trim();
-    if (cid.isEmpty) {
-      return const MergedFirestoreQuerySnapshot([]);
-    }
+    if (cid.isEmpty) return null;
 
     final ram = ChurchVisitantesLoadService.peekRam(cid);
-    if (ram != null && ram.isNotEmpty) {
+    if (ram != null) {
       return MergedFirestoreQuerySnapshot(ram);
     }
 
-    final memKey = ChurchVisitantesLoadService.cacheKey(
-      cid,
-      ChurchVisitantesLoadService.kDefaultLimit,
+    final mem = FirestoreReadResilience.peekLastGoodQuery(
+      ChurchVisitantesLoadService.cacheKey(
+        cid,
+        ChurchVisitantesLoadService.kDefaultLimit,
+      ),
     );
-    final mem = FirestoreReadResilience.peekLastGoodQuery(memKey);
     if (mem != null && mem.docs.isNotEmpty) {
-      return mem;
+      final docs = mem.docs
+          .where((d) => d.id != ChurchVisitantesLoadService.kSchemaDocId)
+          .toList();
+      if (docs.isNotEmpty) return MergedFirestoreQuerySnapshot(docs);
     }
-
-    return _loadVisitantes();
+    return null;
   }
 
-  Future<void> _refreshVisitantesBackground() async {
+  void _startWebLoadingCap() {
+    if (!kIsWeb) return;
+    _webLoadCap?.cancel();
+    _webLoadCap = Timer(const Duration(seconds: 14), () {
+      if (!mounted || !_visitantesLoadPending) return;
+      final fallback = _peekInstantVisitantesSnap();
+      setState(() {
+        _visitantesLoadPending = false;
+        _visitantesFuture = Future.value(
+          fallback ?? const MergedFirestoreQuerySnapshot([]),
+        );
+      });
+      _scheduleVisitantesRetry();
+    });
+  }
+
+  void _scheduleVisitantesRetry() {
+    final gen = ++_visitantesLoadGen;
+    for (final delay in const [2, 6, 14]) {
+      Future<void>.delayed(Duration(seconds: delay), () async {
+        if (!mounted || gen != _visitantesLoadGen) return;
+        await _refreshVisitantesBackground(forceRefresh: delay >= 6);
+      });
+    }
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadVisitantesWithCap({
+    bool forceRefresh = false,
+    bool forceServer = false,
+  }) async {
+    try {
+      final snap = await _loadVisitantes(
+        forceRefresh: forceRefresh,
+        forceServer: forceServer,
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      );
+      return snap;
+    } catch (e) {
+      final fallback = _peekInstantVisitantesSnap();
+      if (fallback != null) return fallback;
+      return const MergedFirestoreQuerySnapshot([]);
+    } finally {
+      if (mounted) {
+        _webLoadCap?.cancel();
+        _visitantesLoadPending = false;
+      }
+    }
+  }
+
+  Future<void> _refreshVisitantesBackground({bool forceRefresh = false}) async {
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final snap = await _loadVisitantes(forceRefresh: true);
+      final snap = await _loadVisitantesWithCap(forceRefresh: forceRefresh);
       if (!mounted) return;
       setState(() => _visitantesFuture = Future.value(snap));
     } catch (_) {}
   }
 
   void _refresh() {
+    _visitantesLoadGen++;
+    _visitantesLoadPending = true;
+    _startWebLoadingCap();
     setState(() {
-      _visitantesFuture = _loadVisitantes(forceRefresh: true, forceServer: true);
+      _visitantesFuture =
+          _loadVisitantesWithCap(forceRefresh: true, forceServer: true);
     });
+  }
+
+  Future<void> _tryIndexedDbCacheFirst() async {
+    if (_peekInstantVisitantesSnap() != null) return;
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final cacheSnap = await ChurchUiCollections.visitantes(_churchId)
+          .limit(ChurchVisitantesLoadService.kDefaultLimit)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
+      final docs = cacheSnap.docs
+          .where((d) => d.id != ChurchVisitantesLoadService.kSchemaDocId)
+          .toList();
+      if (docs.isEmpty || !mounted || !_visitantesLoadPending) return;
+      setState(() {
+        _visitantesFuture = Future.value(MergedFirestoreQuerySnapshot(docs));
+        _visitantesLoadPending = false;
+      });
+      _webLoadCap?.cancel();
+    } catch (_) {}
   }
 
   @override
   void initState() {
     super.initState();
     _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
-    _visitantesFuture = _seedOrLoadVisitantes();
+    final instant = _peekInstantVisitantesSnap();
+    if (instant != null) {
+      _visitantesFuture = Future.value(instant);
+      _visitantesLoadPending = false;
+      unawaited(_refreshVisitantesBackground());
+    } else {
+      _visitantesFuture = _loadVisitantesWithCap();
+      unawaited(_tryIndexedDbCacheFirst());
+    }
+    _startWebLoadingCap();
     unawaited(ChurchVisitantesLoadService.ensureProvisioned(_churchId));
-    unawaited(_refreshVisitantesBackground());
   }
 
   @override
   void didUpdateWidget(covariant VisitorsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
+      _visitantesLoadGen++;
       _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
-      _visitantesFuture = _seedOrLoadVisitantes();
+      _visitantesLoadPending = true;
+      final instant = _peekInstantVisitantesSnap();
+      if (instant != null) {
+        _visitantesFuture = Future.value(instant);
+        _visitantesLoadPending = false;
+        unawaited(_refreshVisitantesBackground());
+      } else {
+        _visitantesFuture = _loadVisitantesWithCap();
+        unawaited(_tryIndexedDbCacheFirst());
+      }
+      _startWebLoadingCap();
       unawaited(ChurchVisitantesLoadService.ensureProvisioned(_churchId));
-      unawaited(_refreshVisitantesBackground());
     }
   }
 
@@ -3366,6 +3470,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
                     });
                     await _visitorDoc.update({
                       'followupCount': FieldValue.increment(1),
+                      'ultimoFollowupAt': FieldValue.serverTimestamp(),
                       'updatedAt': FieldValue.serverTimestamp(),
                     });
                     if (ctx.mounted) Navigator.pop(ctx, true);

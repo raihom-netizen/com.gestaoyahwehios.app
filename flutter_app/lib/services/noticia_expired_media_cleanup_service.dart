@@ -1,6 +1,7 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
@@ -141,8 +142,45 @@ class NoticiaExpiredMediaCleanupService {
   static Future<void> _run(String tenantId) async {
     final op = await ChurchOperationalPaths.resolveCached(tenantId);
     final base = ChurchOperationalPaths.churchDoc(op);
+    await _archivePastEventsToGallery(
+      base.collection(ChurchTenantPostsCollections.eventos),
+    );
     await _purgeCollection(
         base.collection(ChurchTenantPostsCollections.eventos));
     await _purgeCollection(base.collection(ChurchTenantPostsCollections.avisos));
+  }
+
+  /// Eventos sem [validUntil] e com data passada → `status: galeria` (feed limpo).
+  static Future<void> _archivePastEventsToGallery(
+    CollectionReference<Map<String, dynamic>> col,
+  ) async {
+    final now = DateTime.now();
+    try {
+      final snap = await col
+          .where('type', isEqualTo: 'evento')
+          .where('publicado', isEqualTo: true)
+          .limit(80)
+          .get();
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        if ((data['validUntil'] is Timestamp)) continue;
+        final status = (data['status'] ?? '').toString().trim().toLowerCase();
+        if (status == 'galeria') continue;
+        if (!noticiaEventoEspecialNaoMaisNoDestaquePorDataHora(data, now)) {
+          continue;
+        }
+        try {
+          await doc.reference.set(
+            {
+              'status': 'galeria',
+              'galleryPermanent': true,
+              'archivedAt': FieldValue.serverTimestamp(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+        } catch (_) {}
+      }
+    } catch (_) {}
   }
 }

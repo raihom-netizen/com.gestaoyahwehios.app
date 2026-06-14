@@ -128,7 +128,7 @@ abstract final class ChurchChatStuckCleanupService {
     final openStatuses = [
       ChurchChatUploadsService.statusQueued,
       ChurchChatUploadsService.statusUploading,
-      ChurchChatUploadsService.statusWaitingNetwork,
+      ChurchChatUploadsService.statusQueued,
       ChurchChatUploadsService.statusRetrying,
       ChurchChatUploadsService.statusFailed,
     ];

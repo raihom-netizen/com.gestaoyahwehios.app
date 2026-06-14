@@ -32,7 +32,7 @@ android {
     // 16KB memory page size (Android 15+; Play exige a partir de Nov/2025): o NDK r28+ gera
     // bibliotecas nativas com alinhamento ELF 16K. Não depender de flutter.ndkVersion, que
     // em muitas instalações ainda é r26/r27. @see https://developer.android.com/guide/practices/page-sizes
-    ndkVersion = "28.0.13004108"
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true

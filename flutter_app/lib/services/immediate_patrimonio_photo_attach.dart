@@ -6,12 +6,13 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/patrimonio_media_upload.dart';
+import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/core/offline/offline_module_sync.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Fotos do património no Storage antes de «Salvar» (padrão Controle Total).
+/// Fotos do património — Storage slot fixo → `foto01`…`foto04` (sem chaves legadas).
 abstract final class ImmediatePatrimonioPhotoAttach {
   ImmediatePatrimonioPhotoAttach._();
 
@@ -73,50 +74,33 @@ abstract final class ImmediatePatrimonioPhotoAttach {
         throw StateError('Upload do património não devolveu URL.');
       }
 
-      final paths = List<String>.from(existingPaths);
-      final urls = existingUrls
-          .map((e) => sanitizeImageUrl(e))
-          .where((e) => e.isNotEmpty)
-          .toList();
-      while (paths.length < slotIndex) {
-        paths.add('');
+      final slotUrls = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
+      final slotPaths = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
+      for (var i = 0;
+          i < existingUrls.length && i < PatrimonioPhotoFields.maxPhotos;
+          i++) {
+        slotUrls[i] = sanitizeImageUrl(existingUrls[i]);
       }
-      while (urls.length < slotIndex) {
-        urls.add('');
+      for (var i = 0;
+          i < existingPaths.length && i < PatrimonioPhotoFields.maxPhotos;
+          i++) {
+        slotPaths[i] = existingPaths[i].trim();
       }
-      if (paths.length == slotIndex) {
-        paths.add(path);
-        urls.add(url);
-      } else if (slotIndex < paths.length) {
-        paths[slotIndex] = path;
-        urls[slotIndex] = url;
-      } else {
-        paths.add(path);
-        urls.add(url);
+      if (slotIndex >= 0 && slotIndex < PatrimonioPhotoFields.maxPhotos) {
+        slotUrls[slotIndex] = url;
+        slotPaths[slotIndex] = path;
       }
-      final cleanPaths = paths.where((p) => p.trim().isNotEmpty).toList();
-      final cleanUrls = urls.where((u) => u.trim().isNotEmpty).toList();
+
+      final patch = <String, dynamic>{
+        EntityPublishStatus.photoUploadStateField:
+            EntityPublishStatus.published,
+        'photoUploadError': FieldValue.delete(),
+        'atualizadoEm': FieldValue.serverTimestamp(),
+      };
+      PatrimonioPhotoFields.applyIndexedSlots(patch, slotUrls, slotPaths);
 
       await FirestoreWebGuard.runWithWebRecovery(
-        () => itemRef.set(
-          {
-            'fotoStoragePaths': cleanPaths,
-            'fotoUrls': cleanUrls,
-            'fotos': cleanPaths,
-            if (cleanPaths.isNotEmpty) ...{
-              'imageStoragePath': cleanPaths.first,
-              'fotoPath': cleanPaths.first,
-              'fotoPrincipalPath': cleanPaths.first,
-              'imageUrl': cleanUrls.first,
-              'fotoUrl': cleanUrls.first,
-            },
-            EntityPublishStatus.photoUploadStateField:
-                EntityPublishStatus.published,
-            'photoUploadError': FieldValue.delete(),
-            'atualizadoEm': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        ),
+        () => itemRef.set(patch, SetOptions(merge: true)),
       );
 
       FirebaseStorageCleanupService.scheduleCleanupAfterPatrimonioItemPhotoUpload(

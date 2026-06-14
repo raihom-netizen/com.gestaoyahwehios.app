@@ -103,8 +103,15 @@ abstract final class EventosPublishVerificationService {
     required String igrejaId,
     required String eventoId,
     int slot = 0,
-  }) =>
-      ChurchStorageLayout.eventHostedVideoMp4Path(igrejaId, eventoId, slot);
+  }) {
+    if (slot <= 0) {
+      return ChurchStorageLayout.eventHostedVideoPrincipalPath(
+        igrejaId,
+        eventoId,
+      );
+    }
+    return ChurchStorageLayout.eventHostedVideoMp4Path(igrejaId, eventoId, slot);
+  }
 
   /// PASSO 5 — confirma fotos e vídeo no Storage.
   static Future<void> verifyStorageMetadata({

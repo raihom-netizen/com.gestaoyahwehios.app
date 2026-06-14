@@ -46,6 +46,8 @@ import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/pages/finance_receitas_recorrentes_tabs.dart';
+import 'package:gestao_yahweh/services/despesas_fixas_geracao_service.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_resumo_charts_section.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_fixo_premium_dialogs.dart';
 import 'package:gestao_yahweh/services/finance_audit_log_service.dart';
 import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
@@ -60,6 +62,7 @@ import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
@@ -1528,7 +1531,7 @@ class _FinancePageState extends State<FinancePage>
                 tenantId: _tid,
                 role: widget.role,
               ),
-              FinanceConciliacaoReceitasTab(
+              FinanceConciliacaoTab(
                 tenantId: _tid,
                 role: widget.role,
               ),
@@ -2132,6 +2135,9 @@ class _ResumoTabState extends State<_ResumoTab> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedFinanceDocs;
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedContasDocs;
   String? _loadHint;
+  bool _fetching = false;
+  bool _showingStaleCache = false;
+  Timer? _webLoadCap;
   String _periodFilter = 'mes_atual';
   DateTime? _periodStart;
   DateTime? _periodEnd;
@@ -2200,10 +2206,60 @@ class _ResumoTabState extends State<_ResumoTab> {
     }
   }
 
+  bool _resumoHasLocalData(PanelFinanceAccountsSnapshot accountsCache) =>
+      (_seedFinanceDocs?.isNotEmpty ?? false) ||
+      (_seedContasDocs?.isNotEmpty ?? false) ||
+      accountsCache.hasData;
+
+  void _startResumoWebCap() {
+    if (!kIsWeb) return;
+    _webLoadCap?.cancel();
+    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+      if (!mounted || !_fetching) return;
+      final hadLocal =
+          _resumoHasLocalData(const PanelFinanceAccountsSnapshot());
+      setState(() {
+        _fetching = false;
+        if (hadLocal) {
+          _showingStaleCache = true;
+          _loadHint = null;
+        } else {
+          _loadHint ??=
+              'Tempo esgotado ao carregar o resumo financeiro na Web.';
+        }
+      });
+    });
+  }
+
+  Widget _buildResumoResilienceBanner({
+    required Object? error,
+    required PanelFinanceAccountsSnapshot accountsCache,
+    VoidCallback? onRetry,
+  }) {
+    return ChurchPanelResilientLoadBanner(
+      hasLocalData: _resumoHasLocalData(accountsCache),
+      isSyncing: _fetching && _resumoHasLocalData(accountsCache),
+      showStaleCache: _showingStaleCache && !_fetching,
+      errorTitle: 'Não foi possível carregar o resumo financeiro',
+      error: error,
+      onRetry: onRetry ?? _refresh,
+      staleMessage:
+          'Modo offline — resumo com últimos dados guardados. Puxe para atualizar.',
+      syncMessage:
+          'Sincronizando financeiro… a mostrar dados guardados enquanto atualiza.',
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     _reloadFutures();
+  }
+
+  @override
+  void dispose() {
+    _webLoadCap?.cancel();
+    super.dispose();
   }
 
   Future<List<dynamic>> _loadFinanceBundle({required bool forceFresh}) async {
@@ -2227,10 +2283,22 @@ class _ResumoTabState extends State<_ResumoTab> {
         docs: l.docs,
       ),
     );
-    if (mounted && l.softError != null && l.docs.isEmpty && _seedFinanceDocs?.isEmpty != false) {
-      _loadHint = l.softError;
-    } else if (mounted && l.docs.isNotEmpty) {
-      _loadHint = null;
+    if (mounted) {
+      final hadLocal = (_seedFinanceDocs?.isNotEmpty ?? false) ||
+          (_seedContasDocs?.isNotEmpty ?? false);
+      if (l.docs.isNotEmpty) {
+        _loadHint = null;
+      } else if (l.softError != null) {
+        final ui = PanelResilientLoad.afterFetch(
+          hadLocalData: hadLocal,
+          newItems: l.docs,
+          fromCache: false,
+          softError: l.softError,
+          forceFresh: forceFresh,
+        );
+        if (!hadLocal) _loadHint = ui.loadError;
+        _showingStaleCache = ui.showingStaleCache;
+      }
     }
     return [l.snapshot, c.snapshot, s];
   }
@@ -2254,6 +2322,13 @@ class _ResumoTabState extends State<_ResumoTab> {
       _seedContasDocs ??= const [];
     }
 
+    final hadLocal = (_seedFinanceDocs?.isNotEmpty ?? false) ||
+        (_seedContasDocs?.isNotEmpty ?? false);
+    _fetching = true;
+    if (!forceFresh && hadLocal) _showingStaleCache = true;
+    if (forceFresh) _loadHint = null;
+    _startResumoWebCap();
+
     final instantBundle = <dynamic>[
       MergedFirestoreQuerySnapshot(_seedFinanceDocs!),
       MergedFirestoreQuerySnapshot(_seedContasDocs!),
@@ -2261,20 +2336,35 @@ class _ResumoTabState extends State<_ResumoTab> {
     ];
     _combinedFuture = Future.value(instantBundle);
 
-    unawaited(_loadFinanceBundle(forceFresh: forceFresh).then((fresh) {
+    unawaited(_loadFinanceBundle(forceFresh: forceFresh)
+        .timeout(PanelResilientLoad.queryCap)
+        .then((fresh) {
       if (!mounted) return;
+      _webLoadCap?.cancel();
       setState(() {
         final fs = fresh[0] as QuerySnapshot<Map<String, dynamic>>;
         final cs = fresh[1] as QuerySnapshot<Map<String, dynamic>>;
         _seedFinanceDocs = fs.docs;
         _seedContasDocs = cs.docs;
         _combinedFuture = Future.value(fresh);
+        _fetching = false;
+        _showingStaleCache = false;
+        _loadHint = null;
       });
     }).catchError((e) {
       if (!mounted) return;
-      if ((_seedFinanceDocs ?? const []).isEmpty) {
-        setState(() => _loadHint = '$e');
-      }
+      _webLoadCap?.cancel();
+      final hadLocalData = (_seedFinanceDocs?.isNotEmpty ?? false) ||
+          (_seedContasDocs?.isNotEmpty ?? false);
+      final ui = PanelResilientLoad.afterError(
+        hadLocalData: hadLocalData,
+        error: e,
+      );
+      setState(() {
+        _fetching = ui.fetching;
+        _showingStaleCache = ui.showingStaleCache;
+        if (!hadLocalData) _loadHint = ui.loadError;
+      });
     }));
 
     _future = _combinedFuture.then(
@@ -2416,28 +2506,30 @@ class _ResumoTabState extends State<_ResumoTab> {
       return FutureBuilder<List<dynamic>>(
       future: _combinedFuture,
       builder: (context, snap) {
-        if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar o resumo financeiro',
-            error: snap.error,
-            onRetry: _refresh,
-          );
-        }
-        if (_loadHint != null &&
-            (snap.data == null ||
-                (snap.data!.isNotEmpty &&
-                    (snap.data![0] as QuerySnapshot<Map<String, dynamic>>)
-                        .docs
-                        .isEmpty))) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar o financeiro',
-            error: _loadHint,
-            onRetry: _refresh,
-          );
-        }
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+        final loadError = snap.hasError ? snap.error : _loadHint;
+        final hasLocal = _resumoHasLocalData(accountsCache) ||
+            (snap.data != null &&
+                snap.data!.isNotEmpty &&
+                (((snap.data![0] as QuerySnapshot<Map<String, dynamic>>)
+                            .docs
+                            .isNotEmpty) ||
+                    (snap.data!.length > 1 &&
+                        (snap.data![1] as QuerySnapshot<Map<String, dynamic>>)
+                            .docs
+                            .isNotEmpty)));
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData &&
+            !hasLocal) {
           return const ChurchPanelLoadingBody();
         }
+        if (!hasLocal && loadError != null) {
+          return _buildResumoResilienceBanner(
+            error: loadError,
+            accountsCache: accountsCache,
+          );
+        }
+        final showResilienceBanner =
+            loadError != null || _fetching || _showingStaleCache;
         final financeSnap = snap.data != null && snap.data!.isNotEmpty
             ? snap.data![0] as QuerySnapshot<Map<String, dynamic>>
             : null;
@@ -2454,8 +2546,6 @@ class _ResumoTabState extends State<_ResumoTab> {
         }).toList();
         final contasDocs = contasSnap?.docs ?? [];
         double totalReceitas = 0, totalDespesas = 0;
-        final entradasMes = <int, double>{};
-        final saidasMes = <int, double>{};
         final now = DateTime.now();
 
         final receitasMerger = FinanceCategoryMerger();
@@ -2468,7 +2558,6 @@ class _ResumoTabState extends State<_ResumoTab> {
           if (tipo == 'transferencia') continue;
           if (!financeLancamentoEfetivadoParaSaldo(data)) continue;
           final valor = _parseValor(data['amount'] ?? data['valor']);
-          final dt = financeLancamentoDate(data);
           final cat = (data['categoria'] ?? 'Outros').toString().trim();
           final isEntrada = financeIsEntrada(data);
 
@@ -2482,13 +2571,6 @@ class _ResumoTabState extends State<_ResumoTab> {
                 emptyLabel: 'Outros');
           }
 
-          if (dt != null && dt.year == now.year) {
-            if (isEntrada) {
-              entradasMes[dt.month] = (entradasMes[dt.month] ?? 0) + valor;
-            } else {
-              saidasMes[dt.month] = (saidasMes[dt.month] ?? 0) + valor;
-            }
-          }
         }
 
         final saldo = totalReceitas - totalDespesas;
@@ -2584,6 +2666,15 @@ class _ResumoTabState extends State<_ResumoTab> {
               horizontal: padH, vertical: ThemeCleanPremium.spaceXl),
           child: Column(
             children: [
+              if (showResilienceBanner)
+                Padding(
+                  padding:
+                      const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
+                  child: _buildResumoResilienceBanner(
+                    error: loadError,
+                    accountsCache: accountsCache,
+                  ),
+                ),
               _FinanceContasResumoStrip(
                 key: ValueKey(
                     'fin_strip_${widget.tenantId}_${widget.financeRevision}_'
@@ -3012,129 +3103,14 @@ class _ResumoTabState extends State<_ResumoTab> {
                 }),
               ],
               SizedBox(height: ThemeCleanPremium.spaceLg),
-              // Gráfico de barras Receitas x Despesas
-              _ChartCard(
-                title: 'Receitas x Despesas por Mês',
-                child: SizedBox(
-                  height: 220,
-                  child: BarChart(
-                    BarChartData(
-                      barGroups: List.generate(12, (i) {
-                        final m = i + 1;
-                        return BarChartGroupData(x: m, barRods: [
-                          BarChartRodData(
-                              toY: entradasMes[m] ?? 0,
-                              color: _financeEntradas,
-                              width: 10,
-                              borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(4))),
-                          BarChartRodData(
-                              toY: saidasMes[m] ?? 0,
-                              color: _financeSaidas,
-                              width: 10,
-                              borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(4))),
-                        ]);
-                      }),
-                      borderData: FlBorderData(show: false),
-                      gridData: FlGridData(
-                          show: true,
-                          drawVerticalLine: false,
-                          getDrawingHorizontalLine: (_) => FlLine(
-                              color: Colors.grey.shade200, strokeWidth: 1)),
-                      titlesData: FlTitlesData(
-                        leftTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                                showTitles: true,
-                                reservedSize: 50,
-                                getTitlesWidget: (v, _) => Text(
-                                    'R\$${v.toInt()}',
-                                    style: TextStyle(
-                                        fontSize: 9,
-                                        color: Colors.grey.shade600)))),
-                        bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                                showTitles: true,
-                                getTitlesWidget: (v, _) {
-                                  final i = v.toInt();
-                                  if (i >= 1 && i <= 12)
-                                    return Text(_mesesAbrev[i - 1],
-                                        style: TextStyle(
-                                            fontSize: 10,
-                                            color: Colors.grey.shade600));
-                                  return const SizedBox();
-                                })),
-                        topTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                        rightTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
-                      ),
-                    ),
-                  ),
-                ),
+              FinanceResumoChartsSection(
+                allLancamentos: allDocs,
+                receitasPorCat: receitasPorCat,
+                despesasPorCat: despesasPorCat,
+                totalReceitas: totalReceitas,
+                totalDespesas: totalDespesas,
+                chartYear: now.year,
               ),
-              const SizedBox(height: 12),
-              // Legenda
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _LegendDot(color: _financeEntradas, label: 'Receitas'),
-                  const SizedBox(width: 20),
-                  _LegendDot(color: _financeSaidas, label: 'Despesas'),
-                ],
-              ),
-              // Gráficos pizza — Receitas e Despesas por categoria
-              SizedBox(height: ThemeCleanPremium.spaceLg + 4),
-              LayoutBuilder(builder: (ctx, c) {
-                final narrow = c.maxWidth < 500;
-                final coresReceita = [
-                  _financeEntradas,
-                  const Color(0xFF3B82F6),
-                  const Color(0xFF60A5FA),
-                  const Color(0xFF93C5FD),
-                  const Color(0xFF1D4ED8),
-                  const Color(0xFF1E40AF)
-                ];
-                final coresDespesa = [
-                  const Color(0xFFDC2626),
-                  const Color(0xFFEA580C),
-                  const Color(0xFFE11D48),
-                  const Color(0xFFF87171),
-                  const Color(0xFFB91C1C),
-                  const Color(0xFF991B1B)
-                ];
-                final receitaEntries = receitasPorCat.entries
-                    .where((e) => e.value > 0)
-                    .toList()
-                  ..sort((a, b) => b.value.compareTo(a.value));
-                final despesaEntries = despesasPorCat.entries
-                    .where((e) => e.value > 0)
-                    .toList()
-                  ..sort((a, b) => b.value.compareTo(a.value));
-
-                Widget pieReceitas = _buildPieChart(receitaEntries,
-                    totalReceitas, coresReceita, 'Receitas por categoria');
-                Widget pieDespesas = _buildPieChart(despesaEntries,
-                    totalDespesas, coresDespesa, 'Despesas por categoria');
-
-                if (narrow) {
-                  return Column(
-                    children: [
-                      pieReceitas,
-                      const SizedBox(height: 20),
-                      pieDespesas,
-                    ],
-                  );
-                }
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(child: pieReceitas),
-                    const SizedBox(width: 16),
-                    Expanded(child: pieDespesas),
-                  ],
-                );
-              }),
               // Saldos das contas (clicável → movimentações)
               if (contasAtivas.isNotEmpty) ...[
                 SizedBox(height: ThemeCleanPremium.spaceLg + 4),
@@ -3379,6 +3355,8 @@ class _MovimentacoesContaPage extends StatefulWidget {
 class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
   int _fetchLimit = YahwehPerformanceV4.defaultPageSize;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedDocs;
+  bool _fetching = false;
   /// Mês do extrato (sempre mês calendário).
   late DateTime _mesRefM;
   /// todos | entrada | saida | transferencia
@@ -3387,6 +3365,42 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
   String _filtroDoacao = 'todos';
   /// Só com extrato geral (`contaId` null); null = todas as contas.
   String? _filtroContaExtratoGeral;
+
+  void _seedMovimentacoesFromRam() {
+    final churchId = ChurchRepository.churchId(widget.tenantId);
+    _seedDocs = ChurchFinanceLoadService.peekLancamentosRam(
+          churchId,
+          limit: _fetchLimit,
+        ) ??
+        const [];
+  }
+
+  void _reloadMovimentacoesFuture() {
+    _fetching = true;
+    _future = ChurchTenantResilientReads.financeRecent(
+      widget.tenantId,
+      limit: _fetchLimit,
+    ).timeout(PanelResilientLoad.queryCap).then((snap) {
+      if (mounted && snap.docs.isNotEmpty) {
+        setState(() {
+          _seedDocs = snap.docs;
+          _fetching = false;
+        });
+      } else if (mounted) {
+        setState(() => _fetching = false);
+      }
+      return snap;
+    }).catchError((e) {
+      if (mounted) {
+        final ui = PanelResilientLoad.afterError(
+          hadLocalData: (_seedDocs?.isNotEmpty ?? false),
+          error: e,
+        );
+        setState(() => _fetching = ui.fetching);
+      }
+      throw e;
+    });
+  }
 
   @override
   void initState() {
@@ -3398,29 +3412,19 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
       final n = DateTime.now();
       _mesRefM = DateTime(n.year, n.month, 1);
     }
-    _future = ChurchTenantResilientReads.financeRecent(
-      widget.tenantId,
-      limit: _fetchLimit,
-    );
+    _seedMovimentacoesFromRam();
+    _reloadMovimentacoesFuture();
   }
 
   void _loadMoreLancamentos() {
     setState(() {
       _fetchLimit += YahwehPerformanceV4.defaultPageSize;
-      _future = ChurchTenantResilientReads.financeRecent(
-        widget.tenantId,
-        limit: _fetchLimit,
-      );
+      _reloadMovimentacoesFuture();
     });
   }
 
   void _refresh() {
-    setState(() {
-      _future = ChurchTenantResilientReads.financeRecent(
-        widget.tenantId,
-        limit: _fetchLimit,
-      );
-    });
+    setState(_reloadMovimentacoesFuture);
   }
 
   @override
@@ -3444,19 +3448,26 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
       body: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
         future: _future,
         builder: (context, snap) {
-          if (snap.hasError) {
-            return ChurchPanelErrorBody(
-              title: 'Não foi possível carregar os lançamentos',
-              error: snap.error,
+          final loadError = snap.hasError ? snap.error : null;
+          final rawDocs = snap.data?.docs ?? _seedDocs ?? [];
+          final hasLocal = rawDocs.isNotEmpty;
+          if (snap.connectionState == ConnectionState.waiting &&
+              !snap.hasData &&
+              !hasLocal) {
+            return const ChurchPanelLoadingBody();
+          }
+          if (!hasLocal && loadError != null) {
+            return ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: _fetching,
+              errorTitle: 'Não foi possível carregar os lançamentos',
+              error: loadError,
               onRetry: _refresh,
             );
           }
-          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-            return const ChurchPanelLoadingBody();
-          }
           final inicio = DateTime(_mesRefM.year, _mesRefM.month, 1);
           final fim = DateTime(_mesRefM.year, _mesRefM.month + 1, 0, 23, 59, 59);
-          var docs = snap.data?.docs ?? [];
+          var docs = rawDocs;
           docs = docs.where((d) {
             final data = d.data();
             final t = _financeLancamentoInstant(data);
@@ -3505,8 +3516,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
           final nf = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
           final mesStr =
               DateFormat("MMMM 'de' y", 'pt_BR').format(_mesRefM);
-          final allMaps =
-              (snap.data?.docs ?? []).map((e) => e.data()).toList();
+          final allMaps = rawDocs.map((e) => e.data()).toList();
           String? ctaId = widget.contaId;
           double? saldoIni, recMes, desMes, saldoFim;
           if (ctaId != null && ctaId.isNotEmpty) {
@@ -3520,7 +3530,7 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
                 0.0;
             saldoIni = sSaldoInicio;
             final totM = _totaisReceitaDespesaPorContaNoMes(
-                snap.data?.docs ?? [], _mesRefM);
+                rawDocs, _mesRefM);
             final rM = totM[ctaId]?.receitas ?? 0.0;
             final dM = totM[ctaId]?.despesas ?? 0.0;
             recMes = rM;
@@ -3530,6 +3540,17 @@ class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
 
           return Column(
             children: [
+              if (loadError != null || _fetching)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: hasLocal,
+                    isSyncing: _fetching && hasLocal,
+                    errorTitle: 'Não foi possível carregar os lançamentos',
+                    error: loadError,
+                    onRetry: _refresh,
+                  ),
+                ),
               SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
                 child: Column(
@@ -3906,17 +3927,49 @@ class _ListaLancamentosPorTipoPage extends StatefulWidget {
 class _ListaLancamentosPorTipoPageState
     extends State<_ListaLancamentosPorTipoPage> {
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedDocs;
+  bool _fetching = false;
+
+  void _seedFromRam() {
+    final churchId = ChurchRepository.churchId(widget.tenantId);
+    _seedDocs = ChurchFinanceLoadService.peekLancamentosRam(
+          churchId,
+          limit: 500,
+        ) ??
+        const [];
+  }
 
   void _reloadFuture() {
+    _fetching = true;
     _future = ChurchTenantResilientReads.financeRecentNetwork(
       widget.tenantId,
       limit: 500,
-    );
+    ).timeout(PanelResilientLoad.queryCap).then((snap) {
+      if (mounted && snap.docs.isNotEmpty) {
+        setState(() {
+          _seedDocs = snap.docs;
+          _fetching = false;
+        });
+      } else if (mounted) {
+        setState(() => _fetching = false);
+      }
+      return snap;
+    }).catchError((e) {
+      if (mounted) {
+        final ui = PanelResilientLoad.afterError(
+          hadLocalData: (_seedDocs?.isNotEmpty ?? false),
+          error: e,
+        );
+        setState(() => _fetching = ui.fetching);
+      }
+      throw e;
+    });
   }
 
   @override
   void initState() {
     super.initState();
+    _seedFromRam();
     _reloadFuture();
   }
 
@@ -3946,18 +3999,24 @@ class _ListaLancamentosPorTipoPageState
       body: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
         future: _future,
         builder: (context, snap) {
-          if (snap.hasError) {
-            return ChurchPanelErrorBody(
-              title: 'Não foi possível carregar os lançamentos',
-              error: snap.error,
+          final loadError = snap.hasError ? snap.error : null;
+          final rawDocs = snap.data?.docs ?? _seedDocs ?? [];
+          final hasLocal = rawDocs.isNotEmpty;
+          if (snap.connectionState == ConnectionState.waiting &&
+              !snap.hasData &&
+              !hasLocal) {
+            return const ChurchPanelLoadingBody();
+          }
+          if (!hasLocal && loadError != null) {
+            return ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: _fetching,
+              errorTitle: 'Não foi possível carregar os lançamentos',
+              error: loadError,
               onRetry: _refresh,
             );
           }
-          if (snap.connectionState == ConnectionState.waiting &&
-              !snap.hasData) {
-            return const ChurchPanelLoadingBody();
-          }
-          var docs = snap.data?.docs ?? [];
+          var docs = rawDocs;
           docs = docs.where((d) {
             final t = (d.data()['type'] ?? '').toString().toLowerCase();
             if (widget.tipo == 'entrada')
@@ -3989,6 +4048,22 @@ class _ListaLancamentosPorTipoPageState
 
           return Column(
             children: [
+              if (loadError != null || _fetching)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    ThemeCleanPremium.spaceLg,
+                    ThemeCleanPremium.spaceSm,
+                    ThemeCleanPremium.spaceLg,
+                    0,
+                  ),
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: hasLocal,
+                    isSyncing: _fetching && hasLocal,
+                    errorTitle: 'Não foi possível carregar os lançamentos',
+                    error: loadError,
+                    onRetry: _refresh,
+                  ),
+                ),
               Padding(
                 padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg,
                     ThemeCleanPremium.spaceSm, ThemeCleanPremium.spaceLg, 4),
@@ -4146,7 +4221,47 @@ class _LancamentosTabState extends State<_LancamentosTab> {
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedFinanceDocs;
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedContasDocs;
   String? _loadHint;
+  bool _fetching = false;
+  bool _showingStaleCache = false;
+  Timer? _webLoadCap;
   int _financeFetchLimit = YahwehPerformanceV4.financeListInitialLimit;
+
+  bool get _lancamentosHasLocalData =>
+      (_seedFinanceDocs?.isNotEmpty ?? false) ||
+      (_seedContasDocs?.isNotEmpty ?? false);
+
+  void _startLancamentosWebCap() {
+    if (!kIsWeb) return;
+    _webLoadCap?.cancel();
+    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+      if (!mounted || !_fetching) return;
+      setState(() {
+        _fetching = false;
+        if (_lancamentosHasLocalData) {
+          _showingStaleCache = true;
+          _loadHint = null;
+        } else {
+          _loadHint ??=
+              'Tempo esgotado ao carregar lançamentos na Web.';
+        }
+      });
+    });
+  }
+
+  Widget _buildLancamentosResilienceBanner({Object? error}) {
+    return ChurchPanelResilientLoadBanner(
+      hasLocalData: _lancamentosHasLocalData,
+      isSyncing: _fetching && _lancamentosHasLocalData,
+      showStaleCache: _showingStaleCache && !_fetching,
+      errorTitle: 'Não foi possível carregar os lançamentos',
+      error: error,
+      onRetry: _refresh,
+      staleMessage:
+          'Modo offline — lançamentos com últimos dados guardados. Puxe para atualizar.',
+      syncMessage:
+          'Sincronizando lançamentos… a mostrar dados guardados enquanto atualiza.',
+    );
+  }
 
   Future<List<dynamic>> _loadLancamentosBundle({required bool forceFresh}) async {
     final tid = ChurchRepository.churchId(widget.tenantId);
@@ -4161,10 +4276,21 @@ class _LancamentosTabState extends State<_LancamentosTab> {
       forceRefresh: forceFresh,
       forceServer: forceFresh,
     );
-    if (mounted && l.softError != null && l.docs.isEmpty) {
-      _loadHint = l.softError;
-    } else if (mounted && l.docs.isNotEmpty) {
-      _loadHint = null;
+    if (mounted) {
+      final hadLocal = _lancamentosHasLocalData;
+      if (l.docs.isNotEmpty) {
+        _loadHint = null;
+      } else if (l.softError != null) {
+        final ui = PanelResilientLoad.afterFetch(
+          hadLocalData: hadLocal,
+          newItems: l.docs,
+          fromCache: false,
+          softError: l.softError,
+          forceFresh: forceFresh,
+        );
+        if (!hadLocal) _loadHint = ui.loadError;
+        _showingStaleCache = ui.showingStaleCache;
+      }
     }
     return [l.snapshot, c.snapshot];
   }
@@ -4189,26 +4315,45 @@ class _LancamentosTabState extends State<_LancamentosTab> {
       _seedContasDocs ??= const [];
     }
 
+    final hadLocal = _lancamentosHasLocalData;
+    _fetching = true;
+    if (!forceFresh && hadLocal) _showingStaleCache = true;
+    if (forceFresh) _loadHint = null;
+    _startLancamentosWebCap();
+
     final instantBundle = <dynamic>[
       MergedFirestoreQuerySnapshot(_seedFinanceDocs!),
       MergedFirestoreQuerySnapshot(_seedContasDocs!),
     ];
     _combinedFuture = Future.value(instantBundle);
 
-    unawaited(_loadLancamentosBundle(forceFresh: forceFresh).then((fresh) {
+    unawaited(_loadLancamentosBundle(forceFresh: forceFresh)
+        .timeout(PanelResilientLoad.queryCap)
+        .then((fresh) {
       if (!mounted) return;
+      _webLoadCap?.cancel();
       setState(() {
         final fs = fresh[0] as QuerySnapshot<Map<String, dynamic>>;
         final cs = fresh[1] as QuerySnapshot<Map<String, dynamic>>;
         _seedFinanceDocs = fs.docs;
         _seedContasDocs = cs.docs;
         _combinedFuture = Future.value(fresh);
+        _fetching = false;
+        _showingStaleCache = false;
+        _loadHint = null;
       });
     }).catchError((e) {
       if (!mounted) return;
-      if ((_seedFinanceDocs ?? const []).isEmpty) {
-        setState(() => _loadHint = '$e');
-      }
+      _webLoadCap?.cancel();
+      final ui = PanelResilientLoad.afterError(
+        hadLocalData: _lancamentosHasLocalData,
+        error: e,
+      );
+      setState(() {
+        _fetching = ui.fetching;
+        _showingStaleCache = ui.showingStaleCache;
+        if (!_lancamentosHasLocalData) _loadHint = ui.loadError;
+      });
     }));
 
     _future = _combinedFuture.then(
@@ -4217,6 +4362,12 @@ class _LancamentosTabState extends State<_LancamentosTab> {
     _futureContas = _combinedFuture.then(
       (v) => v[1] as QuerySnapshot<Map<String, dynamic>>,
     );
+  }
+
+  @override
+  void dispose() {
+    _webLoadCap?.cancel();
+    super.dispose();
   }
 
   void _loadMoreFinanceLancamentos() {
@@ -4254,37 +4405,36 @@ class _LancamentosTabState extends State<_LancamentosTab> {
     return FutureBuilder<List<dynamic>>(
       future: _combinedFuture,
       builder: (context, snap) {
-        if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar os lançamentos',
-            error: snap.error,
-            onRetry: _refresh,
-          );
-        }
-        if (_loadHint != null &&
-            (snap.data == null ||
-                (snap.data!.isNotEmpty &&
-                    (snap.data![0] as QuerySnapshot<Map<String, dynamic>>)
+        final loadError = snap.hasError ? snap.error : _loadHint;
+        final hasLocal = _lancamentosHasLocalData ||
+            (snap.data != null &&
+                snap.data!.isNotEmpty &&
+                ((snap.data![0] as QuerySnapshot<Map<String, dynamic>>)
                         .docs
-                        .isEmpty))) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar os lançamentos',
-            error: _loadHint,
-            onRetry: _refresh,
-          );
-        }
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                        .isNotEmpty ||
+                    (snap.data!.length > 1 &&
+                        (snap.data![1] as QuerySnapshot<Map<String, dynamic>>)
+                            .docs
+                            .isNotEmpty)));
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData &&
+            !hasLocal) {
           return const ChurchPanelLoadingBody();
         }
+        if (!hasLocal && loadError != null) {
+          return _buildLancamentosResilienceBanner(error: loadError);
+        }
+        final showResilienceBanner =
+            loadError != null || _fetching || _showingStaleCache;
         final financeSnap = snap.data != null && snap.data!.isNotEmpty
             ? snap.data![0] as QuerySnapshot<Map<String, dynamic>>
             : null;
         final contasSnap = snap.data != null && snap.data!.length > 1
             ? snap.data![1] as QuerySnapshot<Map<String, dynamic>>
             : null;
-        var docs = financeSnap?.docs ?? [];
+        var docs = financeSnap?.docs ?? _seedFinanceDocs ?? [];
         final allLancsSnapshot = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
-        final contasAtivasDocs = (contasSnap?.docs ?? [])
+        final contasAtivasDocs = (contasSnap?.docs ?? _seedContasDocs ?? [])
             .where((c) => c.data()['ativo'] != false)
             .toList();
 
@@ -4490,6 +4640,18 @@ class _LancamentosTabState extends State<_LancamentosTab> {
             primary: true,
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
+              if (showResilienceBanner)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      ThemeCleanPremium.spaceLg,
+                      ThemeCleanPremium.spaceSm,
+                      ThemeCleanPremium.spaceLg,
+                      0,
+                    ),
+                    child: _buildLancamentosResilienceBanner(error: loadError),
+                  ),
+                ),
               SliverToBoxAdapter(
                 child: Padding(
               padding: EdgeInsets.symmetric(
@@ -5381,9 +5543,31 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
           .collection('despesas_fixas');
 
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _cachedDocs;
+  bool _fetching = false;
 
   void _reloadFuture() {
-    _future = ChurchTenantResilientReads.despesasFixas(widget.tenantId);
+    _fetching = true;
+    _future = ChurchTenantResilientReads.despesasFixas(widget.tenantId)
+        .timeout(PanelResilientLoad.queryCap)
+        .then((snap) {
+      if (mounted) {
+        setState(() {
+          if (snap.docs.isNotEmpty) _cachedDocs = snap.docs;
+          _fetching = false;
+        });
+      }
+      return snap;
+    }).catchError((e) {
+      if (mounted) {
+        final ui = PanelResilientLoad.afterError(
+          hadLocalData: (_cachedDocs?.isNotEmpty ?? false),
+          error: e,
+        );
+        setState(() => _fetching = ui.fetching);
+      }
+      throw e;
+    });
   }
 
   @override
@@ -5404,35 +5588,82 @@ class _DespesasFixasTabState extends State<_DespesasFixasTab> {
     setState(_reloadFuture);
   }
 
+  Future<void> _gerarPendentes() async {
+    try {
+      final n = await gerarDespesasFixasPendentes(widget.tenantId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            n == 0
+                ? 'Nada novo a gerar (já existem ou fora do período).'
+                : '$n despesa(s) projetada(s) no caixa.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao gerar: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snap) {
-        if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar as despesas fixas',
-            error: snap.error,
+        final loadError = snap.hasError ? snap.error : null;
+        final docs = snap.data?.docs ?? _cachedDocs ?? [];
+        final hasLocal = docs.isNotEmpty;
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData &&
+            !hasLocal) {
+          return const ChurchPanelLoadingBody();
+        }
+        if (!hasLocal && loadError != null) {
+          return ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: _fetching,
+            errorTitle: 'Não foi possível carregar as despesas fixas',
+            error: loadError,
             onRetry: _refresh,
           );
         }
-        final docs = snap.data?.docs ?? [];
 
         return Column(
           children: [
+            if (loadError != null || _fetching)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: ChurchPanelResilientLoadBanner(
+                  hasLocalData: hasLocal,
+                  isSyncing: _fetching && hasLocal,
+                  errorTitle: 'Não foi possível carregar as despesas fixas',
+                  error: loadError,
+                  onRetry: _refresh,
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
-                      'Despesas mensais recorrentes (${docs.length})',
+                      'Despesas mensais recorrentes (${docs.length}) — lançamentos pendentes até confirmar pagamento.',
                       style: TextStyle(
                           fontSize: 13,
                           color: Colors.grey.shade600,
                           fontWeight: FontWeight.w600),
                     ),
                   ),
+                  TextButton.icon(
+                    onPressed: _gerarPendentes,
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Gerar no caixa'),
+                  ),
+                  const SizedBox(width: 4),
                   FilledButton.icon(
                     onPressed: () => _addOuEditar(context, onSaved: _refresh),
                     icon: const Icon(Icons.add_rounded, size: 18),
@@ -6362,21 +6593,9 @@ class _CategoriasSectionState extends State<_CategoriasSection> {
       key: ValueKey('cat_stream_${widget.title}_$_categoriasStreamRetry'),
       stream: widget.collection.orderBy('nome').watchSafe(),
       builder: (context, snap) {
-        if (snap.hasError) {
-          return Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              boxShadow: ThemeCleanPremium.softUiCardShadow,
-            ),
-            child: ChurchPanelErrorBody(
-              title: 'Não foi possível carregar as categorias',
-              error: snap.error,
-              onRetry: () => setState(() => _categoriasStreamRetry++),
-            ),
-          );
-        }
+        final loadError = snap.hasError ? snap.error : null;
+        final docsRaw = snap.data?.docs ?? [];
+        final hasLocal = docsRaw.isNotEmpty;
         if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return Container(
             padding: const EdgeInsets.all(20),
@@ -6388,7 +6607,23 @@ class _CategoriasSectionState extends State<_CategoriasSection> {
             child: const ChurchPanelLoadingBody(),
           );
         }
-        final docsRaw = snap.data?.docs ?? [];
+        if (!hasLocal && loadError != null) {
+          return Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+            ),
+            child: ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: snap.connectionState == ConnectionState.waiting,
+              errorTitle: 'Não foi possível carregar as categorias',
+              error: loadError,
+              onRetry: () => setState(() => _categoriasStreamRetry++),
+            ),
+          );
+        }
         // Remove duplicatas por nome (mantém primeiro doc de cada nome).
         final seenNomes = <String>{};
         final docs = docsRaw.where((d) {
@@ -6622,17 +6857,144 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
   }
 
   late Future<QuerySnapshot<Map<String, dynamic>>> _future;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedContasDocs;
+  String? _loadHint;
+  bool _fetching = false;
+  bool _showingStaleCache = false;
+  Timer? _webLoadCap;
+
+  bool get _contasHasLocalData => (_seedContasDocs?.isNotEmpty ?? false);
+
+  void _startContasWebCap() {
+    if (!kIsWeb) return;
+    _webLoadCap?.cancel();
+    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+      if (!mounted || !_fetching) return;
+      setState(() {
+        _fetching = false;
+        if (_contasHasLocalData) {
+          _showingStaleCache = true;
+          _loadHint = null;
+        } else {
+          _loadHint ??= 'Tempo esgotado ao carregar contas na Web.';
+        }
+      });
+    });
+  }
+
+  Widget _buildContasResilienceBanner({Object? error}) {
+    return ChurchPanelResilientLoadBanner(
+      hasLocalData: _contasHasLocalData,
+      isSyncing: _fetching && _contasHasLocalData,
+      showStaleCache: _showingStaleCache && !_fetching,
+      errorTitle: 'Não foi possível carregar as contas',
+      error: error,
+      onRetry: _refresh,
+      staleMessage:
+          'Modo offline — contas com últimos dados guardados. Puxe para atualizar.',
+      syncMessage:
+          'Sincronizando contas… a mostrar dados guardados enquanto atualiza.',
+    );
+  }
+
+  void _seedContasCache() {
+    final churchId = ChurchRepository.churchId(widget.tenantId);
+    _seedContasDocs =
+        ChurchFinanceLoadService.peekContasRam(churchId) ?? const [];
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadContasBundle({
+    required bool forceFresh,
+  }) async {
+    final tid = ChurchRepository.churchId(widget.tenantId);
+    final result = await ChurchFinanceLoadService.loadContas(
+      seedTenantId: tid,
+      forceRefresh: forceFresh,
+      forceServer: forceFresh,
+    ).timeout(PanelResilientLoad.queryCap);
+    if (mounted) {
+      final hadLocal = _contasHasLocalData;
+      if (result.docs.isNotEmpty) {
+        _loadHint = null;
+      } else if (result.softError != null) {
+        final ui = PanelResilientLoad.afterFetch(
+          hadLocalData: hadLocal,
+          newItems: result.docs,
+          fromCache: false,
+          softError: result.softError,
+          forceFresh: forceFresh,
+        );
+        if (!hadLocal) _loadHint = ui.loadError;
+        _showingStaleCache = ui.showingStaleCache;
+      }
+    }
+    return result.snapshot;
+  }
+
+  void _reloadFuture({bool forceFresh = false}) {
+    if (!forceFresh) {
+      _seedContasCache();
+    } else {
+      _seedContasDocs ??= const [];
+    }
+
+    final hadLocal = _contasHasLocalData;
+    _fetching = true;
+    if (!forceFresh && hadLocal) _showingStaleCache = true;
+    if (forceFresh) _loadHint = null;
+    _startContasWebCap();
+
+    _future = Future.value(MergedFirestoreQuerySnapshot(_seedContasDocs!));
+
+    unawaited(
+      _loadContasBundle(forceFresh: forceFresh).then((fresh) {
+        if (!mounted) return;
+        _webLoadCap?.cancel();
+        setState(() {
+          _seedContasDocs = fresh.docs;
+          _future = Future.value(fresh);
+          _fetching = false;
+          _showingStaleCache = false;
+          _loadHint = null;
+        });
+      }).catchError((e) {
+        if (!mounted) return;
+        _webLoadCap?.cancel();
+        final ui = PanelResilientLoad.afterError(
+          hadLocalData: _contasHasLocalData,
+          error: e,
+        );
+        setState(() {
+          _fetching = ui.fetching;
+          _showingStaleCache = ui.showingStaleCache;
+          if (!_contasHasLocalData) _loadHint = ui.loadError;
+        });
+      }),
+    );
+  }
 
   @override
   void initState() {
     super.initState();
-    _future = ChurchTenantResilientReads.contas(widget.tenantId);
+    _reloadFuture();
+  }
+
+  @override
+  void dispose() {
+    _webLoadCap?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FinanceContasTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId != widget.tenantId) {
+      setState(() => _reloadFuture());
+    }
   }
 
   void _refresh() {
-    setState(() {
-      _future = ChurchTenantResilientReads.contas(widget.tenantId);
-    });
+    setState(() => _reloadFuture(forceFresh: true));
   }
 
   @override
@@ -6640,16 +7002,32 @@ class _FinanceContasTabState extends State<_FinanceContasTab> {
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snap) {
-        if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar as contas',
-            error: snap.error,
-            onRetry: _refresh,
-          );
+        final loadError = snap.hasError ? snap.error : _loadHint;
+        final hasLocal = _contasHasLocalData ||
+            (snap.data?.docs.isNotEmpty ?? false);
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData &&
+            !hasLocal) {
+          return const ChurchPanelLoadingBody();
         }
-        final docs = snap.data?.docs ?? [];
+        if (!hasLocal && loadError != null) {
+          return _buildContasResilienceBanner(error: loadError);
+        }
+        final showResilienceBanner =
+            loadError != null || _fetching || _showingStaleCache;
+        final docs = snap.data?.docs ?? _seedContasDocs ?? [];
         return Column(
           children: [
+            if (showResilienceBanner)
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  ThemeCleanPremium.spaceLg,
+                  ThemeCleanPremium.spaceSm,
+                  ThemeCleanPremium.spaceLg,
+                  0,
+                ),
+                child: _buildContasResilienceBanner(error: loadError),
+              ),
             Padding(
               padding: EdgeInsets.fromLTRB(
                   ThemeCleanPremium.spaceLg,

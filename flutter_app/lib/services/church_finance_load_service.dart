@@ -149,6 +149,8 @@ abstract final class ChurchFinanceLoadService {
             col.orderBy('createdAt', descending: true).limit(capped),
         plainQuery: (col, capped) => col.limit(capped),
         sortDocs: _sortFinanceDocs,
+        orderByField: 'createdAt',
+        orderDescending: true,
       );
 
   static Future<ChurchFinanceLoadResult> loadContas({
@@ -170,6 +172,8 @@ abstract final class ChurchFinanceLoadService {
         col: (id) => ChurchUiCollections.churchDoc(id).collection('contas'),
         orderedQuery: (col, capped) => col.orderBy('nome').limit(capped),
         plainQuery: (col, capped) => col.limit(capped),
+        orderByField: 'nome',
+        orderDescending: false,
       );
 
   static Future<ChurchFinanceLoadResult> _load({
@@ -199,6 +203,8 @@ abstract final class ChurchFinanceLoadService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> Function(
       List<QueryDocumentSnapshot<Map<String, dynamic>>>,
     )? sortDocs,
+    String orderByField = 'createdAt',
+    bool orderDescending = true,
   }) async {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) {
@@ -227,6 +233,8 @@ abstract final class ChurchFinanceLoadService {
           orderedQuery: orderedQuery,
           plainQuery: plainQuery,
           sortDocs: sortDocs,
+          orderByField: orderByField,
+          orderDescending: orderDescending,
         ));
         return ChurchFinanceLoadResult(
           churchId: churchId,
@@ -273,6 +281,8 @@ abstract final class ChurchFinanceLoadService {
               orderedQuery: orderedQuery,
               plainQuery: plainQuery,
               sortDocs: sortDocs,
+              orderByField: orderByField,
+              orderDescending: orderDescending,
             ));
             return ChurchFinanceLoadResult(
               churchId: churchId,
@@ -297,6 +307,8 @@ abstract final class ChurchFinanceLoadService {
         orderedQuery: (c) => orderedQuery(c, capped),
         plainQuery: (c) => plainQuery(c, capped),
         sortDocs: sortDocs,
+        orderByField: orderByField,
+        orderDescending: orderDescending,
       );
       _putRam(ramMap, ramKey, docs);
       unawaited(_persistHive(churchId, hiveModule, docs));
@@ -320,6 +332,8 @@ abstract final class ChurchFinanceLoadService {
         orderedQuery: (c) => plainQuery(c, capped),
         plainQuery: (c) => plainQuery(c, capped),
         sortDocs: sortDocs,
+        orderByField: orderByField,
+        orderDescending: orderDescending,
       );
       _putRam(ramMap, ramKey, docs);
       unawaited(_persistHive(churchId, hiveModule, docs));
@@ -464,6 +478,8 @@ abstract final class ChurchFinanceLoadService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> Function(
       List<QueryDocumentSnapshot<Map<String, dynamic>>>,
     )? sortDocs,
+    String orderByField = 'createdAt',
+    bool orderDescending = true,
   }) async {
     try {
       final docs = await _loadFirestore(
@@ -475,6 +491,8 @@ abstract final class ChurchFinanceLoadService {
         orderedQuery: (c) => orderedQuery(c, limit),
         plainQuery: (c) => plainQuery(c, limit),
         sortDocs: sortDocs,
+        orderByField: orderByField,
+        orderDescending: orderDescending,
       );
       _putRam(ramMap, ramKey, docs);
       await _persistHive(churchId, hiveModule, docs);
@@ -511,6 +529,8 @@ abstract final class ChurchFinanceLoadService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> Function(
       List<QueryDocumentSnapshot<Map<String, dynamic>>>,
     )? sortDocs,
+    String orderByField = 'createdAt',
+    bool orderDescending = true,
   }) async {
     final capped = FirebasePerformanceLimits.capListLimit('finance', limit);
     final docs = await ChurchModuleFirestoreListRead.queryPlainFirst(
@@ -518,8 +538,8 @@ abstract final class ChurchFinanceLoadService {
       cacheKey: cacheKey,
       limit: capped,
       forceServer: forceServer,
-      orderByField: 'createdAt',
-      orderDescending: true,
+      orderByField: orderByField,
+      orderDescending: orderDescending,
       sortDocs: sortDocs,
     );
     if (docs.isNotEmpty) return docs;

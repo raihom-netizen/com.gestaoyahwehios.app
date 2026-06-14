@@ -442,6 +442,8 @@ class _MembersPageState extends State<MembersPage> {
   static const int _membersPageSize = YahwehPerformanceV4.defaultPageSize;
   /// Lista completa via `_panel_cache/members_directory` (62+ membros) — não paginar na UI.
   static const int _membersListInstantCap = 500;
+  /// Leitura Firestore inicial — evita baixar 500 docs pesados na abertura.
+  static const int _membersFirestoreInitialLimit = 120;
   int _membersVisibleCount = _membersPageSize;
 
   /// Cache `_panel_cache/members_directory` — lista + fotos antes do load Firestore.
@@ -865,12 +867,16 @@ class _MembersPageState extends State<MembersPage> {
     }
     _membersRealtimeSubs.clear();
     _membersRealtimeTenant = tenantId;
+    // Web + cadastro: zero snapshots() — refresh manual/debounce (evita loop + lentidão).
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+      return;
+    }
     _membrosRealtimeSkipInitial = true;
     final db = firebaseDefaultFirestore;
     _membersRealtimeSubs.add(
                 ChurchUiCollections.membros(tenantId)
           .orderBy('updatedAt', descending: true)
-          .limit(_membersLoadLimit)
+          .limit(_membersQueryLimit)
           .watchSafe()
           .listen((snap) {
         if (_membrosRealtimeSkipInitial) {
@@ -888,7 +894,7 @@ class _MembersPageState extends State<MembersPage> {
             Filter('tenantId', isEqualTo: tenantId),
             Filter('igrejaId', isEqualTo: tenantId),
           ))
-          .limit(_membersLoadLimit)
+          .limit(_membersQueryLimit)
           .watchSafe()
           .listen((_) => _scheduleMembersAutoRefresh()),
     );
@@ -1128,6 +1134,8 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   static const int _membersLoadLimit = YahwehPerformanceV4.adminExportBatchLimit;
+  int get _membersQueryLimit =>
+      _directoryCache.hasEntries ? _membersFirestoreInitialLimit : _membersLoadLimit;
   static const Duration _membersCoreLoadTimeout = Duration(seconds: 18);
   static const int _maxRelatedTenantMemberQueries = 3;
 
@@ -1187,15 +1195,15 @@ class _MembersPageState extends State<MembersPage> {
     Future<QuerySnapshot<Map<String, dynamic>>> membrosOrdered() =>
         ChurchUiCollections.membros(effectiveId)
             .orderBy('updatedAt', descending: true)
-            .limit(_membersLoadLimit)
+            .limit(_membersQueryLimit)
             .get(getOpts);
     Future<QuerySnapshot<Map<String, dynamic>>> membrosPlain() =>
         ChurchUiCollections.membros(effectiveId)
-            .limit(_membersLoadLimit)
+            .limit(_membersQueryLimit)
             .get(getOpts);
     Future<QuerySnapshot<Map<String, dynamic>>> pendente() async {
       final snap = await ChurchUiCollections.membros(effectiveId)
-          .limit(_membersLoadLimit)
+          .limit(_membersQueryLimit)
           .get(getOpts);
       final filtered = snap.docs.where((d) {
         final status =
@@ -1238,33 +1246,11 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   Widget _buildMembersOfflineBanner({VoidCallback? onRetry}) {
-    return Material(
-      color: Colors.amber.shade50,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        child: Row(
-          children: [
-            Icon(Icons.cloud_off_rounded, color: Colors.amber.shade900, size: 22),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Lista do cache — a sincronizar com o servidor.',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade800,
-                  height: 1.3,
-                ),
-              ),
-            ),
-            if (onRetry != null)
-              TextButton(
-                onPressed: onRetry,
-                child: const Text('Atualizar'),
-              ),
-          ],
-        ),
-      ),
+    return ChurchPanelResilientLoadBanner(
+      hasLocalData: true,
+      isSyncing: false,
+      showStaleCache: true,
+      onRetry: onRetry,
     );
   }
 
@@ -1282,8 +1268,11 @@ class _MembersPageState extends State<MembersPage> {
     }
     final effectiveId = tenantId.isNotEmpty ? tenantId : originalId;
 
-    final getOpts =
-        GetOptions(source: forceServer ? Source.server : Source.serverAndCache);
+    final getOpts = forceServer
+        ? GetOptions(source: Source.server)
+        : (_directoryCache.hasEntries
+            ? const GetOptions(source: Source.cache)
+            : const GetOptions(source: Source.serverAndCache));
 
     final selfOnlyMemberList = AppPermissions.isRestrictedMember(widget.role) &&
         !AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
@@ -1341,6 +1330,15 @@ class _MembersPageState extends State<MembersPage> {
       mergedMembers = mergedMembers.where(keepSelf).toList();
       pendenteOut =
           _MergedQuerySnapshot(pendenteSnap.docs.where(keepSelf).toList());
+    }
+
+    if (!forceServer && getOpts.source == Source.cache) {
+      unawaited(
+        _loadMembersData(forceServer: true).then((serverSnaps) {
+          if (!mounted) return;
+          setState(() => _membersDataFuture = Future.value(serverSnaps));
+        }).catchError((_) {}),
+      );
     }
 
     final emptyUsers = _EmptyQuerySnapshot();
@@ -1736,31 +1734,40 @@ class _MembersPageState extends State<MembersPage> {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      Future<DocumentSnapshot<Map<String, dynamic>>> readDoc(String id) {
+      Future<DocumentSnapshot<Map<String, dynamic>>> readDoc(
+        String id, {
+        required Source source,
+      }) {
         Future<DocumentSnapshot<Map<String, dynamic>>> go() =>
-            ChurchUiCollections.membros(churchId).doc(id).get();
-        if (kIsWeb) {
-          return FirestoreWebGuard.runWithWebRecovery(go, maxAttempts: 4);
+            ChurchUiCollections.membros(churchId)
+                .doc(id)
+                .get(GetOptions(source: source));
+        if (kIsWeb && source != Source.cache) {
+          return FirestoreWebGuard.runWithWebRecovery(go, maxAttempts: 3);
         }
         return go();
       }
 
-      var snap = await readDoc(m.id);
-      if (snap.exists) {
+      Future<_MemberDoc?> tryMerge(String docId, Source source) async {
+        final snap = await readDoc(docId, source: source).timeout(
+          Duration(milliseconds: source == Source.cache ? 900 : 8000),
+        );
+        if (!snap.exists) return null;
         final fresh = snap.data();
-        if (fresh != null && fresh.isNotEmpty) {
-          m = _MemberDoc(m.id, {...m.data, ...fresh});
-        }
+        if (fresh == null || fresh.isEmpty) return null;
+        return _MemberDoc(snap.id, {...m.data, ...fresh});
+      }
+
+      var merged = await tryMerge(m.id, Source.cache);
+      merged ??= await tryMerge(m.id, Source.serverAndCache);
+      if (merged != null) {
+        m = merged;
       } else {
         final cpf = _str(m.data, 'CPF', 'cpf').replaceAll(RegExp(r'\D'), '');
         if (cpf.length == 11 && cpf != m.id) {
-          snap = await readDoc(cpf);
-          if (snap.exists) {
-            final fresh = snap.data();
-            if (fresh != null && fresh.isNotEmpty) {
-              m = _MemberDoc(snap.id, {...m.data, ...fresh});
-            }
-          }
+          merged = await tryMerge(cpf, Source.cache);
+          merged ??= await tryMerge(cpf, Source.serverAndCache);
+          if (merged != null) m = merged;
         }
       }
     } catch (_) {}
@@ -2037,7 +2044,8 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   /// Pastor, secretário, presbítero, gestor, etc. — aprovar cadastros pendentes.
-  bool get _canApprovePending => AppPermissions.canEditDepartments(widget.role);
+  bool get _canApprovePending =>
+      AppPermissions.canApprovePendingMemberSignups(widget.role);
 
   bool _memberDocIsPending(Map<String, dynamic> data) {
     final s = (data['STATUS'] ?? data['status'] ?? '').toString().toLowerCase();
@@ -2361,36 +2369,85 @@ class _MembersPageState extends State<MembersPage> {
     final coverUrl = sanitizeImageUrl(coverRaw);
     final coverOk = isValidImageUrl(coverUrl);
     final canSensitive = widget.role.canViewMemberSensitiveFields;
-    const coverH = 128.0;
-    const avRadius = 48.0;
+    const coverH = 168.0;
+    const avRadius = 54.0;
     final authUidSys = _str(d, 'authUid', 'auth_uid').trim();
     final docIdIsUidShape =
         member.id.length >= 20 && RegExp(r'^[A-Za-z0-9]+$').hasMatch(member.id);
     final sistemaFirebaseUid =
         authUidSys.isNotEmpty ? authUidSys : (docIdIsUidShape ? member.id : '');
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.85,
-        maxChildSize: 0.95,
-        minChildSize: 0.5,
-        builder: (ctx, scrollCtrl) => SingleChildScrollView(
-          controller: scrollCtrl,
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-          child: Column(
-            children: [
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (pageCtx) {
+          void closeDetail() => Navigator.pop(pageCtx);
+          final pagePad = ThemeCleanPremium.pagePadding(pageCtx);
+
+          return Scaffold(
+            backgroundColor: ThemeCleanPremium.surfaceVariant,
+            appBar: AppBar(
+              elevation: 0,
+              flexibleSpace: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      ThemeCleanPremium.primary,
+                      Color.lerp(ThemeCleanPremium.primary, Colors.white, 0.22)!,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                ),
+              ),
+              foregroundColor: Colors.white,
+              leading: IconButton(
+                tooltip: 'Voltar',
+                icon: const Icon(Icons.arrow_back_rounded),
+                onPressed: closeDetail,
+              ),
+              title: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 17,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: closeDetail,
+                  child: const Text(
+                    'Cancelar',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            body: SafeArea(
+              top: false,
+              child: SingleChildScrollView(
+                padding: pagePad.copyWith(top: 16, bottom: 28),
+                child: Column(
+                  children: [
               Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                  border: Border.all(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
+                  ),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
               SizedBox(
                 height: coverH + avRadius,
                 child: Stack(
@@ -2478,10 +2535,13 @@ class _MembersPageState extends State<MembersPage> {
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  children: [
               Text(name,
                   style: const TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.w800),
+                      fontSize: 24, fontWeight: FontWeight.w800),
                   textAlign: TextAlign.center),
               const SizedBox(height: 6),
               Container(
@@ -2521,7 +2581,7 @@ class _MembersPageState extends State<MembersPage> {
                       label: 'Chat igreja',
                       color: const Color(0xFF0D9488),
                       onTap: () {
-                        Navigator.pop(ctx);
+                        closeDetail();
                         unawaited(ChurchMemberContactChat.openChatIgreja(
                           context: context,
                           tenantId: _effectiveTenantId,
@@ -2540,7 +2600,7 @@ class _MembersPageState extends State<MembersPage> {
                       label: 'WhatsApp',
                       color: const Color(0xFF25D366),
                       onTap: () {
-                        Navigator.of(ctx).pop();
+                        closeDetail();
                         unawaited(ChurchMemberContactChat.openWhatsAppFaleComigo(
                           context,
                           member.data,
@@ -2621,7 +2681,7 @@ class _MembersPageState extends State<MembersPage> {
                       label: 'Aprovar cadastro',
                       color: const Color(0xFF059669),
                       onTap: () async {
-                        Navigator.pop(ctx);
+                        closeDetail();
                         await _aprovarMembrosPorIds({member.id});
                       },
                     ),
@@ -2631,7 +2691,7 @@ class _MembersPageState extends State<MembersPage> {
                       label: 'Alterar foto',
                       color: const Color(0xFF0284C7),
                       onTap: () {
-                        Navigator.pop(ctx);
+                        closeDetail();
                         unawaited(_openMemberProfilePhotoEditor(context, member));
                       },
                     ),
@@ -2641,7 +2701,7 @@ class _MembersPageState extends State<MembersPage> {
                         label: 'Editar',
                         color: ThemeCleanPremium.primary,
                         onTap: () {
-                          Navigator.pop(ctx);
+                          closeDetail();
                           _editMember(context, member);
                         }),
                   if (_canOpenCarteirinhaFor(member))
@@ -2650,7 +2710,7 @@ class _MembersPageState extends State<MembersPage> {
                         label: 'Carteirinha',
                         color: const Color(0xFF7C3AED),
                         onTap: () {
-                          Navigator.pop(ctx);
+                          closeDetail();
                           openMemberCardCnhFullscreen(
                             context,
                             tenantId: _effectiveTenantId,
@@ -2667,7 +2727,7 @@ class _MembersPageState extends State<MembersPage> {
                         label: 'Atualizar senha',
                         color: const Color(0xFFEA580C),
                         onTap: () {
-                          Navigator.pop(ctx);
+                          closeDetail();
                           unawaited(
                               _abrirAtualizarSenhaProprio(context, member));
                         }),
@@ -2677,7 +2737,7 @@ class _MembersPageState extends State<MembersPage> {
                         label: 'Excluir',
                         color: const Color(0xFFDC2626),
                         onTap: () {
-                          Navigator.pop(ctx);
+                          closeDetail();
                           _deleteMember(context, member);
                         }),
                     if (member.data['authUid'] == null &&
@@ -2695,7 +2755,7 @@ class _MembersPageState extends State<MembersPage> {
                           label: 'Gerar senha / login',
                           color: const Color(0xFF059669),
                           onTap: () {
-                            Navigator.pop(ctx);
+                            closeDetail();
                             _criarLoginMembro(context, member);
                           }),
                     if (_memberHasLogin(member) && !_isSelfMember(member))
@@ -2704,13 +2764,20 @@ class _MembersPageState extends State<MembersPage> {
                           label: 'Redefinir senha',
                           color: Colors.orange.shade700,
                           onTap: () {
-                            Navigator.pop(ctx);
+                            closeDetail();
                             _redefinirSenhaMembro(context, member);
                           }),
                   ],
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+                ],
+              ),
+            ),
+              const SizedBox(height: 16),
               // Dados
               _DetailSection(title: 'Informações Pessoais', items: [
                 if (filiacaoMae.isNotEmpty)
@@ -2849,6 +2916,9 @@ class _MembersPageState extends State<MembersPage> {
         ),
       ),
     );
+        },
+      ),
+    );
   }
 
   // ─── Editar Membro ────────────────────────────────────────────────────────
@@ -2864,8 +2934,13 @@ class _MembersPageState extends State<MembersPage> {
       }
       return;
     }
-    member = await _hydrateMemberDocFull(member)
-        .timeout(const Duration(seconds: 14), onTimeout: () => member);
+    member = _memberWithOptimisticOverlay(member);
+    try {
+      member = await _hydrateMemberDocFull(member).timeout(
+        const Duration(milliseconds: 1200),
+        onTimeout: () => member,
+      );
+    } catch (_) {}
     if (!mounted) return;
     final selfOnly = !staffEdit;
     final d = member.data;
@@ -5093,28 +5168,8 @@ class _MembersPageState extends State<MembersPage> {
     setState(() => _optimisticRemovedMemberIds.add(mid));
 
     if (!context.mounted) return;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      useRootNavigator: true,
-      builder: (_) => const PopScope(
-        canPop: false,
-        child: Center(
-          child: Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Excluindo membro do banco…'),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.successSnackBar('Excluindo "$name"…'),
     );
 
     try {
@@ -5164,7 +5219,6 @@ class _MembersPageState extends State<MembersPage> {
       );
 
       if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
 
       unawaited(
         DashboardStatsCounterService.onMemberDeleted(_effectiveTenantId),
@@ -5177,7 +5231,6 @@ class _MembersPageState extends State<MembersPage> {
       _refreshMembers(forceServer: true);
     } catch (e) {
       if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
         setState(() => _optimisticRemovedMemberIds.remove(mid));
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar('Erro ao excluir: $e'),
@@ -7135,8 +7188,10 @@ class _MembersPageState extends State<MembersPage> {
           }
           return Padding(
             padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-            child: ChurchPanelErrorBody(
-              title: 'Não foi possível carregar os membros',
+            child: ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: false,
+              errorTitle: 'Não foi possível carregar os membros',
               error: snap.error,
               onRetry: _refreshMembers,
             ),
@@ -7646,8 +7701,10 @@ class _MembersPageState extends State<MembersPage> {
           }
           return Padding(
             padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-            child: ChurchPanelErrorBody(
-              title: 'Não foi possível carregar os números',
+            child: ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: false,
+              errorTitle: 'Não foi possível carregar os números',
               error: snap.error,
               onRetry: _refreshMembers,
             ),
@@ -9162,27 +9219,37 @@ class _ActionChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.2)),
+          color: color.withValues(alpha: 0.09),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: color.withValues(alpha: 0.22)),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            iconWidget ?? Icon(icon!, size: 18, color: color),
-            const SizedBox(width: 6),
+            iconWidget ?? Icon(icon!, size: 20, color: color),
+            const SizedBox(width: 8),
             Text(label,
                 style: TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w700, color: color)),
+                    fontSize: 13, fontWeight: FontWeight.w700, color: color)),
           ],
         ),
       ),
+    ),
     );
   }
 }
@@ -9210,8 +9277,10 @@ class _DetailSection extends StatelessWidget {
         ),
         Container(
           decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFC),
+            color: Colors.white,
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+            border: Border.all(color: Colors.grey.shade100),
           ),
           child: Column(
             children: [

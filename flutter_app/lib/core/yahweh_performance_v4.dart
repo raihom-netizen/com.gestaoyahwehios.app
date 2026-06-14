@@ -46,7 +46,7 @@ abstract final class YahwehPerformanceV4 {
   static const int financeListPageStep = 100;
   static const int publicFeedPageSize = 20;
   /// Chat — só as 50 mensagens mais recentes (sem histórico inteiro).
-  static const int chatMessagesPageSize = 30;
+  static const int chatMessagesPageSize = 40;
   static const int chatThreadsListLimit = 50;
   static const int chatThreadsFallbackLimit = 30;
   static const int upcomingEventsLimit = 20;

@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -109,7 +111,8 @@ abstract final class ChurchCargosLoadService {
       cacheKey: key,
       limit: kLimit,
       forceServer: forceServer,
-      orderByField: 'name',
+      orderByField: 'order',
+      orderDescending: false,
       sortDocs: _sortDocs,
     );
   }
@@ -158,26 +161,38 @@ abstract final class ChurchCargosLoadService {
       }
 
       try {
-        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
+        final hive = await TenantModuleHiveCache.readDocs(
           churchId,
           TenantModuleKeys.cargos,
-        ).timeout(const Duration(seconds: 3));
-        if (updatedAt != null) {
-          final hive = await TenantModuleHiveCache.readDocs(
-            churchId,
-            TenantModuleKeys.cargos,
+        ).timeout(const Duration(seconds: 2));
+        final docs = _sortDocs(TenantModuleHiveCache.toQueryDocuments(hive));
+        if (docs.isNotEmpty) {
+          putRam(churchId, docs);
+          unawaited(_refreshInBackground(churchId));
+          return ChurchCargosLoadResult(
+            churchId: churchId,
+            docs: docs,
+            readSource: 'hive',
+            collectionPath: path,
           );
-          final docs = _sortDocs(TenantModuleHiveCache.toQueryDocuments(hive));
-          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
-            putRam(churchId, docs);
-            unawaited(_refreshInBackground(churchId));
-            return ChurchCargosLoadResult(
-              churchId: churchId,
-              docs: docs,
-              readSource: 'hive',
-              collectionPath: path,
-            );
-          }
+        }
+      } catch (_) {}
+
+      try {
+        final cacheSnap = await ChurchUiCollections.cargos(churchId)
+            .limit(kLimit)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 3));
+        if (cacheSnap.docs.isNotEmpty) {
+          final docs = _sortDocs(cacheSnap.docs);
+          putRam(churchId, docs);
+          unawaited(_refreshInBackground(churchId));
+          return ChurchCargosLoadResult(
+            churchId: churchId,
+            docs: docs,
+            readSource: 'firestore_cache',
+            collectionPath: path,
+          );
         }
       } catch (_) {}
     }
@@ -216,6 +231,8 @@ abstract final class ChurchCargosLoadService {
         moduleLabel: 'Cargos',
         limit: kLimit,
         cacheKey: cacheKey(churchId),
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
       );
       if (snap.docs.isNotEmpty) {
         final docs = _sortDocs(snap.docs);

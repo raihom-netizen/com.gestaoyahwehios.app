@@ -142,7 +142,9 @@ class _CalendarPageState extends State<CalendarPage>
   Set<String> _escalaDayKeys = {};
   bool _loading = false;
   bool _fetching = false;
+  bool _exportingPdf = false;
   String? _loadError;
+  bool _showingStaleCache = false;
   String _effectiveTenantId = '';
   late final AnimationController _slideCtrl;
   String _listFilter = 'mes_atual';
@@ -851,6 +853,9 @@ class _CalendarPageState extends State<CalendarPage>
         _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
       );
 
+  Duration get _agendaWebQueryCap =>
+      kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap;
+
   String _agendaCacheKey() {
     final (rangeStart, rangeEnd) = _computeLoadRange();
     return '${_tid.trim()}_${_dayKey(rangeStart)}_${_dayKey(rangeEnd)}';
@@ -934,7 +939,8 @@ class _CalendarPageState extends State<CalendarPage>
     );
     _seedAgendaDocsFromCache();
     _hydrateAgendaFromRam();
-    _fetching = true;
+    _fetching = _agendaDocs.isEmpty && _eventsByDay.isEmpty;
+    _loading = _fetching;
     _startWebLoadingCap();
     _restartAgendaSubscription();
     unawaited(_bootstrapAndLoadEvents());
@@ -948,15 +954,20 @@ class _CalendarPageState extends State<CalendarPage>
   void _startWebLoadingCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
-    _webLoadCap = Timer(const Duration(seconds: 105), () {
-      if (!mounted || !_loading) return;
-      setState(() {
-        _loading = false;
-        _fetching = false;
-        if (_eventsByDay.isEmpty && _agendaDocs.isEmpty) {
-          _loadError ??= 'Tempo esgotado ao carregar a agenda na Web.';
-        }
-      });
+    _webLoadCap = Timer(const Duration(seconds: 14), () {
+      if (!mounted) return;
+      if (_loading || _fetching) {
+        setState(() {
+          _loading = false;
+          _fetching = false;
+          if (_eventsByDay.isEmpty && _agendaDocs.isEmpty) {
+            _loadError ??= 'Tempo esgotado ao carregar a agenda na Web.';
+          } else {
+            _showingStaleCache = true;
+            _loadError = null;
+          }
+        });
+      }
     });
   }
 
@@ -972,8 +983,29 @@ class _CalendarPageState extends State<CalendarPage>
     if (ram != null) {
       _agendaDocs = ram;
       _loading = false;
+      _showingStaleCache = true;
       _rebuildMerged();
     }
+  }
+
+  bool get _agendaHasLocalData =>
+      _eventsByDay.isNotEmpty ||
+      _agendaDocs.isNotEmpty ||
+      _legacyEventsByDay.isNotEmpty;
+
+  Widget _buildAgendaResilienceBanner({VoidCallback? onRetry}) {
+    return ChurchPanelResilientLoadBanner(
+      hasLocalData: _agendaHasLocalData,
+      isSyncing: _fetching && _agendaHasLocalData,
+      showStaleCache: _showingStaleCache && !_fetching,
+      errorTitle: 'Não foi possível carregar alguns eventos',
+      error: _loadError,
+      onRetry: onRetry ?? () => _loadEvents(forceRefresh: true),
+      staleMessage:
+          'Modo offline — agenda com últimos compromissos guardados. Puxe para atualizar.',
+      syncMessage:
+          'Sincronizando agenda… a mostrar dados guardados enquanto atualiza.',
+    );
   }
 
   /// Resolve tenant + Firestore pronto; carga em paralelo (não bloqueia UI).
@@ -1115,22 +1147,32 @@ class _CalendarPageState extends State<CalendarPage>
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final result = await ChurchAgendaLoadService.loadByStartTimeRange(
-        seedTenantId: _churchId,
-        start: start,
-        end: end,
-        forceRefresh: forceRefresh,
-      );
+      final result = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchAgendaLoadService.loadByStartTimeRange(
+          seedTenantId: _churchId,
+          start: start,
+          end: end,
+          forceRefresh: forceRefresh,
+        ),
+        maxAttempts: 4,
+      ).timeout(_agendaWebQueryCap);
       if (!mounted) return;
+      final hadLocal = _agendaDocs.isNotEmpty;
       setState(() {
-        _agendaDocs = result.docs;
+        if (result.docs.isNotEmpty) {
+          _agendaDocs = result.docs;
+          _showingStaleCache = false;
+          _loadError = null;
+        } else if (result.softError != null) {
+          if (!hadLocal && _agendaDocs.isEmpty) {
+            _loadError ??= result.softError;
+          } else {
+            _showingStaleCache = true;
+            _loadError = null;
+          }
+        }
         _loading = false;
         _fetching = false;
-        if (result.docs.isEmpty && result.softError != null) {
-          _loadError ??= result.softError;
-        } else if (result.docs.isNotEmpty) {
-          _loadError = null;
-        }
       });
       _rebuildMerged();
     } catch (e) {
@@ -1138,10 +1180,21 @@ class _CalendarPageState extends State<CalendarPage>
         setState(() {
           _fetching = false;
           _loading = false;
-          if (_agendaDocs.isEmpty) _loadError ??= e.toString();
+          if (_agendaDocs.isEmpty && !_agendaHasLocalData) {
+            _loadError ??= e.toString();
+          } else {
+            _showingStaleCache = true;
+            _loadError = null;
+          }
         });
       }
     } finally {
+      if (mounted) {
+        setState(() {
+          _fetching = false;
+          _loading = false;
+        });
+      }
       _webLoadCap?.cancel();
     }
   }
@@ -2033,7 +2086,7 @@ class _CalendarPageState extends State<CalendarPage>
           _tid,
           start: start,
           end: end,
-        ).timeout(ChurchPanelReadTimeouts.queryCap);
+        ).timeout(_agendaWebQueryCap);
       } catch (e) {
         err ??= e is TimeoutException
             ? 'Tempo esgotado ao carregar eventos.'
@@ -2048,7 +2101,7 @@ class _CalendarPageState extends State<CalendarPage>
           _tid,
           start: start,
           end: end,
-        ).timeout(ChurchPanelReadTimeouts.queryCap);
+        ).timeout(_agendaWebQueryCap);
       } catch (e) {
         err ??= e is TimeoutException
             ? 'Tempo esgotado ao carregar eventos.'
@@ -2063,7 +2116,7 @@ class _CalendarPageState extends State<CalendarPage>
           _tid,
           start: start,
           end: end,
-        ).timeout(ChurchPanelReadTimeouts.queryCap);
+        ).timeout(_agendaWebQueryCap);
       } catch (_) {
         return null;
       }
@@ -2075,7 +2128,7 @@ class _CalendarPageState extends State<CalendarPage>
           _tid,
           start: start,
           end: end,
-        ).timeout(ChurchPanelReadTimeouts.queryCap);
+        ).timeout(_agendaWebQueryCap);
       } catch (_) {
         return null;
       }
@@ -2084,10 +2137,13 @@ class _CalendarPageState extends State<CalendarPage>
     Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
         loadAgendaInterna() async {
       try {
-        final result = await ChurchAgendaLoadService.loadAll(
-          seedTenantId: _churchId,
-          forceRefresh: forceRefresh,
-        );
+        final result = await FirestoreWebGuard.runWithWebRecovery(
+          () => ChurchAgendaLoadService.loadAll(
+            seedTenantId: _churchId,
+            forceRefresh: forceRefresh,
+          ),
+          maxAttempts: 4,
+        ).timeout(_agendaWebQueryCap);
         final filtered = result.docs.where((d) {
           final ts = ChurchAgendaLoadService.docStartTimestamp(d.data());
           if (ts == null) return false;
@@ -2110,6 +2166,7 @@ class _CalendarPageState extends State<CalendarPage>
 
     var escalaKeys = <String>{};
     var agendaDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    try {
     try {
       final parallel = await Future.wait<dynamic>([
         loadNoticiasPorData(),
@@ -2198,29 +2255,46 @@ class _CalendarPageState extends State<CalendarPage>
     for (final list in map.values) {
       list.sort((a, b) => a.dateTime.compareTo(b.dateTime));
     }
+    } finally {
+      if (mounted) {
+        final hasNewData = map.isNotEmpty || agendaDocs.isNotEmpty;
+        final hadCachedUi = _legacyEventsByDay.isNotEmpty ||
+            _agendaDocs.isNotEmpty ||
+            _eventsByDay.isNotEmpty;
 
-    if (mounted) {
-      final hasAnyData = map.isNotEmpty || agendaDocs.isNotEmpty;
-      setState(() {
-        _legacyEventsByDay = map;
-        _escalaDayKeys = escalaKeys;
-        _agendaDocs = agendaDocs;
-        _loading = false;
-        _fetching = false;
-        _loadError = hasAnyData ? null : err;
-      });
-      if (map.isNotEmpty) {
-        _AgendaRamCache.put(cacheKey, map, escalaKeys);
+        if (hasNewData) {
+          setState(() {
+            _legacyEventsByDay = map;
+            _escalaDayKeys = escalaKeys;
+            _agendaDocs = agendaDocs;
+            _loading = false;
+            _fetching = false;
+            _showingStaleCache = false;
+            _loadError = null;
+          });
+          _AgendaRamCache.put(cacheKey, map, escalaKeys);
+        } else if (hadCachedUi) {
+          setState(() {
+            _loading = false;
+            _fetching = false;
+            _showingStaleCache = true;
+            _loadError = null;
+          });
+        } else {
+          setState(() {
+            _legacyEventsByDay = map;
+            _escalaDayKeys = escalaKeys;
+            _agendaDocs = agendaDocs;
+            _loading = false;
+            _fetching = false;
+            _showingStaleCache = false;
+            _loadError = err;
+          });
+        }
+        _rebuildMerged();
       }
-      _rebuildMerged();
+      _webLoadCap?.cancel();
     }
-    if (mounted) {
-      setState(() {
-        _loading = false;
-        _fetching = false;
-      });
-    }
-    _webLoadCap?.cancel();
   }
 
   String _normalizeType(String raw) {
@@ -2361,14 +2435,14 @@ class _CalendarPageState extends State<CalendarPage>
                       ),
                       const SizedBox(height: ThemeCleanPremium.spaceMd),
                     ],
-                    if (_loadError != null) ...[
+                    if (_agendaHasLocalData ||
+                        _loadError != null ||
+                        _fetching ||
+                        _showingStaleCache) ...[
                       Padding(
-                        padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
-                        child: ChurchPanelErrorBody(
-                          title: 'Não foi possível carregar alguns eventos',
-                          error: _loadError,
-                          onRetry: () => _loadEvents(forceRefresh: true),
-                        ),
+                        padding: const EdgeInsets.only(
+                            bottom: ThemeCleanPremium.spaceMd),
+                        child: _buildAgendaResilienceBanner(),
                       ),
                     ],
                     _buildViewToggleRow(),
@@ -2415,16 +2489,15 @@ class _CalendarPageState extends State<CalendarPage>
               parent: BouncingScrollPhysics(),
             ),
             slivers: [
-              if (_loadError != null)
+              if (_agendaHasLocalData ||
+                  _loadError != null ||
+                  _fetching ||
+                  _showingStaleCache)
                 SliverToBoxAdapter(
                   child: Padding(
                     padding:
                         const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-                    child: ChurchPanelErrorBody(
-                      title: 'Não foi possível carregar alguns eventos',
-                      error: _loadError,
-                      onRetry: _loadEvents,
-                    ),
+                    child: _buildAgendaResilienceBanner(),
                   ),
                 ),
               SliverToBoxAdapter(
@@ -4101,6 +4174,9 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   Future<void> _exportAgendaPdf() async {
+    if (_exportingPdf) return;
+    setState(() => _exportingPdf = true);
+    var dialogOpen = false;
     try {
       final exportMap = _eventsForPdfExport();
       final sortedKeys = exportMap.keys.toList()
@@ -4116,57 +4192,59 @@ class _CalendarPageState extends State<CalendarPage>
         return;
       }
       if (!mounted) return;
-      Timer? pdfOverlay;
-      pdfOverlay = Timer(const Duration(milliseconds: 160), () {
-        if (!mounted) return;
-        showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => const Center(
-            child: Card(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 14),
-                    Text('Gerando PDF…'),
-                  ],
-                ),
+
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(
+          child: Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 14),
+                  Text('Gerando relatório PDF…'),
+                ],
               ),
             ),
           ),
-        );
-      });
+        ),
+      );
+      dialogOpen = true;
 
       final branding = _pdfBrandingReady ??
           await (_pdfBrandingFuture ?? loadReportPdfBranding(_churchId))
               .timeout(
-            const Duration(milliseconds: 500),
+            const Duration(milliseconds: 800),
             onTimeout: () => ReportPdfBranding(
-              churchName: 'Agenda',
+              churchName: 'Agenda da Igreja',
               accent: ReportPdfBranding.defaultAccent,
             ),
           );
-      await PdfSuperPremiumTheme.loadRobotoPdfTheme();
-
-      pdfOverlay?.cancel();
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).maybePop();
-      }
 
       final refLabel = _pdfExportPeriodLabel();
+      final generatedAt =
+          DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now());
 
       final data = <List<String>>[];
       for (final key in sortedKeys) {
         for (final ev in exportMap[key]!) {
           final titulo = ev.title.isNotEmpty ? ev.title : ev.type;
+          final cat = ev.categoryKey != null
+              ? _labelForCategoryKey(ev.categoryKey!)
+              : ev.type;
+          final loc = (ev.location).trim();
+          final desc = ev.description.trim();
+          final descShort = desc.length > 72 ? '${desc.substring(0, 69)}…' : desc;
           data.add([
             DateFormat('dd/MM/yyyy').format(ev.dateTime),
             DateFormat('HH:mm').format(ev.dateTime),
             titulo,
-            ev.type,
+            cat,
+            loc.isEmpty ? '—' : loc,
+            descShort.isEmpty ? '—' : descShort,
           ]);
         }
       }
@@ -4179,10 +4257,12 @@ class _CalendarPageState extends State<CalendarPage>
           header: (ctx) => pw.Padding(
             padding: const pw.EdgeInsets.only(bottom: 12),
             child: PdfSuperPremiumTheme.header(
-              'Agenda da igreja',
+              'Agenda — relatório',
               branding: branding,
               extraLines: [
                 'Período: $refLabel',
+                'Gerado em: $generatedAt',
+                'Total: ${data.length} compromisso(s)',
               ],
             ),
           ),
@@ -4192,14 +4272,23 @@ class _CalendarPageState extends State<CalendarPage>
           ),
           build: (ctx) => [
             PdfSuperPremiumTheme.fromTextArray(
-              headers: const ['Data', 'Horário', 'Título', 'Tipo'],
+              headers: const [
+                'Data',
+                'Hora',
+                'Título',
+                'Categoria',
+                'Local',
+                'Descrição',
+              ],
               data: data,
               accent: branding.accent,
               columnWidths: const {
-                0: pw.FlexColumnWidth(1.15),
-                1: pw.FlexColumnWidth(0.82),
-                2: pw.FlexColumnWidth(2.85),
-                3: pw.FlexColumnWidth(1.35),
+                0: pw.FlexColumnWidth(0.95),
+                1: pw.FlexColumnWidth(0.62),
+                2: pw.FlexColumnWidth(1.65),
+                3: pw.FlexColumnWidth(1.05),
+                4: pw.FlexColumnWidth(1.35),
+                5: pw.FlexColumnWidth(1.55),
               },
             ),
           ],
@@ -4213,11 +4302,15 @@ class _CalendarPageState extends State<CalendarPage>
       }
     } catch (e) {
       if (mounted) {
-        Navigator.of(context, rootNavigator: true).maybePop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erro ao exportar PDF: $e')),
         );
       }
+    } finally {
+      if (dialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).maybePop();
+      }
+      if (mounted) setState(() => _exportingPdf = false);
     }
   }
 

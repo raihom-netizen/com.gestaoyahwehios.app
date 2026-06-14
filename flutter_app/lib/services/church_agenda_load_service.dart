@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/agenda_firestore_fields.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
-import 'package:gestao_yahweh/core/agenda_firestore_fields.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga agenda — `igrejas/{churchId}/agenda`.
 class ChurchAgendaLoadResult {
@@ -131,7 +132,18 @@ abstract final class ChurchAgendaLoadService {
     String key,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
+    if (docs.isEmpty) return;
     _ram[key] = (docs: List.from(docs), at: DateTime.now());
+  }
+
+  static void putRam(
+    String churchId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    int limit = _plainFallbackLimit,
+  }) {
+    final id = _resolve(churchId);
+    if (id.isEmpty || docs.isEmpty) return;
+    _putRam(cacheKeyAll(id, limit), _sortByStartTime(docs));
   }
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterByRange(
@@ -214,19 +226,15 @@ abstract final class ChurchAgendaLoadService {
       }
 
       try {
-        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
+        final hive = await TenantModuleHiveCache.readDocs(
           churchId,
           TenantModuleKeys.agenda,
-        ).timeout(const Duration(seconds: 4));
-        if (updatedAt != null) {
-          final hive = await TenantModuleHiveCache.readDocs(
-            churchId,
-            TenantModuleKeys.agenda,
-          );
+        ).timeout(const Duration(seconds: 2));
+        if (hive.isNotEmpty) {
           final docs = _sortByStartTime(
             TenantModuleHiveCache.toQueryDocuments(hive),
           );
-          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+          if (docs.isNotEmpty) {
             _putRam(ramKey, docs);
             unawaited(_refreshAllInBackground(
               churchId: churchId,
@@ -240,6 +248,28 @@ abstract final class ChurchAgendaLoadService {
               collectionPath: path,
             );
           }
+        }
+      } catch (_) {}
+
+      try {
+        final cacheSnap = await ChurchUiCollections.agenda(churchId)
+            .limit(limit)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 3));
+        if (cacheSnap.docs.isNotEmpty) {
+          final docs = _sortByStartTime(cacheSnap.docs);
+          _putRam(ramKey, docs);
+          unawaited(_refreshAllInBackground(
+            churchId: churchId,
+            ramKey: ramKey,
+            limit: limit,
+          ));
+          return ChurchAgendaLoadResult(
+            churchId: churchId,
+            docs: docs,
+            readSource: 'firestore_cache_all',
+            collectionPath: path,
+          );
         }
       } catch (_) {}
     }
@@ -271,7 +301,9 @@ abstract final class ChurchAgendaLoadService {
         moduleLabel: 'Agenda',
         limit: limit,
         cacheKey: '${ramKey}_direct',
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      );
       final docs = _sortByStartTime(snap.docs);
       _putRam(ramKey, docs);
       unawaited(_persistHive(churchId, docs));
@@ -397,6 +429,7 @@ abstract final class ChurchAgendaLoadService {
     String churchId,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) async {
+    if (docs.isEmpty) return;
     try {
       await TenantModuleHiveCache.saveFromQuerySnapshot(
         churchId,
@@ -404,6 +437,12 @@ abstract final class ChurchAgendaLoadService {
         MergedFirestoreQuerySnapshot(docs),
       );
     } catch (_) {}
+  }
+
+  static Future<void> persistAfterLoad(ChurchAgendaLoadResult result) async {
+    if (result.churchId.isEmpty || result.docs.isEmpty) return;
+    putRam(result.churchId, result.docs);
+    await _persistHive(result.churchId, result.docs);
   }
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>

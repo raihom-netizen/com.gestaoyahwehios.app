@@ -3,6 +3,7 @@ import 'dart:async' show unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Controlo Firestore de uploads de mídia do chat (retoma após fechar o app).
@@ -13,7 +14,9 @@ abstract final class ChurchChatUploadsService {
 
   static const statusQueued = 'queued';
   static const statusUploading = 'uploading';
-  static const statusWaitingNetwork = 'waiting_network';
+  /// Legado — usar [statusQueued]. Nunca gravar `waiting_network` (travava UI).
+  @Deprecated('Use statusQueued')
+  static const statusWaitingNetwork = statusQueued;
   static const statusRetrying = 'retrying';
   static const statusDone = 'done';
   static const statusFailed = 'failed';
@@ -81,17 +84,26 @@ abstract final class ChurchChatUploadsService {
     } catch (_) {}
   }
 
-  static Future<void> markWaitingNetwork({
+  /// Fila offline — **não** bloqueia thread nem input do chat.
+  static Future<void> markQueued({
     required String tenantId,
     required String uploadId,
+    double progress = 0,
   }) async {
     await patchProgress(
       tenantId: tenantId,
       uploadId: uploadId,
-      progress: 0,
-      status: statusWaitingNetwork,
+      progress: progress,
+      status: statusQueued,
     );
   }
+
+  @Deprecated('Use markQueued')
+  static Future<void> markWaitingNetwork({
+    required String tenantId,
+    required String uploadId,
+  }) =>
+      markQueued(tenantId: tenantId, uploadId: uploadId);
 
   static Future<void> markRetrying({
     required String tenantId,
@@ -154,8 +166,8 @@ abstract final class ChurchChatUploadsService {
     final statuses = [
       statusQueued,
       statusUploading,
-      statusWaitingNetwork,
       statusRetrying,
+      'waiting_network', // legado — retomar uploads presos antes da migração
     ];
     final out = <Map<String, dynamic>>[];
     try {
@@ -178,14 +190,10 @@ abstract final class ChurchChatUploadsService {
   }
 
   static void resumeWhenOnline() {
+    ChurchChatMediaOutboxService.bindConnectivityResume();
     unawaited(
       ensureFirebaseReadyForMediaUpload().then((_) async {
-        final pending = await listPendingForCurrentUser();
-        if (pending.isEmpty) return;
-        // Retoma via outbox local (ficheiros); Firestore só marca estado.
-        for (final _ in pending) {
-          // Outbox já reenvia com paths locais; nada a fazer aqui sem UI.
-        }
+        await ChurchChatMediaOutboxService.resumeRecoverableNow();
       }),
     );
   }

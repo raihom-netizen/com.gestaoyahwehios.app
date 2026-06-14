@@ -2,11 +2,13 @@ import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
+import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
+import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl, sanitizeImageUrl;
 
@@ -34,16 +36,33 @@ abstract final class ChurchInstantUploadPipeline {
   ChurchInstantUploadPipeline._();
 
   /// Comprime automaticamente imagens acima de 3 MB antes do upload.
+  /// Avisos: teto [kAvisoCapaMaxUploadBytes] (~150 KB) para publicação rápida.
   static Future<Uint8List> prepareImageBytes(
     Uint8List raw, {
     String? localPath,
+    String? postType,
   }) async {
-    if (raw.isEmpty && localPath != null && localPath.isNotEmpty) {
-      return IosPublishImagePipeline.compressForPublishFromPath(localPath);
+    final isAviso = postType?.trim().toLowerCase() == 'aviso';
+    Uint8List base = raw;
+    if (base.isEmpty && localPath != null && localPath.isNotEmpty) {
+      base = await IosPublishImagePipeline.compressForPublishFromPath(localPath);
     }
-    if (raw.isEmpty) return raw;
-    if (raw.length <= kAutoCompressImageThresholdBytes) return raw;
-    return IosPublishImagePipeline.compressForPublishBytes(raw);
+    if (base.isEmpty) return base;
+    if (isAviso) {
+      return ImageHelper.compressImageUnderMaxBytes(
+        base,
+        maxBytes: kAvisoCapaMaxUploadBytes,
+      );
+    }
+    final isEvento = postType?.trim().toLowerCase() == 'evento';
+    if (isEvento) {
+      return ImageHelper.compressImageUnderMaxBytes(
+        base,
+        maxBytes: kEventoFotoMaxUploadBytes,
+      );
+    }
+    if (base.length <= kAutoCompressImageThresholdBytes) return base;
+    return IosPublishImagePipeline.compressForPublishBytes(base);
   }
 
   static String _storagePathForSlot({
@@ -57,7 +76,11 @@ abstract final class ChurchInstantUploadPipeline {
       return ChurchStorageLayout.avisoPostPhotoPath(tenantId, postId, slotIndex);
     }
     if (t == 'evento') {
-      return ChurchStorageLayout.eventPostPhotoPath(tenantId, postId, slotIndex);
+      return ChurchStorageLayout.eventPostPhotoCanonicalPath(
+        tenantId,
+        postId,
+        slotIndex,
+      );
     }
     return FeedTenantStorageMap.feedPhotoPath(
       postType: postType,
@@ -101,10 +124,18 @@ abstract final class ChurchInstantUploadPipeline {
     Uint8List? prepared = bytes;
     if (prepared == null || prepared.isEmpty) {
       if (localPath != null && localPath.isNotEmpty) {
-        prepared = await prepareImageBytes(Uint8List(0), localPath: localPath);
+        prepared = await prepareImageBytes(
+          Uint8List(0),
+          localPath: localPath,
+          postType: postType,
+        );
       }
     } else {
-      prepared = await prepareImageBytes(prepared, localPath: localPath);
+      prepared = await prepareImageBytes(
+        prepared,
+        localPath: localPath,
+        postType: postType,
+      );
     }
     if (prepared == null || prepared.isEmpty) {
       throw StateError('Sem imagem para enviar.');

@@ -196,10 +196,8 @@ class FcmService {
 
     final roleNorm = role.trim().toLowerCase();
     final isGestoresStaff = _isGestoresStaffRole(roleNorm);
-    final isFinanceStaff = _isFinanceStaffRole(roleNorm);
-    final isFornecedorStaff = isFinanceStaff ||
-        roleNorm == 'secretario' ||
-        roleNorm == 'secretaria';
+    final isFinanceExclusive = _isFinanceExclusiveStaffRole(roleNorm);
+    final isCorporateStaff = _isCorporateStaffRole(roleNorm);
 
     try {
       await messaging.unsubscribeFromTopic('admin');
@@ -211,28 +209,23 @@ class FcmService {
       isGestoresStaff,
     );
 
-    if (isFinanceStaff) {
-      await _setTopicSubscribed(messaging, topicPushNovo(tid, 'financeiro'), true);
-      await _setTopicSubscribed(
-        messaging,
-        topicPushNovo(tid, 'fornecedor_agenda'),
-        true,
-      );
-    } else if (isFornecedorStaff) {
-      await _setTopicSubscribed(
-        messaging,
-        topicPushNovo(tid, 'fornecedor_agenda'),
-        true,
-      );
-      await _setTopicSubscribed(messaging, topicPushNovo(tid, 'financeiro'), false);
-    } else {
-      await _setTopicSubscribed(messaging, topicPushNovo(tid, 'financeiro'), false);
-      await _setTopicSubscribed(
-        messaging,
-        topicPushNovo(tid, 'fornecedor_agenda'),
-        false,
-      );
-    }
+    await _setTopicSubscribed(
+      messaging,
+      topicPushNovo(tid, 'financeiro'),
+      isFinanceExclusive,
+    );
+
+    var pushFornecedorPref = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      pushFornecedorPref = prefs.getBool('notif_fornecedor') ?? false;
+    } catch (_) {}
+
+    await _setTopicSubscribed(
+      messaging,
+      topicPushNovo(tid, 'fornecedor_agenda'),
+      isCorporateStaff && pushFornecedorPref,
+    );
 
     await _onMessageSub?.cancel();
     await _onMessageOpenedSub?.cancel();
@@ -248,7 +241,7 @@ class FcmService {
     }
 
     await prefs.setStringList('church_fcm_topics', nextTopics);
-    await syncPreferencePushTopics(uid: uid, tenantId: tid);
+    await syncPreferencePushTopics(uid: uid, tenantId: tid, role: role);
     await prefs.setString(_prefPushTenant, tid);
   }
 
@@ -317,6 +310,7 @@ class FcmService {
   Future<void> syncPreferencePushTopics({
     required String uid,
     required String tenantId,
+    String? role,
   }) async {
     if (kIsWeb) return;
     final tid = await resolvePushTenantId(tenantId, userUid: uid);
@@ -329,6 +323,7 @@ class FcmService {
       'pushEscalas': topicPushNovo(tid, 'escala'),
       'pushChat': topicPushNovo(tid, 'chat'),
       'pushAniversariantes': topicPushNovo(tid, 'aniversario'),
+      'pushFornecedorAgenda': topicPushNovo(tid, 'fornecedor_agenda'),
     };
 
     var pushAvisos = true;
@@ -336,6 +331,7 @@ class FcmService {
     var pushEscalas = true;
     var pushChat = true;
     var pushAniversariantes = true;
+    var pushFornecedorAgenda = false;
 
     try {
       final doc =
@@ -349,6 +345,9 @@ class FcmService {
         if (d['pushAniversariantes'] is bool) {
           pushAniversariantes = d['pushAniversariantes'] as bool;
         }
+        if (d['pushFornecedorAgenda'] is bool) {
+          pushFornecedorAgenda = d['pushFornecedorAgenda'] as bool;
+        }
       }
     } catch (_) {
       try {
@@ -358,8 +357,14 @@ class FcmService {
         pushEscalas = prefs.getBool('notif_escalas') ?? true;
         pushChat = prefs.getBool('notif_chat') ?? true;
         pushAniversariantes = prefs.getBool('notif_aniversariantes') ?? true;
+        pushFornecedorAgenda = prefs.getBool('notif_fornecedor') ?? false;
       } catch (_) {}
     }
+
+    final roleNorm = (role ?? '').trim().toLowerCase();
+    final corporateEligible = _isCorporateStaffRole(roleNorm);
+    final fornecedorSubscribe =
+        corporateEligible && pushFornecedorAgenda;
 
     final flags = {
       'pushAvisos': pushAvisos,
@@ -367,6 +372,7 @@ class FcmService {
       'pushEscalas': pushEscalas,
       'pushChat': pushChat,
       'pushAniversariantes': pushAniversariantes,
+      'pushFornecedorAgenda': fornecedorSubscribe,
     };
 
     for (final entry in topics.entries) {
@@ -407,16 +413,23 @@ class FcmService {
         roleNorm == 'líder';
   }
 
-  static bool _isFinanceStaffRole(String roleNorm) {
-    return roleNorm == 'adm' ||
+  static bool _isFinanceExclusiveStaffRole(String roleNorm) {
+    return roleNorm == 'master' ||
+        roleNorm == 'pastor' ||
+        roleNorm == 'pastora' ||
+        roleNorm == 'pastor_presidente' ||
+        roleNorm == 'tesoureiro' ||
+        roleNorm == 'tesoureira';
+  }
+
+  static bool _isCorporateStaffRole(String roleNorm) {
+    return _isFinanceExclusiveStaffRole(roleNorm) ||
+        roleNorm == 'adm' ||
         roleNorm == 'admin' ||
         roleNorm == 'administrador' ||
         roleNorm == 'gestor' ||
-        roleNorm == 'master' ||
-        roleNorm == 'pastor' ||
-        roleNorm == 'pastora' ||
-        roleNorm == 'tesoureiro' ||
-        roleNorm == 'tesoureira';
+        roleNorm == 'secretario' ||
+        roleNorm == 'secretaria';
   }
 
   void routeNotificationTap(RemoteMessage message) {

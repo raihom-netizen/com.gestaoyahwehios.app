@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_attention_member_card.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -228,8 +229,19 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     final tid = widget.tenantId.trim();
     final useFinanceStream =
         widget.canViewFinance && widget.financeStream != null;
+
+    if (widget.canViewFinance) {
+      final peek = ChurchFinanceLoadService.peekLancamentosRam(
+        tid,
+        limit: ChurchDashboardQueryLimits.financeLedgerSnapshotMax,
+      );
+      if (peek != null && peek.isNotEmpty && mounted) {
+        _mergeFinanceIntoState(peek);
+      }
+    }
+
     setState(() {
-      _loading = true;
+      _loading = _intel == null;
       _error = null;
     });
     try {
@@ -336,6 +348,10 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
           });
         }
         _notifyDeferredReady();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
       }
     }
   }

@@ -278,9 +278,11 @@ class _MinhasSugestoesState extends State<_MinhasSugestoes> {
           .limit(20)
           .watchSafe(),
       builder: (context, snap) {
-        if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar suas mensagens',
+        if (snap.hasError && (snap.data?.docs.isEmpty ?? true)) {
+          return ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: false,
+            errorTitle: 'Não foi possível carregar suas mensagens',
             error: snap.error,
             onRetry: () => setState(() => _streamKey++),
           );

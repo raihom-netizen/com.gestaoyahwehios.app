@@ -232,11 +232,12 @@ if (-not (Test-Path $DebugInfoDir)) {
 
 Write-Host "`n=== flutter build appbundle --release --target-platform android-arm64 --obfuscate --split-debug-info=./debug-info ===" -ForegroundColor Cyan
 Write-Host "Guarde a pasta flutter_app\debug-info\ para symbolizar stack traces (Crashlytics / flutter symbolize)." -ForegroundColor DarkGray
-$prevEap = $ErrorActionPreference
-$ErrorActionPreference = 'Continue'
-flutter build appbundle --release --target-platform android-arm64 --obfuscate --split-debug-info=./debug-info 2>&1 | ForEach-Object { Write-Host $_ }
-$buildExit = $LASTEXITCODE
-$ErrorActionPreference = $prevEap
+. (Join-Path $RepoRoot "scripts\flutter_invoke_with_retry.ps1")
+$buildExit = Invoke-FlutterWithRetry -Label "AAB Play" -MaxAttempts 5 -InitialWaitSec 25 -Arguments @(
+    "build", "appbundle", "--release",
+    "--target-platform", "android-arm64",
+    "--obfuscate", "--split-debug-info=./debug-info"
+)
 if ($buildExit -ne 0) { exit $buildExit }
 
 if (-not (Test-Path $OutAab)) {

@@ -100,11 +100,62 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegFinanceiro/${ym}/$id.$safeExt';
   }
 
+  /// Comprovantes por tipo: `financeiro/comprovantes_receitas|comprovantes_despesas|transferencias/`.
+  static String financeComprovantePathByTipo({
+    required String tenantId,
+    required String lancamentoId,
+    required String tipo,
+    String ext = 'jpg',
+  }) {
+    final tid = tenantId.trim();
+    final id = _safeDocId(lancamentoId);
+    final safeExt =
+        ext.replaceAll('.', '').trim().isEmpty ? 'jpg' : ext.replaceAll('.', '');
+    final t = tipo.toLowerCase().trim();
+    final sub = t.contains('transfer')
+        ? 'transferencias'
+        : (t.contains('entrada') ||
+                t.contains('receita') ||
+                t == 'income')
+            ? 'comprovantes_receitas'
+            : 'comprovantes_despesas';
+    return '${churchRoot(tid)}/$kSegFinanceiro/$sub/${id}_comprovante.$safeExt';
+  }
+
   /// Materializa `igrejas/{id}/financeiro/` no bucket (placeholder PNG 1×1).
   static String financeiroFolderPlaceholderPath(String tenantId) {
     final tid = tenantId.trim();
     if (tid.isEmpty) return '';
     return '${churchRoot(tid)}/$kSegFinanceiro/_structure/placeholder.png';
+  }
+
+  static const String kSegFornecedores = 'fornecedores';
+  static const String kSegCompromissos = 'compromissos';
+
+  /// Comprovante de compromisso — overwrite fixo por ID:
+  /// `igrejas/{churchId}/fornecedores/{fornecedorId}/compromissos/{compromissoId}_comprovante.{ext}`
+  static String fornecedorCompromissoComprovantePath({
+    required String tenantId,
+    required String fornecedorId,
+    required String compromissoId,
+    String ext = 'jpg',
+  }) {
+    final fid = _safeDocId(fornecedorId);
+    final cid = _safeDocId(compromissoId);
+    final safeExt =
+        ext.replaceAll('.', '').trim().isEmpty ? 'jpg' : ext.replaceAll('.', '');
+    return '${churchRoot(tenantId)}/$kSegFornecedores/$fid/$kSegCompromissos/${cid}_comprovante.$safeExt';
+  }
+
+  /// Base sem extensão (limpeza legado / troca de tipo).
+  static String fornecedorCompromissoComprovanteBase({
+    required String tenantId,
+    required String fornecedorId,
+    required String compromissoId,
+  }) {
+    final fid = _safeDocId(fornecedorId);
+    final cid = _safeDocId(compromissoId);
+    return '${churchRoot(tenantId)}/$kSegFornecedores/$fid/$kSegCompromissos/${cid}_comprovante';
   }
 
   /// Legado: `igrejas/{id}/comprovantes/{lancamentoId}.jpg`.
@@ -210,10 +261,32 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegMembros/$mid/${YahwehPerformanceV4.profileMediumFile}';
   }
 
-  /// Post **evento** — directo: `eventos/{postId}/banner_evento.jpg` (+ galeria).
+  /// Post **evento** — canónico: `eventos/{postId}/fotos/foto_{1..10}.jpg` (overwrite).
+  static String eventPostPhotoCanonicalPath(
+    String tenantId,
+    String postDocId,
+    int slotIndex,
+  ) {
+    final tid = tenantId.trim();
+    final pid = _safeDocId(postDocId);
+    final n = (slotIndex + 1).clamp(1, 10);
+    return '${churchRoot(tid)}/$kSegEventos/$pid/fotos/foto_$n.jpg';
+  }
+
+  /// Vídeo hospedado — `eventos/{postId}/videos/video_principal.mp4`.
+  static String eventHostedVideoPrincipalPath(
+    String tenantId,
+    String postDocId,
+  ) {
+    final tid = tenantId.trim();
+    final pid = _safeDocId(postDocId);
+    return '${churchRoot(tid)}/$kSegEventos/$pid/videos/video_principal.mp4';
+  }
+
+  /// Post **evento** — novos uploads → [eventPostPhotoCanonicalPath]; leitura legada mantida.
   static String eventPostPhotoPath(
           String tenantId, String postDocId, int slotIndex) =>
-      eventPostPhotoPathLegacy(tenantId, postDocId, slotIndex);
+      eventPostPhotoCanonicalPath(tenantId, postDocId, slotIndex);
 
   /// Legado: `eventos/{postId}/banner_evento.jpg` …
   static String eventPostPhotoPathLegacy(
@@ -509,13 +582,13 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId';
   }
 
-  /// Foto canónica — **uma pasta por bem**, até 4 ficheiros:
-  /// `patrimonio/{itemDocId}/galeria_01.webp` … `galeria_04.webp` (sobrescreve ao trocar slot).
+  /// Foto canónica — **uma pasta por bem**, 4 slots fixos (overwrite nativo no Storage):
+  /// `patrimonio/{itemDocId}/foto_1.jpg` … `foto_4.jpg`
   static String patrimonioPhotoPath(String tenantId, String itemDocId, int slot) {
     final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
     final safeId = _safeDocId(itemDocId);
-    final n = (s + 1).toString().padLeft(2, '0');
-    return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/galeria_$n.webp';
+    final n = s + 1;
+    return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/foto_$n.jpg';
   }
 
   /// Alias legado — mesmo path canónico por pasta do bem.
@@ -550,8 +623,8 @@ abstract final class ChurchStorageLayout {
       String tenantId, String itemDocId, int slot) {
     final s = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
     final safeId = _safeDocId(itemDocId);
-    final n = (s + 1).toString().padLeft(2, '0');
-    return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/galeria_$n';
+    final n = s + 1;
+    return '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/foto_$n';
   }
 
   /// Paths a apagar ao substituir slot (canónico + layouts antigos).
@@ -565,8 +638,14 @@ abstract final class ChurchStorageLayout {
         patrimonioPhotoBaseWithoutExtLegacy(tenantId, itemDocId, slot);
     final flat = patrimonioPhotoPathFlatLegacy(tenantId, itemDocId, slot);
     final flatThumb = patrimonioThumbPathFlatLegacy(tenantId, itemDocId, slot);
+    final safeId = _safeDocId(itemDocId);
+    final n = (slot < 0 ? 0 : (slot > 3 ? 3 : slot)) + 1;
+    final nPad = n.toString().padLeft(2, '0');
+    final galeriaLegacy =
+        '${churchRoot(tenantId)}/$kSegPatrimonio/$safeId/galeria_$nPad.webp';
     return [
       canonical,
+      galeriaLegacy,
       flat,
       flatThumb,
       '$legacyBase.jpg',

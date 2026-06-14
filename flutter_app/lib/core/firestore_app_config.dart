@@ -26,12 +26,12 @@ abstract final class FirestoreOfflineConfig {
 
 ///
 
-/// Offline-first (Controle Total): `persistenceEnabled: true` em **todas** as plataformas.
-
-/// - **Mobile:** cache ilimitado + sync silenciosa.
-
-/// - **Web:** IndexedDB quando suportado; fallback long-polling + warmup Hive memória.
-
+/// Offline-first (Controle Total): equivalente Flutter ao `persistentLocalCache` JS.
+///
+/// - **Mobile (Android/iOS):** `persistenceEnabled: true` + cache ilimitado.
+/// - **Web:** IndexedDB ~80MB + long-polling (paridade multi-tab via SDK Firestore web).
+/// - **Leituras cache-first:** [ChurchRepository.listCacheFirst] + [TenantStaleWhileRevalidate].
+/// - **Escritas optimistas:** [OptimisticFirestoreWrite] / [TenantOfflineWrite] + [SyncEngine].
 void configureFirestoreForOfflineAndSpeed() {
 
   if (!isFirebaseReady) {

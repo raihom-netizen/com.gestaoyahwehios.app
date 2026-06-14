@@ -1,4 +1,4 @@
-/// Single source of app version used everywhere.
+﻿/// Single source of app version used everywhere.
 /// Política (jun/2026): marketing **fixo** em [appVersion] = 11.2.305 — só incrementar [appBuildNumber].
 /// 11.2.305+1972: Padronização total — ChurchPanelTenantGateway, dashboard/membros/mural plain-first, web online + AAB + iOS Codemagic.
 /// 11.2.305+1971: Engine central (avisos/financeiro/membros), cache bust foto perfil+logo, deploy completo.
@@ -394,7 +394,8 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1931: Chat igreja — envio mídia pipeline único (timeout 90s, foto/PDF/vídeo, paths igrejas/{id}/chat_media).
 /// 11.2.305+1939: Cartas — deptos visíveis, lista moderna, PDF rápido.
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
-const String appBuildNumber = '1972';
+/// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
+const String appBuildNumber = '1975';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

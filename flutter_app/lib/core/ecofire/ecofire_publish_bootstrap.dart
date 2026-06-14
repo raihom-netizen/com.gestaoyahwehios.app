@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -31,6 +32,9 @@ abstract final class EcoFirePublishBootstrap {
 
     for (var attempt = 0; attempt < 4; attempt++) {
       try {
+        if (!FirebaseBootstrapService.isReady()) {
+          await FirebaseBootstrapService.ensureInitializedOnce();
+        }
         await FirebaseBootstrapService.ensureStorageAlwaysLinked(
           refreshAuthToken: attempt == 0,
         );

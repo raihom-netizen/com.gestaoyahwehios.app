@@ -51,6 +51,12 @@ Map<String, dynamic> stripVideoFieldsForAvisoPayload(
 const int kEventoAvisoFeedEncodeMaxEdgePx = 1080;
 const int kEventoAvisoFeedWebpQuality = 75;
 
+/// Capa de aviso — teto de upload (~150 KB) para publicação rápida em 4G/web.
+const int kAvisoCapaMaxUploadBytes = 150 * 1024;
+
+/// Fotos de evento — mesmo teto (~150 KB) por slot (até 10 fotos).
+const int kEventoFotoMaxUploadBytes = 150 * 1024;
+
 /// Teto de decode em RAM no feed (equivalente prático ao `memCacheWidth: 800` do CachedNetworkImage).
 const int kEventoAvisoFeedMemCacheMaxPx = 800;
 

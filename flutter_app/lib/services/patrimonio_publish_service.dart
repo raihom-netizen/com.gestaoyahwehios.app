@@ -181,6 +181,8 @@ abstract final class PatrimonioPublishService {
 
     final payload = Map<String, dynamic>.from(corePayload);
     PatrimonioPhotoFields.applyIndexedSlots(payload, slotUrls, slotPaths);
+    payload['churchId'] = igrejaId;
+    payload['tenantId'] = igrejaId;
     payload['ativo'] = true;
     payload[photoUploadStateField] = EntityPublishStatus.published;
     payload['photoUploadError'] = FieldValue.delete();
@@ -256,6 +258,8 @@ abstract final class PatrimonioPublishService {
     if (urls.isNotEmpty || existingPaths.isNotEmpty) {
       PatrimonioPhotoFields.applyToPayload(payload, urls, existingPaths);
     }
+    payload['churchId'] = igrejaId;
+    payload['tenantId'] = igrejaId;
     payload['ativo'] = true;
     payload[photoUploadStateField] = EntityPublishStatus.published;
     payload['photoUploadError'] = FieldValue.delete();

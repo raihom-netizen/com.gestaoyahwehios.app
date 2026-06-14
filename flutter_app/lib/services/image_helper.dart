@@ -112,23 +112,33 @@ class ImageHelper {
     return current;
   }
 
-  /// Patrimônio: WebP leve (1024px @ 75%) — listas rápidas + upload paralelo.
+  /// Patrimônio: JPEG ≤150 KB (1024px) — overwrite fixo no Storage por slot.
   static const int kPatrimonioWebpQuality = 75;
+  static const int kPatrimonioMaxUploadBytes = 150 * 1024;
 
   static Future<Uint8List> compressPatrimonioPhotoForUpload(Uint8List list) async {
     if (list.isEmpty) return list;
     // FlutterImageCompress usa platform channel — não pode correr em isolate (UnimplementedError).
-    try {
-      final result = await FlutterImageCompress.compressWithList(
-        list,
-        minWidth: kStandardUploadImageMaxEdge,
-        minHeight: kStandardUploadImageMaxEdge,
-        quality: kPatrimonioWebpQuality,
-        format: CompressFormat.webp,
-      );
-      if (result.isNotEmpty) return Uint8List.fromList(result);
-    } catch (_) {}
-    return list;
+    var quality = kPatrimonioWebpQuality;
+    Uint8List? best;
+    for (var pass = 0; pass < 5; pass++) {
+      try {
+        final result = await FlutterImageCompress.compressWithList(
+          list,
+          minWidth: kStandardUploadImageMaxEdge,
+          minHeight: kStandardUploadImageMaxEdge,
+          quality: quality,
+          format: CompressFormat.jpeg,
+        );
+        if (result.isEmpty) break;
+        best = Uint8List.fromList(result);
+        if (best.length <= kPatrimonioMaxUploadBytes) return best;
+        quality = (quality - 12).clamp(38, 80);
+      } catch (_) {
+        break;
+      }
+    }
+    return best ?? list;
   }
 
   /// Compressao padrao para uploads de fotos.

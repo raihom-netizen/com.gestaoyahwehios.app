@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
 
-/// Campos canónicos de fotos do patrimônio — `foto01`…`foto04` + listas legadas.
+/// Campos canónicos de fotos do patrimônio — **apenas** `foto01`…`foto04` + paths.
 abstract final class PatrimonioPhotoFields {
   PatrimonioPhotoFields._();
 
@@ -22,31 +22,55 @@ abstract final class PatrimonioPhotoFields {
 
   static const int maxPhotos = 4;
 
-  /// Grava `foto01`…`foto04` por índice de slot (0–3) + campos legados.
+  /// Chaves legadas removidas em toda gravação (leitura ainda aceita fallback).
+  static const List<String> legacyKeysToDelete = [
+    'fotos',
+    'fotoUrls',
+    'imageUrls',
+    'imageUrl',
+    'fotoUrl',
+    'thumbnail',
+    'fotoStoragePaths',
+    'imageStoragePath',
+    'fotoPath',
+    'fotoPrincipalPath',
+    'gallery',
+    'galeria',
+    'fotoPrincipalThumbPath',
+    'thumbStoragePath',
+    'imageVariants',
+    'fotoVariants',
+    'publishState',
+  ];
+
+  /// Apaga duplicatas legadas no Firestore (merge).
+  static void stripLegacyPhotoFields(Map<String, dynamic> payload) {
+    for (final k in legacyKeysToDelete) {
+      payload[k] = FieldValue.delete();
+    }
+  }
+
+  /// Grava `foto01`…`foto04` por índice de slot (0–3) — sem listas duplicadas.
   static void applyIndexedSlots(
     Map<String, dynamic> payload,
     List<String> slotUrls,
     List<String> slotPaths,
   ) {
-    final orderedUrls = <String>[];
-    final orderedPaths = <String>[];
     for (var i = 0; i < maxPhotos; i++) {
       final u = sanitizeImageUrl(i < slotUrls.length ? slotUrls[i] : '');
       final p = (i < slotPaths.length ? slotPaths[i] : '').trim();
       if (u.isNotEmpty) {
         payload[slotUrlKeys[i]] = u;
         payload[slotPathKeys[i]] = p.isNotEmpty ? p : FieldValue.delete();
-        orderedUrls.add(u);
-        if (p.isNotEmpty) orderedPaths.add(p);
       } else {
         payload[slotUrlKeys[i]] = FieldValue.delete();
         payload[slotPathKeys[i]] = FieldValue.delete();
       }
     }
-    _applyLegacyLists(payload, orderedUrls, orderedPaths);
+    stripLegacyPhotoFields(payload);
   }
 
-  /// Grava listas ordenadas (foto01 = urls[0]) — slots + legado.
+  /// Grava listas ordenadas (foto01 = urls[0]) — slots canónicos apenas.
   static void applyToPayload(
     Map<String, dynamic> payload,
     List<String> urls,
@@ -73,60 +97,10 @@ abstract final class PatrimonioPhotoFields {
         payload[slotPathKeys[i]] = FieldValue.delete();
       }
     }
-    _applyLegacyLists(payload, cleanUrls, cleanPaths);
+    stripLegacyPhotoFields(payload);
   }
 
-  static void _applyLegacyLists(
-    Map<String, dynamic> payload,
-    List<String> cleanUrls,
-    List<String> cleanPaths,
-  ) {
-    if (cleanUrls.isNotEmpty) {
-      payload['fotos'] = cleanUrls;
-      payload['fotoUrls'] = cleanUrls;
-      payload['imageUrls'] = cleanUrls;
-      payload['imageUrl'] = cleanUrls.first;
-      payload['fotoUrl'] = cleanUrls.first;
-      payload['thumbnail'] = cleanUrls.first;
-    } else {
-      for (final k in [
-        'fotos',
-        'fotoUrls',
-        'imageUrls',
-        'imageUrl',
-        'fotoUrl',
-        'thumbnail',
-      ]) {
-        payload[k] = FieldValue.delete();
-      }
-    }
-
-    if (cleanPaths.isNotEmpty) {
-      payload['fotoStoragePaths'] = cleanPaths.take(maxPhotos).toList();
-      payload['imageStoragePath'] = cleanPaths.first;
-      payload['fotoPath'] = cleanPaths.first;
-      payload['fotoPrincipalPath'] = cleanPaths.first;
-      payload['gallery'] =
-          cleanPaths.length > 1 ? cleanPaths.sublist(1) : FieldValue.delete();
-    } else {
-      for (final k in [
-        'fotoStoragePaths',
-        'imageStoragePath',
-        'fotoPath',
-        'fotoPrincipalPath',
-        'gallery',
-      ]) {
-        payload[k] = FieldValue.delete();
-      }
-    }
-
-    payload['fotoPrincipalThumbPath'] = FieldValue.delete();
-    payload['thumbStoragePath'] = FieldValue.delete();
-    payload['imageVariants'] = FieldValue.delete();
-    payload['fotoVariants'] = FieldValue.delete();
-  }
-
-  /// Lê URLs na ordem foto01 → foto04; depois legado.
+  /// Lê URLs na ordem foto01 → foto04; depois legado (docs antigos).
   static List<String> urlsFromData(Map<String, dynamic> data) {
     final fromSlots = <String>[];
     for (final k in slotUrlKeys) {
@@ -153,7 +127,11 @@ abstract final class PatrimonioPhotoFields {
         push(e?.toString() ?? '');
       }
     }
-    push((data['fotoUrl'] ?? data['imageUrl'] ?? '').toString());
+    for (var i = 1; i <= maxPhotos; i++) {
+      push((data['foto0$i'] ?? '').toString());
+    }
+    push((data['fotoUrl'] ?? data['imageUrl'] ?? data['thumbnail'] ?? '')
+        .toString());
     return legacy.take(maxPhotos).toList();
   }
 
@@ -164,11 +142,19 @@ abstract final class PatrimonioPhotoFields {
       if (p.isNotEmpty) fromSlots.add(p);
     }
     if (fromSlots.isNotEmpty) return fromSlots;
+
     final raw = data['fotoStoragePaths'];
     if (raw is List) {
-      return raw.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+      return raw
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .take(maxPhotos)
+          .toList();
     }
-    final single = (data['fotoPath'] ?? data['imageStoragePath'] ?? '').toString().trim();
+    final single =
+        (data['fotoPath'] ?? data['imageStoragePath'] ?? data['fotoPrincipalPath'] ?? '')
+            .toString()
+            .trim();
     if (single.isNotEmpty) return [single];
     return const [];
   }

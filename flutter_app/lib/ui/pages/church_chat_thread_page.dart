@@ -36,6 +36,7 @@ import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/church_chat_local_file_service.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
+import 'package:gestao_yahweh/services/church_chat_uploads_service.dart';
 import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
@@ -234,6 +235,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
   Map<String, ChurchChatMemberRef> _senderMemberByUid = {};
   bool _peerOnline = false;
   Timer? _peerPresencePoll;
+  Timer? _webMessagesPoll;
   int? _lastPeerReadSyncMs;
   late final VoidCallback _photoSyncListener;
   final List<ChurchChatOutboundPending> _pendingOutbound = [];
@@ -309,6 +311,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         unawaited(_primeRecentMessagesFromCacheOrServer());
       }
     });
+    if (kIsWeb) {
+      _webMessagesPoll = Timer.periodic(const Duration(seconds: 6), (_) {
+        if (!mounted) return;
+        unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
+      });
+    }
     _startPeerPresencePoll();
   }
 
@@ -387,6 +395,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
       final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
       if (uid.isNotEmpty) {
+        await ChurchChatAutoRecoveryService.promoteLocalDeliveryAfterSync(
+          tenantId: _tid,
+          threadId: widget.threadId,
+          uid: uid,
+        );
         await ChurchChatAutoRecoveryService.recoverStuckForThread(
           tenantId: _tid,
           threadId: widget.threadId,
@@ -417,6 +430,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     _threadSub?.cancel();
     _deptSub?.cancel();
     _peerPresencePoll?.cancel();
+    _webMessagesPoll?.cancel();
     _messagesPrimeFallbackTimer?.cancel();
     _voiceTicker?.cancel();
     unawaited(_chatAudio.dispose());
@@ -439,6 +453,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       );
       unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
       unawaited(_bootstrapThreadUploads());
+      ChurchChatUploadsService.resumeWhenOnline();
     }
   }
 
@@ -457,6 +472,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
           );
           if (!mounted) return;
           if (docs.isEmpty && _latestRecentDocs.isNotEmpty) return;
+          _prunePendingOutboundMatchedByStream(docs);
           setState(() => _latestRecentDocs = docs);
           return;
         } catch (_) {
@@ -583,6 +599,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       if (prevLen != incoming.length || prevHead != incoming.first.id) {
         _latestRecentDocs = incoming;
         changed = true;
+        _prunePendingOutboundMatchedByStream(incoming);
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             _scheduleEnsureSenderProfilesForDocs(incoming);
@@ -893,21 +910,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         senderDisplayName:
             ChatThreadOperations.senderDisplayNameForNewMessage(),
         mentionedUids: mentions,
-        onComplete: (ok) {
-          if (!mounted) return;
-          if (ok) {
-            _removePending(localId);
-            unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
-          } else {
-            final i =
-                _pendingOutbound.indexWhere((p) => p.localId == localId);
-            if (i >= 0) {
-              _pendingOutbound[i].failed = true;
-              _pendingOutbound[i].errorMessage =
-                  'Não foi possível enviar. Toque para tentar de novo.';
-              setState(() {});
-            }
-          }
+        onComplete: (ok, {messageId}) {
+          _finalizePendingTextSend(
+            localId: localId,
+            ok: ok,
+            messageId: messageId,
+          );
         },
         onError: (msg) {
           if (!mounted) return;
@@ -944,16 +952,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         senderDisplayName:
             ChatThreadOperations.senderDisplayNameForNewMessage(),
         mentionedUids: p.mentionedUids,
-        onComplete: (ok) {
-          if (!mounted) return;
-          if (ok) {
-            _removePending(p.localId);
-            unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
-          } else if (mounted) {
-            p.failed = true;
-            p.errorMessage = 'Não foi possível enviar.';
-            setState(() {});
-          }
+        onComplete: (ok, {messageId}) {
+          _finalizePendingTextSend(
+            localId: p.localId,
+            ok: ok,
+            messageId: messageId,
+          );
         },
         onError: (msg) {
           if (!mounted) return;
@@ -1005,7 +1009,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       stickerSource: pick.stickerSource,
       replyTo: replyPayload,
       senderDisplayName: ChatThreadOperations.senderDisplayNameForNewMessage(),
-      onComplete: (ok) {
+      onComplete: (ok, {messageId}) {
         if (!ok || !mounted) return;
         unawaited(
           ChurchChatExpressionPrefs.rememberStickerSent(
@@ -2008,6 +2012,62 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         peerSeenAt: peerSeenAt.toDate(),
       ),
     );
+  }
+
+  void _prunePendingOutboundMatchedByStream(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    if (_pendingOutbound.isEmpty) return;
+    final ids = docs.map((d) => d.id).toSet();
+    final toRemove = <String>[];
+    for (final p in _pendingOutbound) {
+      final fid = p.firestoreMessageId?.trim() ?? '';
+      if (fid.isNotEmpty && ids.contains(fid)) {
+        toRemove.add(p.localId);
+      }
+    }
+    if (toRemove.isEmpty) return;
+    for (final lid in toRemove) {
+      _removePending(lid);
+    }
+  }
+
+  void _finalizePendingTextSend({
+    required String localId,
+    required bool ok,
+    String? messageId,
+  }) {
+    if (!mounted) return;
+    if (!ok) {
+      final i = _pendingOutbound.indexWhere((p) => p.localId == localId);
+      if (i >= 0) {
+        _pendingOutbound[i].failed = true;
+        _pendingOutbound[i].errorMessage =
+            'Não foi possível enviar. Toque para tentar de novo.';
+        setState(() {});
+      }
+      return;
+    }
+    final mid = messageId?.trim() ?? '';
+    if (mid.isNotEmpty) {
+      final i = _pendingOutbound.indexWhere((p) => p.localId == localId);
+      if (i >= 0) {
+        _pendingOutbound[i].firestoreMessageId = mid;
+      }
+      _prunePendingOutboundMatchedByStream(_latestRecentDocs);
+      if (_pendingOutbound.any((p) => p.localId == localId)) {
+        Future<void>.delayed(const Duration(seconds: 2), () {
+          if (!mounted) return;
+          _prunePendingOutboundMatchedByStream(_latestRecentDocs);
+          if (_pendingOutbound.any((p) => p.localId == localId)) {
+            _removePending(localId);
+          }
+        });
+      }
+    } else {
+      _removePending(localId);
+    }
+    unawaited(_primeRecentMessagesFromCacheOrServer(silent: true));
   }
 
   void _removePending(String localId) {
@@ -3315,6 +3375,8 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               if (widget.isDepartment &&
                   ChurchChatModeration.canDeleteGroupConversation(
                     widget.memberRole,
+                    departmentData: _departmentData,
+                    memberCpfDigits: widget.memberCpfDigits,
                   ))
                 PopupMenuItem(
                   value: 'delete_group',

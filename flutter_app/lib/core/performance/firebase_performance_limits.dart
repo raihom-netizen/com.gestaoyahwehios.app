@@ -9,7 +9,7 @@ abstract final class FirebasePerformanceLimits {
   static const int eventosPage = 32;
   static const int avisosPage = 32;
   static const int chatThreadsPage = 40;
-  static const int chatMessagesPage = 30;
+  static const int chatMessagesPage = 40;
   static const int patrimonioPage = 120;
   static const int financeiroPage = 200;
   static const int fornecedoresPage = 120;

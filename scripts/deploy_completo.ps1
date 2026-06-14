@@ -45,6 +45,7 @@ if ($ForceClean)           { $invokeArgs.ForceClean           = $true }
 if ($ForceFirestoreRules)  { $invokeArgs.ForceFirestoreRules  = $true }
 if ($SkipProductionGate)   { $invokeArgs.SkipProductionGate   = $true }
 if ($SkipRules)            { $invokeArgs.SkipRules            = $true }
+if ($SkipFunctionsDeploy)  { $invokeArgs.SkipFunctionsDeploy  = $true }
 if ($SkipWeb)               { $invokeArgs.SkipWeb               = $true }
 if ($LogTo)                { $invokeArgs.LogTo                = $LogTo }
 

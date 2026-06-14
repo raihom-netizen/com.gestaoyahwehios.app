@@ -37,14 +37,14 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart'
-    show ChurchPanelErrorBody, openHttpsUrlInBrowser;
+    show ChurchPanelResilientLoadBanner, openHttpsUrlInBrowser;
 import 'package:gestao_yahweh/ui/widgets/church_image_crop_dialog.dart';
 import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
 import 'package:gestao_yahweh/utils/image_bytes_to_jpeg.dart';
@@ -355,6 +355,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       _scheduleCadastroDataRetry();
     }
     _bindIgrejaLiveWatch(resolved);
+    if (result.readSource == 'local_cache' ||
+        result.readSource == 'session_context' ||
+        result.readSource == 'session_context_sync') {
+      unawaited(_reloadChurchDataInBackground(forceRefresh: true));
+    }
     if (mounted) {
       setState(() {
         _cadastroBootstrapDone = true;
@@ -502,7 +507,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       );
       if (loaded.data.isEmpty || !mounted) return;
       _cadastroSoftSyncWarning = loaded.softError;
-      _hydrateFormFromFirestoreDoc(loaded.churchId, loaded.data);
+      _hydrateFormFromFirestoreDoc(
+        loaded.churchId,
+        ChurchCadastroLoadService.sliceCadastroFormFields(loaded.data),
+      );
       unawaited(ChurchCadastroLoadService.persistAfterLoad(loaded));
       if (mounted) setState(() {});
     } catch (_) {}
@@ -511,17 +519,8 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   void _bindIgrejaLiveWatch(String resolvedId) {
     _igrejaLiveSub?.cancel();
     _igrejaLiveSub = null;
-    // Web: zero `snapshots()` — evita INTERNAL ASSERTION ao gravar (Firestore JS 11.x).
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
-      unawaited(_refreshIgrejaDocOnce(resolvedId));
-      return;
-    }
-    final ref =
-        ChurchRepository.churchDoc(resolvedId);
-    _igrejaLiveSub = FirestoreStreamUtils.documentWatchBootstrap(ref).listen(
-      (doc) => _onIgrejaDocSnapshot(resolvedId, doc),
-      onError: (_) {},
-    );
+    // Cadastro: sempre getDoc único — sem snapshots() (formulário de edição).
+    unawaited(_refreshIgrejaDocOnce(resolvedId));
   }
 
   Future<void> _refreshIgrejaDocOnce(String resolvedId) async {
@@ -529,34 +528,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     if (tid.isEmpty) return;
     try {
       final loaded = await ChurchRepository.loadByChurchId(tid).timeout(
-        ChurchPanelReadTimeouts.churchDocCap,
+        const Duration(seconds: 12),
       );
       if (!mounted || loaded.data.isEmpty) return;
-      _hydrateFormFromFirestoreDoc(loaded.churchId, loaded.data);
+      final slim = ChurchCadastroLoadService.sliceCadastroFormFields(loaded.data);
+      _hydrateFormFromFirestoreDoc(loaded.churchId, slim);
     } catch (_) {}
-  }
-
-  void _onIgrejaDocSnapshot(
-    String resolvedId,
-    DocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
-    if (!mounted) return;
-    final live = doc.data();
-    if (live == null || !doc.exists) return;
-    final score = TenantResolverService.churchProfileRichnessScore(live);
-    if (!_formHydrated ||
-        _nameCtrl.text.trim().isEmpty ||
-        score > _hydratedProfileScore + 2) {
-      _hydrateFormFromFirestoreDoc(resolvedId, live);
-      return;
-    }
-    if (_uploadingLogo || _logoStagedNotUploaded || _saving) return;
-    final existing = (_logoUrl ?? '').trim();
-    final hasHttps =
-        existing.isNotEmpty && isValidImageUrl(sanitizeImageUrl(existing));
-    if (!hasHttps) {
-      unawaited(_hydrateLogoUrlFromStorageIfNeeded(resolvedId, live));
-    }
   }
 
   /// Antes de `.set()` na web: cancela watch local e estabiliza sessão Firestore.
@@ -2469,22 +2446,23 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     String resolvedId,
     Map<String, dynamic> live,
   ) {
+    final slim = ChurchCadastroLoadService.sliceCadastroFormFields(live);
     final incomingScore =
-        TenantResolverService.churchProfileRichnessScore(live);
+        TenantResolverService.churchProfileRichnessScore(slim);
     if (_hydratedTenantId == resolvedId &&
         _formHydrated &&
         _nameCtrl.text.trim().isNotEmpty &&
         incomingScore <= _hydratedProfileScore) {
       return;
     }
-    _applyData(live, docIdFallback: resolvedId);
-    _tenantLiveData = Map<String, dynamic>.from(live);
+    _applyData(slim, docIdFallback: resolvedId);
+    _tenantLiveData = Map<String, dynamic>.from(slim);
     _formHydrated = true;
     _hydratedTenantId = resolvedId;
     _hydratedProfileScore = incomingScore;
     _notedNonexistentIgrejaDoc = false;
     if (mounted) setState(() {});
-    unawaited(_afterFormHydrated(resolvedId, live));
+    unawaited(_afterFormHydrated(resolvedId, slim));
   }
 
   Future<void> _afterFormHydrated(
@@ -2514,6 +2492,44 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       await _hydrateLogoUrlFromStorageIfNeeded(resolvedId, live);
       if (mounted) setState(() {});
     }
+  }
+
+  Widget _buildCadastroFormSkeleton(String resolvedId) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(
+            top: ThemeCleanPremium.spaceMd,
+            bottom: ThemeCleanPremium.spaceSm,
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: ThemeCleanPremium.primary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Carregando igrejas/$resolvedId…',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        YahwehSkeletonLoading.cadastroForm(),
+      ],
+    );
   }
 
   Widget _buildCadastroJaExisteChip() {
@@ -2845,8 +2861,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       return Scaffold(
         backgroundColor: ThemeCleanPremium.surface,
         appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
-        body: ChurchPanelErrorBody(
-          title: 'Não foi possível carregar o cadastro da igreja.',
+        body: ChurchPanelResilientLoadBanner(
+          hasLocalData: false,
+          isSyncing: false,
+          errorTitle: 'Não foi possível carregar o cadastro da igreja.',
           error: _cadastroBootstrapError,
           onRetry: _retryResolveTenant,
         ),
@@ -2952,55 +2970,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                   const SizedBox(
                                       height: ThemeCleanPremium.spaceLg),
                                   _buildChurchFirestoreIdBanner(resolvedId),
-                                  if (!_formHydrated &&
-                                      _nameCtrl.text.trim().isEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(
-                                        top: ThemeCleanPremium.spaceMd,
-                                        bottom: ThemeCleanPremium.spaceSm,
-                                      ),
-                                      child: Container(
-                                        width: double.infinity,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 14,
-                                          vertical: 12,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: ThemeCleanPremium.primary
-                                              .withValues(alpha: 0.06),
-                                          borderRadius: BorderRadius.circular(
-                                            ThemeCleanPremium.radiusSm,
-                                          ),
-                                          border: Border.all(
-                                            color: ThemeCleanPremium.primary
-                                                .withValues(alpha: 0.18),
-                                          ),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            SizedBox(
-                                              width: 20,
-                                              height: 20,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                color: ThemeCleanPremium.primary,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Text(
-                                                'Carregando igrejas/$resolvedId…',
-                                                style: TextStyle(
-                                                  fontSize: 12.5,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: Colors.grey.shade700,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
+                                  if (!_formHydrated)
+                                    _buildCadastroFormSkeleton(resolvedId)
+                                  else ...[
                                   _buildCadastroJaExisteChip(),
                                   const SizedBox(
                                       height: ThemeCleanPremium.spaceLg),
@@ -3812,11 +3784,14 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                                       ),
                                     ),
                                   ],
+                                  ],
                                 ],
                               ),
                             ),
+                            if (_formHydrated) ...[
                             const SizedBox(height: ThemeCleanPremium.spaceMd),
                             _buildChurchSaveFooter(),
+                            ],
                           ],
                         ),
                       ),

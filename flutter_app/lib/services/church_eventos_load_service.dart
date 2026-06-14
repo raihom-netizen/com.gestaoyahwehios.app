@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/panel_feed_post_validator.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
@@ -41,7 +42,7 @@ class ChurchEventosLoadResult {
 abstract final class ChurchEventosLoadService {
   ChurchEventosLoadService._();
 
-  static const int kDefaultFeedLimit = 20;
+  static const int kDefaultFeedLimit = PanelFeedPostValidator.kPanelFeedPageSize;
   static const int kGalleryLimit = 250;
 
   static final Map<
@@ -85,6 +86,19 @@ abstract final class ChurchEventosLoadService {
     _ram[key] = (docs: List.from(docs), at: DateTime.now());
   }
 
+  static void putRam(
+    String churchId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    int limit = kDefaultFeedLimit,
+  }) {
+    final id = _resolve(churchId);
+    if (id.isEmpty || docs.isEmpty) return;
+    final key = limit >= kGalleryLimit
+        ? galleryCacheKey(id)
+        : cacheKey(id, limit);
+    _putRam(key, docs);
+  }
+
   static DateTime? _startAt(Map<String, dynamic> data) {
     final raw = data['startAt'] ?? data['createdAt'];
     if (raw is Timestamp) return raw.toDate();
@@ -104,6 +118,27 @@ abstract final class ChurchEventosLoadService {
       return tb.compareTo(ta);
     });
     return sorted;
+  }
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterRenderableFeed(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    String churchId, {
+    int? max,
+  }) {
+    final cap = max ?? kDefaultFeedLimit;
+    final out = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (final d in docs) {
+      if (!PanelFeedPostValidator.isRenderableForPanelFeed(
+        d.data(),
+        docId: d.id,
+        churchId: churchId,
+      )) {
+        continue;
+      }
+      out.add(d);
+      if (out.length >= cap) break;
+    }
+    return out;
   }
 
   /// Feed principal — eventos publicados ordenados por `startAt` desc.
@@ -158,18 +193,14 @@ abstract final class ChurchEventosLoadService {
       }
 
       try {
-        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
+        final hive = await TenantModuleHiveCache.readDocs(
           churchId,
           TenantModuleKeys.eventos,
-        ).timeout(const Duration(seconds: 3));
-        if (updatedAt != null) {
-          final hive = await TenantModuleHiveCache.readDocs(
-            churchId,
-            TenantModuleKeys.eventos,
-          );
+        ).timeout(const Duration(seconds: 2));
+        if (hive.isNotEmpty) {
           final docs =
               _sortByStartAt(TenantModuleHiveCache.toQueryDocuments(hive));
-          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+          if (docs.isNotEmpty) {
             _putRam(ramKey, docs);
             unawaited(_refreshFeedInBackground(
               churchId: churchId,
@@ -186,6 +217,29 @@ abstract final class ChurchEventosLoadService {
           }
         }
       } catch (_) {}
+
+      try {
+        final cacheSnap = await ChurchUiCollections.eventos(churchId)
+            .limit(limit)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 3));
+        if (cacheSnap.docs.isNotEmpty) {
+          final docs = _sortByStartAt(cacheSnap.docs);
+          _putRam(ramKey, docs);
+          unawaited(_refreshFeedInBackground(
+            churchId: churchId,
+            limit: limit,
+            ramKey: ramKey,
+          ));
+          return ChurchEventosLoadResult(
+            churchId: churchId,
+            docs: docs.length > limit ? docs.sublist(0, limit) : docs,
+            readSource: 'firestore_cache',
+            collectionPath: path,
+            fromCache: true,
+          );
+        }
+      } catch (_) {}
     }
 
     Object? lastError;
@@ -197,11 +251,12 @@ abstract final class ChurchEventosLoadService {
         forceServer: forceServer,
       );
       if (docs.isNotEmpty) {
-        _putRam(ramKey, docs);
-        unawaited(_persistHive(churchId, docs));
+        final filtered = _filterRenderableFeed(docs, churchId, max: limit);
+        _putRam(ramKey, filtered);
+        unawaited(_persistHive(churchId, filtered));
         return ChurchEventosLoadResult(
           churchId: churchId,
-          docs: docs,
+          docs: filtered,
           readSource: forceServer ? 'server' : 'firestore_full',
           collectionPath: path,
         );
@@ -217,9 +272,15 @@ abstract final class ChurchEventosLoadService {
         moduleLabel: 'Eventos',
         limit: limit,
         cacheKey: ramKey,
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      );
       if (snap.docs.isNotEmpty) {
-        final docs = _sortByStartAt(snap.docs);
+        final docs = _filterRenderableFeed(
+          _sortByStartAt(snap.docs),
+          churchId,
+          max: limit,
+        );
         _putRam(ramKey, docs);
         unawaited(_persistHive(churchId, docs));
         return ChurchEventosLoadResult(
@@ -268,6 +329,24 @@ abstract final class ChurchEventosLoadService {
     }
 
     final cacheKey = '${churchId}_event_categories';
+
+    if (!kIsWeb) {
+      try {
+        final cacheSnap = await ChurchUiCollections.churchDoc(churchId)
+            .collection('event_categories')
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 3));
+        if (cacheSnap.docs.isNotEmpty) {
+          final list = cacheSnap.docs.toList()
+            ..sort((a, b) => (a.data()['nome'] ?? '')
+                .toString()
+                .toLowerCase()
+                .compareTo((b.data()['nome'] ?? '').toString().toLowerCase()));
+          return list;
+        }
+      } catch (_) {}
+    }
+
     Future<QuerySnapshot<Map<String, dynamic>>> read() =>
         FirestoreReadResilience.getQuery(
           ChurchUiCollections.churchDoc(churchId).collection('event_categories'),
@@ -281,7 +360,9 @@ abstract final class ChurchEventosLoadService {
       snap = await FirestoreWebGuard.runWithWebRecovery(
         read,
         maxAttempts: 4,
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      );
     } else {
       snap = await read().timeout(ChurchPanelReadTimeouts.warmCap);
     }
@@ -371,7 +452,7 @@ abstract final class ChurchEventosLoadService {
         ? await FirestoreWebGuard.runWithWebRecovery(
             readServer,
             maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
+          ).timeout(const Duration(seconds: 14))
         : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
 
     return _sortByStartAt(snap.docs);
@@ -381,6 +462,7 @@ abstract final class ChurchEventosLoadService {
     String churchId,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) async {
+    if (docs.isEmpty) return;
     try {
       await TenantModuleHiveCache.saveFromQuerySnapshot(
         churchId,
@@ -458,18 +540,14 @@ abstract final class ChurchEventosLoadService {
       }
 
       try {
-        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
+        final hive = await TenantModuleHiveCache.readDocs(
           churchId,
           TenantModuleKeys.eventos,
-        ).timeout(const Duration(seconds: 3));
-        if (updatedAt != null) {
-          final hive = await TenantModuleHiveCache.readDocs(
-            churchId,
-            TenantModuleKeys.eventos,
-          );
+        ).timeout(const Duration(seconds: 2));
+        if (hive.isNotEmpty) {
           final docs =
               _sortByStartAt(TenantModuleHiveCache.toQueryDocuments(hive));
-          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+          if (docs.isNotEmpty) {
             _putRam(ramKey, docs);
             unawaited(_refreshGalleryInBackground(churchId: churchId, ramKey: ramKey));
             return ChurchEventosLoadResult(
@@ -480,6 +558,25 @@ abstract final class ChurchEventosLoadService {
               fromCache: true,
             );
           }
+        }
+      } catch (_) {}
+
+      try {
+        final cacheSnap = await ChurchUiCollections.eventos(churchId)
+            .limit(kGalleryLimit)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 3));
+        if (cacheSnap.docs.isNotEmpty) {
+          final docs = _sortByStartAt(cacheSnap.docs);
+          _putRam(ramKey, docs);
+          unawaited(_refreshGalleryInBackground(churchId: churchId, ramKey: ramKey));
+          return ChurchEventosLoadResult(
+            churchId: churchId,
+            docs: docs,
+            readSource: 'firestore_cache',
+            collectionPath: path,
+            fromCache: true,
+          );
         }
       } catch (_) {}
     }
@@ -510,7 +607,9 @@ abstract final class ChurchEventosLoadService {
         moduleLabel: 'Eventos Galeria',
         limit: limit,
         cacheKey: '${ramKey}_direct',
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      );
       final docs = _sortByStartAt(snap.docs);
       _putRam(ramKey, docs);
       unawaited(_persistHive(churchId, docs));
@@ -618,7 +717,9 @@ abstract final class ChurchEventosLoadService {
         final plain = await FirestoreWebGuard.runWithWebRecovery(
           plainLoad,
           maxAttempts: 4,
-        ).timeout(ChurchPanelReadTimeouts.queryCap);
+        ).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      );
         if (plain.isNotEmpty) return plain;
       } catch (_) {}
     }
@@ -627,7 +728,7 @@ abstract final class ChurchEventosLoadService {
         ? await FirestoreWebGuard.runWithWebRecovery(
             readServer,
             maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
+          ).timeout(const Duration(seconds: 14))
         : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
 
     if (docs.isEmpty) {
@@ -667,5 +768,17 @@ abstract final class ChurchEventosLoadService {
         at: DateTime.now(),
       );
     }
+  }
+
+  static Future<void> persistAfterLoad(ChurchEventosLoadResult result) async {
+    if (result.churchId.isEmpty || result.docs.isEmpty) return;
+    putRam(
+      result.churchId,
+      result.docs,
+      limit: result.docs.length >= kGalleryLimit
+          ? kGalleryLimit
+          : kDefaultFeedLimit,
+    );
+    await _persistHive(result.churchId, result.docs);
   }
 }

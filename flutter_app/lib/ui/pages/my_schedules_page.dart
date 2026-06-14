@@ -6,6 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
+import 'package:gestao_yahweh/core/escala_member_payload.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
@@ -747,6 +749,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   bool _loading = false;
   bool _fetching = false;
   String? _loadError;
+  Timer? _webLoadCap;
+  final Map<String, Map<String, dynamic>> _escalaDataOverrides = {};
   /// `month` = lista só no mês de [_monthCursor] (setas anterior/próximo).
   String _dateFilter = 'month';
   DateTime _monthCursor = DateTime(DateTime.now().year, DateTime.now().month, 1);
@@ -766,8 +770,30 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     _cpfDigits = widget.cpf.replaceAll(RegExp(r'[^0-9]'), '');
     _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
     _seedFromCaches(_churchId);
-    _fetching = true;
+    _fetching = _allDocs.isEmpty;
     unawaited(_initLoad());
+  }
+
+  @override
+  void dispose() {
+    _webLoadCap?.cancel();
+    super.dispose();
+  }
+
+  Map<String, dynamic> _escalaDataFor(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) =>
+      _escalaDataOverrides[doc.id] ??
+      Map<String, dynamic>.from(doc.data());
+
+  void _startWebLoadingCap() {
+    if (!kIsWeb) return;
+    _webLoadCap?.cancel();
+    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+      if (!mounted) return;
+      if (!_fetching) return;
+      setState(() => _fetching = false);
+    });
   }
 
   String get _churchId => ChurchRepository.churchId(
@@ -789,7 +815,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       setState(() {
         _allDocs = _sortDocsSync(docs);
         _loading = false;
-        _fetching = true;
+        _fetching = false;
       });
     }
   }
@@ -821,10 +847,11 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       if (_allDocs.isEmpty) {
         setState(() {
           _loading = false;
-          _fetching = false;
           _loadError = '$e';
         });
-      } else {
+      }
+    } finally {
+      if (mounted) {
         setState(() => _fetching = false);
       }
     }
@@ -938,9 +965,10 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         _fetching = true;
         _loading = false;
       });
-    } else if (mounted) {
+    } else if (mounted && _allDocs.isEmpty) {
       setState(() => _fetching = true);
     }
+    _startWebLoadingCap();
     try {
       final churchId = _churchId;
       if (churchId.isEmpty) {
@@ -978,6 +1006,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         result = await ChurchSchedulesLoadService.loadEscalasForMember(
           seedTenantId: churchId,
           cpfDigits: _cpfDigits,
+          memberUid: FirebaseAuth.instance.currentUser?.uid ?? '',
           limit: 200,
           forceRefresh: forceRefresh,
         );
@@ -997,7 +1026,6 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         setState(() {
           _allDocs = docs;
           _loading = false;
-          _fetching = false;
           _loadError = result.softError != null && docs.isEmpty
               ? result.softError
               : null;
@@ -1011,9 +1039,13 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _fetching = false;
           _loadError = _allDocs.isEmpty ? '$e' : null;
         });
+      }
+    } finally {
+      _webLoadCap?.cancel();
+      if (mounted) {
+        setState(() => _fetching = false);
       }
     }
   }
@@ -1122,16 +1154,14 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     return raw is List ? raw.map((e) => e.toString()).toList() : [];
   }
 
-  /// Retorna a chave de CPF usada no documento (igual à de memberCpfs/confirmations).
+  /// Chave UID (preferido) ou CPF usada em `confirmations`.
   String _confirmationKey(Map<String, dynamic> data) {
-    final raw = data['memberCpfs'];
-    final normalized = _cpfDigits.replaceAll(RegExp(r'[^0-9]'), '');
-    if (raw is List) {
-      for (final e in raw) {
-        final c = e?.toString() ?? '';
-        if (c.replaceAll(RegExp(r'[^0-9]'), '') == normalized) return c;
-      }
-    }
+    final member = EscalaMemberPayload.findMemberForUser(
+      data: data,
+      cpfDigits: _cpfDigits,
+      uid: FirebaseAuth.instance.currentUser?.uid ?? '',
+    );
+    if (member != null) return member.confirmationKey;
     return _cpfDigits;
   }
 
@@ -1497,27 +1527,23 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 
   Future<void> _confirmPresence(DocumentSnapshot<Map<String, dynamic>> doc, String status, [String? motivo]) async {
     if (_cpfDigits.isEmpty) return;
-    final key = _confirmationKey(doc.data() ?? {});
-    // Não usar 'confirmations.$key': pontos no CPF formatado viram segmentos aninhados no update().
-    final updates = <Object, Object?>{};
-    if (status.isEmpty) {
-      updates[FieldPath(['confirmations', key])] = FieldValue.delete();
-      updates[FieldPath(['unavailabilityReasons', key])] = FieldValue.delete();
-    } else {
-      updates[FieldPath(['confirmations', key])] = status;
-      if (status == 'indisponivel' && (motivo ?? '').trim().isNotEmpty) {
-        updates[FieldPath(['unavailabilityReasons', key])] = {
-          'reason': motivo!.trim(),
-          'at': FieldValue.serverTimestamp(),
-        };
-      } else if (status != 'indisponivel') {
-        updates[FieldPath(['unavailabilityReasons', key])] = FieldValue.delete();
-      }
-    }
-    try {
-      await doc.reference.update(updates);
-      await _load();
-      if (!mounted) return;
+    final data = doc.data() ?? {};
+    final member = EscalaMemberPayload.findMemberForUser(
+      data: data,
+      cpfDigits: _cpfDigits,
+      uid: FirebaseAuth.instance.currentUser?.uid ?? '',
+    );
+    if (member == null) return;
+
+    final prevOverride = _escalaDataOverrides[doc.id];
+    final optimistic = EscalaMemberPayload.applyConfirmationOptimistic(
+      data: data,
+      member: member,
+      status: status,
+      motivo: motivo,
+    );
+    if (mounted) {
+      setState(() => _escalaDataOverrides[doc.id] = optimistic);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -1529,8 +1555,25 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
           ),
         ),
       );
+    }
+
+    try {
+      await doc.reference.update(
+        EscalaMemberPayload.buildConfirmationUpdates(
+          member: member,
+          status: status,
+          motivo: motivo,
+        ),
+      );
     } on FirebaseException catch (e) {
       if (!mounted) return;
+      setState(() {
+        if (prevOverride == null) {
+          _escalaDataOverrides.remove(doc.id);
+        } else {
+          _escalaDataOverrides[doc.id] = prevOverride;
+        }
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -1540,6 +1583,13 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
       );
     } catch (e) {
       if (!mounted) return;
+      setState(() {
+        if (prevOverride == null) {
+          _escalaDataOverrides.remove(doc.id);
+        } else {
+          _escalaDataOverrides[doc.id] = prevOverride;
+        }
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erro ao salvar: $e')),
       );
@@ -1705,22 +1755,22 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
             : Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (_loadError != null &&
-                      _loadError!.trim().isNotEmpty &&
-                      _allDocs.isEmpty)
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        pagePad.left,
-                        widget.embeddedInShell ? 8 : 12,
-                        pagePad.right,
-                        0,
-                      ),
-                      child: ChurchPanelErrorBody(
-                        title: 'Não foi possível carregar suas escalas',
-                        error: _loadError,
-                        onRetry: () => _load(),
-                      ),
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      pagePad.left,
+                      widget.embeddedInShell ? 8 : 12,
+                      pagePad.right,
+                      0,
                     ),
+                    child: ChurchPanelResilientLoadBanner(
+                      hasLocalData: _allDocs.isNotEmpty,
+                      isSyncing:
+                          (_fetching || _loading) && _allDocs.isNotEmpty,
+                      errorTitle: 'Não foi possível carregar suas escalas',
+                      error: _allDocs.isEmpty ? _loadError : null,
+                      onRetry: () => _load(forceRefresh: true),
+                    ),
+                  ),
                   if (isMobile)
                     Padding(
                       padding: EdgeInsets.fromLTRB(
@@ -2244,6 +2294,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
   Widget _buildEventCard(QueryDocumentSnapshot<Map<String, dynamic>> doc, DateTime now) {
     return _ScaleEventCard(
       doc: doc,
+      escalaData: _escalaDataFor(doc),
       now: now,
       cpfDigits: _cpfDigits,
       deptColors: _deptColors,
@@ -2550,6 +2601,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
 /// Card de uma frente de escala (reutilizado na lista detalhada).
 class _ScaleEventCard extends StatelessWidget {
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
+  final Map<String, dynamic>? escalaData;
   final DateTime now;
   final String cpfDigits;
   final List<Color> deptColors;
@@ -2559,6 +2611,7 @@ class _ScaleEventCard extends StatelessWidget {
 
   const _ScaleEventCard({
     required this.doc,
+    this.escalaData,
     required this.now,
     required this.cpfDigits,
     required this.deptColors,
@@ -2569,38 +2622,28 @@ class _ScaleEventCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final m = doc.data();
-    final cpfs = ((m['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
+    final m = escalaData ?? doc.data();
+    final members = EscalaMemberPayload.parseMembers(m);
     final title = (m['title'] ?? '').toString();
     final dept = (m['departmentName'] ?? '').toString();
     final time = (m['time'] ?? '').toString();
-    final confirmations = (m['confirmations'] as Map<String, dynamic>?) ?? {};
-    String myStatus = (confirmations[cpfDigits] ?? '').toString();
-    if (myStatus.isEmpty && cpfs.contains(cpfDigits)) {
-      for (final k in confirmations.keys) {
-        if (k.toString().replaceAll(RegExp(r'[^0-9]'), '') ==
-            cpfDigits.replaceAll(RegExp(r'[^0-9]'), '')) {
-          myStatus = (confirmations[k] ?? '').toString();
-          break;
-        }
-      }
-    }
-    final unavailabilityReasons = (m['unavailabilityReasons'] as Map<String, dynamic>?) ?? {};
+    final member = EscalaMemberPayload.findMemberForUser(
+      data: m,
+      cpfDigits: cpfDigits,
+    );
+    final myStatus = member == null
+        ? ''
+        : EscalaMemberPayload.confirmationStatus(m, member);
     String? myReason;
-    for (final k in unavailabilityReasons.keys) {
-      if (k.toString().replaceAll(RegExp(r'[^0-9]'), '') ==
-          cpfDigits.replaceAll(RegExp(r'[^0-9]'), '')) {
-        final v = unavailabilityReasons[k];
-        if (v is Map && v['reason'] != null) myReason = v['reason'].toString();
-        break;
-      }
+    if (member != null) {
+      final reasonMap = EscalaMemberPayload.unavailabilityReason(m, member);
+      myReason = reasonMap?['reason']?.toString();
     }
     final deptId = (m['departmentId'] ?? '').toString();
     final color = deptColors[deptId.hashCode.abs() % deptColors.length];
     DateTime? dt;
     try { dt = (m['date'] as Timestamp).toDate(); } catch (_) {}
     final isFuture = dt != null && dt.isAfter(now.subtract(const Duration(hours: 12)));
-    final names = ((m['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
 
     return Material(
       color: Colors.transparent,
@@ -2650,15 +2693,15 @@ class _ScaleEventCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(dept, style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w600)),
                   ],
-                  if (names.isNotEmpty) ...[
+                  if (members.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 4,
                       runSpacing: 4,
-                      children: List.generate(names.length.clamp(0, 6), (i) {
-                        final n = i < names.length ? names[i] : '';
-                        final c = i < cpfs.length ? cpfs[i] : '';
-                        final conf = (confirmations[c] ?? '').toString();
+                      children: List.generate(members.length.clamp(0, 6), (i) {
+                        final row = members[i];
+                        final n = row.name;
+                        final conf = EscalaMemberPayload.confirmationStatus(m, row);
                         Color bg;
                         if (conf == 'confirmado') { bg = ThemeCleanPremium.success; }
                         else if (conf == 'indisponivel') { bg = ThemeCleanPremium.error; }

@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/church_data_service.dart';
 import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
@@ -538,6 +539,7 @@ abstract final class MuralFastPublishService {
     );
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {
+        await FirebaseBootstrapService.ensureInitializedOnce();
         await ensureFirebaseReadyForPublishUpload();
         await ChurchDataService.instance.setTenantDocument(
           ref: docRef,

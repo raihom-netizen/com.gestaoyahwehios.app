@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
@@ -29,6 +30,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/ui/widgets/church_letters_member_pickers.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
 
 enum _CartaKind {
@@ -108,13 +110,28 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
 
   int _histYear = DateTime.now().year;
   DateTimeRange? _histCustomRange;
+  bool _historyLoading = false;
+  String? _historyError;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _historyDocs = const [];
+  Map<String, List<_CloudLetterModel>> _modelosNuvem = const {
+    'apresentacao': [],
+    'transferencia': [],
+    'agradecimento': [],
+  };
 
-  DocumentReference<Map<String, dynamic>> get _configRef =>
-                ChurchUiCollections.config(_effectiveTenantId)
-          .doc('cartas');
+  DocumentReference<Map<String, dynamic>> get _configRef {
+    final id = ChurchRepository.churchId(
+      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+    );
+    return ChurchUiCollections.config(id).doc('cartas');
+  }
 
-  CollectionReference<Map<String, dynamic>> get _historicoCol =>
-                ChurchUiCollections.transferencias(_effectiveTenantId);
+  CollectionReference<Map<String, dynamic>> get _historicoCol {
+    final id = ChurchRepository.churchId(
+      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+    );
+    return ChurchUiCollections.transferencias(id);
+  }
 
   String _effectiveTenantId = '';
 
@@ -123,9 +140,18 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     super.initState();
     _tabs = TabController(length: 4, vsync: this);
     _tabs.addListener(() {
-      if (!_tabs.indexIsChanging && mounted) setState(() {});
+      if (!_tabs.indexIsChanging && mounted) {
+        setState(() {});
+        if (_tabs.index == 3) unawaited(_loadHistory());
+      }
     });
     _effectiveTenantId = ChurchRepository.churchId(widget.tenantId);
+    _missionCtrl.text = 'evangelizar, discipular e servir a comunidade';
+    _tplApresentacaoCtrl.text =
+        kDefaultChurchLetterApresentacaoTemplate.trim();
+    _tplTransferCtrl.text = kDefaultChurchLetterTransferenciaTemplate.trim();
+    _tplAgradecimentoCtrl.text =
+        kDefaultChurchLetterAgradecimentoTemplate.trim();
     final ctxData = ChurchContextService.currentChurchData;
     if (ctxData != null && ctxData.isNotEmpty) {
       _tenant = Map<String, dynamic>.from(ctxData);
@@ -457,29 +483,46 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     await _ensureTenantProfileLoaded();
 
     try {
-      final cfg = await _configRef
-          .get(const GetOptions(source: Source.serverAndCache));
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final cfg = await FirestoreWebGuard.runWithWebRecovery(
+        () => _configRef.get(const GetOptions(source: Source.serverAndCache)),
+        maxAttempts: 4,
+      );
       final c = cfg.data() ?? {};
       final a = (c['modeloApresentacao'] ?? '').toString().trim();
       final t = (c['modeloTransferencia'] ?? '').toString().trim();
       final g = (c['modeloAgradecimento'] ?? '').toString().trim();
+      final nuvem = _parseModelosNuvem(c['modelosNuvem']);
       if (mounted) {
-        _tplApresentacaoCtrl.text =
-            a.isNotEmpty ? a : kDefaultChurchLetterApresentacaoTemplate.trim();
-        _tplTransferCtrl.text =
-            t.isNotEmpty ? t : kDefaultChurchLetterTransferenciaTemplate.trim();
-        _tplAgradecimentoCtrl.text = g.isNotEmpty
-            ? g
-            : kDefaultChurchLetterAgradecimentoTemplate.trim();
+        setState(() {
+          _tplApresentacaoCtrl.text =
+              a.isNotEmpty ? a : kDefaultChurchLetterApresentacaoTemplate.trim();
+          _tplTransferCtrl.text =
+              t.isNotEmpty ? t : kDefaultChurchLetterTransferenciaTemplate.trim();
+          _tplAgradecimentoCtrl.text = g.isNotEmpty
+              ? g
+              : kDefaultChurchLetterAgradecimentoTemplate.trim();
+          _modelosNuvem = nuvem;
+          if (_missionCtrl.text.trim().isEmpty) {
+            _missionCtrl.text = _defaultMissionText();
+          }
+        });
       }
     } catch (_) {
       if (mounted) {
-        _tplApresentacaoCtrl.text =
-            kDefaultChurchLetterApresentacaoTemplate.trim();
-        _tplTransferCtrl.text =
-            kDefaultChurchLetterTransferenciaTemplate.trim();
-        _tplAgradecimentoCtrl.text =
-            kDefaultChurchLetterAgradecimentoTemplate.trim();
+        setState(() {
+          _tplApresentacaoCtrl.text =
+              kDefaultChurchLetterApresentacaoTemplate.trim();
+          _tplTransferCtrl.text =
+              kDefaultChurchLetterTransferenciaTemplate.trim();
+          _tplAgradecimentoCtrl.text =
+              kDefaultChurchLetterAgradecimentoTemplate.trim();
+          if (_missionCtrl.text.trim().isEmpty) {
+            _missionCtrl.text = _defaultMissionText();
+          }
+        });
       }
     }
 
@@ -490,6 +533,9 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     }
     unawaited(_getBrandingCached());
     await _loadDepartmentsForLetters();
+    if (mounted && _missionCtrl.text.trim().isEmpty) {
+      setState(() => _missionCtrl.text = _defaultMissionText());
+    }
   }
 
   void _applyDefaultSignerFromLoadedMembers(
@@ -1036,6 +1082,345 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         : 'evangelizar, discipular e servir a comunidade';
   }
 
+  Map<String, List<_CloudLetterModel>> _parseModelosNuvem(dynamic raw) {
+    const keys = ['apresentacao', 'transferencia', 'agradecimento'];
+    final out = <String, List<_CloudLetterModel>>{
+      for (final k in keys) k: <_CloudLetterModel>[],
+    };
+    if (raw is! Map) return out;
+    for (final k in keys) {
+      final list = raw[k];
+      if (list is! List) continue;
+      for (final item in list) {
+        if (item is! Map) continue;
+        final m = Map<String, dynamic>.from(item);
+        final texto = (m['texto'] ?? '').toString();
+        if (texto.trim().isEmpty) continue;
+        out[k]!.add(
+          _CloudLetterModel(
+            id: (m['id'] ?? DateTime.now().microsecondsSinceEpoch.toString())
+                .toString(),
+            nome: (m['nome'] ?? 'Modelo').toString().trim(),
+            texto: texto,
+            favorito: m['favorito'] == true,
+          ),
+        );
+      }
+      out[k]!.sort((a, b) {
+        if (a.favorito != b.favorito) return a.favorito ? -1 : 1;
+        return a.nome.toLowerCase().compareTo(b.nome.toLowerCase());
+      });
+    }
+    return out;
+  }
+
+  Map<String, dynamic> _serializeModelosNuvem() {
+    final out = <String, dynamic>{};
+    for (final e in _modelosNuvem.entries) {
+      out[e.key] = e.value
+          .map(
+            (m) => {
+              'id': m.id,
+              'nome': m.nome,
+              'texto': m.texto,
+              'favorito': m.favorito,
+              'updatedAt': FieldValue.serverTimestamp(),
+            },
+          )
+          .toList();
+    }
+    return out;
+  }
+
+  List<_CloudLetterModel> _modelosForKind(_CartaKind kind) =>
+      _modelosNuvem[kind.firestoreKind] ?? const [];
+
+  Color _accentForCartaKind(_CartaKind kind) => switch (kind) {
+        _CartaKind.apresentacao => const Color(0xFF2563EB),
+        _CartaKind.transferencia => const Color(0xFFEA580C),
+        _CartaKind.agradecimento => const Color(0xFF16A34A),
+      };
+
+  void _applyCloudModel(_CloudLetterModel model, _CartaKind kind) {
+    _tplCtrlForKind(kind).text = model.texto;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.feedbackSnackBar(
+        'Modelo «${model.nome}» aplicado ao editor.',
+      ),
+    );
+  }
+
+  Future<void> _promptSaveFavorito(_CartaKind kind) async {
+    final nomeCtrl = TextEditingController(
+      text: 'Modelo ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
+    );
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Guardar modelo favorito'),
+        content: TextField(
+          controller: nomeCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Nome do modelo',
+            hintText: 'Ex.: Apresentação padrão 2026',
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final nome = nomeCtrl.text.trim();
+    nomeCtrl.dispose();
+    if (nome.isEmpty) return;
+    final texto = _tplCtrlForKind(kind).text.trim();
+    if (texto.isEmpty) return;
+    final id = DateTime.now().microsecondsSinceEpoch.toString();
+    setState(() {
+      final list = List<_CloudLetterModel>.from(_modelosForKind(kind));
+      list.insert(
+        0,
+        _CloudLetterModel(
+          id: id,
+          nome: nome,
+          texto: texto,
+          favorito: true,
+        ),
+      );
+      _modelosNuvem = Map<String, List<_CloudLetterModel>>.from(_modelosNuvem)
+        ..[kind.firestoreKind] = list.take(24).toList();
+    });
+    await _saveTemplates(showSnackOnSuccess: false);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Modelo «$nome» guardado na nuvem.',
+        ),
+      );
+    }
+  }
+
+  Widget _buildModelosNuvemGrid(_CartaKind kind, Color accent) {
+    final models = _modelosForKind(kind);
+    final kindAccent = _accentForCartaKind(kind);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.cloud_done_rounded, color: kindAccent, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Modelos guardados na nuvem',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                  color: Colors.grey.shade900,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ),
+            TextButton.icon(
+              onPressed: () => _promptSaveFavorito(kind),
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Novo favorito'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (models.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: kindAccent.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: kindAccent.withValues(alpha: 0.18)),
+            ),
+            child: Text(
+              'Nenhum modelo favorito ainda. Edite o texto abaixo e use «Guardar modelos na nuvem» ou «Novo favorito».',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade700,
+                height: 1.35,
+              ),
+            ),
+          )
+        else
+          LayoutBuilder(
+            builder: (context, c) {
+              final cols = c.maxWidth >= 720 ? 3 : (c.maxWidth >= 480 ? 2 : 1);
+              final gap = 10.0;
+              final w = (c.maxWidth - gap * (cols - 1)) / cols;
+              return Wrap(
+                spacing: gap,
+                runSpacing: gap,
+                children: [
+                  for (final m in models)
+                    SizedBox(
+                      width: w.clamp(160, c.maxWidth),
+                      child: Material(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () => _applyCloudModel(m, kind),
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: kindAccent.withValues(alpha: 0.28),
+                              ),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  kindAccent.withValues(alpha: 0.14),
+                                  Colors.white,
+                                ],
+                              ),
+                              boxShadow: ThemeCleanPremium.softUiCardShadow,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      m.favorito
+                                          ? Icons.star_rounded
+                                          : Icons.description_outlined,
+                                      color: kindAccent,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        m.nome,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  m.texto.length > 90
+                                      ? '${m.texto.substring(0, 90)}…'
+                                      : m.texto,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    height: 1.35,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Text(
+                                    'Toque para usar',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                      color: kindAccent,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        const SizedBox(height: 14),
+      ],
+    );
+  }
+
+  Future<void> _loadHistory() async {
+    if (_historyLoading) return;
+    setState(() {
+      _historyLoading = true;
+      _historyError = null;
+    });
+    try {
+      final churchId = ChurchRepository.churchId(
+        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+      );
+      if (churchId.isEmpty) {
+        throw StateError('Igreja não identificada (churchId vazio).');
+      }
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final snap = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchUiCollections.transferencias(churchId)
+            .orderBy('createdAt', descending: true)
+            .limit(240)
+            .get(),
+        maxAttempts: 4,
+      );
+      late final DateTime rangeStart;
+      late final DateTime rangeEnd;
+      if (_histCustomRange != null) {
+        rangeStart = DateTime(
+          _histCustomRange!.start.year,
+          _histCustomRange!.start.month,
+          _histCustomRange!.start.day,
+        );
+        rangeEnd = DateTime(
+          _histCustomRange!.end.year,
+          _histCustomRange!.end.month,
+          _histCustomRange!.end.day,
+          23,
+          59,
+          59,
+        );
+      } else {
+        rangeStart = DateTime(_histYear, 1, 1);
+        rangeEnd = DateTime(_histYear, 12, 31, 23, 59, 59);
+      }
+      final filtered = snap.docs.where((d) {
+        final ts = d.data()['createdAt'];
+        if (ts is! Timestamp) return false;
+        final dt = ts.toDate();
+        return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
+      }).toList();
+      if (!mounted) return;
+      setState(() {
+        _historyDocs = filtered;
+        _historyLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _historyError = e.toString();
+        _historyLoading = false;
+      });
+    }
+  }
+
   _CartaKind _currentCartaKindForTabs(
     bool transferenciaTab,
     bool agradecimentoTab,
@@ -1115,23 +1500,44 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     );
   }
 
-  Future<void> _saveTemplates() async {
+  Future<void> _saveTemplates({bool showSnackOnSuccess = true}) async {
     if (!AppPermissions.canAccessChurchLetters(widget.role,
         permissions: widget.permissions)) {
       return;
     }
+    final churchId = ChurchRepository.churchId(
+      _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+    );
+    if (churchId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.feedbackSnackBar(
+            'Igreja não identificada — não foi possível guardar na nuvem.',
+          ),
+        );
+      }
+      return;
+    }
     setState(() => _savingTpl = true);
     try {
-      await _configRef.set(
-        {
-          'modeloApresentacao': _tplApresentacaoCtrl.text,
-          'modeloTransferencia': _tplTransferCtrl.text,
-          'modeloAgradecimento': _tplAgradecimentoCtrl.text,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final ref = ChurchUiCollections.config(churchId).doc('cartas');
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => ref.set(
+          {
+            'modeloApresentacao': _tplApresentacaoCtrl.text,
+            'modeloTransferencia': _tplTransferCtrl.text,
+            'modeloAgradecimento': _tplAgradecimentoCtrl.text,
+            'modelosNuvem': _serializeModelosNuvem(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        ),
+        maxAttempts: 4,
       );
-      if (mounted) {
+      if (mounted && showSnackOnSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar('Modelos guardados na nuvem.'),
         );
@@ -1175,13 +1581,19 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     };
 
     if (_historyEditDocId != null) {
-      await _historicoCol.doc(_historyEditDocId!).set(
-            payload,
-            SetOptions(merge: true),
-          );
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => _historicoCol.doc(_historyEditDocId!).set(
+              payload,
+              SetOptions(merge: true),
+            ),
+        maxAttempts: 4,
+      );
     } else {
       payload['createdAt'] = FieldValue.serverTimestamp();
-      await _historicoCol.add(payload);
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => _historicoCol.add(payload),
+        maxAttempts: 4,
+      );
     }
   }
 
@@ -1525,34 +1937,6 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         );
       }
     }
-  }
-
-  Query<Map<String, dynamic>> _historyQuery() {
-    late final DateTime a;
-    late final DateTime b;
-    if (_histCustomRange != null) {
-      a = DateTime(
-        _histCustomRange!.start.year,
-        _histCustomRange!.start.month,
-        _histCustomRange!.start.day,
-      );
-      b = DateTime(
-        _histCustomRange!.end.year,
-        _histCustomRange!.end.month,
-        _histCustomRange!.end.day,
-        23,
-        59,
-        59,
-      );
-    } else {
-      a = DateTime(_histYear, 1, 1);
-      b = DateTime(_histYear, 12, 31, 23, 59, 59);
-    }
-    return _historicoCol
-        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(a))
-        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(b))
-        .orderBy('createdAt', descending: true)
-        .limit(120);
   }
 
   @override
@@ -2001,6 +2385,14 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                   ),
                                 ],
                               ),
+                              const SizedBox(height: 16),
+                              _buildModelosNuvemGrid(
+                                _currentCartaKindForTabs(
+                                  transferenciaTab,
+                                  agradecimentoTab,
+                                ),
+                                accent,
+                              ),
                               const SizedBox(height: 8),
                               Container(
                                 decoration: BoxDecoration(
@@ -2329,6 +2721,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                       : (v) {
                           if (v != null) {
                             setState(() => _histYear = v);
+                            unawaited(_loadHistory());
                           }
                         },
                 ),
@@ -2354,6 +2747,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                   );
                   if (range != null) {
                     setState(() => _histCustomRange = range);
+                    unawaited(_loadHistory());
                   }
                 },
                 icon: const Icon(Icons.date_range_rounded, size: 20),
@@ -2365,41 +2759,48 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
               ),
               if (_histCustomRange != null)
                 TextButton(
-                  onPressed: () => setState(() => _histCustomRange = null),
+                  onPressed: () {
+                    setState(() => _histCustomRange = null);
+                    unawaited(_loadHistory());
+                  },
                   child: const Text('Limpar período'),
                 ),
             ],
           ),
           const SizedBox(height: 16),
-          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: _historyQuery().watchSafe(),
-            builder: (context, snap) {
-              if (snap.hasError) {
-                return Text('Erro: ${snap.error}');
-              }
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              final docs = snap.data?.docs ?? [];
-              if (docs.isEmpty) {
-                return Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(
-                    'Nenhum registo neste filtro.',
-                    style: TextStyle(color: Colors.grey.shade600),
-                  ),
-                );
-              }
-              return ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: docs.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 10),
-                itemBuilder: (context, i) {
-                  final doc = docs[i];
+          if (_historyError != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ChurchPanelResilientLoadBanner(
+                hasLocalData: _historyDocs.isNotEmpty,
+                isSyncing: _historyLoading,
+                errorTitle: 'Erro ao carregar histórico',
+                error: _historyError,
+                onRetry: _loadHistory,
+              ),
+            ),
+          if (_historyLoading && _historyDocs.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          if (!_historyLoading && _historyDocs.isEmpty && _historyError == null)
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text(
+                'Nenhum registo neste filtro.',
+                style: TextStyle(color: Colors.grey.shade600),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          if (_historyDocs.isNotEmpty)
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _historyDocs.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (context, i) {
+                final doc = _historyDocs[i];
                   final d = doc.data();
                   final kind = (d['kind'] ?? '').toString();
                   final labelKind = switch (kind) {
@@ -2495,13 +2896,25 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                     ),
                   );
                 },
-              );
-            },
-          ),
+              ),
         ],
       ),
     );
   }
+}
+
+class _CloudLetterModel {
+  const _CloudLetterModel({
+    required this.id,
+    required this.nome,
+    required this.texto,
+    this.favorito = false,
+  });
+
+  final String id;
+  final String nome;
+  final String texto;
+  final bool favorito;
 }
 
 /// Cache RAM — membros instantâneos ao reabrir Cartas e transferências.

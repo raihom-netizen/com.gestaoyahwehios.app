@@ -1,5 +1,8 @@
+import 'dart:async' show unawaited;
+
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/services/church_chat_instant_send_service.dart';
+import 'package:gestao_yahweh/services/church_chat_send_callbacks.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_sync_send_service.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
@@ -13,7 +16,7 @@ abstract final class ChurchChatFastSendService {
   static DateTime? _lastWarm;
   static Future<void>? _warmInFlight;
 
-  /// Bootstrap Ecofire antes de enviar (evita core/no-app).
+  /// Bootstrap Ecofire em background — **nunca** bloqueia o envio na UI.
   static Future<void> warmSendPipeline({bool force = false}) {
     final now = DateTime.now();
     if (!force &&
@@ -30,7 +33,7 @@ abstract final class ChurchChatFastSendService {
     return _warmInFlight!;
   }
 
-  /// Texto — UI optimista + uma gravação Firestore.
+  /// Texto — UI optimista instantânea; Firestore em background.
   static Future<void> sendText({
     required String tenantId,
     required String threadId,
@@ -39,16 +42,10 @@ abstract final class ChurchChatFastSendService {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
     List<String>? mentionedUids,
-    void Function(bool ok)? onComplete,
-    void Function(String message)? onError,
+    ChurchChatSendCompleteCallback? onComplete,
+    ChurchChatSendErrorCallback? onError,
   }) async {
-    try {
-      await warmSendPipeline();
-    } catch (e) {
-      onComplete?.call(false);
-      onError?.call(ChurchChatService.formatInstantSendError(e));
-      return;
-    }
+    unawaited(warmSendPipeline().catchError((_) {}));
     await ChurchChatInstantSendService.sendTextNow(
       tenantId: tenantId,
       threadId: threadId,
@@ -74,7 +71,7 @@ abstract final class ChurchChatFastSendService {
     void Function(String message)? onError,
     void Function()? onSuccess,
   }) async {
-    await warmSendPipeline();
+    unawaited(warmSendPipeline().catchError((_) {}));
     await ChurchChatSyncSendService.sendMedia(
       tenantId: tenantId,
       threadId: threadId,

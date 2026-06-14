@@ -268,7 +268,15 @@ abstract final class FirebaseBootstrapService {
       }
     }
     if (last != null && _isNoFirebaseApp(last)) {
-      return;
+      try {
+        await ensureInitializedOnce();
+        await ensureAlwaysOn(refreshAuthToken: refreshAuthToken);
+        probeStorageLinked();
+        _storageUploadBootstrapAt = DateTime.now();
+        return;
+      } catch (e, st) {
+        throw FirebaseBootstrapException.from(e, st);
+      }
     }
     if (last != null) {
       throw FirebaseBootstrapException.from(last, lastSt);

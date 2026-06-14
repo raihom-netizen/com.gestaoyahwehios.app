@@ -1798,11 +1798,9 @@ class ChurchChatService {
     final preview = nf != null
         ? '↪ ${nf['preview']}'
         : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
-    final outboundStatus = AppConnectivityService.instance.isOnline
-        ? deliverySent
-        : deliveryLocal;
 
-    Future<void> commitOnce() => _commitMessageAndThreadIndex(
+    Future<void> commitOnce({required String deliveryStatus}) =>
+        _commitMessageAndThreadIndex(
           tenantId: tid,
           threadId: threadId,
           msgRef: msgRef,
@@ -1811,8 +1809,8 @@ class ChurchChatService {
             'senderId': uid,
             'type': 'text',
             'text': text,
-            'deliveryStatus': outboundStatus,
-            'status': outboundStatus,
+            'deliveryStatus': deliveryStatus,
+            'status': deliveryStatus,
             'createdAt': FieldValue.serverTimestamp(),
             'expiresAt': expiresAt,
             if (nr != null) 'replyTo': nr,
@@ -1835,7 +1833,25 @@ class ChurchChatService {
         await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
       }
       await _ensureDmThreadDocBeforeSend(tid, threadId);
-      await FirestoreWebGuard.runChatWriteWithRecovery(() => commitOnce());
+      final initialStatus = AppConnectivityService.instance.isOnline
+          ? deliverySending
+          : deliveryLocal;
+      await FirestoreWebGuard.runChatWriteWithRecovery(
+        () => commitOnce(deliveryStatus: initialStatus),
+      );
+      if (AppConnectivityService.instance.isOnline) {
+        unawaited(
+          FirestoreWebGuard.runChatWriteWithRecovery(
+            () => msgRef.set(
+              {
+                'deliveryStatus': deliverySent,
+                'status': deliverySent,
+              },
+              SetOptions(merge: true),
+            ),
+          ).catchError((_) {}),
+        );
+      }
       unawaited(
         markThreadLastSeen(tenantId: tid, threadId: threadId),
       );
@@ -1846,76 +1862,6 @@ class ChurchChatService {
       ChurchPublishFlowLog.firestoreError(e, st);
       rethrow;
     }
-  }
-
-  /// Stub de texto (`deliveryStatus: sending`) — mídia ou UI que precisa de 2 fases.
-  static Future<({String messageId, bool allowed})> beginTextMessage({
-    required String tenantId,
-    required String threadId,
-    required String text,
-    Map<String, dynamic>? replyTo,
-    Map<String, dynamic>? forwardedFrom,
-    String? senderDisplayName,
-    List<String>? mentionedUids,
-  }) async {
-    ChurchPublishFlowLog.chatStart();
-    await ensureFirebaseReadyForChatSend();
-    if (!await ChurchChatMemberPrefs.canSendToDmThread(
-      tenantId: tenantId,
-      threadId: threadId,
-    )) {
-      return (messageId: '', allowed: false);
-    }
-    await ChurchChatMemberPrefs.revealDmThreadOnOutbound(
-      tenantId: tenantId,
-      threadId: threadId,
-    );
-    final uid = firebaseDefaultAuth.currentUser!.uid;
-    final expiresAt =
-        Timestamp.fromDate(DateTime.now().add(textRetention));
-    final msgRef = messagesCol(tenantId, threadId).doc();
-    final nr = normalizeReplyTo(replyTo);
-    final nf = normalizeForwardedFrom(forwardedFrom);
-    final label = (senderDisplayName ?? '').trim();
-    final mentions = (mentionedUids ?? const <String>[])
-        .map((e) => e.trim())
-        .where((e) => e.length > 4)
-        .toSet()
-        .take(24)
-        .toList();
-    final preview = nf != null
-        ? '↪ ${nf['preview']}'
-        : (text.length > 120 ? '${text.substring(0, 117)}…' : text);
-    await _ensureDmThreadDocBeforeSend(tenantId, threadId);
-    await _commitMessageAndThreadIndex(
-      tenantId: tenantId,
-      threadId: threadId,
-      msgRef: msgRef,
-      messageData: {
-        'senderUid': uid,
-        'senderId': uid,
-        'type': 'text',
-        'text': text,
-        'deliveryStatus': deliverySending,
-        'status': deliverySending,
-        'createdAt': FieldValue.serverTimestamp(),
-        'expiresAt': expiresAt,
-        if (nr != null) 'replyTo': nr,
-        if (nf != null) 'forwardedFrom': nf,
-        if (label.isNotEmpty) ...{
-          'senderDisplayName':
-              label.length > 100 ? label.substring(0, 100) : label,
-          'senderName':
-              label.length > 100 ? label.substring(0, 100) : label,
-        },
-        if (mentions.isNotEmpty) 'mentionedUids': mentions,
-      },
-      preview: preview,
-      senderUid: uid,
-      messageType: 'text',
-    );
-    ChurchPublishFlowLog.chatMessageCreated();
-    return (messageId: msgRef.id, allowed: true);
   }
 
   static Future<void> finalizeTextMessage({

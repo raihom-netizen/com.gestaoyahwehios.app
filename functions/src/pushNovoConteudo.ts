@@ -80,6 +80,13 @@ async function sendNovoAvisoMuralPush(
   postId: string,
   d: Record<string, unknown>,
 ): Promise<void> {
+  if (!isPushableAvisoDoc(d)) {
+    functions.logger.info("onNovoAvisoMuralPush skip — título/mídia inválidos", {
+      tenantId,
+      postId,
+    });
+    return;
+  }
   const title = clip(String(d.title || d.titulo || "Novo aviso"), 80) || "Novo aviso";
   const rawBody = String(d.text || d.body || d.mensagem || "").trim();
   const body = clip(rawBody, 140) || title;
@@ -114,13 +121,61 @@ function isPublishedFeedDoc(d: Record<string, unknown>): boolean {
   return status === "publicado";
 }
 
+const JUNK_TITLES = new Set([
+  "sem título",
+  "sem titulo",
+  "sem titulo.",
+  "sem título.",
+]);
+
+function resolveFeedTitle(d: Record<string, unknown>): string {
+  for (const k of ["title", "titulo", "name", "nome"]) {
+    const v = String(d[k] || "").trim();
+    if (v) return v;
+  }
+  return "";
+}
+
+function hasValidFeedTitle(d: Record<string, unknown>): boolean {
+  const t = resolveFeedTitle(d);
+  if (!t) return false;
+  return !JUNK_TITLES.has(t.toLowerCase());
+}
+
+function hasValidFeedMedia(d: Record<string, unknown>): boolean {
+  for (const k of [
+    "imageUrl",
+    "coverPhotoUrl",
+    "coverPhoto",
+    "photoUrl",
+    "bannerUrl",
+    "fotoUrl",
+    "imageStoragePath",
+    "fotoPath",
+    "thumbStoragePath",
+    "bannerStoragePath",
+    "storagePath",
+  ]) {
+    if (String(d[k] || "").trim()) return true;
+  }
+  for (const k of ["imageUrls", "galeria", "photos", "photoUrls", "imageStoragePaths"]) {
+    const raw = d[k];
+    if (Array.isArray(raw) && raw.some((e) => String(e || "").trim())) return true;
+  }
+  return false;
+}
+
+function isPushableAvisoDoc(d: Record<string, unknown>): boolean {
+  return isPublishedFeedDoc(d) && hasValidFeedTitle(d) && hasValidFeedMedia(d);
+}
+
 export const onNovoAvisoMuralPush = functions
   .region("us-central1")
   .firestore.document("igrejas/{tenantId}/avisos/{id}")
   .onCreate(async (snap, context) => {
     const tenantId = context.params.tenantId as string;
     const d = snap.data() || {};
-    if (!isPublishedFeedDoc(d as Record<string, unknown>)) return null;
+    if (!isPushableAvisoDoc(d as Record<string, unknown>)) return null;
     try {
       await sendNovoAvisoMuralPush(
         tenantId,
@@ -140,7 +195,7 @@ export const onNovoAvisoMuralPublishedPush = functions
     const before = change.before.data() || {};
     const after = change.after.data() || {};
     if (isPublishedFeedDoc(before as Record<string, unknown>)) return null;
-    if (!isPublishedFeedDoc(after as Record<string, unknown>)) return null;
+    if (!isPushableAvisoDoc(after as Record<string, unknown>)) return null;
     const tenantId = context.params.tenantId as string;
     try {
       await sendNovoAvisoMuralPush(

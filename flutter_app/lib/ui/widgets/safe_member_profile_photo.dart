@@ -1,3 +1,5 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -211,6 +213,34 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
           }
         }
       }
+      final httpsFallback = sanitizeImageUrl(
+        MemberImageFields.photoDownloadUrl(hint) ??
+            widget.imageUrl ??
+            fullRef ??
+            '',
+      );
+      if (isValidImageUrl(httpsFallback)) {
+        if (mounted) {
+          setState(() {
+            _displayUrl = httpsFallback;
+            _resolving = false;
+          });
+        }
+        if (StorageMediaService.isFirebaseStorageMediaUrl(httpsFallback)) {
+          unawaited(() async {
+            try {
+              final fresh = sanitizeImageUrl(
+                await StorageMediaService.freshPlayableMediaUrl(httpsFallback),
+              );
+              if (!mounted || !isValidImageUrl(fresh)) return;
+              if (sanitizeImageUrl(fresh) != httpsFallback) {
+                setState(() => _displayUrl = fresh);
+              }
+            } catch (_) {}
+          }());
+        }
+        return;
+      }
     }
 
     final norm = isValidImageUrl(sanitizeImageUrl(raw))
@@ -227,31 +257,28 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
       return;
     }
     final needsFresh = StorageMediaService.isFirebaseStorageMediaUrl(norm);
-    // Mostrar já a URL conhecida; renovar token em background (lista/detalhe abre mais rápido).
+    // Mostrar já a URL conhecida; renovar token em background (lista abre mais rápido).
     if (mounted) {
       setState(() {
         _displayUrl = norm;
-        _resolving = needsFresh;
+        _resolving = false;
       });
     }
     if (!needsFresh) return;
-    // Mobile: URL https do Firestore — exibir já; decode via getData (sem getDownloadURL).
-    if (!kIsWeb && isValidImageUrl(norm)) {
-      if (mounted) setState(() => _resolving = false);
-      return;
-    }
-    String out = norm;
-    try {
-      out = sanitizeImageUrl(
-          await StorageMediaService.freshPlayableMediaUrl(norm));
-    } catch (_) {
-      out = norm;
-    }
-    if (!mounted) return;
-    setState(() {
-      _displayUrl = isValidImageUrl(out) ? out : norm;
-      _resolving = false;
-    });
+    unawaited(() async {
+      String out = norm;
+      try {
+        out = sanitizeImageUrl(
+            await StorageMediaService.freshPlayableMediaUrl(norm));
+      } catch (_) {
+        out = norm;
+      }
+      if (!mounted) return;
+      if (isValidImageUrl(out) && sanitizeImageUrl(out) != sanitizeImageUrl(norm)) {
+        setState(() => _displayUrl = out);
+      }
+    }());
+    return;
   }
 
   Widget _buildLoadErrorFallback({

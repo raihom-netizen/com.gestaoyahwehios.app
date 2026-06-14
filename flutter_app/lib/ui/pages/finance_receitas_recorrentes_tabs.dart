@@ -1,7 +1,8 @@
 import 'dart:async' show unawaited;
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:flutter/material.dart';
@@ -11,10 +12,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/finance_ofx_conciliation_service.dart';
+import 'package:gestao_yahweh/services/finance_ofx_parser.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/finance_audit_log_service.dart';
 import 'package:gestao_yahweh/services/receitas_recorrentes_geracao_service.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
+import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart'
     show showFinanceLancamentoEditorForTenant;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -612,9 +616,11 @@ class _FinanceReceitasFixasTabState extends State<FinanceReceitasFixasTab> {
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snap) {
-        if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar receitas recorrentes',
+        if (snap.hasError && (snap.data?.docs.isEmpty ?? true)) {
+          return ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: false,
+            errorTitle: 'Não foi possível carregar receitas recorrentes',
             error: snap.error,
             onRetry: _refresh,
           );
@@ -1319,9 +1325,11 @@ class _FinanceConciliacaoReceitasTabState
                 .where('competencia', isEqualTo: _competencia)
                 .watchSafe(),
             builder: (context, snap) {
-              if (snap.hasError) {
-                return ChurchPanelErrorBody(
-                  title: 'Não foi possível carregar pendências',
+              if (snap.hasError && (snap.data?.docs.isEmpty ?? true)) {
+                return ChurchPanelResilientLoadBanner(
+                  hasLocalData: false,
+                  isSyncing: false,
+                  errorTitle: 'Não foi possível carregar pendências',
                   error: snap.error,
                   onRetry: () => setState(() {}),
                 );
@@ -1651,6 +1659,372 @@ class _FinanceConciliacaoReceitasTabState
               );
             },
           ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Tab unificada: Conciliação receitas + OFX ───────────────────────────────
+
+class FinanceConciliacaoTab extends StatefulWidget {
+  final String tenantId;
+  final String role;
+
+  const FinanceConciliacaoTab({
+    super.key,
+    required this.tenantId,
+    required this.role,
+  });
+
+  @override
+  State<FinanceConciliacaoTab> createState() => _FinanceConciliacaoTabState();
+}
+
+class _FinanceConciliacaoTabState extends State<FinanceConciliacaoTab> {
+  int _mode = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: SegmentedButton<int>(
+            segments: const [
+              ButtonSegment(
+                value: 0,
+                icon: Icon(Icons.savings_outlined, size: 18),
+                label: Text('Receitas fixas'),
+              ),
+              ButtonSegment(
+                value: 1,
+                icon: Icon(Icons.account_balance_rounded, size: 18),
+                label: Text('Extrato OFX'),
+              ),
+            ],
+            selected: {_mode},
+            onSelectionChanged: (s) => setState(() => _mode = s.first),
+          ),
+        ),
+        Expanded(
+          child: _mode == 0
+              ? FinanceConciliacaoReceitasTab(
+                  tenantId: widget.tenantId,
+                  role: widget.role,
+                )
+              : FinanceConciliacaoOfxPanel(
+                  tenantId: widget.tenantId,
+                  role: widget.role,
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class FinanceConciliacaoOfxPanel extends StatefulWidget {
+  final String tenantId;
+  final String role;
+
+  const FinanceConciliacaoOfxPanel({
+    super.key,
+    required this.tenantId,
+    required this.role,
+  });
+
+  @override
+  State<FinanceConciliacaoOfxPanel> createState() =>
+      _FinanceConciliacaoOfxPanelState();
+}
+
+class _FinanceConciliacaoOfxPanelState extends State<FinanceConciliacaoOfxPanel> {
+  final _money = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+  final _dateFmt = DateFormat('dd/MM/yyyy');
+
+  bool _loading = false;
+  bool _importing = false;
+  String? _accountHint;
+  List<OfxMatchSuggestion> _suggestions = [];
+  final Set<String> _selectedFitIds = {};
+
+  Future<void> _importOfx() async {
+    setState(() => _importing = true);
+    try {
+      final pick = await YahwehFilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['ofx', 'qfx', 'OFX', 'QFX'],
+        withData: true,
+      );
+      if (pick == null || pick.files.isEmpty) {
+        if (mounted) setState(() => _importing = false);
+        return;
+      }
+      final bytes = pick.files.single.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        throw StateError('Arquivo vazio ou indisponível nesta plataforma.');
+      }
+      final raw = utf8.decode(bytes, allowMalformed: true);
+      final parsed = FinanceOfxParser.parse(raw);
+      if (parsed.isEmpty) {
+        throw StateError('Nenhuma transação STMTTRN encontrada no arquivo.');
+      }
+      final lancamentos =
+          await FinanceOfxConciliationService.loadNaoConciliados(
+        widget.tenantId,
+      );
+      final suggestions = FinanceOfxConciliationService.suggestMatches(
+        ofxRows: parsed.transactions,
+        lancamentos: lancamentos,
+      );
+      if (!mounted) return;
+      setState(() {
+        _accountHint = parsed.accountId;
+        _suggestions = suggestions;
+        _selectedFitIds
+          ..clear()
+          ..addAll(
+            suggestions.where((s) => s.hasMatch).map((s) => s.ofx.fitId),
+          );
+        _importing = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${parsed.transactions.length} linha(s) OFX · '
+            '${suggestions.where((s) => s.hasMatch).length} sugestão(ões) automática(s).',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _importing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Importação OFX: $e')),
+      );
+    }
+  }
+
+  Future<void> _applySelected() async {
+    final accepted = _suggestions
+        .where((s) => _selectedFitIds.contains(s.ofx.fitId) && s.hasMatch)
+        .toList();
+    if (accepted.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecione linhas com correspondência.')),
+      );
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      final n = await FinanceOfxConciliationService.applyMatches(
+        tenantId: widget.tenantId,
+        accepted: accepted,
+      );
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _suggestions = _suggestions
+            .where((s) => !_selectedFitIds.contains(s.ofx.fitId))
+            .toList();
+        _selectedFitIds.clear();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$n lançamento(s) conciliado(s) com o extrato.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao conciliar: $e')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final matched = _suggestions.where((s) => s.hasMatch).length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Importe o extrato (.ofx / .qfx) e concilie com lançamentos não marcados.',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (_accountHint != null && _accountHint!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Conta no arquivo: $_accountHint',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: _importing || _loading ? null : _importOfx,
+                icon: _importing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.upload_file_rounded, size: 18),
+                label: const Text('Importar OFX'),
+              ),
+              if (_suggestions.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: _loading ? null : _applySelected,
+                  icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                  label: Text('Conciliar (${_selectedFitIds.length})'),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (_suggestions.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              '$matched de ${_suggestions.length} linha(s) com match automático (valor + data ±5 dias).',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            ),
+          ),
+        Expanded(
+          child: _suggestions.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.account_balance_rounded,
+                          size: 64, color: Colors.grey.shade400),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Nenhum extrato importado',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Exporte o OFX no internet banking e importe aqui.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                  itemCount: _suggestions.length,
+                  itemBuilder: (context, i) {
+                    final s = _suggestions[i];
+                    final ofx = s.ofx;
+                    final selected = _selectedFitIds.contains(ofx.fitId);
+                    final color = ofx.isCredit
+                        ? const Color(0xFF2563EB)
+                        : const Color(0xFFDC2626);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
+                        border: Border.all(
+                          color: s.hasMatch
+                              ? const Color(0xFFBBF7D0)
+                              : const Color(0xFFF1F5F9),
+                        ),
+                      ),
+                      child: CheckboxListTile(
+                        value: selected,
+                        onChanged: s.hasMatch
+                            ? (v) => setState(() {
+                                  if (v == true) {
+                                    _selectedFitIds.add(ofx.fitId);
+                                  } else {
+                                    _selectedFitIds.remove(ofx.fitId);
+                                  }
+                                })
+                            : null,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: Text(
+                          ofx.memo.isNotEmpty ? ofx.memo : 'Transação OFX',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 4),
+                            Text(
+                              '${_dateFmt.format(ofx.date)} · '
+                              '${ofx.isCredit ? 'Crédito' : 'Débito'} · '
+                              '${_money.format(ofx.absAmount)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                            if (s.hasMatch)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  '→ ${s.lancamentoDescricao} (${s.confidence}%)',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: color,
+                                  ),
+                                ),
+                              )
+                            else
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  s.reason,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey.shade500,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        secondary: Icon(
+                          ofx.isCredit
+                              ? Icons.arrow_downward_rounded
+                              : Icons.arrow_upward_rounded,
+                          color: color,
+                        ),
+                      ),
+                    );
+                  },
+                ),
         ),
       ],
     );

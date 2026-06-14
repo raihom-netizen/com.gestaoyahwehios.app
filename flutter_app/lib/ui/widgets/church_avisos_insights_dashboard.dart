@@ -108,7 +108,7 @@ class _ChurchAvisosInsightsDashboardState
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = _rows.isEmpty ? e.toString() : null;
           _loading = false;
         });
       }
@@ -307,9 +307,11 @@ class _ChurchAvisosInsightsDashboardState
     if (_loading && _rows.isEmpty) {
       return const ChurchPanelLoadingBody();
     }
-    if (_error != null) {
-      return ChurchPanelErrorBody(
-        title: 'Não foi possível carregar o painel de avisos',
+    if (_error != null && _rows.isEmpty && !_loading) {
+      return ChurchPanelResilientLoadBanner(
+        hasLocalData: false,
+        isSyncing: false,
+        errorTitle: 'Não foi possível carregar o painel de avisos',
         error: _error,
         onRetry: _load,
       );
@@ -330,6 +332,17 @@ class _ChurchAvisosInsightsDashboardState
       child: ListView(
         padding: EdgeInsets.fromLTRB(pad.left, pad.top, pad.right, 72),
         children: [
+          if (_error != null && _rows.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
+              child: ChurchPanelResilientLoadBanner(
+                hasLocalData: true,
+                isSyncing: false,
+                showStaleCache: true,
+                errorTitle: 'Não foi possível carregar o painel de avisos',
+                onRetry: _load,
+              ),
+            ),
           _AvisosHeroCard(
             postCount: _rows.length,
             sumLikes: sumL,
@@ -801,7 +814,7 @@ class _AvisoEngagementSheetState extends State<_AvisoEngagementSheet> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = e.toString();
+          _error = _names.isEmpty ? e.toString() : null;
           _loading = false;
         });
       }
@@ -834,9 +847,11 @@ class _AvisoEngagementSheetState extends State<_AvisoEngagementSheet> {
               child: CircularProgressIndicator(),
             ));
           }
-          if (_error != null) {
-            return ChurchPanelErrorBody(
-              title: 'Erro ao carregar curtidas',
+          if (_error != null && _names.isEmpty) {
+            return ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: false,
+              errorTitle: 'Erro ao carregar curtidas',
               error: _error,
               onRetry: _loadLikes,
             );
@@ -847,6 +862,17 @@ class _AvisoEngagementSheetState extends State<_AvisoEngagementSheet> {
               Text(t,
                   style: const TextStyle(
                       fontSize: 17, fontWeight: FontWeight.w900)),
+              if (_error != null && _names.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: true,
+                    isSyncing: false,
+                    showStaleCache: true,
+                    errorTitle: 'Erro ao carregar curtidas',
+                    onRetry: _loadLikes,
+                  ),
+                ),
               const SizedBox(height: 8),
               Expanded(
                 child: ListView.builder(
@@ -875,9 +901,11 @@ class _AvisoEngagementSheetState extends State<_AvisoEngagementSheet> {
                 stream:
                     widget.aviso.ref.collection('comentarios').watchSafe(),
                 builder: (context, snap) {
-                  if (snap.hasError) {
-                    return ChurchPanelErrorBody(
-                      title: 'Comentários',
+                  if (snap.hasError && (snap.data?.docs.isEmpty ?? true)) {
+                    return ChurchPanelResilientLoadBanner(
+                      hasLocalData: false,
+                      isSyncing: false,
+                      errorTitle: 'Comentários',
                       error: snap.error,
                       onRetry: () => setState(() => _commentsKey++),
                     );

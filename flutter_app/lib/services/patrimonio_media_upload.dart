@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/upload_bytes_core.dart';
 
-/// Upload patrimônio — `igrejas/{churchId}/patrimonio/{itemId}/galeria_XX.webp`.
+/// Upload patrimônio — `igrejas/{churchId}/patrimonio/{itemId}/foto_1.jpg` … `foto_4.jpg`.
 /// Retry directo (sem fila bloqueante) — evita travar em ~28% na 2.ª foto.
 abstract final class PatrimonioMediaUpload {
   PatrimonioMediaUpload._();
@@ -42,7 +42,7 @@ abstract final class PatrimonioMediaUpload {
     final url = await uploadStoragePutDataWithRetry(
       storagePath: path,
       bytes: rawBytes,
-      contentType: 'image/webp',
+      contentType: 'image/jpeg',
       maxAttempts: 4,
       useOfflineQueue: false,
       onProgress: onProgress,

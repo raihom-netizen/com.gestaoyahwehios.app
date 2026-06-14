@@ -118,7 +118,7 @@ class ChurchRolePermissions {
 
   static const ChurchRolePermissionSnapshot _full = ChurchRolePermissionSnapshot(
     restrictedNav: false,
-    viewFinance: true,
+    viewFinance: false,
     viewPatrimonio: true,
     editAnyMember: true,
     viewMemberDirectory: true,
@@ -149,7 +149,7 @@ class ChurchRolePermissions {
   static const ChurchRolePermissionSnapshot _secretario = ChurchRolePermissionSnapshot(
     restrictedNav: false,
     viewFinance: false,
-    viewPatrimonio: false,
+    viewPatrimonio: true,
     editAnyMember: true,
     viewMemberDirectory: true,
     editChurchProfile: true,
@@ -164,7 +164,7 @@ class ChurchRolePermissions {
   static const ChurchRolePermissionSnapshot _tesoureiro = ChurchRolePermissionSnapshot(
     restrictedNav: false,
     viewFinance: true,
-    viewPatrimonio: false,
+    viewPatrimonio: true,
     editAnyMember: false,
     viewMemberDirectory: false,
     editChurchProfile: false,
@@ -172,7 +172,7 @@ class ChurchRolePermissions {
     editSchedulesAll: true,
     manageVisitors: false,
     manageCargosCatalog: false,
-    approvePendingMembers: false,
+    approvePendingMembers: true,
     badgeColorArgb: 0xFF2E7D32,
   );
 
@@ -187,7 +187,7 @@ class ChurchRolePermissions {
     editSchedulesAll: false,
     manageVisitors: false,
     manageCargosCatalog: false,
-    approvePendingMembers: false,
+    approvePendingMembers: true,
     badgeColorArgb: 0xFF6A1B9A,
   );
 
@@ -303,9 +303,38 @@ class ChurchRolePermissions {
     return permissions.map((e) => e.trim().toLowerCase()).contains(key);
   }
 
-  /// Administrador, gestor, pastor ou tesoureiro(a) — únicos com Financeiro, Património,
-  /// Fornecedores e Relatórios no painel. Ignora flags no cadastro do membro e permissões granulares.
-  static bool isFinanceCoreTeam(String role) {
+  /// Operações sensíveis (histórico global de doações, alertas FCM exclusivos).
+  static bool isFinanceExclusiveTeam(String role) {
+    final n = normalize(role);
+    const keys = <String>{
+      ChurchRoleKeys.master,
+      ChurchRoleKeys.pastorPresidente,
+      ChurchRoleKeys.pastor,
+      ChurchRoleKeys.tesoureiro,
+      ChurchRoleKeys.tesouraria,
+    };
+    return keys.contains(n);
+  }
+
+  /// Painel Financeiro completo + escrita património — corpo administrativo da igreja.
+  /// Gestor, ADM, secretário, pastoral e tesouraria (não confundir com [isFinanceExclusiveTeam]).
+  static bool isFinancePanelTeam(String role) => isCorporateModuleTeam(role);
+
+  /// @deprecated Prefer [isFinancePanelTeam] ou [isCorporateModuleTeam].
+  static bool isFinanceCoreTeam(String role) => isFinancePanelTeam(role);
+
+  static bool _shellAllowsFinanceNav(
+    String role, {
+    bool? memberCanViewFinance,
+    List<String>? permissions,
+  }) {
+    if (_hasGranularModule(permissions, 'financeiro')) return true;
+    if (memberCanViewFinance == true) return true;
+    return isFinancePanelTeam(role);
+  }
+
+  /// Patrimônio, fornecedores e cadastros corporativos.
+  static bool isCorporateModuleTeam(String role) {
     final n = normalize(role);
     const keys = <String>{
       ChurchRoleKeys.master,
@@ -313,6 +342,7 @@ class ChurchRolePermissions {
       ChurchRoleKeys.gestor,
       ChurchRoleKeys.pastorPresidente,
       ChurchRoleKeys.pastor,
+      ChurchRoleKeys.secretario,
       ChurchRoleKeys.tesoureiro,
       ChurchRoleKeys.tesouraria,
     };
@@ -331,11 +361,15 @@ class ChurchRolePermissions {
     final s = snapshotFor(role);
     final r = normalize(role);
 
-    bool fin() => isFinanceCoreTeam(role);
+    bool fin() => _shellAllowsFinanceNav(
+          role,
+          memberCanViewFinance: memberCanViewFinance,
+          permissions: permissions,
+        );
 
-    bool pat() => isFinanceCoreTeam(role);
+    bool pat() => isCorporateModuleTeam(role);
 
-    bool fornec() => isFinanceCoreTeam(role);
+    bool fornec() => isCorporateModuleTeam(role);
 
     switch (index) {
       case 0:
@@ -408,7 +442,12 @@ class ChurchRolePermissions {
         }
         return s.editAnyMember || s.approvePendingMembers;
       case 16:
-        return isFinanceCoreTeam(role);
+        if (_hasGranularModule(permissions, 'relatorios')) return true;
+        if (permissions != null &&
+            permissions.any((p) => p.trim().toLowerCase().startsWith('relatorio_'))) {
+          return true;
+        }
+        return isFinancePanelTeam(role);
       case 17:
         return true;
       case 18:

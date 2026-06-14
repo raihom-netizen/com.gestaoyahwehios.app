@@ -33,6 +33,7 @@ import 'package:gestao_yahweh/utils/church_department_list.dart'
         dedupeChurchDepartmentDocumentsForHub,
         normalizeChurchDepartmentNameKey;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/pages/church_leader_contact_page.dart';
@@ -71,6 +72,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   /// Carregamento explícito: na web + IndexedStack o FutureBuilder às vezes não reconstrói após o .get() — área ficava em branco.
   bool _deptLoading = true;
   Object? _deptError;
+  bool _deptShowingStaleCache = false;
 
   /// Snapshot do último `.get()` bem-sucedido. Na web o `snapshots()` pode emitir cache vazio antes do listener
   /// popular — evita hub sem cards até o stream alinhar.
@@ -130,7 +132,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   void _startWebLoadingCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
-    _webLoadCap = Timer(const Duration(seconds: 105), () {
+    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
       if (!mounted || !_deptLoading) return;
       final mem = FirestoreReadResilience.peekLastGoodQuery(
         ChurchDepartmentsLoadService.cacheKey(_loadChurchId),
@@ -141,6 +143,11 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
           _hydratedDeptDocs =
               List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(mem.docs);
           _deptError = null;
+          _deptShowingStaleCache = true;
+        } else if (_hydratedDeptDocs != null &&
+            _hydratedDeptDocs!.isNotEmpty) {
+          _deptError = null;
+          _deptShowingStaleCache = true;
         } else if (_hydratedDeptDocs == null || _hydratedDeptDocs!.isEmpty) {
           _hydratedDeptDocs ??= const [];
           _deptError ??= TimeoutException(
@@ -178,6 +185,14 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         _hydratedDeptDocs =
             List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(result.docs);
         _deptError = null;
+        _deptShowingStaleCache = {
+          'ram',
+          'hive',
+          'firestore_mem',
+          'firestore_cache',
+          'fallback_mem',
+          'repository_cache_first',
+        }.contains(result.readSource);
       } else if (_hydratedDeptDocs == null || _hydratedDeptDocs!.isEmpty) {
         _deptError = result.softError != null
             ? TimeoutException(result.softError!)
@@ -187,6 +202,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     });
     if (result.docs.isNotEmpty) {
       unawaited(_loadMemberCpfLookup());
+      Future<void>.delayed(const Duration(seconds: 4), () {
+        if (!mounted || _membersByDeptId.isNotEmpty) return;
+        unawaited(_loadMemberCpfLookup(includeMemberRoster: true));
+      });
     } else if (_canWrite && result.churchId.isNotEmpty) {
       unawaited(_bootstrapDefaultDepartmentsIfAllowed(result.churchId));
     }
@@ -233,8 +252,16 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       _effectiveTenantId = ChurchPanelTenant.resolve(widget.tenantId);
     }
     _hydrateDepartmentsFromInstantCache();
+    if (_hydratedDeptDocs != null && _hydratedDeptDocs!.isNotEmpty) {
+      _deptLoading = false;
+    }
     _startWebLoadingCap();
     unawaited(_bootstrapDepartmentsPage());
+    if (_hydratedDeptDocs != null && _hydratedDeptDocs!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   Future<void> _bootstrapDepartmentsPage() async {
@@ -488,13 +515,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     return byId.values.toList();
   }
 
-  Future<void> _loadMemberCpfLookup() async {
+  Future<void> _loadMemberCpfLookup({bool includeMemberRoster = false}) async {
     final tid = _tid.trim();
     if (tid.isEmpty) return;
     try {
       final directory =
           await MembersDirectorySnapshotService.readOnce(tid).timeout(
-        const Duration(seconds: 4),
+        const Duration(seconds: 3),
       );
       if (directory.hasEntries) {
         final map = <String, String>{};
@@ -513,11 +540,23 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         }
       }
 
+      if (!includeMemberRoster) {
+        if (mounted) setState(() => _memberLookupDone = true);
+        return;
+      }
+
       final snap = await ChurchRepository.collection('membros', churchIdHint: tid)
-          .limit(400)
-          .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 10));
-      final map = <String, String>{};
+          .limit(120)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 4));
+      QuerySnapshot<Map<String, dynamic>> rosterSnap = snap;
+      if (rosterSnap.docs.isEmpty) {
+        rosterSnap = await ChurchRepository.collection('membros', churchIdHint: tid)
+            .limit(120)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 8));
+      }
+      final map = <String, String>{..._cpfToMemberName};
       final byDept =
           <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
       final byCpf = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
@@ -534,7 +573,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         return t.isEmpty ? d.id.toLowerCase() : t;
       }
 
-      for (final d in snap.docs) {
+      for (final d in rosterSnap.docs) {
         final data = d.data();
         final nome = (data['NOME_COMPLETO'] ??
                 data['nome'] ??
@@ -590,6 +629,17 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         setState(() => _memberLookupDone = true);
       }
     }
+  }
+
+  Future<Map<String, dynamic>> _leaderPayloadForSave(List<String> cpfs) async {
+    await _loadMemberCpfLookup(includeMemberRoster: true);
+    return DepartmentMemberIntegrationService.buildLeaderFirestorePayload(
+      tenantId: _tid,
+      leaderCpfs: cpfs,
+      memberDataByCpf:
+          _memberDocByNormCpf.map((k, v) => MapEntry(k, v.data())),
+      nameByCpf: _cpfToMemberName,
+    );
   }
 
   void _refreshDepartments({bool forceServer = false}) {
@@ -1010,7 +1060,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     if (!_canWrite) return;
     try {
       final membersList =
-          await ChurchRepository.membros.list(churchIdHint: _tid, limit: 500);
+          await ChurchRepository.membros.listCacheFirst(
+        churchIdHint: _tid,
+        limit: 500,
+      );
       final members = membersList.items;
       if (members.isEmpty) {
         if (context.mounted) {
@@ -1031,17 +1084,15 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         if (depts.contains(deptId)) selecionados.add(doc.id);
       }
       if (!context.mounted) return;
-      final result = await showModalBottomSheet<Set<String>>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        shape: const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-        builder: (ctx) => _VincularMembrosSheet(
-          tenantId: _tid,
-          deptName: deptName,
-          members: members,
-          selecionados: selecionados,
+      final result = await Navigator.of(context).push<Set<String>>(
+        MaterialPageRoute<Set<String>>(
+          fullscreenDialog: true,
+          builder: (ctx) => _VincularMembrosSheet(
+            tenantId: _tid,
+            deptName: deptName,
+            members: members,
+            selecionados: selecionados,
+          ),
         ),
       );
       if (result == null || !mounted) return;
@@ -1679,6 +1730,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   void _openDepartmentHubSheet({
     required QueryDocumentSnapshot<Map<String, dynamic>> deptDoc,
   }) {
+    unawaited(_loadMemberCpfLookup(includeMemberRoster: true));
     final m = deptDoc.data();
     final hubName = churchDepartmentNameFromDoc(deptDoc);
     final rawIcon = (m['iconKey'] ?? '').toString();
@@ -1690,13 +1742,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       docData: m,
     );
     final (c1, c2) = _deptCardGradientInts(m, resolvedIcon);
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      barrierColor: Colors.black.withValues(alpha: 0.42),
-      builder: (ctx) => _DepartmentHubSheet(
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (ctx) => _DepartmentHubSheet(
         tenantId: _tid,
         deptId: deptDoc.id,
         deptName: hubName,
@@ -1708,14 +1757,12 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         canWrite: _canWrite,
         memberRole: widget.role,
         onWhatsApp: _openWhatsAppForMemberData,
-        onEditDepartamento: () {
-          Navigator.pop(ctx);
-          _edit(doc: deptDoc);
+        onEditDepartamento: () async {
+          await _edit(doc: deptDoc);
         },
-        onAddMember: () {
-          Navigator.pop(ctx);
-          _vincularMembros(
-            context: context,
+        onAddMember: () async {
+          await _vincularMembros(
+            context: ctx,
             deptId: deptDoc.id,
             deptName: churchDepartmentNameFromDoc(deptDoc),
           );
@@ -1731,8 +1778,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 ChurchDepartmentLeaders.cpfsFromDepartmentData(data));
             if (cur.contains(cpf)) return;
             cur.add(cpf);
+            final leaderPayload =
+                await DepartmentMemberIntegrationService.buildLeaderFirestorePayload(
+              tenantId: _tid,
+              leaderCpfs: cur,
+            );
             await _col.doc(deptDoc.id).update({
-              ...ChurchDepartmentLeaders.firestoreFieldsFromCpfs(cur),
+              ...leaderPayload,
               'updatedAt': FieldValue.serverTimestamp(),
             });
             if (mounted) {
@@ -1748,6 +1800,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
             }
           }
         },
+      ),
       ),
     );
   }
@@ -2385,6 +2438,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final members = _membersByDeptId[d.id] ?? const [];
     final stored = ChurchDepartmentVisualMapper.membrosCountFromDoc(m);
     final total = math.max(stored, members.length);
+    final leaderName = ChurchDepartmentLeaders.leaderNameFromDepartmentData(m);
+    final leaderFoto =
+        ChurchDepartmentLeaders.leaderFotoUrlFromDepartmentData(m);
 
     void openHub() => _openDepartmentHubSheet(deptDoc: d);
 
@@ -2537,6 +2593,38 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                                 color: Colors.grey.shade600,
                                 fontWeight: FontWeight.w600,
                               ),
+                            ),
+                          ],
+                          if (leaderName.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                if (leaderFoto.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 6),
+                                    child: ClipOval(
+                                      child: FotoMembroWidget(
+                                        size: 22,
+                                        tenantId: _tid,
+                                        memberId: '',
+                                        imageUrl: leaderFoto,
+                                        memberData: const {},
+                                      ),
+                                    ),
+                                  ),
+                                Flexible(
+                                  child: Text(
+                                    'Líder: $leaderName',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade700,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ],
@@ -2729,17 +2817,16 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final leaderCpfs = List<String>.from(
         ChurchDepartmentLeaders.cpfsFromDepartmentData(data));
 
-    final ok = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => StatefulBuilder(
+    final ok = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        fullscreenDialog: true,
+        builder: (ctx) => StatefulBuilder(
         builder: (ctx, setD) {
           final grad = _themeByKey(iconKey);
           final c1Sheet = Color((data['bgColor1'] ?? grad['c1']) as int);
           final c2Sheet = Color((data['bgColor2'] ?? grad['c2']) as int);
           final seedColor = Color.lerp(c1Sheet, c2Sheet, 0.5)!;
+          final pagePad = ThemeCleanPremium.pagePadding(ctx);
 
           return Theme(
             data: Theme.of(ctx).copyWith(
@@ -2748,29 +2835,53 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 brightness: Brightness.light,
               ),
             ),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                  24, 20, 24, MediaQuery.of(ctx).viewInsets.bottom + 24),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+            child: Scaffold(
+              backgroundColor: ThemeCleanPremium.surfaceVariant,
+              appBar: AppBar(
+                elevation: 0,
+                flexibleSpace: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [c1Sheet, c2Sheet],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                ),
+                foregroundColor: Colors.white,
+                leading: IconButton(
+                  tooltip: 'Voltar',
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  onPressed: () => Navigator.pop(ctx, false),
+                ),
+                title: Text(
+                  doc == null ? 'Novo Departamento' : 'Editar Departamento',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 17,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text(
+                      'Cancelar',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              body: SafeArea(
+                top: false,
+                child: SingleChildScrollView(
+                  padding: pagePad.copyWith(top: 16, bottom: 24),
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Center(
-                        child: Container(
-                            width: 40,
-                            height: 4,
-                            decoration: BoxDecoration(
-                                color: Colors.grey.shade300,
-                                borderRadius: BorderRadius.circular(2)))),
-                    const SizedBox(height: 16),
-                    Text(
-                        doc == null
-                            ? 'Novo Departamento'
-                            : 'Editar Departamento',
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 16),
                     TextField(
                         controller: nameCtrl,
                         decoration: const InputDecoration(
@@ -2890,9 +3001,11 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 ],
               ),
             ),
-          ),
-        );
+              ),
+            ),
+          );
         },
+      ),
       ),
     );
     if (ok != true) return;
@@ -2908,6 +3021,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final theme = _themeByKey(iconKey);
     final c1Argb = theme['c1'] as int;
     final c2Argb = theme['c2'] as int;
+    final leaderPayload = await _leaderPayloadForSave(leaderCpfs);
     final payload = <String, dynamic>{
       'name': nome,
       'iconKey': iconKey,
@@ -2920,7 +3034,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       'bgColor1': c1Argb,
       'bgColor2': c2Argb,
       'bgImageUrl': '',
-      ...ChurchDepartmentLeaders.firestoreFieldsFromCpfs(leaderCpfs),
+      ...leaderPayload,
       'updatedAt': Timestamp.now(),
       ChurchDepartmentFirestoreFields.ultimaAtualizacao:
           FieldValue.serverTimestamp(),
@@ -3127,12 +3241,26 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       return _deptListTab == 0 ? active : !active;
     }).toList();
 
+    final hasLocalDepts = docs.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (_deptLoading) const LinearProgressIndicator(minHeight: 2),
         Padding(
           padding: EdgeInsets.fromLTRB(padding.left, 8, padding.right, 8),
+          child: ChurchPanelResilientLoadBanner(
+            hasLocalData: hasLocalDepts,
+            isSyncing: _deptLoading && hasLocalDepts,
+            showStaleCache: _deptShowingStaleCache && !_deptLoading,
+            errorTitle: 'Não foi possível carregar os departamentos',
+            error: hasLocalDepts ? null : _deptError?.toString(),
+            onRetry: _canWrite
+                ? () => _refreshDepartments(forceServer: true)
+                : null,
+          ),
+        ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(padding.left, 0, padding.right, 8),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -3303,15 +3431,20 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                           _hydratedDeptDocs!.isEmpty)) {
                     return const ChurchPanelLoadingBody();
                   }
+                  final hasLocalDepts =
+                      (_hydratedDeptDocs?.isNotEmpty ?? false);
                   if (_deptError != null &&
-                      (_hydratedDeptDocs == null ||
-                          _hydratedDeptDocs!.isEmpty)) {
+                      !hasLocalDepts &&
+                      !_deptLoading) {
                     return Padding(
                       padding: EdgeInsets.symmetric(
                           horizontal: padding.horizontal,
                           vertical: ThemeCleanPremium.spaceLg),
-                      child: ChurchPanelErrorBody(
-                        title: 'Não foi possível carregar os departamentos',
+                      child: ChurchPanelResilientLoadBanner(
+                        hasLocalData: false,
+                        isSyncing: false,
+                        errorTitle:
+                            'Não foi possível carregar os departamentos',
                         error: _deptError,
                         onRetry: _canWrite
                             ? () =>
@@ -3365,8 +3498,8 @@ class _DepartmentHubSheet extends StatefulWidget {
   final bool canWrite;
   final String memberRole;
   final Future<void> Function(Map<String, dynamic>) onWhatsApp;
-  final VoidCallback onEditDepartamento;
-  final VoidCallback onAddMember;
+  final Future<void> Function() onEditDepartamento;
+  final Future<void> Function() onAddMember;
   final Future<void> Function() onAddLeader;
 
   const _DepartmentHubSheet({
@@ -3395,6 +3528,9 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
   Object? _hubError;
   Map<String, dynamic>? _deptData;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _memberDocs = const [];
+  final TextEditingController _memberSearchCtrl = TextEditingController();
+  String _memberSearch = '';
+  Timer? _memberSearchDebounce;
 
   Color get _cA => Color(widget.accent1);
   Color get _cB => Color(widget.accent2);
@@ -3402,24 +3538,111 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
   @override
   void initState() {
     super.initState();
+    _memberSearchCtrl.addListener(_onMemberSearchChanged);
     unawaited(_loadHubData());
+  }
+
+  @override
+  void dispose() {
+    _memberSearchDebounce?.cancel();
+    _memberSearchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onMemberSearchChanged() {
+    _memberSearchDebounce?.cancel();
+    _memberSearchDebounce = Timer(const Duration(milliseconds: 180), () {
+      if (!mounted) return;
+      final q = _memberSearchCtrl.text.trim();
+      if (q == _memberSearch) return;
+      setState(() => _memberSearch = q);
+    });
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterDocsBySearch(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final q = _memberSearch.trim().toLowerCase();
+    if (q.isEmpty) return docs;
+    return docs
+        .where((d) => _nomeMembro(d).toLowerCase().contains(q))
+        .toList();
   }
 
   Future<void> _loadHubData() async {
     final churchId = ChurchRepository.churchId(widget.tenantId);
     final path =
         'igrejas/$churchId/departamentos/${widget.deptId}/membros_vinculados';
+    if (mounted) {
+      setState(() {
+        _hubLoading = true;
+        _hubError = null;
+      });
+    }
     try {
-      final deptSnap = await firestoreDocumentGetReliable(widget.deptRef);
-      final memberSnap = await firestoreQueryGetReliable(
-        widget.membersCol
-            .where('DEPARTAMENTOS', arrayContains: widget.deptId)
-            .limit(200),
-      );
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+
+      // Cache-first: lista aparece rápido offline/online.
+      try {
+        final cached = await ChurchRepository.membros.listCacheFirst(
+          churchIdHint: widget.tenantId,
+          limit: 500,
+        );
+        final filtered = cached.items.where((d) {
+          final depts = (d.data()['DEPARTAMENTOS'] as List?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              [];
+          return depts.contains(widget.deptId);
+        }).toList();
+        if (filtered.isNotEmpty && mounted) {
+          setState(() {
+            _memberDocs = filtered;
+            _hubLoading = false;
+          });
+        }
+      } catch (_) {}
+
+      final deptSnap = await FirestoreWebGuard.runWithWebRecovery(
+        () => firestoreDocumentGetReliable(widget.deptRef),
+        maxAttempts: 4,
+      ).timeout(const Duration(seconds: 14));
+
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> memberDocs;
+      try {
+        final memberSnap = await FirestoreWebGuard.runWithWebRecovery(
+          () => firestoreQueryGetReliable(
+            widget.membersCol
+                .where('DEPARTAMENTOS', arrayContains: widget.deptId)
+                .limit(200),
+          ),
+          maxAttempts: 4,
+        ).timeout(const Duration(seconds: 14));
+        memberDocs = memberSnap.docs;
+      } catch (_) {
+        if (_memberDocs.isNotEmpty) {
+          memberDocs = _memberDocs;
+        } else {
+          final cached = await ChurchRepository.membros.listCacheFirst(
+            churchIdHint: widget.tenantId,
+            limit: 500,
+          );
+          memberDocs = cached.items.where((d) {
+            final depts = (d.data()['DEPARTAMENTOS'] as List?)
+                    ?.map((e) => e.toString())
+                    .toList() ??
+                [];
+            return depts.contains(widget.deptId);
+          }).toList();
+        }
+      }
+
       if (!mounted) return;
       setState(() {
         _deptData = deptSnap.data();
-        _memberDocs = memberSnap.docs;
+        _memberDocs = memberDocs;
         _hubLoading = false;
         _hubError = null;
       });
@@ -3427,7 +3650,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         module: 'Departamentos-Hub',
         churchId: churchId,
         path: path,
-        totalDocs: memberSnap.docs.length,
+        totalDocs: memberDocs.length,
       );
     } catch (e, st) {
       ChurchModuleQueryProbe.logError(
@@ -3518,8 +3741,13 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       final leaders =
           ChurchDepartmentLeaders.cpfsFromDepartmentData(dSnap.data());
       final next = List<String>.from(leaders)..remove(cpfToRemove);
+      final leaderPayload =
+          await DepartmentMemberIntegrationService.buildLeaderFirestorePayload(
+        tenantId: widget.tenantId,
+        leaderCpfs: next,
+      );
       await widget.deptRef.update({
-        ...ChurchDepartmentLeaders.firestoreFieldsFromCpfs(next),
+        ...leaderPayload,
         'updatedAt': FieldValue.serverTimestamp(),
       });
       if (context.mounted) {
@@ -3576,8 +3804,13 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
             ChurchDepartmentLeaders.cpfsFromDepartmentData(dSnap.data());
         if (leaders.contains(cpf)) {
           final next = List<String>.from(leaders)..remove(cpf);
+          final leaderPayload =
+              await DepartmentMemberIntegrationService.buildLeaderFirestorePayload(
+            tenantId: widget.tenantId,
+            leaderCpfs: next,
+          );
           await widget.deptRef.update({
-            ...ChurchDepartmentLeaders.firestoreFieldsFromCpfs(next),
+            ...leaderPayload,
             'updatedAt': FieldValue.serverTimestamp(),
           });
         }
@@ -3712,6 +3945,11 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
   }
 
   Widget _orphanLeaderTile(BuildContext context, String cpf) {
+    final denormName =
+        ChurchDepartmentLeaders.leaderNameFromDepartmentData(_deptData);
+    final denormFoto =
+        ChurchDepartmentLeaders.leaderFotoUrlFromDepartmentData(_deptData);
+    final title = denormName.isNotEmpty ? denormName : _cpfMask(cpf);
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
@@ -3720,14 +3958,25 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         border: Border.all(color: Colors.orange.shade200),
       ),
       child: ListTile(
-        leading:
-            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800),
+        leading: denormFoto.isNotEmpty
+            ? ClipOval(
+                child: FotoMembroWidget(
+                  size: 40,
+                  tenantId: widget.tenantId,
+                  memberId: '',
+                  imageUrl: denormFoto,
+                  memberData: const {},
+                ),
+              )
+            : Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800),
         title: Text(
-          _cpfMask(cpf),
+          title,
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
-        subtitle: const Text(
-          'Líder gravado, mas sem membro vinculado a este departamento.',
+        subtitle: Text(
+          denormName.isNotEmpty
+              ? 'Líder · CPF ${_cpfMask(cpf)} · membro não listado neste dept.'
+              : 'Líder gravado, mas sem membro vinculado a este departamento.',
         ),
         trailing: widget.canWrite
             ? IconButton(
@@ -3823,12 +4072,28 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
     );
   }
 
-  Widget _buildHubMembersPane(ScrollController scrollController) {
-    if (_hubLoading) {
+  Widget _buildHubMembersPane() {
+    if (_hubLoading && _memberDocs.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_hubError != null) {
-      return Center(child: Text('Erro: $_hubError'));
+    if (_hubError != null && _memberDocs.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Erro ao carregar: $_hubError'),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _loadHubData,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Tentar novamente'),
+              ),
+            ],
+          ),
+        ),
+      );
     }
     final leaderCpfs =
         ChurchDepartmentLeaders.cpfsFromDepartmentData(_deptData);
@@ -3855,15 +4120,18 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       }
     }
     final leaderSet = leaderCpfs.toSet();
-    final otherDocs = docs
+    var otherDocs = docs
         .where((d) => !leaderSet.contains(cpfOf(d)))
         .toList();
     otherDocs.sort((a, b) => _nomeMembro(a)
         .toLowerCase()
         .compareTo(_nomeMembro(b).toLowerCase()));
 
+    final filteredLeaderDocs = _filterDocsBySearch(leaderDocs);
+    otherDocs = _filterDocsBySearch(otherDocs);
+    final searchActive = _memberSearch.trim().isNotEmpty;
+
     return ListView(
-      controller: scrollController,
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
       children: [
         _sectionTitle('Liderança'),
@@ -3881,7 +4149,7 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
               ),
             ),
           ),
-        ...leaderDocs.map(
+        ...filteredLeaderDocs.map(
           (doc) => _leaderCard(context: context, doc: doc),
         ),
         ...orphanCpfs.map((cpf) => _orphanLeaderTile(context, cpf)),
@@ -3918,6 +4186,11 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
           Text(
             'Nenhum membro vinculado.',
             style: TextStyle(color: Colors.grey.shade600),
+          )
+        else if (searchActive && otherDocs.isEmpty && filteredLeaderDocs.isEmpty)
+          Text(
+            'Nenhum membro corresponde à busca.',
+            style: TextStyle(color: Colors.grey.shade600),
           ),
         ...otherDocs.map((doc) => _memberRow(context, doc)),
       ],
@@ -3926,105 +4199,102 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
 
   @override
   Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.68,
-      maxChildSize: 0.94,
-      minChildSize: 0.38,
-      expand: false,
-      builder: (context, scrollController) {
-        final surface = Theme.of(context).colorScheme.surface;
-        final sheetBg =
-            Color.lerp(surface, _cA, 0.035) ?? surface;
-        return Material(
-          color: sheetBg,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          clipBehavior: Clip.antiAlias,
+    final surface = Theme.of(context).colorScheme.surface;
+    final sheetBg = Color.lerp(surface, _cA, 0.035) ?? surface;
+    final pagePad = ThemeCleanPremium.pagePadding(context);
+
+    void closeHub() => Navigator.pop(context);
+
+    return Scaffold(
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      appBar: AppBar(
+        elevation: 0,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [_cA, _cB],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: _cA.withValues(alpha: 0.35),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+        ),
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          tooltip: 'Voltar',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: closeHub,
+        ),
+        title: Row(
+          children: [
+            widget.deptIcon,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.deptName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 17,
+                      letterSpacing: -0.2,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    'Hub do departamento',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white.withValues(alpha: 0.88),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: closeHub,
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: ColoredBox(
+        color: sheetBg,
+        child: SafeArea(
+          top: false,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [_cA, _cB],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _cA.withValues(alpha: 0.35),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Center(
-                          child: Container(
-                            width: 40,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.45),
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            widget.deptIcon,
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    widget.deptName,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleLarge
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w800,
-                                          color: Colors.white,
-                                          letterSpacing: -0.35,
-                                        ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Hub do departamento',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.white.withValues(alpha: 0.88),
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
               if (widget.canWrite)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  padding: pagePad.copyWith(top: 12, bottom: 4),
                   child: Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
                       OutlinedButton.icon(
-                        onPressed: widget.onEditDepartamento,
-                        icon: Icon(Icons.edit_rounded,
-                            size: 18, color: _cA),
+                        onPressed: () async {
+                          await widget.onEditDepartamento();
+                          if (mounted) unawaited(_loadHubData());
+                        },
+                        icon: Icon(Icons.edit_rounded, size: 18, color: _cA),
                         label: Text('Editar', style: TextStyle(color: _cA)),
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(color: _cA.withValues(alpha: 0.55)),
@@ -4032,7 +4302,10 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                         ),
                       ),
                       FilledButton.tonalIcon(
-                        onPressed: widget.onAddMember,
+                        onPressed: () async {
+                          await widget.onAddMember();
+                          if (mounted) unawaited(_loadHubData());
+                        },
                         icon: Icon(Icons.person_add_rounded,
                             size: 18, color: _cA),
                         label: const Text('Membro'),
@@ -4042,7 +4315,10 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                         ),
                       ),
                       FilledButton.icon(
-                        onPressed: () => widget.onAddLeader(),
+                        onPressed: () async {
+                          await widget.onAddLeader();
+                          if (mounted) unawaited(_loadHubData());
+                        },
                         icon: Icon(Icons.star_rounded,
                             size: 18, color: _onAccentFg(_cA)),
                         label: Text('Líder',
@@ -4055,14 +4331,56 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                     ],
                   ),
                 ),
-              const SizedBox(height: 4),
-              Expanded(
-                child: _buildHubMembersPane(scrollController),
+              Padding(
+                padding: pagePad.copyWith(top: 4, bottom: 8),
+                child: TextField(
+                  controller: _memberSearchCtrl,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: 'Buscar membro por nome…',
+                    prefixIcon: const Icon(Icons.search_rounded, size: 22),
+                    suffixIcon: _memberSearchCtrl.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Limpar',
+                            onPressed: () {
+                              _memberSearchCtrl.clear();
+                              setState(() => _memberSearch = '');
+                            },
+                            icon: const Icon(Icons.close_rounded, size: 20),
+                          ),
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      borderSide: BorderSide(color: _cA.withValues(alpha: 0.2)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      borderSide: BorderSide(color: _cA.withValues(alpha: 0.2)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      borderSide: BorderSide(color: _cA, width: 1.4),
+                    ),
+                  ),
+                ),
               ),
+              if (_hubLoading && _memberDocs.isNotEmpty)
+                LinearProgressIndicator(
+                  minHeight: 2,
+                  color: _cA,
+                  backgroundColor: _cA.withValues(alpha: 0.12),
+                ),
+              Expanded(child: _buildHubMembersPane()),
             ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -4285,6 +4603,8 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
   late Set<String> _selected;
   late List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortedMembers;
   final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+  Timer? _searchDebounce;
 
   /// '' = todos; [genderCategoryFromMemberData] `M` ou `F`.
   String _sexFilter = '';
@@ -4303,11 +4623,22 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
             .toLowerCase()
             .compareTo(_memberName(b).toLowerCase()),
       );
-    _searchCtrl.addListener(() => setState(() {}));
+    _searchCtrl.addListener(_onSearchChanged);
+  }
+
+  void _onSearchChanged() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 180), () {
+      if (!mounted) return;
+      final q = _searchCtrl.text.trim();
+      if (q == _searchQuery) return;
+      setState(() => _searchQuery = q);
+    });
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -4324,7 +4655,7 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
 
   bool _memberMatchesFilters(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data();
-    final q = _searchCtrl.text.trim().toLowerCase();
+    final q = _searchQuery.toLowerCase();
     if (q.isNotEmpty) {
       final name = _memberName(doc).toLowerCase();
       if (!name.contains(q)) return false;
@@ -4370,35 +4701,49 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
   @override
   Widget build(BuildContext context) {
     final visible = _visibleMembers;
-    return DraggableScrollableSheet(
-      initialChildSize: 0.6,
-      maxChildSize: 0.95,
-      minChildSize: 0.3,
-      expand: false,
-      builder: (context, scrollController) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+    final pagePad = ThemeCleanPremium.pagePadding(context);
+
+    void closeSheet() => Navigator.pop(context);
+
+    return Scaffold(
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: ThemeCleanPremium.primary,
+        foregroundColor: Colors.white,
+        leading: IconButton(
+          tooltip: 'Voltar',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: closeSheet,
+        ),
+        title: const Text(
+          'Vincular membros',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 17,
+            letterSpacing: -0.2,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: closeSheet,
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 16),
-            Text(
-              'Vincular membros',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 4),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: Padding(
+          padding: pagePad.copyWith(top: 12, bottom: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
             Text(
               '${widget.deptName} — marque os membros que fazem parte para escalas e reuniões.',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
@@ -4417,12 +4762,12 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
                         tooltip: 'Limpar',
                         onPressed: () {
                           _searchCtrl.clear();
-                          setState(() {});
+                          setState(() => _searchQuery = '');
                         },
                         icon: const Icon(Icons.close_rounded, size: 20),
                       ),
                 filled: true,
-                fillColor: Colors.grey.shade50,
+                fillColor: Colors.white,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(color: Colors.grey.shade300),
@@ -4578,7 +4923,6 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
                       ),
                     )
                   : ListView.builder(
-                      controller: scrollController,
                       itemCount: visible.length,
                       itemBuilder: (context, i) {
                   final doc = visible[i];
@@ -4615,7 +4959,7 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
               children: [
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: closeSheet,
                     child: const Text('Cancelar'),
                   ),
                 ),
@@ -4635,6 +4979,7 @@ class _VincularMembrosSheetState extends State<_VincularMembrosSheet> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

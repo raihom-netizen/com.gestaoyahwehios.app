@@ -90,6 +90,90 @@ abstract final class ChurchDepartmentLeaders {
     };
   }
 
+  /// Denormalização — exibir líder na lista sem join com `membros`.
+  static const String leaderNameField = 'leaderName';
+  static const String leaderFotoUrlField = 'leaderFotoUrl';
+
+  static String leaderNameFromDepartmentData(Map<String, dynamic>? data) =>
+      (data?[leaderNameField] ?? '').toString().trim();
+
+  static String leaderFotoUrlFromDepartmentData(Map<String, dynamic>? data) =>
+      (data?[leaderFotoUrlField] ?? '').toString().trim();
+
+  static String _memberDisplayNameFromData(Map<String, dynamic> data) {
+    for (final k in [
+      'NOME_COMPLETO',
+      'nome',
+      'name',
+      'displayName',
+    ]) {
+      final v = (data[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
+  static String _memberPhotoUrlFromData(Map<String, dynamic> data) {
+    for (final k in [
+      'fotoThumbUrl',
+      'fotoUrl',
+      'photoUrl',
+      'FOTO_URL',
+      'foto',
+      'imageUrl',
+    ]) {
+      final v = (data[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
+  /// Resolve nome/foto do 1.º líder encontrado nos mapas locais.
+  static Map<String, dynamic> denormalizedLeaderFieldsFromCpfs(
+    List<String> leaderCpfs, {
+    Map<String, Map<String, dynamic>>? memberDataByCpf,
+    Map<String, String>? nameByCpf,
+  }) {
+    final clean = cpfsFromDepartmentData(<String, dynamic>{
+      'leaderCpfs': leaderCpfs,
+    });
+    var name = '';
+    var foto = '';
+    for (final cpf in clean) {
+      final member = memberDataByCpf?[cpf];
+      if (member != null) {
+        final n = _memberDisplayNameFromData(member);
+        final f = _memberPhotoUrlFromData(member);
+        if (n.isNotEmpty) name = n;
+        if (f.isNotEmpty) foto = f;
+        if (name.isNotEmpty || foto.isNotEmpty) break;
+      }
+      final cachedName = (nameByCpf?[cpf] ?? '').trim();
+      if (cachedName.isNotEmpty && name.isEmpty) name = cachedName;
+      if (name.isNotEmpty && foto.isNotEmpty) break;
+    }
+    return <String, dynamic>{
+      leaderNameField: name,
+      leaderFotoUrlField: foto,
+    };
+  }
+
+  /// CPFs + campos denormalizados — gravar num único `update`/`set`.
+  static Map<String, dynamic> firestoreLeaderPayloadFromCpfs(
+    List<String> cpfs, {
+    Map<String, Map<String, dynamic>>? memberDataByCpf,
+    Map<String, String>? nameByCpf,
+  }) {
+    return <String, dynamic>{
+      ...firestoreFieldsFromCpfs(cpfs),
+      ...denormalizedLeaderFieldsFromCpfs(
+        cpfs,
+        memberDataByCpf: memberDataByCpf,
+        nameByCpf: nameByCpf,
+      ),
+    };
+  }
+
   static bool memberIsLeaderOfDepartment(
     Map<String, dynamic>? deptData,
     String memberCpfDigits,

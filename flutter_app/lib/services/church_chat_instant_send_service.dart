@@ -2,6 +2,7 @@ import 'dart:async' show unawaited;
 
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_chat_send_callbacks.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 
 /// Chat texto — Firestore directo (padrão Controle Total), sem fila/outbox/guard.
@@ -23,8 +24,8 @@ abstract final class ChurchChatInstantSendService {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
     List<String>? mentionedUids,
-    void Function(bool ok)? onComplete,
-    void Function(String message)? onError,
+    ChurchChatSendCompleteCallback? onComplete,
+    ChurchChatSendErrorCallback? onError,
   }) {
     unawaited(sendTextNow(
       tenantId: tenantId,
@@ -48,8 +49,8 @@ abstract final class ChurchChatInstantSendService {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
     List<String>? mentionedUids,
-    void Function(bool ok)? onComplete,
-    void Function(String message)? onError,
+    ChurchChatSendCompleteCallback? onComplete,
+    ChurchChatSendErrorCallback? onError,
   }) =>
       _sendTextDirect(
         tenantId: tenantId,
@@ -71,8 +72,8 @@ abstract final class ChurchChatInstantSendService {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
     List<String>? mentionedUids,
-    void Function(bool ok)? onComplete,
-    void Function(String message)? onError,
+    ChurchChatSendCompleteCallback? onComplete,
+    ChurchChatSendErrorCallback? onError,
   }) async {
     try {
       await ensureFirebaseReadyForChatSend();
@@ -92,7 +93,7 @@ abstract final class ChurchChatInstantSendService {
         );
         return;
       }
-      onComplete?.call(true);
+      onComplete?.call(true, messageId: r.messageId);
     } catch (e, st) {
       YahwehFlowLog.error('CHAT', e, st);
       onComplete?.call(false);
@@ -110,52 +111,55 @@ abstract final class ChurchChatInstantSendService {
     String stickerSource = 'upload',
     Map<String, dynamic>? replyTo,
     String? senderDisplayName,
-    void Function(bool ok)? onComplete,
-    void Function(String message)? onError,
+    ChurchChatSendCompleteCallback? onComplete,
+    ChurchChatSendErrorCallback? onError,
   }) {
     unawaited(
       runChatMediaUploadTask(() async {
-      var messageId = '';
-      try {
-        final begun = await ChurchChatService.beginStickerMessage(
-          tenantId: tenantId,
-          threadId: threadId,
-          storagePath: storagePath,
-          stickerSource: stickerSource,
-          replyTo: replyTo,
-          senderDisplayName: senderDisplayName,
-        );
-        if (!begun.allowed) {
-          onComplete?.call(false);
-          onError?.call(
-            'Não é possível enviar — desbloqueie o contacto nas opções.',
+        var messageId = '';
+        try {
+          final begun = await ChurchChatService.beginStickerMessage(
+            tenantId: tenantId,
+            threadId: threadId,
+            storagePath: storagePath,
+            stickerSource: stickerSource,
+            replyTo: replyTo,
+            senderDisplayName: senderDisplayName,
           );
-          return;
-        }
-        messageId = begun.messageId;
-        await ChurchChatService.finalizeStickerMessage(
-          tenantId: tenantId,
-          threadId: threadId,
-          messageId: messageId,
-          storagePath: storagePath,
-          stickerSource: stickerSource,
-        );
-        onComplete?.call(true);
-      } catch (e, st) {
-        YahwehFlowLog.error('CHAT', e, st);
-        if (messageId.isNotEmpty) {
-          await ChurchChatService.abandonMediaUploadMessage(
+          if (!begun.allowed) {
+            onComplete?.call(false);
+            onError?.call(
+              'Não é possível enviar — desbloqueie o contacto nas opções.',
+            );
+            return;
+          }
+          messageId = begun.messageId;
+          await ChurchChatService.finalizeStickerMessage(
             tenantId: tenantId,
             threadId: threadId,
             messageId: messageId,
+            storagePath: storagePath,
+            stickerSource: stickerSource,
           );
+          onComplete?.call(
+            true,
+            messageId: messageId.isEmpty ? null : messageId,
+          );
+        } catch (e, st) {
+          YahwehFlowLog.error('CHAT', e, st);
+          if (messageId.isNotEmpty) {
+            await ChurchChatService.abandonMediaUploadMessage(
+              tenantId: tenantId,
+              threadId: threadId,
+              messageId: messageId,
+            );
+          }
+          onError?.call(ChurchChatService.formatInstantSendError(e));
         }
+      }, debugLabel: 'chat_sticker_send').catchError((Object e, StackTrace st) {
+        YahwehFlowLog.error('CHAT', e, st);
         onError?.call(ChurchChatService.formatInstantSendError(e));
-      }
-    }, debugLabel: 'chat_sticker_send').catchError((Object e, StackTrace st) {
-      YahwehFlowLog.error('CHAT', e, st);
-      onError?.call(ChurchChatService.formatInstantSendError(e));
-    }),
+      }),
     );
   }
 }

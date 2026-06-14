@@ -90,12 +90,21 @@ abstract final class ChurchModuleFirestoreListRead {
     }
 
     if (!forceServer) {
+      try {
+        final plainCache = await plain(reference)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 3));
+        if (plainCache.docs.isNotEmpty) {
+          return _finalize(plainCache.docs, sortDocs);
+        }
+      } catch (_) {}
+
       final oq = ordered(reference);
       if (oq != null) {
         try {
           final cacheSnap = await oq
               .get(const GetOptions(source: Source.cache))
-              .timeout(const Duration(seconds: 5));
+              .timeout(const Duration(seconds: 3));
           if (cacheSnap.docs.isNotEmpty) {
             return _finalize(cacheSnap.docs, sortDocs);
           }
@@ -137,8 +146,8 @@ abstract final class ChurchModuleFirestoreListRead {
     final snap = kIsWeb
         ? await FirestoreWebGuard.runWithWebRecovery(
             readServer,
-            maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
+            maxAttempts: 3,
+          ).timeout(const Duration(seconds: 18))
         : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
 
     return _finalize(snap.docs, sortDocs);

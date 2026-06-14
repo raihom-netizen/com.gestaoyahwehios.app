@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
+import 'package:gestao_yahweh/services/church_member_notification_prefs_service.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -39,6 +40,7 @@ const String _keyNotifAvisos = 'notif_avisos';
 const String _keyNotifEscalas = 'notif_escalas';
 const String _keyNotifEventos = 'notif_eventos';
 const String _keyNotifAniversariantes = 'notif_aniversariantes';
+const String _keyNotifFornecedor = 'notif_fornecedor';
 const String _keyNotifEmail = 'notif_email';
 const String _keyNotifCelular = 'notif_celular';
 const String _keyNotifWeb = 'notif_web';
@@ -68,7 +70,7 @@ class ConfiguracoesPage extends StatefulWidget {
 
 class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   late bool _notifAvisos, _notifEscalas, _notifEventos, _notifChat,
-      _notifAniversariantes;
+      _notifAniversariantes, _notifFornecedor;
   late String _notifChatAlertMode;
   late bool _notifEmail, _notifCelular, _notifWeb;
   late bool _notif1Dia, _notif60Min;
@@ -132,6 +134,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             ChurchChatNotificationPrefs.alertModeSound,
       );
       _notifAniversariantes = prefs.getBool(_keyNotifAniversariantes) ?? true;
+      _notifFornecedor = prefs.getBool(_keyNotifFornecedor) ?? false;
       _notifEmail = prefs.getBool(_keyNotifEmail) ?? true;
       _notifCelular = prefs.getBool(_keyNotifCelular) ?? true;
       _notifWeb = prefs.getBool(_keyNotifWeb) ?? true;
@@ -170,6 +173,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     var es = prefs.getBool(_keyNotifEscalas) ?? true;
     var ch = prefs.getBool(ChurchChatNotificationPrefs.sharedPrefsKey) ?? true;
     var aniv = prefs.getBool(_keyNotifAniversariantes) ?? true;
+    var forn = prefs.getBool(_keyNotifFornecedor) ?? false;
     var chatAlertMode = ChurchChatNotificationPrefs.normalizeAlertMode(
       prefs.getString(ChurchChatNotificationPrefs.sharedPrefsAlertModeKey) ??
           ChurchChatNotificationPrefs.alertModeSound,
@@ -192,6 +196,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           if (d['pushAniversariantes'] is bool) {
             aniv = d['pushAniversariantes'] as bool;
           }
+          if (d['pushFornecedorAgenda'] is bool) {
+            forn = d['pushFornecedorAgenda'] as bool;
+          }
           final rawAlertMode = d['pushChatAlertMode'];
           if (rawAlertMode is String && rawAlertMode.trim().isNotEmpty) {
             chatAlertMode =
@@ -207,6 +214,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     await prefs.setBool(_keyNotifEscalas, es);
     await prefs.setBool(ChurchChatNotificationPrefs.sharedPrefsKey, ch);
     await prefs.setBool(_keyNotifAniversariantes, aniv);
+    await prefs.setBool(_keyNotifFornecedor, forn);
     await prefs.setString(
       ChurchChatNotificationPrefs.sharedPrefsAlertModeKey,
       chatAlertMode,
@@ -219,6 +227,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       _notifEventos = ev;
       _notifChat = ch;
       _notifAniversariantes = aniv;
+      _notifFornecedor = forn;
       _notifChatAlertMode = chatAlertMode;
     });
   }
@@ -379,24 +388,44 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     if (value is String) await prefs.setString(key, value);
   }
 
-  /// Avisos, eventos e escalas: Firestore + tópicos FCM (app instalado). Padrão true.
+  /// Preferências de push — cache local + Firestore + tópicos FCM.
   Future<void> _savePushPref(String spKey, String firestoreField, bool v) async {
     await _saveNotif(spKey, v);
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     try {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set(
-        {firestoreField: v},
-        SetOptions(merge: true),
+      final prefs = ChurchMemberNotificationPrefs(
+        receberAvisos: _notifAvisos,
+        receberEscalas: _notifEscalas,
+        receberEventosTempo: _notifEventos,
+        receberAniversariantes: _notifAniversariantes,
+        receberChat: _notifChat,
+        receberFinanceiroTempo: _notifFornecedor,
       );
-    } catch (_) {}
+      await ChurchMemberNotificationPrefsService.save(
+        uid: user.uid,
+        prefs: prefs,
+        churchIdHint: widget.tenantId,
+      );
+    } catch (_) {
+      try {
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set(
+          {firestoreField: v},
+          SetOptions(merge: true),
+        );
+      } catch (_) {}
+    }
     if (!kIsWeb) {
       await FcmService.instance.syncPreferencePushTopics(
         uid: user.uid,
         tenantId: widget.tenantId,
+        role: widget.role,
       );
     }
   }
+
+  bool get _showFornecedorNotifToggle =>
+      AppPermissions.canViewFornecedores(widget.role, permissions: widget.permissions);
 
   bool get _restrictedMemberSettings => AppPermissions.isRestrictedMember(widget.role);
 
@@ -449,10 +478,16 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                 padding: padding,
                 children: [
                   if (_churchLoadError != null) ...[
-                    ChurchPanelErrorBody(
-                      title: 'Não foi possível carregar os dados da igreja',
-                      error: _churchLoadError,
+                    ChurchPanelResilientLoadBanner(
+                      hasLocalData: true,
+                      isSyncing: false,
+                      showStaleCache: true,
+                      errorTitle:
+                          'Não foi possível carregar os dados da igreja',
+                      error: _churchLoadError?.toString(),
                       onRetry: _retryChurchLoad,
+                      staleMessage:
+                          'Modo offline — configurações com últimos dados guardados. Toque em Atualizar.',
                     ),
                     const SizedBox(height: 16),
                   ],
@@ -1085,7 +1120,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Push no celular (Android e iPhone)',
+            'Central de Notificações',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
@@ -1094,7 +1129,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Escolha o que deseja receber. Pastoral e devocional usam o tópico geral da igreja.',
+            'Escolha quais alertas receber no celular. Lembretes de eventos disparam 24h e 1h antes.',
             style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, height: 1.35),
           ),
           const SizedBox(height: 14),
@@ -1113,7 +1148,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             icon: Icons.event_rounded,
             color: const Color(0xFFF97316),
             title: 'Eventos',
-            subtitle: 'Agenda, cultos e atividades',
+            subtitle: 'Novidades + lembretes 24h e 1h antes',
             value: _notifEventos,
             onChanged: (v) {
               setState(() => _notifEventos = v);
@@ -1131,6 +1166,22 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
               unawaited(_savePushPref(_keyNotifEscalas, 'pushEscalas', v));
             },
           ),
+          if (_showFornecedorNotifToggle)
+            _PushPrefTile(
+              icon: Icons.receipt_long_rounded,
+              color: const Color(0xFF059669),
+              title: 'Contas a pagar / fornecedores',
+              subtitle: 'Vencimentos 24h e 1h antes (gestão)',
+              value: _notifFornecedor,
+              onChanged: (v) {
+                setState(() => _notifFornecedor = v);
+                unawaited(_savePushPref(
+                  _keyNotifFornecedor,
+                  'pushFornecedorAgenda',
+                  v,
+                ));
+              },
+            ),
           _PushPrefTile(
             icon: Icons.cake_rounded,
             color: const Color(0xFFE11D48),

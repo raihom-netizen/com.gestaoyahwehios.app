@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/church_chat_sync_send_service.dart';
+import 'package:gestao_yahweh/services/church_chat_send_callbacks.dart';
 
 /// Chat Igreja — **fachada fina** (sem tenant fixo; delega motor existente).
 ///
@@ -59,8 +60,8 @@ abstract final class YahwehChatEngineService {
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
     List<String>? mentionedUids,
-    void Function(bool ok)? onComplete,
-    void Function(String message)? onError,
+    ChurchChatSendCompleteCallback? onComplete,
+    ChurchChatSendErrorCallback? onError,
   }) {
     ChatMessagingEngine.sendText(
       churchId: resolveChurchId(churchIdHint),

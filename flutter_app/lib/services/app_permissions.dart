@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
+import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 
 /// Central de papéis e permissões do sistema.
 /// Atualize conforme novos módulos e regras forem criados.
@@ -291,29 +292,40 @@ class AppPermissions {
   static bool canSeeAllChurchDonationHistory(String role) =>
       ChurchRolePermissions.isFinanceCoreTeam(role);
 
-  /// Módulo financeiro (painel) — só administrador, gestor, pastor ou tesoureiro(a). Sem exceção por flag no membro.
+  /// Módulo financeiro (painel) — corpo administrativo + permissão granular `financeiro`.
   static bool canViewFinance(String role, {bool? memberCanViewFinance, List<String>? permissions}) {
-    return ChurchRolePermissions.isFinanceCoreTeam(role);
+    if (hasModulePermission(permissions, 'financeiro')) return true;
+    if (memberCanViewFinance == true) return true;
+    return ChurchRolePermissions.isFinancePanelTeam(role);
   }
 
-  /// Patrimônio — mesmo núcleo do financeiro.
+  /// Patrimônio — corpo administrativo (sem líder de departamento).
   static bool canViewPatrimonio(String role, {bool? memberCanViewPatrimonio, List<String>? permissions}) {
-    return ChurchRolePermissions.isFinanceCoreTeam(role);
+    return ChurchRolePermissions.isCorporateModuleTeam(role);
   }
 
-  /// Fornecedores/prestadores — mesmo núcleo (não presbítero, secretário, líder, obreiro).
+  /// Fornecedores — corpo administrativo; quem tem Financeiro também acede.
   static bool canViewFornecedores(
     String role, {
     bool? memberCanViewFinance,
     bool? memberCanViewFornecedores,
     List<String>? permissions,
   }) {
-    return ChurchRolePermissions.isFinanceCoreTeam(role);
+    if (hasModulePermission(permissions, 'fornecedores')) return true;
+    if (memberCanViewFornecedores == true) return true;
+    if (canViewFinance(
+      role,
+      memberCanViewFinance: memberCanViewFinance,
+      permissions: permissions,
+    )) {
+      return true;
+    }
+    return ChurchRolePermissions.isCorporateModuleTeam(role);
   }
 
-  /// Hub «Relatórios» no painel — restrito ao núcleo financeiro/pastoral (não obreiros nem secretário).
+  /// Hub «Relatórios» financeiros — corpo administrativo (gestor, secretário, tesouraria, pastoral).
   static bool canAccessChurchRelatoriosHub(String role) =>
-      ChurchRolePermissions.isFinanceCoreTeam(role);
+      ChurchRolePermissions.isFinancePanelTeam(role);
 
   /// Módulo Certificados (emissão / histórico) — não para papel [membro] básico.
   /// Acesso: ADM, gestor, secretário, pastor, etc. (editAnyMember), tesoureiro(a), ou permissão `certificados`.
@@ -477,18 +489,28 @@ class AppPermissions {
   static bool canSendChurchBroadcast(
     String role, {
     List<String>? permissions,
-  }) =>
-      chatHubSeesAllDepartmentGroups(role, permissions: permissions);
+  }) {
+    if (chatHubSeesAllDepartmentGroups(role, permissions: permissions)) {
+      return true;
+    }
+    return ChurchRolePermissions.isDepartmentLeaderRoleKey(role);
+  }
 
   /// Adicionar/remover membros no grupo do departamento (chat).
-  /// Só pastoral/gestão (adm, gestor, pastor, secretário, tesoureiro) — **não** líder de departamento.
+  /// Pastoral/gestão ou líder **deste** departamento ([leaderCpfs] / UID).
   static bool canManageDepartmentChatMembers({
     required String role,
     List<String>? permissions,
     Map<String, dynamic>? departmentData,
     required String memberCpfDigits,
   }) {
-    return chatHubSeesAllDepartmentGroups(role, permissions: permissions);
+    if (hasModulePermission(permissions, 'departamentos')) return true;
+    return ChurchChatModeration.canManageDepartmentGroup(
+      memberRole: role,
+      memberCpfDigits: memberCpfDigits,
+      isDepartmentThread: true,
+      departmentData: departmentData,
+    );
   }
 
   /// Aprovações rápidas (cadastros públicos pendentes) — menu índice 18 + regra `membros` no Firestore.

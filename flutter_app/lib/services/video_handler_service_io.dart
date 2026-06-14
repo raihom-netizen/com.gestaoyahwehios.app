@@ -7,7 +7,7 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_compress/video_compress.dart';
 
-import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_storage_upload_guard.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
@@ -128,13 +128,17 @@ class VideoHandlerService implements IVideoHandlerService {
         videoSlot: slot,
       );
 
-      final videoPath =
-          FeedTenantStorageMap.feedEventoHostedVideoMp4Path(
-            tenantId,
-            eventPostDocId,
-            slot,
-          );
-      final thumbPath = FeedTenantStorageMap.feedEventoHostedVideoThumbPath(
+      final videoPath = slot <= 0
+          ? ChurchStorageLayout.eventHostedVideoPrincipalPath(
+              tenantId,
+              eventPostDocId,
+            )
+          : ChurchStorageLayout.eventHostedVideoMp4Path(
+              tenantId,
+              eventPostDocId,
+              slot,
+            );
+      final thumbPath = ChurchStorageLayout.eventHostedVideoThumbPath(
         tenantId,
         eventPostDocId,
         slot,

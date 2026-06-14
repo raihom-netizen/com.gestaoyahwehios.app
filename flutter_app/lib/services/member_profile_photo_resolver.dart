@@ -27,16 +27,32 @@ abstract final class MemberProfilePhotoResolver {
       if (thumbPath != null && thumbPath.isNotEmpty) return thumbPath;
       final thumbUrl = MemberImageFields.photoThumbDownloadUrl(data);
       if (thumbUrl != null && thumbUrl.isNotEmpty) return thumbUrl;
+
+      final synthesized = _synthesizedThumbStoragePath(data);
+      if (synthesized != null && synthesized.isNotEmpty) return synthesized;
+
+      final list = MemberProfileVariantsService.listPhotoUrl(data);
+      if (list != null && list.isNotEmpty && !_looksLikeFullProfilePhotoPath(list)) {
+        return list;
+      }
+
+      // Último recurso em listas: full https/path (membros legados sem thumb).
+      final https = MemberImageFields.photoDownloadUrl(data);
+      if (https != null && https.isNotEmpty) return https;
+
+      final storagePath = MemberImageFields.photoStoragePath(data);
+      if (storagePath != null && storagePath.isNotEmpty) return storagePath;
+
+      final full = MemberProfileVariantsService.profilePhotoUrl(data);
+      if (full != null && full.isNotEmpty) return full;
+
+      final mapUrl = imageUrlFromMap(data);
+      return mapUrl.isEmpty ? null : mapUrl;
     }
 
     // URL https no Firestore — prioridade sobre path desatualizado (docId ≠ authUid).
     final https = MemberImageFields.photoDownloadUrl(data);
     if (https != null && https.isNotEmpty) return https;
-
-    if (preferThumb) {
-      final list = MemberProfileVariantsService.listPhotoUrl(data);
-      if (list != null && list.isNotEmpty) return list;
-    }
 
     final storagePath = MemberImageFields.photoStoragePath(data);
     if (storagePath != null && storagePath.isNotEmpty) return storagePath;
@@ -46,6 +62,37 @@ abstract final class MemberProfilePhotoResolver {
 
     final mapUrl = imageUrlFromMap(data);
     return mapUrl.isEmpty ? null : mapUrl;
+  }
+
+  static String? _tenantIdFromData(Map<String, dynamic> data) {
+    for (final k in const [
+      'churchId',
+      'tenantId',
+      'igrejaId',
+      'churchCanonicalId',
+    ]) {
+      final v = (data[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return null;
+  }
+
+  static bool _looksLikeFullProfilePhotoPath(String raw) {
+    final t = raw.trim().replaceAll('\\', '/').toLowerCase();
+    if (t.isEmpty) return false;
+    return t.contains('foto_perfil') ||
+        t.endsWith('.jpg') && !t.contains('thumb');
+  }
+
+  /// Thumb canónica/legada quando o doc só tem path da foto full.
+  static String? _synthesizedThumbStoragePath(Map<String, dynamic> data) {
+    final tid = _tenantIdFromData(data);
+    if (tid == null || tid.isEmpty) return null;
+    final folder = authUidFromData(data)?.trim() ??
+        (data['MEMBER_ID'] ?? data['memberDocId'] ?? '').toString().trim();
+    if (folder.isEmpty) return null;
+    // Legado: `membros/{uid}/thumb_foto_perfil.jpg` (Resize Images).
+    return ChurchStorageLayout.memberProfileResizeThumbPath(tid, folder);
   }
 
   static bool hasPhotoRef(Map<String, dynamic>? data, {bool preferThumb = false}) {

@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
+import 'package:gestao_yahweh/core/escala_member_payload.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -44,6 +45,7 @@ abstract final class ChurchSchedulesLoadService {
   ChurchSchedulesLoadService._();
 
   static const int kEscalasDefaultLimit = 200;
+  static const int kEscalasPanelActiveLimit = 30;
   static const int kTemplatesDefaultLimit = 120;
   static const String kTemplatesHiveModule = ChurchDataPaths.escalaTemplates;
 
@@ -131,16 +133,27 @@ abstract final class ChurchSchedulesLoadService {
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> filterByMemberCpfs(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     String cpfDigits,
-  ) {
-    final cpf = cpfDigits.replaceAll(RegExp(r'[^0-9]'), '');
-    if (cpf.length != 11) return const [];
+  ) =>
+      filterByMember(
+        docs,
+        cpfDigits: cpfDigits,
+      );
+
+  /// Filtra escalas do membro — `memberUids` (preferido) ou `escalados` / `memberCpfs` legado.
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> filterByMember(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    String cpfDigits = '',
+    String uid = '',
+  }) {
+    final cpf = EscalaMemberPayload.normCpf(cpfDigits);
+    final authUid = uid.trim();
+    if (cpf.length != 11 && authUid.isEmpty) return const [];
     return docs.where((d) {
-      final raw = d.data()['memberCpfs'];
-      if (raw is! List) return false;
-      for (final e in raw) {
-        if (e.toString().replaceAll(RegExp(r'[^0-9]'), '') == cpf) return true;
-      }
-      return false;
+      return EscalaMemberPayload.docContainsMember(
+        data: d.data(),
+        cpfDigits: cpf,
+        uid: authUid,
+      );
     }).toList();
   }
 
@@ -150,6 +163,7 @@ abstract final class ChurchSchedulesLoadService {
     int limit = kEscalasDefaultLimit,
     bool forceRefresh = false,
     bool forceServer = false,
+    bool activeOnly = false,
   }) =>
       _load(
         seedTenantId: seedTenantId,
@@ -160,8 +174,12 @@ abstract final class ChurchSchedulesLoadService {
         limit: limit,
         forceRefresh: forceRefresh,
         forceServer: forceServer,
-        orderedQuery: (col, capped) => col.limit(capped),
-        plainQuery: (col, capped) => col.limit(capped),
+        orderedQuery: (col, capped) => activeOnly
+            ? col.where('active', isEqualTo: true).limit(capped)
+            : col.limit(capped),
+        plainQuery: (col, capped) => activeOnly
+            ? col.where('active', isEqualTo: true).limit(capped)
+            : col.limit(capped),
         sortDocs: _sortEscalasByDateDesc,
       );
 
@@ -169,6 +187,7 @@ abstract final class ChurchSchedulesLoadService {
   static Future<ChurchSchedulesLoadResult> loadEscalasForMember({
     required String seedTenantId,
     required String cpfDigits,
+    String memberUid = '',
     int limit = kEscalasDefaultLimit,
     bool forceRefresh = false,
     bool forceServer = false,
@@ -205,7 +224,7 @@ abstract final class ChurchSchedulesLoadService {
 
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
       if (mem != null) {
-        final docs = filterByMemberCpfs(mem.docs, cpf);
+        final docs = filterByMember(mem.docs, cpfDigits: cpf, uid: memberUid);
         _putRam(_ramMemberEscalas, ramKey, docs);
         return ChurchSchedulesLoadResult(
           churchId: churchId,
@@ -228,11 +247,12 @@ abstract final class ChurchSchedulesLoadService {
           );
           final all = TenantModuleHiveCache.toQueryDocuments(hive);
           if (ChurchModuleFirestoreListRead.shouldServeHiveCache(all)) {
-            final docs = filterByMemberCpfs(all, cpf);
+            final docs = filterByMember(all, cpfDigits: cpf, uid: memberUid);
             _putRam(_ramMemberEscalas, ramKey, docs);
             unawaited(_refreshMemberEscalasInBackground(
               churchId: churchId,
               cpf: cpf,
+              memberUid: memberUid,
               limit: capped,
               ramKey: ramKey,
             ));
@@ -259,7 +279,7 @@ abstract final class ChurchSchedulesLoadService {
         forceRefresh: forceRefresh,
         forceServer: forceServer,
       );
-      final docs = filterByMemberCpfs(all.docs, cpf);
+      final docs = filterByMember(all.docs, cpfDigits: cpf, uid: memberUid);
       _putRam(_ramMemberEscalas, ramKey, docs);
       return ChurchSchedulesLoadResult(
         churchId: churchId,
@@ -293,7 +313,7 @@ abstract final class ChurchSchedulesLoadService {
       forceRefresh: forceRefresh,
       forceServer: forceServer,
     );
-    final filtered = filterByMemberCpfs(fallback.docs, cpf);
+    final filtered = filterByMember(fallback.docs, cpfDigits: cpf, uid: memberUid);
     _putRam(_ramMemberEscalas, ramKey, filtered);
     return ChurchSchedulesLoadResult(
       churchId: churchId,
@@ -310,14 +330,28 @@ abstract final class ChurchSchedulesLoadService {
     required String cpf,
     required int limit,
     required String ramKey,
+    String memberUid = '',
   }) async {
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       final col = ChurchUiCollections.escalas(churchId);
+      final uid = memberUid.trim();
+      Query<Map<String, dynamic>> query;
+      if (uid.isNotEmpty) {
+        query = col
+            .where('memberUids', arrayContains: uid)
+            .where('active', isEqualTo: true)
+            .limit(limit);
+      } else {
+        query = col
+            .where('memberCpfs', arrayContains: cpf)
+            .where('active', isEqualTo: true)
+            .limit(limit);
+      }
       final snap = await FirestoreReadResilience.getQuery(
-        col.where('memberCpfs', arrayContains: cpf).limit(limit),
+        query,
         cacheKey: ramKey,
         maxAttempts: kIsWeb ? 4 : 2,
         attemptTimeout: ChurchPanelReadTimeouts.attempt,
@@ -326,7 +360,21 @@ abstract final class ChurchSchedulesLoadService {
         snap.docs,
       )..sort(EscalaFirestoreFields.compareDateAsc);
       _putRam(_ramMemberEscalas, ramKey, docs);
-    } catch (_) {}
+    } catch (_) {
+      try {
+        final col = ChurchUiCollections.escalas(churchId);
+        final snap = await FirestoreReadResilience.getQuery(
+          col.where('memberCpfs', arrayContains: cpf).limit(limit),
+          cacheKey: '${ramKey}_legacy',
+          maxAttempts: kIsWeb ? 4 : 2,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        );
+        final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+          snap.docs,
+        )..sort(EscalaFirestoreFields.compareDateAsc);
+        _putRam(_ramMemberEscalas, ramKey, docs);
+      } catch (_) {}
+    }
   }
 
   static String? _humanizeError(Object? e) {

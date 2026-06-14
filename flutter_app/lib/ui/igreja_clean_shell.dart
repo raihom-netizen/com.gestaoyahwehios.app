@@ -2574,8 +2574,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   gradient: ThemeCleanPremium.churchPanelBodyGradient,
                 ),
                 child: SafeArea(
-                  child: ChurchPanelErrorBody(
-                    title: 'Não foi possível carregar os dados da igreja',
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: false,
+                    isSyncing: false,
+                    errorTitle: 'Não foi possível carregar os dados da igreja',
                     error: tenantSnap.error,
                     onRetry: () => setState(() => _tenantStreamRetry++),
                   ),
@@ -2609,8 +2611,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   gradient: ThemeCleanPremium.churchPanelBodyGradient,
                 ),
                 child: SafeArea(
-                  child: ChurchPanelErrorBody(
-                    title: 'Igreja não encontrada no painel',
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: false,
+                    isSyncing: false,
+                    errorTitle: 'Igreja não encontrada no painel',
                     error:
                         'Não foi possível carregar igrejas/$_moduleTenantId. '
                         'Verifique o ID da igreja no seu usuário ou entre novamente.',

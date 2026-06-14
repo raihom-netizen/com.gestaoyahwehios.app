@@ -11,6 +11,10 @@
     "deploy": "firebase deploy --only functions",
     "sync-members": "node scripts/sync-members.js",
     "migrate-members-to-membros": "node scripts/migrate-members-to-membros.js",
+    "migrate-escalas-escalados": "node scripts/migrate-escalas-escalados-denorm.js",
+    "migrate-departamentos-leader": "node scripts/migrate-departamentos-leader-denorm.js",
+    "migrate-pedidos-oracao-orando": "node scripts/migrate-pedidos-oracao-orando-membros-denorm.js",
+    "cleanup-corrupt-feed-posts": "node scripts/cleanup-corrupt-feed-posts.js",
     "reset-departamentos-bpc": "node scripts/reset-departamentos-igreja.js",
     "clean-tenant-media": "node scripts/clean-tenant-media.js",
     "ensure-institutional-gallery": "node scripts/ensure-institutional-gallery.js"

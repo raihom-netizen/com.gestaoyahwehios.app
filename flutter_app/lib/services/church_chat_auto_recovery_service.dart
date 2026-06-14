@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
@@ -42,6 +43,65 @@ abstract final class ChurchChatAutoRecoveryService {
     } catch (e, st) {
       YahwehFlowLog.error('CHAT', e, st);
     }
+  }
+
+  /// Após voltar online — promove `deliveryStatus: local` → `sent` (texto offline).
+  static Future<int> promoteLocalDeliveryAfterSync({
+    required String tenantId,
+    required String threadId,
+    required String uid,
+  }) async {
+    if (tenantId.trim().isEmpty ||
+        threadId.trim().isEmpty ||
+        uid.isEmpty ||
+        !AppConnectivityService.instance.isOnline) {
+      return 0;
+    }
+    var fixed = 0;
+    try {
+      final snap = await ChurchChatService.messagesCol(tenantId, threadId)
+          .where('senderUid', isEqualTo: uid)
+          .where('deliveryStatus', isEqualTo: ChurchChatService.deliveryLocal)
+          .orderBy('createdAt', descending: true)
+          .limit(20)
+          .get();
+      for (final doc in snap.docs) {
+        try {
+          await FirestoreWebGuard.runWithWebRecovery(() => doc.reference.update({
+                'deliveryStatus': ChurchChatService.deliverySent,
+                'status': ChurchChatService.deliverySent,
+              }));
+          fixed++;
+        } catch (e, st) {
+          YahwehFlowLog.error('CHAT', e, st);
+        }
+      }
+    } catch (_) {
+      try {
+        final snap = await ChurchChatService.messagesCol(tenantId, threadId)
+            .orderBy('createdAt', descending: true)
+            .limit(30)
+            .get();
+        for (final doc in snap.docs) {
+          final data = doc.data();
+          if ((data['senderUid'] ?? '').toString() != uid) continue;
+          final ds = (data['deliveryStatus'] ?? data['status'] ?? '').toString();
+          if (ds != ChurchChatService.deliveryLocal) continue;
+          try {
+            await doc.reference.update({
+              'deliveryStatus': ChurchChatService.deliverySent,
+              'status': ChurchChatService.deliverySent,
+            });
+            fixed++;
+          } catch (e, st) {
+            YahwehFlowLog.error('CHAT', e, st);
+          }
+        }
+      } catch (e, st) {
+        YahwehFlowLog.error('CHAT', e, st);
+      }
+    }
+    return fixed;
   }
 
   /// Ao abrir um thread — recupera envios presos desta conversa (cutoff mais curto).

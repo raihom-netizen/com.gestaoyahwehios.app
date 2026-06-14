@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/ui/pages/lideranca_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/pages/members_page.dart' show MembersPage;
@@ -19,6 +20,7 @@ import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_cargos_load_service.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
@@ -148,6 +150,7 @@ class _CargosPageState extends State<CargosPage> {
   /// Evita loop ao criar cargos padrão automaticamente.
   bool _triedAutoSeed = false;
   int _cargosLoadRetryGen = 0;
+  bool _cargosLoadPending = true;
 
   /// Módulos “binários” (um chip) — [Membros], [Mural], [Eventos/Feed], [Agenda] e [Relatórios] têm secções dedicadas.
   static const List<(String key, String label)> _kCargoSimpleChips = [
@@ -624,26 +627,69 @@ class _CargosPageState extends State<CargosPage> {
   void _startWebLoadingCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
-    _webLoadCap = Timer(const Duration(seconds: 105), () {
-      if (!mounted) return;
-      final mem = FirestoreReadResilience.peekLastGoodQuery(
-        ChurchCargosLoadService.cacheKey(_loadChurchId),
-      );
-      if (mem != null && mem.docs.isNotEmpty) {
-        setState(() {
-          _cargosFuture = Future.value(mem);
-        });
-        return;
-      }
+    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+      if (!mounted || !_cargosLoadPending) return;
+      final fallback = _peekInstantCargosSnap();
       setState(() {
-        _cargosFuture = Future.error(
-          TimeoutException(
-            'Tempo esgotado ao carregar cargos. Toque em atualizar.',
-          ),
+        _cargosLoadPending = false;
+        _cargosFuture = Future.value(
+          fallback ?? const MergedFirestoreQuerySnapshot([]),
         );
       });
       _scheduleCargosRetry();
     });
+  }
+
+  QuerySnapshot<Map<String, dynamic>>? _peekInstantCargosSnap() {
+    final seed = _loadChurchId;
+    if (seed.isEmpty) return null;
+
+    final ram = ChurchCargosLoadService.peekRam(seed);
+    if (ram != null && ram.isNotEmpty) {
+      return MergedFirestoreQuerySnapshot(ram);
+    }
+
+    final mem = FirestoreReadResilience.peekLastGoodQuery(
+      ChurchCargosLoadService.cacheKey(seed),
+    );
+    if (mem != null && mem.docs.isNotEmpty) return mem;
+    return null;
+  }
+
+  Future<QuerySnapshot<Map<String, dynamic>>> _loadCargosWithCap({
+    bool forceServer = false,
+  }) async {
+    try {
+      return await _loadCargos(forceServer: forceServer).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      );
+    } catch (e) {
+      final fallback = _peekInstantCargosSnap();
+      if (fallback != null) return fallback;
+      return const MergedFirestoreQuerySnapshot([]);
+    } finally {
+      if (mounted) {
+        _webLoadCap?.cancel();
+        _cargosLoadPending = false;
+      }
+    }
+  }
+
+  Future<void> _tryIndexedDbCacheFirst() async {
+    if (_peekInstantCargosSnap() != null) return;
+    try {
+      await _prepareCargosRead();
+      final cacheSnap = await ChurchUiCollections.cargos(_loadChurchId)
+          .limit(ChurchCargosLoadService.kLimit)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
+      if (cacheSnap.docs.isEmpty || !mounted || !_cargosLoadPending) return;
+      setState(() {
+        _cargosFuture = Future.value(cacheSnap);
+        _cargosLoadPending = false;
+      });
+      _webLoadCap?.cancel();
+    } catch (_) {}
   }
 
   void _scheduleCargosRetry() {
@@ -652,7 +698,7 @@ class _CargosPageState extends State<CargosPage> {
       Future<void>.delayed(Duration(seconds: delay), () async {
         if (!mounted || gen != _cargosLoadRetryGen) return;
         try {
-          final snap = await _loadCargos(forceServer: delay >= 6);
+          final snap = await _loadCargosWithCap(forceServer: delay >= 6);
           if (!mounted || gen != _cargosLoadRetryGen) return;
           if (snap.docs.isNotEmpty) {
             setState(() => _cargosFuture = Future.value(snap));
@@ -681,8 +727,6 @@ class _CargosPageState extends State<CargosPage> {
     }
     final path = 'igrejas/$churchId/cargos';
 
-    await _prepareCargosRead();
-
     final result = await ChurchCargosLoadService.load(
       seedTenantId: churchId,
       forceServer: forceServer,
@@ -690,6 +734,8 @@ class _CargosPageState extends State<CargosPage> {
     );
 
     if (result.docs.isNotEmpty) {
+      ChurchCargosLoadService.putRam(result.churchId, result.docs);
+      unawaited(ChurchCargosLoadService.persistAfterLoad(result));
       ChurchModuleQueryProbe.logSuccess(
         module: 'Cargos',
         churchId: result.churchId,
@@ -706,64 +752,27 @@ class _CargosPageState extends State<CargosPage> {
         path: path,
         error: result.softError!,
       );
-      throw TimeoutException(result.softError!);
+    } else {
+      ChurchModuleQueryProbe.logSuccess(
+        module: 'Cargos',
+        churchId: churchId,
+        path: path,
+        totalDocs: 0,
+      );
     }
-
-    ChurchModuleQueryProbe.logSuccess(
-      module: 'Cargos',
-      churchId: churchId,
-      path: path,
-      totalDocs: 0,
-    );
     return result.snapshot;
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadCargos() async {
-    final seed = _loadChurchId;
-    if (seed.isEmpty) return _loadCargos();
-
-    final ram = ChurchCargosLoadService.peekRam(seed);
-    if (ram != null && ram.isNotEmpty) {
-      return MergedFirestoreQuerySnapshot(ram);
-    }
-
-    final mem = FirestoreReadResilience.peekLastGoodQuery(
-      ChurchCargosLoadService.cacheKey(seed),
-    );
-    if (mem != null && mem.docs.isNotEmpty) {
-      return mem;
-    }
-
-    return _loadCargos();
-  }
-
-  /// 1.º frame: RAM / memória; rede resiliente em background.
-  Future<void> _openCargosFast() async {
-    final seed = _loadChurchId;
-    if (seed.isEmpty) return;
-
-    await _prepareCargosRead();
-
+  Future<void> _refreshCargosBackground({bool forceServer = false}) async {
     try {
-      final snap = await _loadCargos();
-      if (mounted && snap.docs.isNotEmpty) {
-        setState(() {
-          _cargosFuture = Future.value(snap);
-        });
+      if (kIsWeb) {
+        await _prepareCargosRead();
       }
-    } catch (_) {} finally {
-      _webLoadCap?.cancel();
-    }
-
-    unawaited(_refreshCargosBackground());
-  }
-
-  Future<void> _refreshCargosBackground() async {
-    try {
-      final snap = await _loadCargos();
+      final snap = await _loadCargosWithCap(forceServer: forceServer);
       if (!mounted || snap.docs.isEmpty) return;
       setState(() {
         _cargosFuture = Future.value(snap);
+        _cargosLoadPending = false;
       });
     } catch (_) {}
   }
@@ -772,9 +781,16 @@ class _CargosPageState extends State<CargosPage> {
   void initState() {
     super.initState();
     _resolvedTenantId = ChurchPanelTenant.resolve(widget.tenantId);
-    _cargosFuture = _seedOrLoadCargos();
+    final instant = _peekInstantCargosSnap();
+    if (instant != null) {
+      _cargosFuture = Future.value(instant);
+      _cargosLoadPending = false;
+      unawaited(_refreshCargosBackground());
+    } else {
+      _cargosFuture = _loadCargosWithCap();
+      unawaited(_tryIndexedDbCacheFirst());
+    }
     _startWebLoadingCap();
-    unawaited(_openCargosFast());
   }
 
   @override
@@ -787,11 +803,20 @@ class _CargosPageState extends State<CargosPage> {
   void didUpdateWidget(covariant CargosPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
+      _cargosLoadRetryGen++;
       _resolvedTenantId = ChurchPanelTenant.resolve(widget.tenantId);
       _triedAutoSeed = false;
-      _cargosFuture = _seedOrLoadCargos();
+      _cargosLoadPending = true;
+      final instant = _peekInstantCargosSnap();
+      if (instant != null) {
+        _cargosFuture = Future.value(instant);
+        _cargosLoadPending = false;
+        unawaited(_refreshCargosBackground());
+      } else {
+        _cargosFuture = _loadCargosWithCap();
+        unawaited(_tryIndexedDbCacheFirst());
+      }
       _startWebLoadingCap();
-      unawaited(_openCargosFast());
     }
   }
 
@@ -826,7 +851,7 @@ class _CargosPageState extends State<CargosPage> {
       debugPrint('CargosPage _seedPadroes: $e');
     }
     if (mounted) {
-      setState(() => _cargosFuture = _loadCargos());
+      setState(() => _cargosFuture = _loadCargosWithCap());
     }
   }
 
@@ -871,13 +896,18 @@ class _CargosPageState extends State<CargosPage> {
 
   Future<void> _refresh({bool forceServer = false}) async {
     if (!mounted) return;
+    _cargosLoadRetryGen++;
+    _cargosLoadPending = true;
+    _startWebLoadingCap();
     setState(() {
-      _cargosFuture = _loadCargos(forceServer: forceServer);
+      _cargosFuture = _loadCargosWithCap(forceServer: forceServer);
     });
     try {
       await _cargosFuture;
-    } catch (_) {}
-    _webLoadCap?.cancel();
+    } catch (_) {} finally {
+      if (mounted) _cargosLoadPending = false;
+      _webLoadCap?.cancel();
+    }
   }
 
   Widget _buildCargosHubCard(EdgeInsets padding) {
@@ -1671,17 +1701,25 @@ class _CargosPageState extends State<CargosPage> {
                       !snap.hasError) {
                     return const ChurchPanelLoadingBody(itemCount: 4);
                   }
-                  if (snap.hasError) {
-                    return Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: ChurchPanelErrorBody(
-                        title: 'Não foi possível carregar os cargos',
-                        error: snap.error,
-                        onRetry: () => _refresh(forceServer: true),
-                      ),
-                    );
+                  final cargosLoadFailed = snap.hasError;
+                  if (cargosLoadFailed) {
+                    final fallback = _peekInstantCargosSnap();
+                    if (fallback == null || fallback.docs.isEmpty) {
+                      return Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: ChurchPanelResilientLoadBanner(
+                          hasLocalData: false,
+                          isSyncing: false,
+                          errorTitle: 'Não foi possível carregar os cargos',
+                          error: snap.error,
+                          onRetry: () => _refresh(forceServer: true),
+                        ),
+                      );
+                    }
                   }
-                  var docs = snap.data?.docs ?? [];
+                  var docs = cargosLoadFailed
+                      ? (_peekInstantCargosSnap()?.docs ?? [])
+                      : (snap.data?.docs ?? []);
                   if (docs.isEmpty) {
                     if (_canWrite && !_triedAutoSeed) {
                       _triedAutoSeed = true;
@@ -1827,6 +1865,21 @@ class _CargosPageState extends State<CargosPage> {
                     primary: false,
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
+                      if (cargosLoadFailed)
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                                padding.left, 8, padding.right, 8),
+                            child: ChurchPanelResilientLoadBanner(
+                              hasLocalData: true,
+                              isSyncing: false,
+                              showStaleCache: true,
+                              errorTitle:
+                                  'Não foi possível carregar os cargos',
+                              onRetry: () => _refresh(forceServer: true),
+                            ),
+                          ),
+                        ),
                       SliverToBoxAdapter(child: _buildCargosHubCard(padding)),
                       SliverToBoxAdapter(
                         child: Padding(

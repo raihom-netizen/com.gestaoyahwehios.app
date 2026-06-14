@@ -152,25 +152,39 @@ abstract final class ChurchDepartmentsLoadService {
       }
 
       try {
-        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
+        final hive = await TenantModuleHiveCache.readDocs(
           churchId,
           TenantModuleKeys.departamentos,
-        ).timeout(const Duration(seconds: 3));
-        if (updatedAt != null) {
-          final hive = await TenantModuleHiveCache.readDocs(
-            churchId,
-            TenantModuleKeys.departamentos,
+        ).timeout(const Duration(seconds: 2));
+        final docs = _docsFromHive(hive);
+        if (docs.isNotEmpty) {
+          putRam(churchId, docs);
+          unawaited(_refreshInBackground(churchId));
+          return ChurchDepartmentsLoadResult(
+            churchId: churchId,
+            docs: docs,
+            readSource: 'hive',
           );
-          final docs = _docsFromHive(hive);
-          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
-            putRam(churchId, docs);
-            unawaited(_refreshInBackground(churchId));
-            return ChurchDepartmentsLoadResult(
-              churchId: churchId,
-              docs: docs,
-              readSource: 'hive',
-            );
-          }
+        }
+      } catch (_) {}
+
+      try {
+        final cacheSnap = await ChurchUiCollections.departamentos(churchId)
+            .limit(kLimit)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 3));
+        if (cacheSnap.docs.isNotEmpty) {
+          final sorted =
+              List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+                cacheSnap.docs,
+              )..sort(_sortByDisplayName);
+          putRam(churchId, sorted);
+          unawaited(_refreshInBackground(churchId));
+          return ChurchDepartmentsLoadResult(
+            churchId: churchId,
+            docs: sorted,
+            readSource: 'firestore_cache',
+          );
         }
       } catch (_) {}
     }

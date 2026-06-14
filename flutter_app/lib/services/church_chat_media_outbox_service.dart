@@ -160,7 +160,7 @@ abstract final class ChurchChatMediaOutboxService {
         localPath: localPath,
         fileName: fileName,
         mime: mime,
-        status: ChurchChatUploadsService.statusWaitingNetwork,
+        status: ChurchChatUploadsService.statusQueued,
       ),
     );
     final sp = storagePath?.trim() ?? '';
@@ -558,14 +558,14 @@ abstract final class ChurchChatMediaOutboxService {
         // ignore: avoid_print
         print('[chat_outbox] falha $localId: $e');
       }
-      unawaited(
-        clearJob(
-          tenantId: tenantId,
-          threadId: threadId,
-          localId: localId,
-          uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
-        ),
-      );
+      if (uploadDocId.isNotEmpty) {
+        unawaited(
+          ChurchChatUploadsService.markQueued(
+            tenantId: tenantId,
+            uploadId: uploadDocId,
+          ),
+        );
+      }
       final sp = pending.storagePath?.trim() ?? '';
       if (sp.isNotEmpty) {
         unawaited(

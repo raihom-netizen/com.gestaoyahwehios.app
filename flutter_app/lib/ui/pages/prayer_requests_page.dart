@@ -4,10 +4,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
+import 'package:gestao_yahweh/core/prayer_orando_membros_denorm.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_pedidos_oracao_load_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/prayer_analytics_panel.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// E-mail na ficha do membro (várias chaves usadas no app).
@@ -65,7 +69,8 @@ class PrayerRequestsPage extends StatefulWidget {
   State<PrayerRequestsPage> createState() => _PrayerRequestsPageState();
 }
 
-class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
+class _PrayerRequestsPageState extends State<PrayerRequestsPage>
+    with SingleTickerProviderStateMixin {
   /// Filtro por status: Todos | Respondidas | Não Respondidas
   String _filtroStatus = 'Todos';
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _pedidosDocs = const [];
@@ -78,6 +83,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   bool _selectionMode = false;
   final Set<String> _selectedIds = {};
   bool _bulkDeleting = false;
+  final Map<String, Map<String, dynamic>> _pedidoDataOverrides = {};
+  late final TabController _tabController;
 
   String get _churchId => ChurchRepository.churchId(
         _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
@@ -92,7 +99,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   void _startWebLoadingCap() {
     if (!kIsWeb) return;
     _webLoadCap?.cancel();
-    _webLoadCap = Timer(const Duration(seconds: 105), () {
+    _webLoadCap = Timer(const Duration(seconds: 14), () {
       if (!mounted || !_fetching) return;
       setState(() {
         _fetching = false;
@@ -111,12 +118,21 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
       _fetching = false;
       return;
     }
-    _pedidosDocs = ChurchPedidosOracaoLoadService.peekRam(
+    final filter = _respondidaFilterFromStatus();
+    var docs = ChurchPedidosOracaoLoadService.peekRam(
           churchId,
-          respondidaFilter: _respondidaFilterFromStatus(),
+          respondidaFilter: filter,
         ) ??
         const [];
-    _fetching = true;
+    if (docs.isEmpty && filter != null) {
+      final all = ChurchPedidosOracaoLoadService.peekRam(churchId) ?? const [];
+      docs = all.where((d) {
+        final r = d.data()['respondida'];
+        return filter ? r == true : r == false;
+      }).toList();
+    }
+    _pedidosDocs = docs;
+    _fetching = _pedidosDocs.isEmpty;
     _loadError = null;
     _showingStaleCache = _pedidosDocs.isNotEmpty;
   }
@@ -135,37 +151,52 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final result = await ChurchPedidosOracaoLoadService.load(
-        seedTenantId: churchId,
-        respondidaFilter: _respondidaFilterFromStatus(),
-        forceRefresh: forceFresh,
-        forceServer: forceFresh,
-      );
+      final result = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchPedidosOracaoLoadService.load(
+          seedTenantId: churchId,
+          respondidaFilter: _respondidaFilterFromStatus(),
+          forceRefresh: forceFresh,
+          forceServer: forceFresh,
+        ),
+        maxAttempts: 4,
+      ).timeout(const Duration(seconds: 14));
       if (!mounted) return;
+      final hadLocal = _pedidosDocs.isNotEmpty;
+      final ui = PanelResilientLoad.afterFetch(
+        hadLocalData: hadLocal,
+        newItems: result.docs,
+        fromCache: result.fromCache,
+        softError: result.softError,
+        forceFresh: forceFresh,
+      );
       setState(() {
-        _pedidosDocs = result.docs;
-        _fetching = false;
-        _showingStaleCache = result.fromCache && !forceFresh;
-        if (result.docs.isEmpty && result.softError != null) {
-          _loadError = result.softError;
-        } else {
-          _loadError = null;
+        if (result.docs.isNotEmpty) {
+          _pedidosDocs = result.docs;
         }
+        _showingStaleCache = ui.showingStaleCache;
+        _loadError = ui.loadError;
       });
     } catch (e) {
       if (!mounted) return;
+      final ui = PanelResilientLoad.afterError(
+        hadLocalData: _pedidosDocs.isNotEmpty,
+        error: e,
+      );
       setState(() {
-        _fetching = false;
-        if (_pedidosDocs.isEmpty) _loadError = '$e';
+        _showingStaleCache = ui.showingStaleCache;
+        _loadError = ui.loadError;
       });
     } finally {
       _webLoadCap?.cancel();
+      if (mounted) {
+        setState(() => _fetching = false);
+      }
     }
   }
 
   void _refreshPedidos({bool forceRefresh = false}) {
     setState(() {
-      _fetching = true;
+      _fetching = _pedidosDocs.isEmpty;
       _loadError = null;
     });
     unawaited(_fetchPedidos(forceFresh: forceRefresh));
@@ -174,6 +205,10 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
     _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
     _seedPedidosLocal();
     _startWebLoadingCap();
@@ -182,6 +217,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
 
   @override
   void dispose() {
+    _tabController.dispose();
     _webLoadCap?.cancel();
     super.dispose();
   }
@@ -269,24 +305,259 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     return '${(diff.inDays / 30).floor()}m';
   }
 
-  Future<void> _toggleOrando(String docId, List<dynamic> orandoUids) async {
+  Map<String, dynamic> _mergedPedidoData(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final base = doc.data();
+    final patch = _pedidoDataOverrides[doc.id];
+    if (patch == null || patch.isEmpty) return base;
+    return {...base, ...patch};
+  }
+
+  Future<void> _toggleOrando(
+    String docId,
+    List<dynamic> orandoUids,
+    List<Map<String, dynamic>> orandoMembros,
+  ) async {
     final uid = _currentUser?.uid;
     if (uid == null) return;
     final removing = orandoUids.contains(uid);
+    final user = _currentUser!;
+    List<Map<String, dynamic>> nextMembros;
+    List<String> nextUids;
+    if (removing) {
+      nextMembros = PrayerOrandoMembrosDenorm.removeUid(orandoMembros, uid);
+      nextUids = List<String>.from(orandoUids.cast<String>())..remove(uid);
+    } else {
+      nextMembros = PrayerOrandoMembrosDenorm.upsert(
+        orandoMembros,
+        uid: uid,
+        nome: (user.displayName ?? user.email ?? 'Membro').toString(),
+        fotoUrl: (user.photoURL ?? '').toString(),
+      );
+      nextUids = List<String>.from(orandoUids.cast<String>());
+      if (!nextUids.contains(uid)) nextUids.add(uid);
+    }
+    setState(() {
+      _pedidoDataOverrides[docId] = {
+        'orandoMembros': nextMembros,
+        'orandoUids': nextUids,
+        'orandoCount': nextMembros.length,
+      };
+    });
     try {
       await ChurchPedidosOracaoLoadService.toggleOrando(
         churchId: _churchId,
         docId: docId,
         uid: uid,
         removing: removing,
+        memberNome: user.displayName ?? user.email,
+        memberFotoUrl: user.photoURL,
+        currentOrandoMembros: orandoMembros,
       );
-      if (mounted) unawaited(_fetchPedidos(forceFresh: true));
+      if (mounted) {
+        _pedidoDataOverrides.remove(docId);
+        unawaited(_fetchPedidos(forceFresh: true));
+      }
     } catch (e) {
       if (mounted) {
+        setState(() => _pedidoDataOverrides.remove(docId));
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erro ao atualizar: $e')),
         );
       }
+    }
+  }
+
+  Future<void> _removeOrandoMemberFromPedido({
+    required String docId,
+    required String targetUid,
+    required List<Map<String, dynamic>> orandoMembros,
+    required List<String> orandoUids,
+  }) async {
+    final nextMembros =
+        PrayerOrandoMembrosDenorm.removeUid(orandoMembros, targetUid);
+    final nextUids = List<String>.from(orandoUids)..remove(targetUid);
+    setState(() {
+      _pedidoDataOverrides[docId] = {
+        'orandoMembros': nextMembros,
+        'orandoUids': nextUids,
+        'orandoCount': nextMembros.length,
+      };
+    });
+    try {
+      await ChurchPedidosOracaoLoadService.removeOrandoMember(
+        churchId: _churchId,
+        docId: docId,
+        targetUid: targetUid,
+        currentOrandoMembros: orandoMembros,
+      );
+      if (mounted) {
+        _pedidoDataOverrides.remove(docId);
+        unawaited(_fetchPedidos(forceFresh: true));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _pedidoDataOverrides.remove(docId));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao remover: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showOrandoMembersSheet({
+    required String docId,
+    required List<Map<String, dynamic>> orandoMembros,
+    required List<String> orandoUids,
+  }) async {
+    if (orandoMembros.isEmpty) return;
+    final uid = _currentUser?.uid;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.55,
+          minChildSize: 0.35,
+          maxChildSize: 0.9,
+          builder: (_, scroll) => Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                  child: Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'Quem está orando',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      if (_isLeader && orandoMembros.length > 1)
+                        TextButton(
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            await _confirmClearOrandoSelected([docId]);
+                          },
+                          child: const Text('Limpar todos'),
+                        ),
+                      IconButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    controller: scroll,
+                    itemCount: orandoMembros.length,
+                    itemBuilder: (_, i) {
+                      final m = orandoMembros[i];
+                      final mUid = (m['uid'] ?? '').toString();
+                      final nome = (m['nome'] ?? 'Membro').toString();
+                      final canRemove =
+                          _isLeader || (uid != null && mUid == uid);
+                      return ListTile(
+                        leading: FotoMembroWidget(
+                          size: 40,
+                          tenantId: _churchId,
+                          memberId: mUid,
+                          imageUrl: (m['fotoUrl'] ?? '').toString(),
+                          memberData: m,
+                        ),
+                        title: Text(nome),
+                        subtitle: mUid == uid
+                            ? const Text('Você')
+                            : null,
+                        trailing: canRemove
+                            ? IconButton(
+                                tooltip: 'Remover',
+                                icon: Icon(
+                                  Icons.person_remove_outlined,
+                                  color: Colors.grey.shade700,
+                                ),
+                                onPressed: () async {
+                                  Navigator.pop(ctx);
+                                  await _removeOrandoMemberFromPedido(
+                                    docId: docId,
+                                    targetUid: mUid,
+                                    orandoMembros: orandoMembros,
+                                    orandoUids: orandoUids,
+                                  );
+                                },
+                              )
+                            : null,
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmClearOrandoSelected(List<String> docIds) async {
+    if (docIds.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Limpar intercessores'),
+        content: Text(
+          'Remover todos os intercessores de ${docIds.length} pedido(s)?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Limpar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _bulkDeleting = true);
+    try {
+      await ChurchPedidosOracaoLoadService.clearOrandoFromPedidos(
+        seedTenantId: _churchId,
+        docIds: docIds,
+      );
+      if (mounted) {
+        _exitSelectionMode();
+        unawaited(_fetchPedidos(forceFresh: true));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Intercessores removidos.',
+              style: TextStyle(color: Colors.white),
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _bulkDeleting = false);
     }
   }
 
@@ -380,6 +651,15 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                 onPressed: _bulkDeleting ? null : () => _selectAllFromSnap(),
                 child: const Text('Todos'),
               ),
+              if (_isLeader) ...[
+                const SizedBox(width: 4),
+                OutlinedButton(
+                  onPressed: _bulkDeleting || _selectedIds.isEmpty
+                      ? null
+                      : () => _confirmClearOrandoSelected(_selectedIds.toList()),
+                  child: const Text('Limpar orando'),
+                ),
+              ],
               const SizedBox(width: 4),
               FilledButton.icon(
                 onPressed: _bulkDeleting || _selectedIds.isEmpty
@@ -912,7 +1192,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                   ),
               ],
             ),
-      floatingActionButton: _selectionMode
+      floatingActionButton: _selectionMode || _tabController.index != 0
           ? null
           : Container(
         decoration: BoxDecoration(
@@ -951,8 +1231,56 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (!_selectionMode)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    padding.left,
+                    padding.top,
+                    padding.right,
+                    0,
+                  ),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: ThemeCleanPremium.softUiCardShadow,
+                    ),
+                    child: TabBar(
+                      controller: _tabController,
+                      labelColor: _PrayerPremiumTheme.rose,
+                      unselectedLabelColor: Colors.grey.shade600,
+                      indicatorColor: _PrayerPremiumTheme.rose,
+                      indicatorWeight: 3,
+                      tabs: const [
+                        Tab(
+                          icon: Icon(Icons.list_alt_rounded, size: 20),
+                          text: 'Lista',
+                        ),
+                        Tab(
+                          icon: Icon(Icons.insights_rounded, size: 20),
+                          text: 'Painel',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               Expanded(
-                child: _buildPedidosBody(padding, tt),
+                child: _selectionMode
+                    ? _buildPedidosBody(padding, tt)
+                    : TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildPedidosBody(padding, tt),
+                          PrayerAnalyticsPanel(
+                            tenantId: widget.tenantId,
+                            role: widget.role,
+                            pedidosDocs: _pedidosDocs,
+                            canSee: _canSee,
+                            onDataChanged: () =>
+                                unawaited(_fetchPedidos(forceFresh: true)),
+                          ),
+                        ],
+                      ),
               ),
             ],
           ),
@@ -964,16 +1292,10 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   }
 
   Widget _buildPedidosBody(EdgeInsets padding, TextTheme tt) {
-    if (_loadError != null && _pedidosDocs.isEmpty && !_fetching) {
-      return ChurchPanelErrorBody(
-        title: 'Não foi possível carregar os pedidos de oração',
-        error: _loadError,
-        onRetry: () => _refreshPedidos(forceRefresh: true),
-      );
-    }
-
     final visibleDocs =
         _pedidosDocs.where((d) => _canSee(d.data())).toList();
+    final hasLocal = visibleDocs.isNotEmpty;
+
     final pendentes =
         visibleDocs.where((d) => d.data()['respondida'] != true).length;
     final respondidas = visibleDocs.length - pendentes;
@@ -1006,15 +1328,19 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
               ),
             ),
           ),
-          if (_showingStaleCache)
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: ChurchPanelOfflineStaleBanner(
-                  message: 'Modo offline — últimos pedidos guardados.',
-                ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: padding.left),
+              child: ChurchPanelResilientLoadBanner(
+                hasLocalData: hasLocal,
+                isSyncing: _fetching && hasLocal,
+                showStaleCache: _showingStaleCache && !_fetching,
+                errorTitle: 'Não foi possível carregar os pedidos de oração',
+                error: _loadError,
+                onRetry: () => _refreshPedidos(forceRefresh: true),
               ),
             ),
+          ),
           SliverToBoxAdapter(
             child: Padding(
               padding: EdgeInsets.symmetric(
@@ -1034,7 +1360,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                             _filtroStatus = _filtrosStatus[i];
                             _seedPedidosLocal();
                           });
-                          unawaited(_fetchPedidos(forceFresh: true));
+                          _startWebLoadingCap();
+                          unawaited(_fetchPedidos());
                         },
                       ),
                     ),
@@ -1187,14 +1514,19 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     bool selected = false,
     ValueChanged<bool>? onSelectionChanged,
   }) {
-    final data = doc.data();
+    final data = _mergedPedidoData(doc);
     final nome = (data['autorNome'] ?? 'Membro').toString();
     final texto = (data['texto'] ?? '').toString();
     final categoria = (data['categoria'] ?? 'Outro').toString();
     final publico = data['publico'] ?? true;
     final respondida = data['respondida'] ?? false;
-    final orandoUids = List<String>.from(data['orandoUids'] ?? []);
-    final orandoCount = data['orandoCount'] ?? orandoUids.length;
+    final orandoMembros = PrayerOrandoMembrosDenorm.parseList(data['orandoMembros']);
+    final orandoUids = orandoMembros.isNotEmpty
+        ? PrayerOrandoMembrosDenorm.uidsFromMembros(orandoMembros)
+        : List<String>.from(data['orandoUids'] ?? []);
+    final orandoCount = orandoMembros.isNotEmpty
+        ? orandoMembros.length
+        : (data['orandoCount'] ?? orandoUids.length);
     final ts = data['createdAt'] as Timestamp?;
     final uid = _currentUser?.uid;
     final isOrando = uid != null && orandoUids.contains(uid);
@@ -1389,10 +1721,34 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
                 const SizedBox(height: 10),
                 const Divider(height: 1, color: Color(0xFFE2E8F0)),
                 const SizedBox(height: 6),
-                _OrandoButton(
-                  isOrando: isOrando,
-                  count: orandoCount is int ? orandoCount : 0,
-                  onTap: () => _toggleOrando(doc.id, orandoUids),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    if (orandoMembros.isNotEmpty)
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () => _showOrandoMembersSheet(
+                            docId: doc.id,
+                            orandoMembros: orandoMembros,
+                            orandoUids: List<String>.from(orandoUids),
+                          ),
+                          child: _OrandoMembrosAvatarStack(
+                            tenantId: _churchId,
+                            membros: orandoMembros,
+                          ),
+                        ),
+                      )
+                    else
+                      const Spacer(),
+                    _OrandoButton(
+                      isOrando: isOrando,
+                      count: orandoCount is int
+                          ? orandoCount
+                          : orandoMembros.length,
+                      onTap: () =>
+                          _toggleOrando(doc.id, orandoUids, orandoMembros),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1622,6 +1978,104 @@ class _PrayerFilterChip extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _OrandoMembrosAvatarStack extends StatelessWidget {
+  const _OrandoMembrosAvatarStack({
+    required this.tenantId,
+    required this.membros,
+  });
+
+  final String tenantId;
+  final List<Map<String, dynamic>> membros;
+
+  @override
+  Widget build(BuildContext context) {
+    const maxVisible = 5;
+    final shown = membros.take(maxVisible).toList();
+    final rest = membros.length - shown.length;
+    final stackW = 28.0 + (shown.length - 1) * 20.0 + (rest > 0 ? 28.0 : 0.0);
+
+    return Row(
+      children: [
+        SizedBox(
+          height: 32,
+          width: stackW,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              for (var i = 0; i < shown.length; i++)
+                Positioned(
+                  left: i * 20.0,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _PrayerPremiumTheme.rose.withValues(alpha: 0.25),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: FotoMembroWidget(
+                      size: 28,
+                      tenantId: tenantId,
+                      memberId: (shown[i]['uid'] ?? '').toString(),
+                      imageUrl: (shown[i]['fotoUrl'] ?? '').toString(),
+                      memberData: shown[i],
+                    ),
+                  ),
+                ),
+              if (rest > 0)
+                Positioned(
+                  left: shown.length * 20.0,
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [
+                          _PrayerPremiumTheme.rose.withValues(alpha: 0.85),
+                          _PrayerPremiumTheme.violet.withValues(alpha: 0.75),
+                        ],
+                      ),
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: Text(
+                      '+$rest',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            membros.length == 1
+                ? '${membros.first['nome']} está orando'
+                : '${membros.length} intercedendo',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Colors.grey.shade700,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

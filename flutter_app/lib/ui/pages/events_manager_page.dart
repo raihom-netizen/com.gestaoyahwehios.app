@@ -96,7 +96,9 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp, kEffectiveMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
+import 'package:gestao_yahweh/services/video_duration.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
@@ -131,6 +133,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
     show showChurchNoticiaShareSheet, shareRectFromContext;
@@ -1592,6 +1595,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   final TextEditingController _searchCtrl = TextEditingController();
   String _searchApplied = '';
   Timer? _searchDebounce;
+  Timer? _galleryLoadCapTimer;
   String _order = 'recent_first';
   String _period = 'all';
   String _mediaType = 'all';
@@ -1612,7 +1616,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     _galleryDocs =
         ChurchEventosLoadService.peekRam(cid, limit: ChurchEventosLoadService.kGalleryLimit) ??
             const [];
-    _fetching = true;
+    _fetching = _galleryDocs.isEmpty;
     _loadError = null;
     _showingStaleCache = _galleryDocs.isNotEmpty;
   }
@@ -1653,9 +1657,12 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _fetching = false;
         if (_galleryDocs.isEmpty) _loadError = '$e';
       });
+    } finally {
+      if (mounted) {
+        setState(() => _fetching = false);
+      }
     }
   }
 
@@ -1674,6 +1681,14 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     super.initState();
     _searchCtrl.addListener(_onGallerySearchInput);
     _seedGalleryLocal();
+    if (kIsWeb) {
+      _galleryLoadCapTimer = Timer(PanelResilientLoad.webLoadingCap, () {
+        if (!mounted) return;
+        if (_fetching && _galleryDocs.isEmpty) {
+          setState(() => _fetching = false);
+        }
+      });
+    }
     unawaited(_fetchGallery());
   }
 
@@ -1689,6 +1704,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
 
   @override
   void dispose() {
+    _galleryLoadCapTimer?.cancel();
     _searchDebounce?.cancel();
     _searchCtrl.removeListener(_onGallerySearchInput);
     _searchCtrl.dispose();
@@ -1933,10 +1949,15 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
   @override
   Widget build(BuildContext context) {
     if (_loadError != null && _galleryDocs.isEmpty && !_fetching) {
-      return ChurchPanelErrorBody(
-        title: 'Não foi possível carregar a galeria',
-        error: _loadError,
-        onRetry: _refresh,
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: ChurchPanelResilientLoadBanner(
+          hasLocalData: false,
+          isSyncing: false,
+          errorTitle: 'Não foi possível carregar a galeria',
+          error: _loadError,
+          onRetry: _refresh,
+        ),
       );
     }
     if (_fetching && _galleryDocs.isEmpty) {
@@ -2081,11 +2102,17 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                 fetching: _fetching,
                 onRefresh: _refresh,
               ),
-              if (_showingStaleCache)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 10),
-                  child: ChurchPanelOfflineStaleBanner(
-                    message: 'Modo offline — últimos eventos guardados.',
+              if (_showingStaleCache ||
+                  (_loadError != null && _galleryDocs.isNotEmpty))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: true,
+                    isSyncing: _fetching,
+                    showStaleCache: !_fetching,
+                    errorTitle: 'Não foi possível carregar a galeria',
+                    error: _loadError,
+                    onRetry: _refresh,
                   ),
                 ),
               Container(
@@ -3090,6 +3117,7 @@ class _FeedTabState extends State<_FeedTab> {
   final _searchCtrl = TextEditingController();
   String _searchApplied = '';
   Timer? _searchDebounce;
+  Timer? _feedLoadCapTimer;
   bool _selectMode = false;
   final Set<String> _selectedEventIds = <String>{};
 
@@ -3113,6 +3141,14 @@ class _FeedTabState extends State<_FeedTab> {
       _searchApplied = _searchCtrl.text.trim();
     }
     _searchCtrl.addListener(_onFeedSearchInput);
+    if (kIsWeb) {
+      _feedLoadCapTimer = Timer(PanelResilientLoad.webLoadingCap, () {
+        if (!mounted) return;
+        if (_isInitialLoading && _loadedDocs.isEmpty) {
+          setState(() => _isInitialLoading = false);
+        }
+      });
+    }
     unawaited(_bootstrapFeed());
   }
 
@@ -3142,7 +3178,7 @@ class _FeedTabState extends State<_FeedTab> {
     if (_loadedDocs.isEmpty) {
       await _loadInitialEvents();
     } else {
-      unawaited(_loadInitialEvents());
+      unawaited(_loadInitialEvents(backgroundRefresh: true));
     }
   }
 
@@ -3200,21 +3236,26 @@ class _FeedTabState extends State<_FeedTab> {
 
   @override
   void dispose() {
+    _feedLoadCapTimer?.cancel();
     _searchDebounce?.cancel();
     _searchCtrl.removeListener(_onFeedSearchInput);
     _searchCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _loadInitialEvents() async {
-    setState(() {
-      _isInitialLoading = _loadedDocs.isEmpty;
-      _showingOfflineEvents = false;
-      _feedLoadError = null;
-      _hasMoreFeedPages = true;
-      _feedLastCursor = null;
-      _loadedDocs.clear();
-    });
+  Future<void> _loadInitialEvents({bool backgroundRefresh = false}) async {
+    if (!backgroundRefresh) {
+      setState(() {
+        _isInitialLoading = _loadedDocs.isEmpty;
+        _showingOfflineEvents = false;
+        _feedLoadError = null;
+        if (_loadedDocs.isEmpty) {
+          _hasMoreFeedPages = true;
+          _feedLastCursor = null;
+          _loadedDocs.clear();
+        }
+      });
+    }
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
@@ -3274,6 +3315,10 @@ class _FeedTabState extends State<_FeedTab> {
             _feedLoadError = e;
           });
         }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isInitialLoading = false);
       }
     }
   }
@@ -3469,11 +3514,16 @@ class _FeedTabState extends State<_FeedTab> {
 
   @override
   Widget build(BuildContext context) {
-    if (_feedLoadError != null && _loadedDocs.isEmpty) {
-      return ChurchPanelErrorBody(
-        title: 'Não foi possível carregar avisos e eventos',
-        error: _feedLoadError,
-        onRetry: _refresh,
+    if (_feedLoadError != null && _loadedDocs.isEmpty && !_isInitialLoading) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: ChurchPanelResilientLoadBanner(
+          hasLocalData: false,
+          isSyncing: false,
+          errorTitle: 'Não foi possível carregar avisos e eventos',
+          error: _feedLoadError,
+          onRetry: _refresh,
+        ),
       );
     }
     if (_isInitialLoading && _loadedDocs.isEmpty) {
@@ -3551,32 +3601,13 @@ class _FeedTabState extends State<_FeedTab> {
               if (offlineBanner && index == 0) {
                 return Padding(
                   padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
-                  child: Material(
-                    color: Colors.orange.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.cloud_off_rounded,
-                              size: 20, color: Colors.orange.shade800),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Modo offline — a mostrar a última lista guardada. Puxe para atualizar.',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.orange.shade900,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: true,
+                    isSyncing: _isInitialLoading,
+                    showStaleCache: !_isInitialLoading,
+                    errorTitle: 'Não foi possível carregar avisos e eventos',
+                    error: _feedLoadError,
+                    onRetry: _refresh,
                   ),
                 );
               }
@@ -7091,9 +7122,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (ram != null && ram.isNotEmpty) {
       _categoryDocs = ram;
       _loadingCategories = false;
-    } else {
-      _loadingCategories = true;
+      return;
     }
+    final mem = FirestoreReadResilience.peekLastGoodQuery(
+      ChurchEventCategoriesLoadService.cacheKey(_editorTenantId),
+    );
+    if (mem != null && mem.docs.isNotEmpty) {
+      _categoryDocs = mem.docs;
+      _loadingCategories = false;
+      return;
+    }
+    _loadingCategories = true;
   }
 
   Future<void> _bootstrapEventForm() async {
@@ -7551,8 +7590,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (mounted) setState(() => _eventVideos.removeAt(index));
   }
 
-  Future<void> _pickAndUploadVideo() async {
-    if (_uploadingVideo || _eventVideos.length >= _maxVideosPerEvent) {
+  Future<void> _pickEventVideoLocal() async {
+    if (_mediaPicking || _eventVideos.length >= _maxVideosPerEvent) {
       if (_eventVideos.length >= _maxVideosPerEvent && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
@@ -7563,97 +7602,46 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       return;
     }
-    if (mounted) {
+    setState(() => _mediaPicking = true);
+    try {
+      final xfile = await ImagePicker().pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: mediaEventVideoMaxDurationEffective,
+      );
+      if (xfile == null) return;
+      final durationSec = await getVideoDurationSeconds(xfile);
+      if (durationSec != null && durationSec > kMediaEventVideoMaxSeconds) {
+        throw StateError('Vídeo excede o limite de 90 segundos.');
+      }
+      final localPath = await FeedEditorMediaService.persistVideoXFileToTemp(
+        xfile,
+        prefix: 'gy_event_video',
+      );
+      if (localPath == null || !File(localPath).existsSync()) {
+        throw StateError(
+          'Não foi possível ler o vídeo da galeria. Tente outro ficheiro ou grave em MP4.',
+        );
+      }
+      if (!mounted) return;
       setState(() {
-        _uploadingVideo = true;
-        _videoUploadFraction = null;
+        _eventVideos.add({'localPath': localPath});
       });
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'A enviar vídeo… Aguarde concluir antes de publicar.',
+          'Vídeo anexado (máx. ${_maxVideoSeconds}s) — envio ao publicar.',
         ),
       );
-    }
-    unawaited(runFirebaseBackgroundTask(() async {
-      try {
-        final snap = await _eventDocRef.get();
-        final existing = _eventVideosFromData(snap.data() ?? {});
-        if (existing.length >= _maxVideosPerEvent) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: const Text(
-                  'Este evento já atingiu o limite de 1 vídeo. Remova para adicionar outro.'),
-              backgroundColor: ThemeCleanPremium.error,
-              behavior: SnackBarBehavior.floating,
-            ));
-          }
-          return;
-        }
-        final slot = _nextHostedVideoStorageSlot();
-        if (slot < 0) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(
-                  'Limite de $_maxVideosPerEvent vídeos no Storage. Remova um vídeo para adicionar outro.'),
-              backgroundColor: ThemeCleanPremium.error,
-              behavior: SnackBarBehavior.floating,
-            ));
-          }
-          return;
-        }
-        final result = await VideoHandlerService.instance
-            .pickCompressAndUpload(
-          tenantId: _editorTenantId,
-          eventPostDocId: _eventDocRef.id,
-          videoSlotIndex: slot,
-          maxDuration: mediaEventVideoMaxDurationEffective,
-          maxRawPickBytes:
-              kIsWeb ? null : mediaEventVideoMobilePickMaxBytesEffective,
-          onUploadProgress: (p) {
-            if (!mounted) return;
-            setState(() => _videoUploadFraction = p.clamp(0.0, 1.0));
-          },
-        )
-            .timeout(
-          const Duration(minutes: 10),
-          onTimeout: () => throw TimeoutException(
-            'O vídeo demorou demais. Remova-o, escolha um ficheiro menor ou publique só com fotos.',
-          ),
-        );
-        if (result == null || !mounted) return;
-        setState(() {
-          _eventVideos.add({
-            'videoPath': result.videoStoragePath,
-            'thumbStoragePath': result.thumbStoragePath,
-          });
-        });
-        if (_publishedAwaitingVideoMerge) {
-          _publishedAwaitingVideoMerge = false;
-          unawaited(_mergePublishedEventVideoFields());
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-              'Vídeo anexado (máx. ${_maxVideoSeconds}s).',
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(formatUploadErrorForUser(e)),
-            backgroundColor: ThemeCleanPremium.error,
-          ));
-        }
-      } finally {
-        if (mounted) {
-          setState(() {
-            _uploadingVideo = false;
-            _videoUploadFraction = null;
-          });
-        }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(formatUploadErrorForUser(e)),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ));
       }
-    }, debugLabel: 'event_video_upload'));
+    } finally {
+      if (mounted) setState(() => _mediaPicking = false);
+    }
   }
 
   Future<void> _openAddMediaSheet() async {
@@ -7840,7 +7828,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         ? null
                         : () {
                             Navigator.pop(ctx);
-                            _pickAndUploadVideo();
+                            _pickEventVideoLocal();
                           },
                   ),
                 ],
@@ -8020,6 +8008,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       newImagesBytes: pending.bytes,
       newImagePaths: pending.paths,
       videoStoragePath: videoPathForPublish,
+      localVideoPath: _pendingLocalVideoPath(),
       publicSite: _publicSite,
       eventStartAt: eventStart,
       location: _localSalvo(),
@@ -8050,6 +8039,52 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final paths = FeedEditorMediaService.existingValidPaths(_newImagePaths);
     if (paths.isEmpty) return (bytes: null, paths: null);
     return (bytes: null, paths: paths);
+  }
+
+  Future<List<Uint8List>> _prepareCompressedEventPhotosForPublish() async {
+    final out = <Uint8List>[];
+    if (kIsWeb) {
+      for (final raw in _newImages) {
+        if (raw.isEmpty) continue;
+        final compressed = await ChurchInstantUploadPipeline.prepareImageBytes(
+          raw,
+          postType: kChurchPostTypeEvento,
+        );
+        if (compressed.isNotEmpty) out.add(compressed);
+      }
+      return out;
+    }
+    for (final path
+        in FeedEditorMediaService.existingValidPaths(_newImagePaths)) {
+      final compressed = await ChurchInstantUploadPipeline.prepareImageBytes(
+        Uint8List(0),
+        localPath: path,
+        postType: kChurchPostTypeEvento,
+      );
+      if (compressed.isNotEmpty) out.add(compressed);
+    }
+    return out;
+  }
+
+  String? _pendingLocalVideoPath() {
+    if (_eventVideos.isEmpty) return null;
+    final local = (_eventVideos.first['localPath'] ?? '').toString().trim();
+    if (local.isEmpty) return null;
+    if (kIsWeb) return local;
+    if (File(local).existsSync()) return local;
+    return null;
+  }
+
+  bool _eventHasHostedVideoForPublish(String igrejaId) {
+    if (_pendingLocalVideoPath() != null) return true;
+    if (_eventVideos.isNotEmpty) {
+      final stored = (_eventVideos.first['videoPath'] ?? '').toString().trim();
+      if (stored.isNotEmpty) return true;
+      final url = (_eventVideos.first['videoUrl'] ?? '').toString().trim();
+      if (url.isNotEmpty) return true;
+    }
+    return _videoStoragePathForPublish(igrejaId) != null &&
+        _videoUrl.text.trim().isEmpty;
   }
 
   void _clearPendingEventPhotosAfterPublish() {
@@ -8144,12 +8179,48 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final titulo = _title.text.trim();
     try {
+      List<Uint8List> compressedPhotos;
+      try {
+        compressedPhotos = await _prepareCompressedEventPhotosForPublish();
+      } catch (e, st) {
+        ChurchPublishFlowLog.logCatch(e, st, label: 'evento_compress');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.errorSnackBarWithRetry(
+              formatUploadErrorForUser(e),
+              onRetry: _save,
+            ),
+          );
+        }
+        return;
+      }
       final ctx = await _prepareEventoPublishContext();
       final docRef = ctx.docRef;
       final publishTenantId = ctx.igrejaId;
       final postId = docRef.id;
-
-      final pending = _pendingEventPhotosForPublish();
+      final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
+      if (isNewDoc &&
+          compressedPhotos.isEmpty &&
+          existingUrls.isEmpty &&
+          !_eventHasHostedVideoForPublish(publishTenantId) &&
+          _videoUrl.text.trim().isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.errorSnackBarWithRetry(
+              'Adicione pelo menos uma foto ou um vídeo ao evento.',
+              onRetry: _save,
+            ),
+          );
+        }
+        return;
+      }
+      if (compressedPhotos.isNotEmpty) {
+        await MuralPostPendingMediaCache.put(
+          tenantId: publishTenantId,
+          postId: postId,
+          images: compressedPhotos,
+        );
+      }
 
       unawaited(
         EventosPublishVerificationService.logPublishPhase(
@@ -8165,7 +8236,6 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         ),
       );
 
-      final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
       double? aspectRatio;
       if (existingUrls.isNotEmpty) {
         final prev = widget.doc?.data()?['media_info'];
@@ -8175,8 +8245,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         }
       }
       final videoPathForPublish = _videoStoragePathForPublish(publishTenantId);
-      final hasVideo = videoPathForPublish != null &&
-          videoPathForPublish.isNotEmpty;
+      final hasVideo = _eventHasHostedVideoForPublish(publishTenantId);
+      final localVideoPath = _pendingLocalVideoPath();
       final (eventStart, _) = _computeStartEndForSave();
       final payload = _buildEventCorePayload(
         allUrls: existingUrls,
@@ -8195,46 +8265,58 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             : 'Evento atualizado.',
         closeEditor: () {
           _clearPendingEventPhotosAfterPublish();
-          if (mounted) Navigator.pop(context, true);
+          if (mounted) {
+            Navigator.pop(context, <String, dynamic>{
+              'ok': true,
+              'bg': true,
+              'docId': postId,
+            });
+          }
         },
         action: (reportProgress) async {
-          await EventoCreatePublishService.ensureReady(
-            logLabel: 'evento_save_start',
-          );
-          await EventoCreatePublishService.publish(
-            docRef: docRef,
-            tenantId: publishTenantId,
-            corePayload: payload,
-            isNewDoc: isNewDoc,
-            existingUrls: existingUrls,
-            startSlotIndex: existingUrls.length,
-            hasVideo: hasVideo,
-            newImagesBytes: pending.bytes,
-            newImagePaths: pending.paths,
-            videoStoragePath: videoPathForPublish,
-            publicSite: _publicSite,
-            eventStartAt: eventStart,
-            location: _localSalvo(),
-            agendaCategory: _agendaCategoryKeyFromEvent(),
-            agendaColorHex: _agendaColorHexForCategory(),
-            onUploadProgress: reportProgress,
-          );
-          unawaited(
-            EventosPublishVerificationService.logPublishPhase(
-              phase: 'after',
-              igrejaId: publishTenantId,
-              uid: uid,
-              titulo: titulo,
-              eventoId: postId,
-            ),
-          );
-          EventosPublishVerificationService.clearLastError();
+          try {
+            await EventoCreatePublishService.publish(
+              docRef: docRef,
+              tenantId: publishTenantId,
+              corePayload: payload,
+              isNewDoc: isNewDoc,
+              existingUrls: existingUrls,
+              startSlotIndex: existingUrls.length,
+              hasVideo: hasVideo,
+              newImagesBytes:
+                  compressedPhotos.isNotEmpty ? compressedPhotos : null,
+              newImagePaths: null,
+              videoStoragePath: videoPathForPublish,
+              localVideoPath: localVideoPath,
+              publicSite: _publicSite,
+              eventStartAt: eventStart,
+              location: _localSalvo(),
+              agendaCategory: _agendaCategoryKeyFromEvent(),
+              agendaColorHex: _agendaColorHexForCategory(),
+              onUploadProgress: reportProgress,
+            );
+            await MuralPostPendingMediaCache.remove(
+              tenantId: publishTenantId,
+              postId: postId,
+            );
+            unawaited(
+              EventosPublishVerificationService.logPublishPhase(
+                phase: 'after',
+                igrejaId: publishTenantId,
+                uid: uid,
+                titulo: titulo,
+                eventoId: postId,
+              ),
+            );
+            EventosPublishVerificationService.clearLastError();
+          } catch (e) {
+            EventosPublishVerificationService.rememberLastError(e);
+            rethrow;
+          }
         },
       );
 
-      unawaited(
-        IosPublishMemory.releaseAfterHeavyWork(),
-      );
+      unawaited(IosPublishMemory.releaseAfterHeavyWork());
     } catch (e, st) {
       if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
         _clearPendingEventPhotosAfterPublish();
@@ -9911,14 +9993,25 @@ class _FixosTabState extends State<_FixosTab> {
   Future<QuerySnapshot<Map<String, dynamic>>> _load() async {
     final tid = widget.templates.parent?.id ?? '';
     if (tid.isEmpty) return const MergedFirestoreQuerySnapshot([]);
-    final snap = await FirestoreWebGuard.runWithWebRecovery(
-      () => ChurchTenantResilientReads.eventTemplates(tid),
-    );
-    if (snap.docs.isNotEmpty) {
-      _EventTemplatesRamCache.put(tid, snap.docs);
-      _lastGoodTemplatesSnap = snap;
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final snap = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchTenantResilientReads.eventTemplates(tid),
+        maxAttempts: 4,
+      ).timeout(const Duration(seconds: 14));
+      if (snap.docs.isNotEmpty) {
+        _EventTemplatesRamCache.put(tid, snap.docs);
+        _lastGoodTemplatesSnap = snap;
+      }
+      return snap;
+    } on TimeoutException {
+      return _lastGoodTemplatesSnap ?? const MergedFirestoreQuerySnapshot([]);
+    } catch (e) {
+      if (_lastGoodTemplatesSnap != null) return _lastGoodTemplatesSnap!;
+      rethrow;
     }
-    return snap;
   }
 
   static int _timeSortMinutes(String t) {
@@ -10639,15 +10732,30 @@ class _FixosTabState extends State<_FixosTab> {
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: _templatesFuture,
       builder: (context, snap) {
+        var templatesLoadFailed = false;
         if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar os eventos fixos',
-            error: snap.error,
-            onRetry: _refresh,
-          );
+          templatesLoadFailed = true;
+          if (_lastGoodTemplatesSnap != null &&
+              _lastGoodTemplatesSnap!.docs.isNotEmpty) {
+            // Mantém cache local — banner no topo da lista.
+          } else {
+            return ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: false,
+              errorTitle: 'Não foi possível carregar os eventos fixos',
+              error: snap.error,
+              onRetry: _refresh,
+            );
+          }
         }
         QuerySnapshot<Map<String, dynamic>>? effectiveSnap = snap.data;
+        if (snap.hasError &&
+            _lastGoodTemplatesSnap != null &&
+            _lastGoodTemplatesSnap!.docs.isNotEmpty) {
+          effectiveSnap = _lastGoodTemplatesSnap;
+        }
         if ((snap.connectionState != ConnectionState.done || !snap.hasData) &&
+            effectiveSnap == null &&
             _lastGoodTemplatesSnap != null &&
             _lastGoodTemplatesSnap!.docs.isNotEmpty) {
           effectiveSnap = _lastGoodTemplatesSnap;
@@ -10662,8 +10770,10 @@ class _FixosTabState extends State<_FixosTab> {
             future: _proximosNoticiasFuture,
             builder: (context, proxSnap) {
               if (proxSnap.hasError) {
-                return ChurchPanelErrorBody(
-                  title: 'Não foi possível carregar agenda e feed',
+                return ChurchPanelResilientLoadBanner(
+                  hasLocalData: false,
+                  isSyncing: false,
+                  errorTitle: 'Não foi possível carregar agenda e feed',
                   error: proxSnap.error,
                   onRetry: () => setState(() {
                     _proximosNoticiasFuture = _loadProximosNoticias();
@@ -10813,6 +10923,18 @@ class _FixosTabState extends State<_FixosTab> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (templatesLoadFailed)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: ChurchPanelResilientLoadBanner(
+                              hasLocalData: true,
+                              isSyncing: false,
+                              showStaleCache: true,
+                              errorTitle:
+                                  'Não foi possível carregar os eventos fixos',
+                              onRetry: _refresh,
+                            ),
+                          ),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
@@ -11610,9 +11732,11 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
     if (_loading && _stats.isEmpty) {
       return const ChurchPanelLoadingBody();
     }
-    if (_error != null) {
-      return ChurchPanelErrorBody(
-        title: 'Não foi possível carregar as estatísticas dos eventos',
+    if (_error != null && _stats.isEmpty) {
+      return ChurchPanelResilientLoadBanner(
+        hasLocalData: false,
+        isSyncing: false,
+        errorTitle: 'Não foi possível carregar as estatísticas dos eventos',
         error: _error,
         onRetry: _load,
       );
@@ -11633,6 +11757,18 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
             EdgeInsets.fromLTRB(padding.left, padding.top, padding.right, 80),
         children: [
           const SizedBox(height: 8),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ChurchPanelResilientLoadBanner(
+                hasLocalData: true,
+                isSyncing: false,
+                showStaleCache: true,
+                errorTitle:
+                    'Não foi possível carregar as estatísticas dos eventos',
+                onRetry: _load,
+              ),
+            ),
           if (_categoryPieSections.isNotEmpty) ...[
             _ChartCard(
               title: 'Eventos por categoria (amostra dos últimos registros)',
@@ -12324,145 +12460,204 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                         .collection('comentarios')
                         .watchSafe(),
                     builder: (context, snap) {
-                      if (snap.hasError) {
-                        return ChurchPanelErrorBody(
-                          title: 'Não foi possível carregar os comentários',
+                      if (snap.connectionState == ConnectionState.waiting &&
+                          !snap.hasData) {
+                        return const ChurchPanelLoadingBody();
+                      }
+                      final commentsLoadFailed = snap.hasError;
+                      var docs = snap.data?.docs ?? [];
+                      if (commentsLoadFailed && docs.isEmpty) {
+                        return ChurchPanelResilientLoadBanner(
+                          hasLocalData: false,
+                          isSyncing: false,
+                          errorTitle:
+                              'Não foi possível carregar os comentários',
                           error: snap.error,
                           onRetry: () =>
                               setState(() => _commentsStreamKey++),
                         );
                       }
-                      if (snap.connectionState == ConnectionState.waiting &&
-                          !snap.hasData) {
-                        return const ChurchPanelLoadingBody();
-                      }
-                      var docs = snap.data?.docs ?? [];
                       docs = List.from(docs);
                       docs.sort((a, b) {
                         final ta = a.data()['createdAt'];
                         final tb = b.data()['createdAt'];
-                        if (ta is Timestamp && tb is Timestamp)
+                        if (ta is Timestamp && tb is Timestamp) {
                           return ta.compareTo(tb);
+                        }
                         return 0;
                       });
-                      if (docs.isEmpty)
+                      if (docs.isEmpty) {
                         return Center(
-                            child: Text('Nenhum comentário neste evento.',
-                                style: TextStyle(color: Colors.grey.shade600)));
-                      return ListView.builder(
-                        controller: scrollCtrl,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        itemCount: docs.length,
-                        itemBuilder: (_, i) {
-                          final c = docs[i].data();
-                          final name = (c['authorName'] ?? 'Membro').toString();
-                          final text =
-                              (c['text'] ?? c['texto'] ?? '').toString();
-                          final ts = c['createdAt'];
-                          String timeAgo = '';
-                          if (ts is Timestamp) {
-                            final d = DateTime.now().difference(ts.toDate());
-                            if (d.inDays > 0)
-                              timeAgo = '${d.inDays}d';
-                            else if (d.inHours > 0)
-                              timeAgo = '${d.inHours}h';
-                            else if (d.inMinutes > 0)
-                              timeAgo = '${d.inMinutes}min';
-                            else
-                              timeAgo = 'agora';
-                          }
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            child: ListTile(
-                              title: Text(name,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w700)),
-                              subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(text),
-                                    const SizedBox(height: 4),
-                                    Text(timeAgo,
-                                        style: TextStyle(
+                          child: Text(
+                            'Nenhum comentário neste evento.',
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                        );
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (commentsLoadFailed)
+                            ChurchPanelResilientLoadBanner(
+                              hasLocalData: true,
+                              isSyncing: false,
+                              showStaleCache: true,
+                              errorTitle:
+                                  'Não foi possível carregar os comentários',
+                              onRetry: () =>
+                                  setState(() => _commentsStreamKey++),
+                            ),
+                          Expanded(
+                            child: ListView.builder(
+                              controller: scrollCtrl,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 8),
+                              itemCount: docs.length,
+                              itemBuilder: (_, i) {
+                                final c = docs[i].data();
+                                final name =
+                                    (c['authorName'] ?? 'Membro').toString();
+                                final text =
+                                    (c['text'] ?? c['texto'] ?? '').toString();
+                                final ts = c['createdAt'];
+                                String timeAgo = '';
+                                if (ts is Timestamp) {
+                                  final d =
+                                      DateTime.now().difference(ts.toDate());
+                                  if (d.inDays > 0) {
+                                    timeAgo = '${d.inDays}d';
+                                  } else if (d.inHours > 0) {
+                                    timeAgo = '${d.inHours}h';
+                                  } else if (d.inMinutes > 0) {
+                                    timeAgo = '${d.inMinutes}min';
+                                  } else {
+                                    timeAgo = 'agora';
+                                  }
+                                }
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  child: ListTile(
+                                    title: Text(
+                                      name,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w700),
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(text),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          timeAgo,
+                                          style: TextStyle(
                                             fontSize: 11,
-                                            color: Colors.grey.shade500))
-                                  ]),
-                              trailing: canDelete
-                                  ? IconButton(
-                                      icon: const Icon(
-                                          Icons.delete_outline_rounded,
-                                          color: Colors.red),
-                                      onPressed: () async {
-                                        final ok = await showDialog<bool>(
-                                            context: context,
-                                            builder: (ctx) => AlertDialog(
+                                            color: Colors.grey.shade500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    trailing: canDelete
+                                        ? IconButton(
+                                            icon: const Icon(
+                                              Icons.delete_outline_rounded,
+                                              color: Colors.red,
+                                            ),
+                                            onPressed: () async {
+                                              final ok =
+                                                  await showDialog<bool>(
+                                                context: context,
+                                                builder: (ctx) => AlertDialog(
                                                   title: const Text(
                                                       'Excluir comentário'),
                                                   content: const Text(
                                                       'Deseja excluir este comentário?'),
                                                   actions: [
                                                     TextButton(
-                                                        onPressed: () =>
-                                                            Navigator.pop(
-                                                                ctx, false),
-                                                        child: const Text(
-                                                            'Cancelar')),
+                                                      onPressed: () =>
+                                                          Navigator.pop(
+                                                              ctx, false),
+                                                      child: const Text(
+                                                          'Cancelar'),
+                                                    ),
                                                     FilledButton(
-                                                        style: FilledButton
-                                                            .styleFrom(
-                                                                backgroundColor:
-                                                                    ThemeCleanPremium
-                                                                        .error),
-                                                        onPressed: () =>
-                                                            Navigator.pop(
-                                                                ctx, true),
-                                                        child: const Text(
-                                                            'Excluir'))
+                                                      style: FilledButton
+                                                          .styleFrom(
+                                                        backgroundColor:
+                                                            ThemeCleanPremium
+                                                                .error,
+                                                      ),
+                                                      onPressed: () =>
+                                                          Navigator.pop(
+                                                              ctx, true),
+                                                      child: const Text(
+                                                          'Excluir'),
+                                                    ),
                                                   ],
-                                                ));
-                                        if (ok == true)
-                                          await docs[i].reference.delete();
-                                      },
-                                      tooltip: 'Excluir comentário')
-                                  : null,
+                                                ),
+                                              );
+                                              if (ok == true) {
+                                                await docs[i].reference.delete();
+                                              }
+                                            },
+                                            tooltip: 'Excluir comentário',
+                                          )
+                                        : null,
+                                  ),
+                                );
+                              },
                             ),
-                          );
-                        },
+                          ),
+                        ],
                       );
                     },
                   )
-                : _loading
-                    ? const ChurchPanelLoadingBody()
-                    : _error != null
-                        ? ChurchPanelErrorBody(
-                            title: 'Não foi possível carregar a lista',
-                            error: _error,
-                            onRetry: _loadNames,
-                          )
-                        : _names.isEmpty
-                            ? Center(
-                                child: Text('Nenhum registro.',
-                                    style:
-                                        TextStyle(color: Colors.grey.shade600)))
-                            : ListView.builder(
-                                controller: scrollCtrl,
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 8),
-                                itemCount: _names.length,
-                                itemBuilder: (_, i) => ListTile(
-                                    leading: CircleAvatar(
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ChurchPanelResilientLoadBanner(
+                        hasLocalData: _names.isNotEmpty,
+                        isSyncing: _loading,
+                        showStaleCache: _names.isNotEmpty && !_loading,
+                        errorTitle: 'Não foi possível carregar a lista',
+                        error: _names.isEmpty ? _error : null,
+                        onRetry: _loadNames,
+                      ),
+                      Expanded(
+                        child: _loading
+                            ? const ChurchPanelLoadingBody()
+                            : _names.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      'Nenhum registro.',
+                                      style: TextStyle(
+                                          color: Colors.grey.shade600),
+                                    ),
+                                  )
+                                : ListView.builder(
+                                    controller: scrollCtrl,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16, vertical: 8),
+                                    itemCount: _names.length,
+                                    itemBuilder: (_, i) => ListTile(
+                                      leading: CircleAvatar(
                                         backgroundColor: ThemeCleanPremium
                                             .primary
                                             .withOpacity(0.12),
                                         child: Text(
-                                            _names[i].isNotEmpty
-                                                ? _names[i][0].toUpperCase()
-                                                : '?',
-                                            style: const TextStyle(
-                                                fontWeight: FontWeight.w700))),
-                                    title: Text(_names[i])),
-                              ),
+                                          _names[i].isNotEmpty
+                                              ? _names[i][0].toUpperCase()
+                                              : '?',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w700),
+                                        ),
+                                      ),
+                                      title: Text(_names[i]),
+                                    ),
+                                  ),
+                      ),
+                    ],
+                  )
           ),
         ],
       ),

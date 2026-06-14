@@ -1,14 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:gestao_yahweh/core/certificate_protocol_id.dart';
-import 'package:gestao_yahweh/services/church_document_version_service.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/church_document_version_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Certificados emitidos: **dados completos** em `igrejas/{tenantId}/certificados_emitidos/{id}`.
+/// Certificados emitidos: **dados completos** em `igrejas/{churchId}/certificados_emitidos/{id}`.
 ///
-/// Validação pública (QR): índice mínimo `igrejas/{tenantId}/certificados_protocol_index/{id}`
+/// Validação pública (QR): índice mínimo `igrejas/{churchId}/certificados_protocol_index/{id}`
 /// (collection group) — legado: `certificados_protocol_index/{id}` na raiz com `tenantId`.
 ///
 /// Legado: leitura ainda aceita `certificados_emitidos/{id}` na raiz até migração.
@@ -17,16 +19,84 @@ class CertificateEmitidoService {
 
   static final FirebaseFirestore _fs = FirebaseFirestore.instance;
 
-  static CollectionReference<Map<String, dynamic>> _emitidosCol(String operationalId) =>
-      ChurchOperationalPaths.churchDoc(operationalId).collection('certificados_emitidos');
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _historicoRam = {};
+
+  static const Duration _historicoRamTtl = Duration(minutes: 8);
+
+  static String _churchId(String tenantHint) =>
+      ChurchRepository.churchId(tenantHint.trim());
+
+  static CollectionReference<Map<String, dynamic>> _emitidosCol(
+    String tenantHint,
+  ) =>
+      ChurchUiCollections.certificados(_churchId(tenantHint));
 
   static DocumentReference<Map<String, dynamic>> _protocolIndexDoc(
-    String operationalId,
+    String tenantHint,
     String certId,
-  ) =>
-      ChurchOperationalPaths.churchDoc(operationalId)
-          .collection('certificados_protocol_index')
-          .doc(certId);
+  ) {
+    final churchId = _churchId(tenantHint);
+    return ChurchUiCollections.churchDoc(churchId)
+        .collection('certificados_protocol_index')
+        .doc(certId);
+  }
+
+  static void invalidateHistoricoCache(String tenantHint) {
+    final key = _churchId(tenantHint);
+    if (key.isNotEmpty) _historicoRam.remove(key);
+  }
+
+  /// Histórico no painel — `igrejas/{churchId}/certificados_emitidos`.
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> loadHistorico(
+    String tenantHint, {
+    int limit = 300,
+    bool forceRefresh = false,
+  }) async {
+    final churchId = _churchId(tenantHint);
+    if (churchId.isEmpty) return const [];
+
+    if (!forceRefresh) {
+      final hit = _historicoRam[churchId];
+      if (hit != null &&
+          DateTime.now().difference(hit.at) < _historicoRamTtl) {
+        return hit.docs;
+      }
+    }
+
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+    final snap = await FirestoreWebGuard.runWithWebRecovery(
+      () => _emitidosCol(churchId)
+          .orderBy('dataEmissao', descending: true)
+          .limit(limit)
+          .get(),
+      maxAttempts: 4,
+    );
+    final docs = snap.docs;
+    if (docs.isNotEmpty) {
+      _historicoRam[churchId] = (docs: List.from(docs), at: DateTime.now());
+    }
+    return docs;
+  }
+
+  /// Query legada (preferir [loadHistorico] na UI web/mobile).
+  static Query<Map<String, dynamic>> historicoQuery(String tenantHint) {
+    return _emitidosCol(tenantHint)
+        .orderBy('dataEmissao', descending: true)
+        .limit(300);
+  }
+
+  static Future<Query<Map<String, dynamic>>> historicoQueryResolved(
+    String tenantHint,
+  ) async {
+    return historicoQuery(_churchId(tenantHint));
+  }
 
   /// Grava protocolo e devolve o [certificadoId] (UUID) para o QR.
   static Future<String> registerEmissao({
@@ -38,7 +108,7 @@ class CertificateEmitidoService {
     if (tid.isEmpty) {
       throw ArgumentError('tenantId vazio');
     }
-    final op = ChurchRepository.churchId(tid);
+    final op = _churchId(tid);
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) {
       throw StateError('Utilizador não autenticado');
@@ -80,6 +150,7 @@ class CertificateEmitidoService {
       'createdAt': FieldValue.serverTimestamp(),
     });
     await batch.commit();
+    invalidateHistoricoCache(op);
     return certificadoIdResolved;
   }
 
@@ -91,7 +162,7 @@ class CertificateEmitidoService {
   }) async {
     final tid = tenantId.trim();
     if (tid.isEmpty) throw ArgumentError('tenantId vazio');
-    final op = await ChurchOperationalPaths.resolveCached(tid);
+    final op = _churchId(tid);
     final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
     if (uid.isEmpty) throw StateError('Utilizador não autenticado');
     final email = FirebaseAuth.instance.currentUser?.email ?? '';
@@ -128,6 +199,7 @@ class CertificateEmitidoService {
       }
       await batch.commit();
     }
+    invalidateHistoricoCache(op);
     return ids;
   }
 
@@ -158,7 +230,8 @@ class CertificateEmitidoService {
       /* índice ou permissões: tenta legado abaixo */
     }
 
-    final idxRoot = await _fs.collection('certificados_protocol_index').doc(id).get();
+    final idxRoot =
+        await _fs.collection('certificados_protocol_index').doc(id).get();
     final idxRootData = idxRoot.data();
     if (idxRoot.exists && idxRootData != null) {
       final tid = (idxRootData['tenantId'] ?? '').toString().trim();
@@ -171,9 +244,7 @@ class CertificateEmitidoService {
     return _fs.collection('certificados_emitidos').doc(id).get();
   }
 
-  /// Reemissão no painel: leitura direta em `igrejas/{tenantId}/certificados_emitidos`.
-  /// Não depende do índice público nem de `collectionGroup` (evita «Protocolo não encontrado»
-  /// quando as regras ou o índice não expõem o protocolo ao utilizador autenticado).
+  /// Reemissão no painel: leitura directa em `igrejas/{churchId}/certificados_emitidos`.
   static Future<DocumentSnapshot<Map<String, dynamic>>> getForTenant(
     String tenantId,
     String certificadoId,
@@ -183,24 +254,9 @@ class CertificateEmitidoService {
     if (id.isEmpty || tid.isEmpty) {
       return _fs.collection('certificados_emitidos').doc('__invalid__').get();
     }
-    final op = await ChurchOperationalPaths.resolveCached(tid);
+    final op = _churchId(tid);
     final local = await _emitidosCol(op).doc(id).get();
     if (local.exists) return local;
     return getPublic(id);
-  }
-
-  /// Histórico no painel (mesma coleção que o protocolo completo).
-  /// [tenantId] deve ser o ID operacional (já resolvido pelo painel).
-  static Query<Map<String, dynamic>> historicoQuery(String tenantId) {
-    return _emitidosCol(tenantId.trim())
-        .orderBy('dataEmissao', descending: true)
-        .limit(300);
-  }
-
-  static Future<Query<Map<String, dynamic>>> historicoQueryResolved(
-    String tenantId,
-  ) async {
-    final op = await ChurchOperationalPaths.resolveCached(tenantId);
-    return historicoQuery(op);
   }
 }

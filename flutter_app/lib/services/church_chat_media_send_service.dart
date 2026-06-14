@@ -96,7 +96,7 @@ abstract final class ChurchChatMediaSendService {
             localPath: localPath,
           );
           EcoFireResilientPublish.scheduleSync(reason: 'chat_media_queued');
-          onProgress?.call(0.92);
+          onProgress?.call(1.0);
           onSuccess?.call();
           return;
         } catch (_) {}
@@ -120,7 +120,11 @@ abstract final class ChurchChatMediaSendService {
     ChurchPublishFlowLog.chatStart();
     onProgress?.call(0.04);
 
-    await EcoFireResilientPublish.prepareForPublish(logLabel: 'chat_media_send');
+    unawaited(
+      EcoFireResilientPublish.prepareForPublish(logLabel: 'chat_media_send')
+          .timeout(const Duration(seconds: 4))
+          .catchError((_) {}),
+    );
     onProgress?.call(0.08);
 
     final displayName = ChurchChatMessageFields.isDocumentType(pending.kind)

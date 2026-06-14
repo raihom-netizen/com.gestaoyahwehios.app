@@ -5,7 +5,10 @@ import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/sync_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Escuta [SyncService] e conectividade — SnackBars temporários, sem banner fixo.
+/// Escuta [SyncService] e conectividade — feedback mínimo (sem banner fixo).
+///
+/// Offline: **silencioso** — dados do cache Firestore/Hive permanecem na UI;
+/// não exibe SnackBar «Sem conexão» (evita interrupção / sensação de ANR).
 class SyncFeedbackListener extends StatefulWidget {
   const SyncFeedbackListener({super.key, required this.child});
 
@@ -28,16 +31,8 @@ class _SyncFeedbackListenerState extends State<SyncFeedbackListener> {
     _onlineSub = AppConnectivityService.instance.onlineStream.listen((online) {
       if (_wasOffline && online) {
         // Reconexão: sync silenciosa; feedback só via SyncService.success.
-      } else if (!_wasOffline && !online) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-        _showSnack(
-          '⚠ Sem conexão',
-          duration: const Duration(seconds: 3),
-          background: const Color(0xFFB45309),
-        );
-        });
       }
+      // Queda de rede: silenciosa — UI continua com cache local (Firestore persistence / Hive).
       _wasOffline = !online;
     });
   }

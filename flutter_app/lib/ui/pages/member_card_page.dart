@@ -3571,11 +3571,15 @@ class _MemberCardPageState extends State<MemberCardPage> {
         fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
         color: selected ? ThemeCleanPremium.primary : ThemeCleanPremium.onSurface,
       ),
-      selectedColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+      selectedColor: ThemeCleanPremium.primary.withValues(alpha: 0.18),
+      backgroundColor: selected
+          ? ThemeCleanPremium.primary.withValues(alpha: 0.08)
+          : const Color(0xFFF8FAFC),
       side: BorderSide(
         color: selected
-            ? ThemeCleanPremium.primary.withValues(alpha: 0.45)
+            ? ThemeCleanPremium.primary.withValues(alpha: 0.55)
             : const Color(0xFFE2E8F0),
+        width: selected ? 1.4 : 1,
       ),
       onSelected: (_) => onTap(),
     );
@@ -3585,9 +3589,19 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white,
+            ThemeCleanPremium.primary.withValues(alpha: 0.04),
+            const Color(0xFFF0F9FF),
+          ],
+        ),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: const Color(0xFFE8EDF3)),
+        border: Border.all(
+          color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
+        ),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
       child: Column(
@@ -7720,6 +7734,159 @@ class _MemberCardPageState extends State<MemberCardPage> {
     return base;
   }
 
+  Widget _buildEmissaoCarteirinhaHeroBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF0EA5E9),
+            ThemeCleanPremium.primary,
+            const Color(0xFF6366F1),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        boxShadow: [
+          BoxShadow(
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.28),
+            blurRadius: 22,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(Icons.badge_rounded, color: Colors.white, size: 32),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Emissão de Carteirinha',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Logo e nome da igreja vêm do cadastro. Selecione membros, assine '
+                  'e exporte em PNG ou PDF — tudo num painel amplo e rápido.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.45,
+                    color: Colors.white.withValues(alpha: 0.92),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmissaoCarteirinhaSidebar() {
+    return Container(
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFFF0FDF4),
+            const Color(0xFFEFF6FF),
+            Colors.white,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: ThemeCleanPremium.softUiCardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.lightbulb_rounded,
+                  color: Colors.amber.shade700, size: 22),
+              const SizedBox(width: 8),
+              const Text(
+                'Dicas rápidas',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _emissaoTipRow(
+            Icons.touch_app_rounded,
+            const Color(0xFF2563EB),
+            'Toque na foto do membro para abrir a carteirinha digital.',
+          ),
+          _emissaoTipRow(
+            Icons.checklist_rounded,
+            const Color(0xFF059669),
+            'Marque vários membros e exporte ou assine em lote.',
+          ),
+          _emissaoTipRow(
+            Icons.filter_alt_rounded,
+            const Color(0xFF7C3AED),
+            'Use filtros por sexo, idade e departamento para achar rápido.',
+          ),
+          _emissaoTipRow(
+            Icons.picture_as_pdf_rounded,
+            const Color(0xFFEA580C),
+            'PDF gestor no ícone superior — ideal para impressão.',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emissaoTipRow(IconData icon, Color color, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, size: 16, color: color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: Colors.grey.shade800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.cnhFullscreenOnly) {
@@ -7937,81 +8104,32 @@ class _MemberCardPageState extends State<MemberCardPage> {
                   ),
                 );
               }
-              return Center(
-                child: SingleChildScrollView(
-                  padding: ThemeCleanPremium.pagePadding(context),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 520),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-                      decoration: ThemeCleanPremium.premiumSurfaceCard,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: Icon(
-                                  Icons.badge_rounded,
-                                  size: 28,
-                                  color: ThemeCleanPremium.primary,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Emissão de Carteirinha',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w800,
-                                        color: ThemeCleanPremium.onSurface,
-                                        letterSpacing: -0.2,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      'A logo e o nome vêm do cadastro da igreja. '
-                                      'Sem logo cadastrada, usamos a marca Gestão YAHWEH. '
-                                      'Selecione o membro e assine ou exporte em PDF.',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        height: 1.4,
-                                        color: ThemeCleanPremium.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 18),
-                          Text(
-                            'Marque os membros na lista, assine e exporte em PNG ou PDF.',
-                            style: TextStyle(
-                              fontSize: 14,
-                              height: 1.45,
-                              color: ThemeCleanPremium.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          TextField(
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final wide = constraints.maxWidth >= 960;
+                  final emissaoPanel = Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius:
+                          BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                      border: Border.all(
+                        color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                      ),
+                      boxShadow: ThemeCleanPremium.softUiCardShadow,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextField(
                         controller: _memberSearchController,
                         decoration: InputDecoration(
-                          labelText: 'Buscar',
+                          labelText: 'Buscar membro',
                           hintText: 'Nome ou CPF...',
-                          prefixIcon: const Icon(Icons.search_rounded, size: 22),
+                          prefixIcon: Icon(Icons.search_rounded, size: 22,
+                              color: ThemeCleanPremium.primary
+                                  .withValues(alpha: 0.8)),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(
                               ThemeCleanPremium.radiusMd,
@@ -8021,8 +8139,9 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             borderRadius: BorderRadius.circular(
                               ThemeCleanPremium.radiusMd,
                             ),
-                            borderSide: const BorderSide(
-                              color: Color(0xFFE2E8F0),
+                            borderSide: BorderSide(
+                              color: ThemeCleanPremium.primary
+                                  .withValues(alpha: 0.18),
                             ),
                           ),
                           focusedBorder: OutlineInputBorder(
@@ -8043,7 +8162,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                         onChanged: (_) {
                           _memberSearchDebounce?.cancel();
                           _memberSearchDebounce = Timer(
-                              const Duration(milliseconds: 280), () {
+                              const Duration(milliseconds: 180), () {
                             if (!mounted) return;
                             setState(() =>
                                 _memberSearch = _memberSearchController.text);
@@ -8053,7 +8172,8 @@ class _MemberCardPageState extends State<MemberCardPage> {
                       const SizedBox(height: 12),
                       _buildCarteiraFiltersCompact(),
                       const SizedBox(height: 12),
-                      FutureBuilder<List<_MemberItem>>(
+                      Expanded(
+                        child: FutureBuilder<List<_MemberItem>>(
                         future: _membersListFuture,
                         builder: (context, snap) {
                           if (snap.hasError) {
@@ -8098,7 +8218,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (!context.mounted) return;
                               preloadNetworkImages(context, preloadUrls,
-                                  maxItems: 12);
+                                  maxItems: 18);
                             });
                           }
                           if (filtered.isEmpty) {
@@ -8152,7 +8272,6 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           }
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
-                            mainAxisSize: MainAxisSize.min,
                             children: [
                               if (_canManage) ...[
                                 _buildGestorPainelAcoesRapidas(
@@ -8160,7 +8279,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                   allMembers: all,
                                   filtered: filtered,
                                 ),
-                                const SizedBox(height: 14),
+                                const SizedBox(height: 12),
                               ],
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
@@ -8169,15 +8288,17 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                   style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade600,
-                                      fontWeight: FontWeight.w500),
+                                      fontWeight: FontWeight.w600),
                                 ),
                               ),
                               if (_membersListHasMore)
-                                LazyLoadMoreFooter(
-                                  loading: _membersListLoadingMore,
-                                  onLoadMore: _loadMoreMembersList,
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: LazyLoadMoreFooter(
+                                    loading: _membersListLoadingMore,
+                                    onLoadMore: _loadMoreMembersList,
+                                  ),
                                 ),
-                              const SizedBox(height: 4),
                               if (_canManage &&
                                   _carteiraListaSelecionados.isNotEmpty) ...[
                                 Container(
@@ -8186,8 +8307,13 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       horizontal: 14, vertical: 12),
                                   margin: const EdgeInsets.only(bottom: 10),
                                   decoration: BoxDecoration(
-                                    color: ThemeCleanPremium.primary
-                                        .withValues(alpha: 0.08),
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.1),
+                                        const Color(0xFFEFF6FF),
+                                      ],
+                                    ),
                                     borderRadius: BorderRadius.circular(
                                         ThemeCleanPremium.radiusMd),
                                     border: Border.all(
@@ -8203,7 +8329,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          '${_carteiraListaSelecionados.length} selecionado(s) • ${filtered.length} visível(is) nesta lista',
+                                          '${_carteiraListaSelecionados.length} selecionado(s) • ${filtered.length} visível(is)',
                                           style: TextStyle(
                                             fontSize: 13,
                                             fontWeight: FontWeight.w700,
@@ -8235,12 +8361,11 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                 ),
                                 const SizedBox(height: 4),
                               ],
-                              ConstrainedBox(
-                                constraints:
-                                    const BoxConstraints(maxHeight: 280),
-                                child: ListView.builder(
-                                  shrinkWrap: true,
+                              Expanded(
+                                child: ListView.separated(
                                   itemCount: filtered.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 4),
                                   itemBuilder: (_, i) {
                                     final m = filtered[i];
                                     final cpfLista =
@@ -8249,7 +8374,14 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                             .replaceAll(RegExp(r'\D'), '');
                                     final sel = _carteiraListaSelecionados
                                         .contains(m.id);
-                                    return CheckboxListTile(
+                                    return Material(
+                                      color: sel
+                                          ? ThemeCleanPremium.primary
+                                              .withValues(alpha: 0.06)
+                                          : Colors.white,
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusMd),
+                                      child: CheckboxListTile(
                                       value: sel,
                                       onChanged: !_canManage
                                           ? null
@@ -8313,6 +8445,7 @@ class _MemberCardPageState extends State<MemberCardPage> {
                                             ),
                                       controlAffinity:
                                           ListTileControlAffinity.leading,
+                                    ),
                                     );
                                   },
                                 ),
@@ -8321,23 +8454,54 @@ class _MemberCardPageState extends State<MemberCardPage> {
                           );
                         },
                       ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: () {
-                          if (widget.onNavigateToMembers != null) {
-                            widget.onNavigateToMembers!();
-                          } else {
-                            Navigator.of(context).pop();
-                          }
-                        },
-                        icon: const Icon(Icons.people_rounded),
-                        label: const Text('Ir para Membros'),
                       ),
                     ],
                   ),
+                  );
+
+                  return Padding(
+                    padding: ThemeCleanPremium.pagePadding(context)
+                        .copyWith(top: 8, bottom: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildEmissaoCarteirinhaHeroBanner(),
+                        const SizedBox(height: 14),
+                        Expanded(
+                          child: wide
+                              ? Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Expanded(flex: 5, child: emissaoPanel),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      flex: 2,
+                                      child: _buildEmissaoCarteirinhaSidebar(),
+                                    ),
+                                  ],
+                                )
+                              : emissaoPanel,
+                        ),
+                        const SizedBox(height: 12),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: FilledButton.icon(
+                            onPressed: () {
+                              if (widget.onNavigateToMembers != null) {
+                                widget.onNavigateToMembers!();
+                              } else {
+                                Navigator.of(context).pop();
+                              }
+                            },
+                            icon: const Icon(Icons.people_rounded),
+                            label: const Text('Ir para Membros'),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ),
+                  );
+                },
               );
             }
 

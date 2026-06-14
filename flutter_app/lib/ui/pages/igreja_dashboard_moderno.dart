@@ -38,6 +38,7 @@ import 'package:gestao_yahweh/core/event_template_schedule.dart'
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/panel_programacao_loader.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/core/panel_feed_post_validator.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_dashboard_cache_service.dart';
@@ -46,11 +47,14 @@ import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_preheat_coordinator.dart';
 import 'package:gestao_yahweh/services/panel_media_prefetch_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
+import 'package:gestao_yahweh/ui/widgets/dashboard_finance_hub.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/yahweh_performance_monitor.dart';
 import 'package:gestao_yahweh/services/panel_finance_snapshot_service.dart';
+import 'package:gestao_yahweh/services/panel_finance_chart_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/services/yahweh_panel_cache_warmup.dart';
 import 'package:gestao_yahweh/core/utils/independent_futures.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -563,7 +567,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       _avisosStream = FirestoreStreamUtils.oneShotQueryFromFuture(() async {
         final r = await ChurchAvisosLoadService.loadFeed(
           seedTenantId: op,
-          limit: 10,
+          limit: PanelFeedPostValidator.kPanelFeedPageSize,
         );
         return r.snapshot;
       });
@@ -571,7 +575,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         () async {
           final r = await ChurchEventosLoadService.loadFeed(
             seedTenantId: op,
-            limit: 32,
+            limit: PanelFeedPostValidator.kPanelFeedPageSize,
           );
           return r.snapshot;
         },
@@ -1311,12 +1315,17 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                             ),
                           if (_dashCanFinance) ...[
                             SizedBox(
-                              width: isNarrow ? double.infinity : 380,
-                              child: _GraficoFinanceiro(
+                              width: isNarrow ? double.infinity : double.infinity,
+                              child: DashboardFinanceHub(
                                 tenantId: _effectiveTenantId,
                                 range: _resolvedDashFinanceRange,
                                 preset: _dashFinancePreset,
+                                role: widget.role,
+                                cpf: widget.cpf,
+                                podeVerFinanceiro: widget.podeVerFinanceiro,
+                                permissions: widget.permissions,
                                 financeRefreshTick: _financeDashTick,
+                                isNarrow: isNarrow,
                               ),
                             ),
                             const SizedBox(height: ThemeCleanPremium.spaceLg),
@@ -4930,29 +4939,76 @@ class _GraficoFinanceiro extends StatefulWidget {
 }
 
 class _GraficoFinanceiroState extends State<_GraficoFinanceiro> {
-  PanelFinanceSnapshot? _serverSnapshot;
+  PanelFinanceChartData? _chartData;
+  bool _loading = true;
+  String? _loadError;
 
   @override
   void initState() {
     super.initState();
-    if (widget.financeRefreshTick > 0) {
-      unawaited(_loadServerSnapshot());
-    }
+    unawaited(_loadChart());
   }
 
   @override
   void didUpdateWidget(covariant _GraficoFinanceiro oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.financeRefreshTick != widget.financeRefreshTick) {
-      unawaited(_loadServerSnapshot());
+    if (oldWidget.tenantId != widget.tenantId ||
+        oldWidget.financeRefreshTick != widget.financeRefreshTick ||
+        !ChurchDashboardFinancePeriod.sameRange(oldWidget.range, widget.range) ||
+        oldWidget.preset != widget.preset) {
+      unawaited(_loadChart());
     }
   }
 
-  Future<void> _loadServerSnapshot() async {
-    final snap = await PanelFinanceSnapshotService.readOnceFromServer(
-      widget.tenantId,
-    );
-    if (mounted) setState(() => _serverSnapshot = snap);
+  Future<void> _loadChart() async {
+    final tid = widget.tenantId.trim();
+    if (tid.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _chartData = null;
+        });
+      }
+      return;
+    }
+
+    final buckets = _dashboardFinanceBuckets(widget.range, widget.preset);
+    final peek = ChurchFinanceLoadService.peekLancamentosRam(tid, limit: 400);
+    if (peek != null && peek.isNotEmpty && mounted) {
+      setState(() {
+        _chartData = PanelFinanceChartService.fromFinanceDocs(
+          docs: peek,
+          bucketStarts: buckets.bucketStarts,
+          monthlyMode: buckets.monthlyMode,
+          clipRange: widget.range,
+        );
+        _loading = false;
+        _loadError = null;
+      });
+    } else if (mounted && _chartData == null) {
+      setState(() => _loading = true);
+    }
+
+    try {
+      final data = await PanelFinanceChartService.load(
+        tenantId: tid,
+        bucketStarts: buckets.bucketStarts,
+        monthlyMode: buckets.monthlyMode,
+        clipRange: widget.range,
+      ).timeout(PanelResilientLoad.queryCap);
+      if (!mounted) return;
+      setState(() {
+        _chartData = data;
+        _loadError = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      if (_chartData == null) {
+        setState(() => _loadError = '$e');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
@@ -4960,43 +5016,40 @@ class _GraficoFinanceiroState extends State<_GraficoFinanceiro> {
     return _CleanCard(
       title: 'Fluxo Financeiro',
       icon: Icons.account_balance_wallet_rounded,
-      child: StreamBuilder<PanelFinanceSnapshot>(
-        stream: PanelFinanceSnapshotService.watch(widget.tenantId),
-        builder: (context, snap) {
-          if (snap.hasError) {
-            return SizedBox(
-              height: 180,
-              child: Center(
-                child: Text(
-                  'Financeiro indisponível.',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                ),
-              ),
-            );
-          }
-          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-            return const SizedBox(
-              height: 180,
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          final streamSnap = snap.data ?? const PanelFinanceSnapshot();
-          final snapshot = (_serverSnapshot != null && _serverSnapshot!.hasData)
-              ? _serverSnapshot!
-              : streamSnap;
-          return _buildChartFromSnapshot(snapshot);
-        },
-      ),
+      child: _buildChartBody(),
     );
   }
 
-  Widget _buildChartFromSnapshot(PanelFinanceSnapshot snapshot) {
+  Widget _buildChartBody() {
+    if (_loading && (_chartData == null || !_chartData!.hasValues)) {
+      return const SizedBox(
+        height: 180,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_chartData == null && _loadError != null) {
+      return SizedBox(
+        height: 180,
+        child: Center(
+          child: Text(
+            'Sem dados financeiros no período.',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
+        ),
+      );
+    }
+    return _buildChartFromData(_chartData ?? PanelFinanceChartData(
+      netByBucket: const [0],
+      entradasByBucket: const [0],
+      saidasByBucket: const [0],
+      totalEntradas: 0,
+      totalSaidas: 0,
+    ));
+  }
+
+  Widget _buildChartFromData(PanelFinanceChartData data) {
     final buckets = _dashboardFinanceBuckets(widget.range, widget.preset);
-    final byBucket = PanelFinanceSnapshotService.netFlowByBuckets(
-      snapshot: snapshot,
-      bucketStarts: buckets.bucketStarts,
-      monthlyMode: buckets.monthlyMode,
-    );
+    final byBucket = data.netByBucket;
     final spots = byBucket
         .asMap()
         .entries
@@ -5219,7 +5272,8 @@ class _PainelDespesasDashboard extends StatefulWidget {
 }
 
 class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
-  Future<QuerySnapshot<Map<String, dynamic>>>? _recentDespesasFuture;
+  late Future<QuerySnapshot<Map<String, dynamic>>> _recentDespesasFuture;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedDocs;
 
   @override
   void initState() {
@@ -5237,20 +5291,43 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
           widget.range,
         ) ||
         oldWidget.preset != widget.preset) {
-      _reloadRecentDespesas();
+      _reloadRecentDespesas(forceFresh: true);
     }
   }
 
-  void _reloadRecentDespesas() {
-    final tid = widget.tenantId.trim();
+  void _reloadRecentDespesas({bool forceFresh = false}) {
+    final tid = ChurchRepository.churchId(widget.tenantId);
     if (tid.isEmpty) {
-      _recentDespesasFuture = null;
+      _seedDocs = const [];
+      _recentDespesasFuture = Future.value(MergedFirestoreQuerySnapshot(const []));
       return;
     }
-    _recentDespesasFuture = ChurchFinanceLoadService.loadLancamentos(
-      seedTenantId: tid,
-      limit: 180,
-    ).then((r) => r.snapshot);
+    if (!forceFresh) {
+      _seedDocs =
+          ChurchFinanceLoadService.peekLancamentosRam(tid, limit: 180) ??
+              const [];
+    } else {
+      _seedDocs ??= const [];
+    }
+    _recentDespesasFuture = Future.value(
+      MergedFirestoreQuerySnapshot(_seedDocs!),
+    );
+    unawaited(
+      ChurchFinanceLoadService.loadLancamentos(
+        seedTenantId: tid,
+        limit: 180,
+        forceRefresh: forceFresh,
+        forceServer: forceFresh,
+      )
+          .timeout(PanelResilientLoad.queryCap)
+          .then((r) {
+        if (!mounted) return;
+        setState(() {
+          _seedDocs = r.docs;
+          _recentDespesasFuture = Future.value(r.snapshot);
+        });
+      }).catchError((_) {}),
+    );
   }
 
   static bool _ehDespesa(Map<String, dynamic> data) =>
@@ -5279,77 +5356,56 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<PanelFinanceSnapshot>(
-      stream: PanelFinanceSnapshotService.watch(widget.tenantId),
-      builder: (context, finSnap) {
-        if (finSnap.connectionState == ConnectionState.waiting &&
-            !finSnap.hasData) {
+    void openFinanceiro({String? openId, int? tab}) {
+      Navigator.push(
+        context,
+        ThemeCleanPremium.fadeSlideRoute(
+          FinancePage(
+            tenantId: widget.tenantId,
+            role: widget.role,
+            cpf: widget.cpf,
+            podeVerFinanceiro: widget.podeVerFinanceiro,
+            permissions: widget.permissions,
+            initialTabIndex: tab,
+            openLancamentoId: openId,
+          ),
+        ),
+      );
+    }
+
+    final buckets = _dashboardFinanceBuckets(widget.range, widget.preset);
+    return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      future: _recentDespesasFuture,
+      builder: (context, recentSnap) {
+        final allDocs =
+            recentSnap.data?.docs ?? _seedDocs ?? const [];
+        var despesasDocs =
+            allDocs.where((d) => _ehDespesa(d.data())).toList();
+        despesasDocs = despesasDocs.where((d) {
+          final dt = _dataDoc(d.data());
+          return _dashboardDateInRange(dt, widget.range);
+        }).toList();
+        final byBucket = _dashboardSaidasFromFinanceDocs(
+          docs: allDocs,
+          buckets: buckets,
+          isDespesa: _ehDespesa,
+          valorAbs: _valorAbs,
+          dataDoc: _dataDoc,
+        );
+        final chartHasData = byBucket.any((v) => v > 0);
+        despesasDocs.sort((a, b) {
+          final da = _dataDoc(a.data());
+          final db = _dataDoc(b.data());
+          if (da == null) return 1;
+          if (db == null) return -1;
+          return db.compareTo(da);
+        });
+        final recent = despesasDocs.take(8).toList();
+        if (!chartHasData && recent.isEmpty) {
           return const SizedBox.shrink();
         }
-        final buckets =
-            _dashboardFinanceBuckets(widget.range, widget.preset);
-        final snapshot = finSnap.data ?? const PanelFinanceSnapshot();
-        void openFinanceiro({String? openId, int? tab}) {
-          Navigator.push(
-            context,
-            ThemeCleanPremium.fadeSlideRoute(
-              FinancePage(
-                tenantId: widget.tenantId,
-                role: widget.role,
-                cpf: widget.cpf,
-                podeVerFinanceiro: widget.podeVerFinanceiro,
-                permissions: widget.permissions,
-                initialTabIndex: tab,
-                openLancamentoId: openId,
-              ),
-            ),
-          );
-        }
 
-        if (_recentDespesasFuture == null) {
-          return const SizedBox.shrink();
-        }
-        return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          future: _recentDespesasFuture,
-          builder: (context, recentSnap) {
-            final allDocs = recentSnap.data?.docs ?? const [];
-            var despesasDocs = allDocs
-                .where((d) => _ehDespesa(d.data()))
-                .toList();
-            despesasDocs = despesasDocs.where((d) {
-              final dt = _dataDoc(d.data());
-              return _dashboardDateInRange(dt, widget.range);
-            }).toList();
-            final byBucket = buckets.monthlyMode
-                ? PanelFinanceSnapshotService.saidasByBuckets(
-                    snapshot: snapshot,
-                    bucketStarts: buckets.bucketStarts,
-                    monthlyMode: true,
-                  )
-                : _dashboardSaidasFromFinanceDocs(
-                    docs: allDocs,
-                    buckets: buckets,
-                    isDespesa: _ehDespesa,
-                    valorAbs: _valorAbs,
-                    dataDoc: _dataDoc,
-                  );
-            final chartHasData = byBucket.any((v) => v > 0);
-            if (!chartHasData && finSnap.hasError) {
-              return const SizedBox.shrink();
-            }
-            despesasDocs.sort((a, b) {
-              final da = _dataDoc(a.data());
-              final db = _dataDoc(b.data());
-              if (da == null) return 1;
-              if (db == null) return -1;
-              return db.compareTo(da);
-            });
-            final recent = despesasDocs.take(8).toList();
-            if (!chartHasData && recent.isEmpty) {
-              return const SizedBox.shrink();
-            }
-
-            return _CleanCard(
+        return _CleanCard(
           title: 'Despesas (painel)',
           icon: Icons.trending_down_rounded,
           child: Column(
@@ -5453,8 +5509,6 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
               ],
             ],
           ),
-            );
-          },
         );
       },
     );
@@ -5911,7 +5965,17 @@ class _DestaqueAvisos extends StatelessWidget {
   });
 
   Widget _buildFromCacheAvisos(BuildContext context) {
-    final avisos = panelCache.homeAvisos;
+    final avisos = panelCache.homeAvisos.where((a) {
+      return PanelFeedPostValidator.isRenderableForPanelFeed(
+        {
+          'title': a.title,
+          'coverPhotoUrl': a.coverPhotoUrl,
+          'textPreview': a.textPreview,
+        },
+        docId: a.id,
+        churchId: tenantId,
+      );
+    }).toList();
     if (avisos.isEmpty) {
       return Center(
         child: Padding(
@@ -5956,8 +6020,28 @@ class _DestaqueAvisos extends StatelessWidget {
         stream: stream,
         builder: (context, snap) {
           if (snap.hasError) {
-            return ChurchPanelErrorBody(
-              title: 'Não foi possível carregar os avisos',
+            final hasLocal = panelCache.hasHomeAvisos;
+            if (hasLocal) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ChurchPanelResilientLoadBanner(
+                    hasLocalData: true,
+                    isSyncing: false,
+                    showStaleCache: true,
+                    errorTitle: 'Não foi possível carregar os avisos',
+                    error: snap.error,
+                    onRetry: onRetryStream,
+                  ),
+                  _buildFromCacheAvisos(context),
+                ],
+              );
+            }
+            return ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: false,
+              errorTitle: 'Não foi possível carregar os avisos',
               error: snap.error,
               onRetry: onRetryStream,
             );
@@ -5985,10 +6069,15 @@ class _DestaqueAvisos extends StatelessWidget {
               return false;
             }
             final v = data['validUntil'];
-            if (v == null) return true;
-            if (v is Timestamp) return v.toDate().isAfter(now);
-            return true;
-          }).toList();
+            if (v != null) {
+              if (v is Timestamp && !v.toDate().isAfter(now)) return false;
+            }
+            return PanelFeedPostValidator.isRenderableForPanelFeed(
+              data,
+              docId: d.id,
+              churchId: tenantId,
+            );
+          }).take(PanelFeedPostValidator.kPanelFeedPageSize).toList();
           if (docs.isEmpty) {
             return Center(child: Padding(
               padding: const EdgeInsets.all(20),
@@ -6046,8 +6135,59 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
       stream: stream,
       builder: (context, snap) {
         if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar os eventos em destaque',
+          final now = DateTime.now();
+          final cachedDocs = (snap.data?.docs ?? [])
+              .where(
+                (d) =>
+                    noticiaDocEhEventoSpecialFeed(d) &&
+                    !noticiaEventoEspecialCaiuDoFeedParaGaleria(d.data(), now),
+              )
+              .where((d) {
+                final v = d.data()['validUntil'];
+                if (v == null) return true;
+                if (v is Timestamp) return v.toDate().isAfter(now);
+                return true;
+              })
+              .toList();
+          if (cachedDocs.isNotEmpty) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ChurchPanelResilientLoadBanner(
+                  hasLocalData: true,
+                  isSyncing: false,
+                  showStaleCache: true,
+                  errorTitle:
+                      'Não foi possível carregar os eventos em destaque',
+                  error: snap.error,
+                  onRetry: onRetryStream,
+                ),
+                _CleanCard(
+                  title: 'Eventos em destaque',
+                  icon: Icons.event_rounded,
+                  compact: false,
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: cachedDocs.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, i) => _DestaqueCard(
+                      doc: cachedDocs[i],
+                      tenantId: tenantId,
+                      role: role,
+                      churchSlug: churchSlug,
+                      nomeIgreja: nomeIgreja,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+          return ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: false,
+            errorTitle: 'Não foi possível carregar os eventos em destaque',
             error: snap.error,
             onRetry: onRetryStream,
           );
@@ -6064,10 +6204,16 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
             )
             .where((d) {
               final v = d.data()['validUntil'];
-              if (v == null) return true;
-              if (v is Timestamp) return v.toDate().isAfter(now);
-              return true;
+              if (v != null) {
+                if (v is Timestamp && !v.toDate().isAfter(now)) return false;
+              }
+              return PanelFeedPostValidator.isRenderableForPanelFeed(
+                d.data(),
+                docId: d.id,
+                churchId: tenantId,
+              );
             })
+            .take(PanelFeedPostValidator.kPanelFeedPageSize)
             .toList();
         if (docs.isEmpty) return const SizedBox.shrink();
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -6624,8 +6770,10 @@ class _EventosSemanalCardState extends State<_EventosSemanalCard> {
           }
           final outcome = snap.data!;
           if (outcome.showHardError) {
-            return ChurchPanelErrorBody(
-              title: 'Não foi possível carregar a programação da semana',
+            return ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: false,
+              errorTitle: 'Não foi possível carregar a programação da semana',
               error: outcome.error,
               onRetry: _reloadSemanal,
             );
@@ -7200,8 +7348,10 @@ class _ProgramacaoDiasCardState extends State<_ProgramacaoDiasCard> {
           }
           final outcome = snap.data!;
           if (outcome.showHardError) {
-            return ChurchPanelErrorBody(
-              title: 'Não foi possível carregar a programação',
+            return ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: false,
+              errorTitle: 'Não foi possível carregar a programação',
               error: outcome.error,
               onRetry: _reloadProgramacao,
             );
@@ -8115,7 +8265,14 @@ class _DestaqueCardState extends State<_DestaqueCard> {
   @override
   Widget build(BuildContext context) {
     final data = widget.doc.data();
-    final title = (data['title'] ?? '').toString();
+    if (!PanelFeedPostValidator.isRenderableForPanelFeed(
+      data,
+      docId: widget.doc.id,
+      churchId: widget.tenantId,
+    )) {
+      return const SizedBox.shrink();
+    }
+    final title = PanelFeedPostValidator.resolveTitle(data);
     final text = (data['text'] ?? '').toString();
     final type = (data['type'] ?? 'aviso').toString();
     final fromAvisosCol = ChurchTenantPostsCollections.segmentFromPostRef(
@@ -8464,14 +8621,6 @@ class _DestaqueCardState extends State<_DestaqueCard> {
                                     padding: const EdgeInsets.only(top: 10),
                                     child: _PainelDestaqueExpandableText(
                                         text: text),
-                                  )
-                                else if (title.isEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 10),
-                                    child: _PainelDestaqueExpandableText(
-                                      text: 'Sem título',
-                                      maxLines: 2,
-                                    ),
                                   ),
                               ],
                             ),
@@ -8692,12 +8841,7 @@ class _DestaqueCardState extends State<_DestaqueCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (text.trim().isNotEmpty)
-                          _PainelDestaqueExpandableText(text: text)
-                        else if (title.isEmpty)
-                          _PainelDestaqueExpandableText(
-                            text: 'Sem título',
-                            maxLines: 2,
-                          ),
+                          _PainelDestaqueExpandableText(text: text),
                       ],
                     ),
                   ),

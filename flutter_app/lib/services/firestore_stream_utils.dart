@@ -64,9 +64,10 @@ class FirestoreStreamUtils {
 
   /// Listeners nativos Firestore — centralizados aqui; UI usa `.watchSafe()` / `.watchBootstrap()`.
   static Stream<QuerySnapshot<Map<String, dynamic>>> _nativeQuerySnapshots(
-    Query<Map<String, dynamic>> query,
-  ) =>
-      query.snapshots();
+    Query<Map<String, dynamic>> query, {
+    bool includeMetadataChanges = false,
+  }) =>
+      query.snapshots(includeMetadataChanges: includeMetadataChanges);
 
   static Stream<DocumentSnapshot<Map<String, dynamic>>> _nativeDocumentSnapshots(
     DocumentReference<Map<String, dynamic>> ref,
@@ -130,7 +131,10 @@ class FirestoreStreamUtils {
       return;
     }
     // Único uso intencional de `.snapshots()` no app — mobile pós-bootstrap.
-    yield* resilientQuery(_nativeQuerySnapshots(query), broadcast: broadcast);
+    yield* resilientQuery(
+      _nativeQuerySnapshots(query, includeMetadataChanges: true),
+      broadcast: broadcast,
+    );
   }
 
   /// Documento com 1.º snapshot via `.get()` — pintura instantânea no painel master.

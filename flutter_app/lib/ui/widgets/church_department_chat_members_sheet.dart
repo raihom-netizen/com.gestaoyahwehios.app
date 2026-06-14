@@ -1,7 +1,9 @@
+import 'dart:async' show unawaited;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/church_chat_moderation.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -45,24 +47,41 @@ class ChurchDepartmentChatMembersSheet extends StatefulWidget {
 
 class _ChurchDepartmentChatMembersSheetState
     extends State<ChurchDepartmentChatMembersSheet> {
-  late Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _membersFuture;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _members;
+  bool _membersLoading = true;
+  Object? _membersError;
 
   @override
   void initState() {
     super.initState();
-    _membersFuture = ChurchChatService.fetchActiveDepartmentMembers(
-      tenantId: widget.tenantId,
-      departmentId: widget.departmentId,
-    );
+    unawaited(_loadMembers());
   }
 
-  void _reloadMembers() {
+  Future<void> _loadMembers() async {
+    if (!mounted) {
+      return;
+    }
     setState(() {
-      _membersFuture = ChurchChatService.fetchActiveDepartmentMembers(
+      _membersLoading = _members == null || _members!.isEmpty;
+      _membersError = null;
+    });
+    try {
+      final docs = await ChurchChatService.fetchActiveDepartmentMembers(
         tenantId: widget.tenantId,
         departmentId: widget.departmentId,
       );
-    });
+      if (!mounted) return;
+      setState(() => _members = docs);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _membersError = e);
+    } finally {
+      if (mounted) setState(() => _membersLoading = false);
+    }
+  }
+
+  void _reloadMembers() {
+    unawaited(_loadMembers());
   }
 
   Future<void> _openGroupChat(BuildContext sheetCtx) async {
@@ -130,11 +149,11 @@ class _ChurchDepartmentChatMembersSheetState
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.paddingOf(context).bottom;
-    final canEdit = AppPermissions.canManageDepartmentChatMembers(
-      role: widget.role,
-      permissions: widget.permissions,
-      departmentData: widget.departmentDocData,
+    final canEdit = ChurchChatModeration.canManageDepartmentGroup(
+      memberRole: widget.role,
       memberCpfDigits: widget.cpfDigits,
+      isDepartmentThread: true,
+      departmentData: widget.departmentDocData,
     );
     return DraggableScrollableSheet(
       expand: false,
@@ -245,162 +264,7 @@ class _ChurchDepartmentChatMembersSheetState
                 ),
               ),
               Expanded(
-                child: FutureBuilder<
-                    List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-                  future: _membersFuture,
-                  builder: (context, snap) {
-                    if (snap.connectionState != ConnectionState.done) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    final docs = snap.data ?? [];
-                    if (docs.isEmpty) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            'Nenhum membro ativo encontrado neste grupo.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: ThemeCleanPremium.onSurfaceVariant,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      );
-                    }
-                    return ListView.builder(
-                      controller: scrollCtrl,
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      itemCount: docs.length,
-                      itemBuilder: (_, i) {
-                        final doc = docs[i];
-                        final d = doc.data();
-                        final auth =
-                            (d['authUid'] ?? d['firebaseUid'] ?? '')
-                                .toString();
-                        final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? '')
-                            .toString()
-                            .trim();
-                        final label = nome.isEmpty
-                            ? (auth.isNotEmpty ? auth : 'Membro')
-                            : nome;
-                        final canDm =
-                            auth.isNotEmpty && auth != widget.currentUid;
-                        final fotoUrl = imageUrlFromMap(d);
-                        final dpr = MediaQuery.devicePixelRatioOf(context);
-                        final mem = (48 * dpr).round().clamp(96, 220);
-                        return ListTile(
-                          contentPadding:
-                              const EdgeInsets.symmetric(horizontal: 4),
-                          leading: auth.isEmpty
-                              ? CircleAvatar(
-                                  backgroundColor: ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.15),
-                                  foregroundColor: ThemeCleanPremium.primary,
-                                  child: Text(
-                                    label.isNotEmpty
-                                        ? label[0].toUpperCase()
-                                        : '?',
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w800),
-                                  ),
-                                )
-                              : StreamBuilder<
-                                  DocumentSnapshot<Map<String, dynamic>>>(
-                                  stream:                                       ChurchUiCollections.churchDoc(widget.tenantId)
-                                      .collection('chat_presence')
-                                      .doc(auth)
-                                      .watchSafe(),
-                                  builder: (context, ps) {
-                                    final on = ChurchChatService
-                                        .isOnlineFromSnapshot(ps.data);
-                                    return Stack(
-                                      clipBehavior: Clip.none,
-                                      children: [
-                                        SafeCircleAvatarImage(
-                                          imageUrl: fotoUrl,
-                                          radius: 22,
-                                          memCacheSize: mem,
-                                          fallbackIcon: Icons.person_rounded,
-                                          fallbackColor:
-                                              ThemeCleanPremium.primary,
-                                          backgroundColor: ThemeCleanPremium
-                                              .primary
-                                              .withValues(alpha: 0.12),
-                                        ),
-                                        Positioned(
-                                          right: -1,
-                                          bottom: -1,
-                                          child: Container(
-                                            width: 13,
-                                            height: 13,
-                                            decoration: BoxDecoration(
-                                              color: on
-                                                  ? const Color(0xFF22C55E)
-                                                  : const Color(0xFF9CA3AF),
-                                              shape: BoxShape.circle,
-                                              border: Border.all(
-                                                  color: Colors.white,
-                                                  width: 2),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    );
-                                  },
-                                ),
-                          title: Text(
-                            label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          subtitle: auth.isEmpty
-                              ? Text(
-                                  'Sem conta no app — convide a vincular o login',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: ThemeCleanPremium.onSurfaceVariant,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                )
-                              : StreamBuilder<
-                                  DocumentSnapshot<Map<String, dynamic>>>(
-                                  stream:                                       ChurchUiCollections.churchDoc(widget.tenantId)
-                                      .collection('chat_presence')
-                                      .doc(auth)
-                                      .watchSafe(),
-                                  builder: (context, ps) {
-                                    final on = ChurchChatService
-                                        .isOnlineFromSnapshot(ps.data);
-                                    return Text(
-                                      on ? 'Online agora' : 'Offline',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        color: on
-                                            ? const Color(0xFF15803D)
-                                            : ThemeCleanPremium
-                                                .onSurfaceVariant,
-                                      ),
-                                    );
-                                  },
-                                ),
-                          trailing: canDm
-                              ? IconButton(
-                                  tooltip: 'Mensagem direta',
-                                  icon: Icon(
-                                    Icons.chat_rounded,
-                                    color: ThemeCleanPremium.primary,
-                                  ),
-                                  onPressed: () => _openDm(ctx, auth, label),
-                                )
-                              : null,
-                        );
-                      },
-                    );
-                  },
-                ),
+                child: _buildMembersList(scrollCtrl),
               ),
               SafeArea(
                 top: false,
@@ -423,6 +287,168 @@ class _ChurchDepartmentChatMembersSheetState
               ),
             ],
           ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMembersList(ScrollController scrollCtrl) {
+    if (_membersLoading && (_members == null || _members!.isEmpty)) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_membersError != null && (_members == null || _members!.isEmpty)) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Não foi possível carregar os membros.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: ThemeCleanPremium.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: _reloadMembers,
+                child: const Text('Tentar de novo'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    final docs = _members ?? [];
+    if (docs.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'Nenhum membro ativo encontrado neste grupo.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: ThemeCleanPremium.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      );
+    }
+    return ListView.builder(
+      controller: scrollCtrl,
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      itemCount: docs.length,
+      itemBuilder: (ctx, i) {
+        final doc = docs[i];
+        final d = doc.data();
+        final auth = (d['authUid'] ?? d['firebaseUid'] ?? '').toString();
+        final nome =
+            (d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim();
+        final label =
+            nome.isEmpty ? (auth.isNotEmpty ? auth : 'Membro') : nome;
+        final canDm = auth.isNotEmpty && auth != widget.currentUid;
+        final fotoUrl = imageUrlFromMap(d);
+        final dpr = MediaQuery.devicePixelRatioOf(ctx);
+        final mem = (48 * dpr).round().clamp(96, 220);
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+          leading: auth.isEmpty
+              ? CircleAvatar(
+                  backgroundColor:
+                      ThemeCleanPremium.primary.withValues(alpha: 0.15),
+                  foregroundColor: ThemeCleanPremium.primary,
+                  child: Text(
+                    label.isNotEmpty ? label[0].toUpperCase() : '?',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                )
+              : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: ChurchUiCollections.churchDoc(widget.tenantId)
+                      .collection('chat_presence')
+                      .doc(auth)
+                      .watchSafe(),
+                  builder: (context, ps) {
+                    final on =
+                        ChurchChatService.isOnlineFromSnapshot(ps.data);
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        SafeCircleAvatarImage(
+                          imageUrl: fotoUrl,
+                          radius: 22,
+                          memCacheSize: mem,
+                          fallbackIcon: Icons.person_rounded,
+                          fallbackColor: ThemeCleanPremium.primary,
+                          backgroundColor:
+                              ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                        ),
+                        Positioned(
+                          right: -1,
+                          bottom: -1,
+                          child: Container(
+                            width: 13,
+                            height: 13,
+                            decoration: BoxDecoration(
+                              color: on
+                                  ? const Color(0xFF22C55E)
+                                  : const Color(0xFF9CA3AF),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+          title: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          subtitle: auth.isEmpty
+              ? Text(
+                  'Sem conta no app — convide a vincular o login',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+                )
+              : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream: ChurchUiCollections.churchDoc(widget.tenantId)
+                      .collection('chat_presence')
+                      .doc(auth)
+                      .watchSafe(),
+                  builder: (context, ps) {
+                    final on =
+                        ChurchChatService.isOnlineFromSnapshot(ps.data);
+                    return Text(
+                      on ? 'Online agora' : 'Offline',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: on
+                            ? const Color(0xFF15803D)
+                            : ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                    );
+                  },
+                ),
+          trailing: canDm
+              ? IconButton(
+                  tooltip: 'Mensagem direta',
+                  icon: Icon(
+                    Icons.chat_rounded,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                  onPressed: () => _openDm(ctx, auth, label),
+                )
+              : null,
         );
       },
     );

@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Timer, unawaited;
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -27,6 +27,11 @@ import 'package:gestao_yahweh/ui/widgets/finance_premium_widgets.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
+import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/services/church_finance_load_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/yahweh_reports_engine_fetcher.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
@@ -1011,16 +1016,16 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
       if (mounted) {
         setState(() {
           _todosMembros = all;
-          _loadingMembros = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _erroMembros = e.toString();
-          _loadingMembros = false;
+          _erroMembros = _todosMembros.isEmpty ? e.toString() : null;
         });
       }
+    } finally {
+      if (mounted) setState(() => _loadingMembros = false);
     }
   }
 
@@ -1292,17 +1297,28 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
         ],
       ),
       body: SafeArea(
-        child: _erroMembros != null && _todosMembros.isEmpty
-            ? ChurchPanelErrorBody(
-                title: 'Não foi possível carregar os membros',
-                error: _erroMembros,
-                onRetry: _carregarMembros,
-              )
-            : _loadingMembros
-                ? const Center(child: ChurchPanelLoadingBody())
+        child: _loadingMembros && _todosMembros.isEmpty
+            ? const Center(child: ChurchPanelLoadingBody())
+            : _erroMembros != null && _todosMembros.isEmpty
+                ? ChurchPanelResilientLoadBanner(
+                    hasLocalData: false,
+                    isSyncing: false,
+                    errorTitle: 'Não foi possível carregar os membros',
+                    error: _erroMembros,
+                    onRetry: _carregarMembros,
+                  )
                 : ListView(
                     padding: ThemeCleanPremium.pagePadding(context),
                     children: [
+                      ChurchPanelResilientLoadBanner(
+                        hasLocalData: _todosMembros.isNotEmpty,
+                        isSyncing:
+                            _loadingMembros && _todosMembros.isNotEmpty,
+                        errorTitle: 'Não foi possível carregar os membros',
+                        error: _todosMembros.isEmpty ? _erroMembros : null,
+                        onRetry: _carregarMembros,
+                      ),
+                      const SizedBox(height: 8),
                       Text(
                         'Filtro inteligente',
                         style: TextStyle(
@@ -1855,6 +1871,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
   bool _loading = false;
   bool _initLoaded = false;
   bool _pdfLandscape = false;
+  Timer? _initLoadCap;
   String _buscaLancamentos = '';
   int _pageLancamentos = 0;
   static const int _rowsPerPageLancamentos = 12;
@@ -1869,46 +1886,98 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
 
   bool get _embedded => widget.embeddedInFinanceModule;
 
+  Future<List<String>> _loadCategoriaNomes(String churchId) async {
+    if (churchId.isEmpty) return const [];
+    final ref = ChurchUiCollections.churchDoc(churchId);
+    Future<List<String>> readCol(String name) async {
+      try {
+        final docs = await ChurchModuleFirestoreListRead.queryPlainFirst(
+          reference: ref.collection(name),
+          cacheKey: '${churchId}_relatorio_$name',
+          limit: 50,
+          orderByField: 'nome',
+        );
+        return docs
+            .map((d) => (d.data()['nome'] ?? '').toString())
+            .where((n) => n.isNotEmpty)
+            .toList();
+      } catch (_) {
+        return const [];
+      }
+    }
+
+    final pair = await Future.wait([
+      readCol('categorias_receitas'),
+      readCol('categorias_despesas'),
+    ]).timeout(PanelResilientLoad.queryCap, onTimeout: () => [const [], const []]);
+    return {...pair[0], ...pair[1]}.toList()..sort();
+  }
+
+  void _seedContasFromRam(String churchId) {
+    if (churchId.isEmpty) return;
+    final ram = ChurchFinanceLoadService.peekContasRam(churchId);
+    if (ram == null || ram.isEmpty) return;
+    _contas = ram
+        .map((d) => (id: d.id, nome: (d.data()['nome'] ?? '').toString()))
+        .where((e) => e.nome.isNotEmpty)
+        .toList();
+    if (_contas.isNotEmpty) _initLoaded = true;
+  }
+
   Future<void> _loadCategoriasContas() async {
+    final churchId = _effectiveTenantId.isNotEmpty
+        ? _effectiveTenantId
+        : ChurchRepository.churchId(widget.tenantId);
+    _seedContasFromRam(churchId);
+
+    _initLoadCap?.cancel();
+    if (kIsWeb) {
+      _initLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+        if (!mounted || _initLoaded) return;
+        setState(() => _initLoaded = true);
+      });
+    }
+
     try {
-      final results = await Future.wait([
-        _tenantRef
-            .collection('categorias_receitas')
-            .orderBy('nome')
-            .get(const GetOptions(source: Source.serverAndCache)),
-        _tenantRef
-            .collection('categorias_despesas')
-            .orderBy('nome')
-            .get(const GetOptions(source: Source.serverAndCache)),
-        _tenantRef
-            .collection('contas')
-            .orderBy('nome')
-            .get(const GetOptions(source: Source.serverAndCache)),
-      ]);
-      final catsReceita = results[0];
-      final catsDespesa = results[1];
-      final contasSnap = results[2];
-      final cats = <String>{};
-      for (final d in catsReceita.docs) {
-        cats.add((d.data()['nome'] ?? '').toString());
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      for (final d in catsDespesa.docs) {
-        cats.add((d.data()['nome'] ?? '').toString());
-      }
-      final contas = contasSnap.docs
+
+      final contasResult = ChurchFinanceLoadService.loadContas(
+        seedTenantId: churchId,
+        limit: 80,
+      );
+      final catsFuture = _loadCategoriaNomes(churchId);
+      final results = await Future.wait<Object>([
+        contasResult,
+        catsFuture,
+      ]).timeout(PanelResilientLoad.queryCap);
+
+      final contasLoad = results[0] as ChurchFinanceLoadResult;
+      final cats = results[1] as List<String>;
+      final contas = contasLoad.docs
           .map((d) => (id: d.id, nome: (d.data()['nome'] ?? '').toString()))
           .where((e) => e.nome.isNotEmpty)
           .toList();
+
       if (mounted) {
         setState(() {
-          _categorias = cats.toList()..sort();
-          _contas = contas;
-          _initLoaded = true;
+          if (cats.isNotEmpty) _categorias = cats;
+          if (contas.isNotEmpty) _contas = contas;
         });
       }
     } catch (_) {
+      // mantém cache RAM / listas parciais
+    } finally {
+      _initLoadCap?.cancel();
       if (mounted) setState(() => _initLoaded = true);
     }
+  }
+
+  @override
+  void dispose() {
+    _initLoadCap?.cancel();
+    super.dispose();
   }
 
   @override
@@ -1918,14 +1987,18 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
     _mes = now.month;
     _ano = now.year;
     _prewarmRelatoriosData(widget.tenantId);
+    _seedContasFromRam(ChurchRepository.churchId(widget.tenantId));
     unawaited(
       Future<void>.microtask(() {
         final op = ChurchRepository.churchId(widget.tenantId);
         if (!mounted || op.isEmpty) return;
-        setState(() => _operationalTenantId = op);
+        setState(() {
+          _operationalTenantId = op;
+          _seedContasFromRam(op);
+        });
       }),
     );
-    _loadCategoriasContas();
+    unawaited(_loadCategoriasContas());
     _ensureSummaryFuture();
   }
 
@@ -3013,8 +3086,11 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                 if (snap.hasError) {
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: ChurchPanelErrorBody(
-                      title: 'Não foi possível carregar o resumo financeiro',
+                    child: ChurchPanelResilientLoadBanner(
+                      hasLocalData: false,
+                      isSyncing: false,
+                      errorTitle:
+                          'Não foi possível carregar o resumo financeiro',
                       error: snap.error,
                       onRetry: () => setState(() {
                         _summaryQueryKey = '';
@@ -4004,10 +4080,12 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _loadError = null;
-    });
+    if (_docs.isEmpty) {
+      setState(() {
+        _loading = true;
+        _loadError = null;
+      });
+    }
     try {
       final docs = await YahwehReportsEngineFetcher.fetchPatrimonioDocs(
         churchIdHint: _effectiveTenantId,
@@ -4015,17 +4093,17 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
       if (mounted) {
         setState(() {
           _docs = docs;
-          _loading = false;
           _loadError = null;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _loading = false;
-          _loadError = e.toString();
+          _loadError = _docs.isEmpty ? e.toString() : null;
         });
       }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -4158,19 +4236,29 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
         foregroundColor: Colors.white,
       ),
       body: SafeArea(
-        child: _loadError != null && _docs.isEmpty
-            ? ChurchPanelErrorBody(
-                title: 'Não foi possível carregar o patrimônio',
-                error: _loadError,
-                onRetry: _load,
-              )
-            : _loading && _docs.isEmpty
-                ? const ChurchPanelLoadingBody()
+        child: _loading && _docs.isEmpty
+            ? const ChurchPanelLoadingBody()
+            : _loadError != null && _docs.isEmpty
+                ? ChurchPanelResilientLoadBanner(
+                    hasLocalData: false,
+                    isSyncing: false,
+                    errorTitle: 'Não foi possível carregar o patrimônio',
+                    error: _loadError,
+                    onRetry: _load,
+                  )
                 : RefreshIndicator(
                 onRefresh: _load,
                 child: ListView(
                   padding: padding,
                   children: [
+                    ChurchPanelResilientLoadBanner(
+                      hasLocalData: _docs.isNotEmpty,
+                      isSyncing: _loading && _docs.isNotEmpty,
+                      errorTitle: 'Não foi possível carregar o patrimônio',
+                      error: _docs.isEmpty ? _loadError : null,
+                      onRetry: _load,
+                    ),
+                    const SizedBox(height: 8),
                     // ── Filtrar por status (Super Premium) ──
                     _SectionCard(
                       title: 'Filtrar por status',
@@ -4333,9 +4421,16 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
     });
     _eventos = [];
     try {
-      final snap = await _noticias
-          .where('type', isEqualTo: 'evento')
-          .get(const GetOptions(source: Source.serverAndCache));
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final snap = await FirestoreWebGuard.runWithWebRecovery(
+        () => _noticias
+            .where('type', isEqualTo: 'evento')
+            .limit(200)
+            .get(const GetOptions(source: Source.serverAndCache)),
+        maxAttempts: 4,
+      );
       final now = DateTime.now();
       DateTime start;
       DateTime end;
@@ -4526,8 +4621,10 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
             if (_carregarError != null && _eventos.isEmpty && !_loading)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
-                child: ChurchPanelErrorBody(
-                  title: 'Não foi possível carregar os eventos',
+                child: ChurchPanelResilientLoadBanner(
+                  hasLocalData: false,
+                  isSyncing: false,
+                  errorTitle: 'Não foi possível carregar os eventos',
                   error: _carregarError,
                   onRetry: _carregar,
                 ),

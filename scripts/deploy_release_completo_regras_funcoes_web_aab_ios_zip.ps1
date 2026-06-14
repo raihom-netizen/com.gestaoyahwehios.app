@@ -103,6 +103,12 @@ try {
 }
 finally { Pop-Location }
 
+$preflight = Join-Path $RepoRoot "scripts\preflight_deploy_compile.ps1"
+if (Test-Path $preflight) {
+    & $preflight
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 # ========================================================================
 # [1/6] Firestore + Storage rules
 # ========================================================================
@@ -111,27 +117,34 @@ if ($SkipRules) {
 }
 else {
 Write-Host "`n=== [1/6] Firestore + Storage (regras e indices) ===" -ForegroundColor Cyan
-# ForcePublish no deploy completo; poucas rodadas + preflight + background se 503 persistir.
-$rulesMaxAttempts = if ($ContinueOnRulesFailure) { 1 } else { 12 }
-$rulesArgs = @{ MaxAttempts = $rulesMaxAttempts; ForcePublish = $true }
-if (-not $ForceFirestoreRules) {
-    Write-Host "   (regras: preflight + ForcePublish, max $rulesMaxAttempts tentativas)" -ForegroundColor DarkGray
-}
-$forcedGcp = Join-Path $RepoRoot "scripts\regras_gcp_automatico_forcado.ps1"
-if (Test-Path $forcedGcp) {
-    & $forcedGcp -SkipCors
-} else {
-    & (Join-Path $RepoRoot "scripts\deploy_firebase_rules.ps1") @rulesArgs
-}
-$rulesExit = $LASTEXITCODE
-if ($rulesExit -ne 0) {
-    if ($ContinueOnRulesFailure) {
+$rulesDeployScript = Join-Path $RepoRoot "scripts\deploy_firebase_rules.ps1"
+$rulesWatchdog = Join-Path $RepoRoot "scripts\firebase_rules_gcp_watchdog.ps1"
+
+if ($ContinueOnRulesFailure) {
+    # Resiliente: tentativas limitadas — nunca bloquear horas em 503 da API Google.
+    $rulesMaxAttempts = 3
+    Write-Host "   Modo blindado: max $rulesMaxAttempts tentativas GCP; web/AAB/iOS seguem sempre." -ForegroundColor DarkGray
+    & $rulesDeployScript -ForcePublish -MaxAttempts $rulesMaxAttempts
+    $rulesExit = $LASTEXITCODE
+    if ($rulesExit -ne 0) {
         Write-Host "`nAVISO [1/6]: regras/indicess nao confirmados (exit $rulesExit). API Rules 503?" -ForegroundColor Yellow
-        Write-Host "   Continuando web + AAB + iOS. Repita depois: .\scripts\deploy_firebase_rules.ps1 -ForcePublish" -ForegroundColor DarkYellow
+        if (Test-Path $rulesWatchdog) {
+            Write-Host "   Watchdog GCP em background (retry automatico)..." -ForegroundColor DarkYellow
+            & $rulesWatchdog -StartBackground
+        }
+        Write-Host "   Continuando web + AAB + iOS. Repita: .\scripts\deploy_firebase_rules.ps1 -ForcePublish" -ForegroundColor DarkYellow
     }
-    else {
-        exit $rulesExit
+}
+else {
+    # Estrito: pipeline completo (IAM + CORS + ate 25 tentativas).
+    $forcedGcp = Join-Path $RepoRoot "scripts\regras_gcp_automatico_forcado.ps1"
+    if (Test-Path $forcedGcp) {
+        & $forcedGcp -SkipCors
+    } else {
+        & $rulesDeployScript -ForcePublish -MaxAttempts 12
     }
+    $rulesExit = $LASTEXITCODE
+    if ($rulesExit -ne 0) { exit $rulesExit }
 }
 }
 

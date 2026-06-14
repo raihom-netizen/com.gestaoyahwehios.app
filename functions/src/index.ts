@@ -7389,6 +7389,7 @@ export {
   onNovoEventoNoticiaPublishedPush,
 } from "./pushNovoConteudo";
 export { scheduledFornecedorAgendaReminders } from "./fornecedorAgendaReminders";
+export { scheduledEventoReminders } from "./eventoReminders";
 export {
   scheduledFinanceDailyDigest,
   scheduledFinanceVencimento24h,

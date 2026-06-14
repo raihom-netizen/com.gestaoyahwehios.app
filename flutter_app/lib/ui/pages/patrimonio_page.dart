@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatFirebaseErrorForUser;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
@@ -677,6 +678,17 @@ abstract final class _PatrimonioRamCache {
   }
 }
 
+List<QueryDocumentSnapshot<Map<String, dynamic>>> _peekPatrimonioCacheDocs(
+  String tenantId,
+) {
+  final tid = ChurchRepository.churchId(tenantId).trim();
+  if (tid.isEmpty) return const [];
+  return ChurchPatrimonioLoadService.peekRamAny(tid) ??
+      _PatrimonioRamCache.peek(tid)?.docs
+          .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+      const [];
+}
+
 void _prewarmPatrimonioModule(String tenantId) {
   final tid = ChurchRepository.churchId(tenantId);
   if (tid.isEmpty) return;
@@ -779,6 +791,8 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   String _filterStatus = '';
   String? _operationalTenantId;
   bool _patrimonioBootstrapDone = false;
+  bool _bensSelectionMode = false;
+  final Set<String> _bensSelectedIds = <String>{};
 
   String get _effectiveTenantId {
     final hint = (_operationalTenantId ?? '').trim().isNotEmpty
@@ -854,6 +868,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     final initial = ChurchRepository.churchId(widget.tenantId).trim();
     if (initial.isNotEmpty) _operationalTenantId = initial;
     _tabCtrl = TabController(length: 4, vsync: this);
+    _tabCtrl.addListener(_onPatrimonioTabChanged);
     _searchCtrl = TextEditingController();
     if (widget.initialSearchQuery != null &&
         widget.initialSearchQuery!.trim().isNotEmpty) {
@@ -964,9 +979,174 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       unawaited(s.cancel());
     }
     _patrimonioRealtimeSubs.clear();
+    _tabCtrl.removeListener(_onPatrimonioTabChanged);
     _tabCtrl.dispose();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _onPatrimonioTabChanged() {
+    if (!mounted || _tabCtrl.indexIsChanging) return;
+    if (_tabCtrl.index == 0) {
+      _bensTabKey.currentState?.refresh();
+    } else if (_bensSelectionMode) {
+      setState(() {
+        _bensSelectionMode = false;
+        _bensSelectedIds.clear();
+      });
+    }
+  }
+
+  void _exitBensSelection() {
+    setState(() {
+      _bensSelectionMode = false;
+      _bensSelectedIds.clear();
+    });
+  }
+
+  void _toggleBensSelect(String id) {
+    setState(() {
+      if (_bensSelectedIds.contains(id)) {
+        _bensSelectedIds.remove(id);
+      } else {
+        _bensSelectedIds.add(id);
+      }
+      if (_bensSelectedIds.isEmpty) _bensSelectionMode = false;
+    });
+  }
+
+  Future<void> _deletePatrimonioDoc(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final data = doc.data();
+    if (data != null) {
+      final urls = _fotoUrlsFromData(data);
+      urls.addAll(FirebaseStorageCleanupService.urlsFromVariantMap(
+          data['imageVariants']));
+      urls.addAll(FirebaseStorageCleanupService.urlsFromVariantMap(
+          data['fotoVariants']));
+      await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(urls);
+    }
+    await _col.doc(doc.id).delete();
+  }
+
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _loadAllPatrimonioDocs() async {
+    final cached = ChurchPatrimonioLoadService.peekRamAny(_effectiveTenantId);
+    if (cached != null && cached.isNotEmpty) return cached;
+    final result = await ChurchPatrimonioLoadService.loadAll(
+      seedTenantId: _effectiveTenantId,
+    );
+    return result.docs;
+  }
+
+  Future<void> _excluirPatrimonioEmLote(
+    List<DocumentSnapshot<Map<String, dynamic>>> docs,
+  ) async {
+    if (!_canWrite || docs.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        title: const Text('Excluir em lote'),
+        content: Text(
+          'Deseja excluir ${docs.length} bem(ns)?\nEsta ação não poderá ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    for (final doc in docs) {
+      await _deletePatrimonioDoc(doc);
+    }
+    _exitBensSelection();
+    _refreshPatrimonioTabs();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.successSnackBar(
+        '${docs.length} patrimônio(s) excluído(s).',
+      ),
+    );
+  }
+
+  Future<void> _excluirPatrimonioSelecionados() async {
+    final all = await _loadAllPatrimonioDocs();
+    final selected = all.where((d) => _bensSelectedIds.contains(d.id)).toList();
+    await _excluirPatrimonioEmLote(selected);
+  }
+
+  Future<void> _excluirPatrimonioPorCategoria() async {
+    if (!_canWrite) return;
+    String? categoria = _filterCategoria.isNotEmpty ? _filterCategoria : null;
+    categoria = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        var picked = categoria ??
+            (_categoriasEfetivas.isNotEmpty ? _categoriasEfetivas.first : '');
+        return StatefulBuilder(
+          builder: (context, setDlg) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            ),
+            title: const Text('Excluir por categoria'),
+            content: DropdownButtonFormField<String>(
+              value: picked.isEmpty ? null : picked,
+              decoration: const InputDecoration(
+                labelText: 'Categoria',
+                prefixIcon: Icon(Icons.category_rounded),
+              ),
+              items: [
+                for (final c in _categoriasEfetivas)
+                  DropdownMenuItem(value: c, child: Text(c)),
+              ],
+              onChanged: (v) {
+                if (v != null) setDlg(() => picked = v);
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.error,
+                ),
+                onPressed: picked.isEmpty ? null : () => Navigator.pop(ctx, picked),
+                child: const Text('Continuar'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (categoria == null || categoria.isEmpty || !mounted) return;
+    final all = await _loadAllPatrimonioDocs();
+    final targets = all
+        .where((d) => (d.data()['categoria'] ?? '').toString() == categoria)
+        .toList();
+    if (targets.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Nenhum bem na categoria "$categoria".')),
+      );
+      return;
+    }
+    await _excluirPatrimonioEmLote(targets);
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -1089,7 +1269,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     }
     unawaited(_loadCategoriasExtras());
     if (!mounted) return;
-    final result = await Navigator.push<bool>(
+    final result = await Navigator.push<Object?>(
       context,
       MaterialPageRoute(
         builder: (_) => _PatrimonioFormPage(
@@ -1100,7 +1280,27 @@ class _PatrimonioPageState extends State<PatrimonioPage>
         ),
       ),
     );
-    if (result == true && mounted) {
+    if (!mounted) return;
+    if (result is Map && result['ok'] == true) {
+      final itemId = (result['itemId'] ?? '').toString().trim();
+      final payload = result['payload'];
+      if (itemId.isNotEmpty && payload is Map<String, dynamic>) {
+        ChurchPatrimonioLoadService.seedOptimisticDoc(
+          seedTenantId: _effectiveTenantId,
+          itemId: itemId,
+          data: payload,
+        );
+        _PatrimonioRamCache.store(
+          _effectiveTenantId,
+          MergedFirestoreQuerySnapshot(
+            ChurchPatrimonioLoadService.peekRamAny(_effectiveTenantId) ??
+                const [],
+          ),
+        );
+      }
+    }
+    if (result == true ||
+        (result is Map && result['ok'] == true)) {
       setState(() {});
       unawaited(_loadCategoriasExtras());
       _refreshPatrimonioTabs();
@@ -1146,16 +1346,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
       ),
     );
     if (ok == true) {
-      final data = doc.data();
-      if (data != null) {
-        final urls = _fotoUrlsFromData(data);
-        urls.addAll(FirebaseStorageCleanupService.urlsFromVariantMap(
-            data['imageVariants']));
-        urls.addAll(FirebaseStorageCleanupService.urlsFromVariantMap(
-            data['fotoVariants']));
-        await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(urls);
-      }
-      await _col.doc(doc.id).delete();
+      await _deletePatrimonioDoc(doc);
       if (!mounted) return;
       _refreshPatrimonioTabs();
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1578,13 +1769,61 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               child: Container(
                 width: 40,
                 height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
+                margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
                   color: Colors.grey.shade400,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  nome,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Fechar',
+                onPressed: () {
+                  if (sheetContext != null) Navigator.pop(sheetContext);
+                },
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    if (sheetContext != null) Navigator.pop(sheetContext);
+                  },
+                  icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                  label: const Text('Voltar'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    if (sheetContext != null) Navigator.pop(sheetContext);
+                  },
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  label: const Text('Cancelar'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
                   // Foto em destaque — SafeNetworkImage + refresh token (web/desktop/mobile)
                   Container(
                     width: double.infinity,
@@ -2130,7 +2369,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                   ),
               ],
             ),
-      floatingActionButton: _canWrite
+      floatingActionButton: _canWrite && !_bensSelectionMode
           ? Container(
               decoration: BoxDecoration(
                 borderRadius:
@@ -2165,6 +2404,47 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                 shape: RoundedRectangleBorder(
                     borderRadius:
                         BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+              ),
+            )
+          : null,
+      bottomNavigationBar: _bensSelectionMode && _canWrite
+          ? SafeArea(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                  border: Border(
+                    top: BorderSide(color: Colors.grey.shade200),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      '${_bensSelectedIds.length} selecionado(s)',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: _exitBensSelection,
+                      child: const Text('Cancelar'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      onPressed: _bensSelectedIds.isEmpty
+                          ? null
+                          : () => unawaited(_excluirPatrimonioSelecionados()),
+                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                      label: const Text('Excluir'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: ThemeCleanPremium.error,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             )
           : null,
@@ -2241,6 +2521,14 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                     onShowDetail: _onBemTapped,
                     onShowQrCode: _showQrCode,
                     onTransferir: _showTransferir,
+                    selectionMode: _bensSelectionMode,
+                    selectedIds: _bensSelectedIds,
+                    onToggleSelect: _toggleBensSelect,
+                    onStartSelection: _canWrite
+                        ? () => setState(() => _bensSelectionMode = true)
+                        : null,
+                    onExcluirPorCategoria:
+                        _canWrite ? _excluirPatrimonioPorCategoria : null,
                   ),
                   _DashboardTab(
                     key: _dashboardTabKey,
@@ -2321,6 +2609,11 @@ class _BensTab extends StatefulWidget {
   final void Function(DocumentSnapshot<Map<String, dynamic>>) onShowDetail;
   final void Function(DocumentSnapshot<Map<String, dynamic>>) onShowQrCode;
   final void Function(DocumentSnapshot<Map<String, dynamic>>) onTransferir;
+  final bool selectionMode;
+  final Set<String> selectedIds;
+  final ValueChanged<String> onToggleSelect;
+  final VoidCallback? onStartSelection;
+  final VoidCallback? onExcluirPorCategoria;
 
   const _BensTab({
     super.key,
@@ -2347,6 +2640,11 @@ class _BensTab extends StatefulWidget {
     required this.onShowDetail,
     required this.onShowQrCode,
     required this.onTransferir,
+    this.selectionMode = false,
+    this.selectedIds = const {},
+    required this.onToggleSelect,
+    this.onStartSelection,
+    this.onExcluirPorCategoria,
   });
 
   @override
@@ -2363,6 +2661,7 @@ class _BensTabState extends State<_BensTab> {
   DocumentSnapshot<Map<String, dynamic>>? _lastCursor;
   bool _hasMorePages = true;
   bool _isLoadingMore = false;
+  int _fetchGeneration = 0;
 
   /// `nome` — ordem alfabética; `aquisicao` / `conferencia` — mais recente primeiro (sem data por último).
   String _sortMode = 'nome';
@@ -2436,7 +2735,7 @@ class _BensTabState extends State<_BensTab> {
     final tid = _tenantId;
     _loadedDocs.clear();
     final seeded =
-        ChurchPatrimonioLoadService.peekRam(tid, limit: _pageSize) ??
+        ChurchPatrimonioLoadService.peekRamAny(tid) ??
             _PatrimonioRamCache.peek(tid)?.docs
                 .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
             const [];
@@ -2445,15 +2744,19 @@ class _BensTabState extends State<_BensTab> {
     _hasMorePages = _loadedDocs.length >= _pageSize;
   }
 
+  QuerySnapshot<Map<String, dynamic>> _snapshotFromLoadedDocs() =>
+      MergedFirestoreQuerySnapshot(List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_loadedDocs));
+
   void _bindPatrimonioLoad({bool forceFresh = false}) {
-    if (!forceFresh) {
+    // Stale-while-revalidate (igual Dashboard/Inventário): nunca flash vazio no refresh.
+    if (!forceFresh || _loadedDocs.isEmpty) {
       _seedFromLocalCaches();
-    } else {
-      _loadedDocs.clear();
-      _lastCursor = null;
-      _hasMorePages = true;
     }
-    _future = Future.value(MergedFirestoreQuerySnapshot(_loadedDocs));
+    if (forceFresh) {
+      _lastCursor = _loadedDocs.isNotEmpty ? _loadedDocs.last : null;
+      _hasMorePages = _loadedDocs.length >= _pageSize;
+    }
+    _future = Future.value(_snapshotFromLoadedDocs());
     unawaited(_fetchPatrimonioFromServer(forceFresh: forceFresh));
   }
 
@@ -2469,21 +2772,16 @@ class _BensTabState extends State<_BensTab> {
   String get _tenantId => ChurchRepository.churchId(widget.tenantId);
 
   Future<void> _fetchPatrimonioFromServer({bool forceFresh = false}) async {
+    final generation = ++_fetchGeneration;
     final tid = _tenantId;
-    if (tid.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _lastLoadHint = 'Igreja não identificada.';
-        if (_loadedDocs.isEmpty) {
-          _future = Future.error(StateError(_lastLoadHint!));
-        }
-      });
-      return;
-    }
     try {
-      final result = await ChurchPatrimonioLoadService.load(
+      if (tid.isEmpty) {
+        if (!mounted || generation != _fetchGeneration) return;
+        setState(() => _lastLoadHint = 'Igreja não identificada.');
+        return;
+      }
+      final result = await ChurchPatrimonioLoadService.loadAll(
         seedTenantId: tid,
-        limit: _pageSize,
         forceRefresh: forceFresh,
         forceServer: forceFresh,
       ).timeout(
@@ -2496,31 +2794,47 @@ class _BensTabState extends State<_BensTab> {
           softError: 'Tempo esgotado ao carregar patrimônio.',
         ),
       );
-      if (!mounted) return;
-      if (result.docs.isEmpty && result.hasHardError && _loadedDocs.isEmpty) {
+      if (!mounted || generation != _fetchGeneration) return;
+      if (result.docs.isNotEmpty) {
+        _loadedDocs
+          ..clear()
+          ..addAll(result.docs);
+        _lastCursor = result.docs.isNotEmpty ? result.docs.last : null;
+        _hasMorePages =
+            result.docs.length >= ChurchPatrimonioLoadService.kDefaultAllLimit;
+        _lastLoadHint =
+            'igrejas/$tid/patrimonio (${result.readSource}, ${result.docs.length} bens)';
+        final snap = _snapshotFromLoadedDocs();
+        _PatrimonioRamCache.store(tid, snap);
+        setState(() => _future = Future.value(snap));
+      } else if (_loadedDocs.isEmpty) {
+        _seedFromLocalCaches();
+        setState(() {
+          _lastLoadHint = result.softError ??
+              'igrejas/$tid/patrimonio (${result.readSource}, 0 bens)';
+          _future = Future.value(_snapshotFromLoadedDocs());
+        });
+      } else if (result.softError != null && result.softError!.isNotEmpty) {
         setState(() {
           _lastLoadHint = result.softError;
-          _future = Future.error(StateError(result.softError!));
+          _future = Future.value(_snapshotFromLoadedDocs());
         });
-        return;
       }
-      _loadedDocs
-        ..clear()
-        ..addAll(result.docs);
-      _lastCursor = result.docs.isNotEmpty ? result.docs.last : null;
-      _hasMorePages = result.docs.length >= _pageSize;
-      _lastLoadHint =
-          'igrejas/$tid/patrimonio (${result.readSource}, ${result.docs.length} bens)';
-      final snap = MergedFirestoreQuerySnapshot(_loadedDocs);
-      _PatrimonioRamCache.store(tid, snap);
-      setState(() => _future = Future.value(snap));
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _fetchGeneration) return;
       if (_loadedDocs.isEmpty) {
-        setState(() {
-          _lastLoadHint = '$e';
-          _future = Future.error(e);
-        });
+        _seedFromLocalCaches();
+      }
+      setState(() {
+        _lastLoadHint = '$e';
+        if (_loadedDocs.isNotEmpty) {
+          _future = Future.value(_snapshotFromLoadedDocs());
+        }
+      });
+    } finally {
+      if (!mounted || generation != _fetchGeneration) return;
+      if (_loadedDocs.isNotEmpty) {
+        setState(() => _future = Future.value(_snapshotFromLoadedDocs()));
       }
     }
   }
@@ -2548,9 +2862,9 @@ class _BensTabState extends State<_BensTab> {
       _lastCursor =
           page.docs.isNotEmpty ? page.docs.last : _lastCursor;
       _hasMorePages = page.docs.length >= _pageSize;
-      _PatrimonioRamCache.store(tid, MergedFirestoreQuerySnapshot(_loadedDocs));
+      _PatrimonioRamCache.store(tid, _snapshotFromLoadedDocs());
       setState(() {
-        _future = Future.value(MergedFirestoreQuerySnapshot(_loadedDocs));
+        _future = Future.value(_snapshotFromLoadedDocs());
       });
     } catch (e, st) {
       unawaited(
@@ -2561,9 +2875,12 @@ class _BensTabState extends State<_BensTab> {
     }
   }
 
-  void refresh() {
-    setState(() => _bindPatrimonioLoad(forceFresh: true));
+  void refresh({bool forceServer = false}) {
+    setState(() => _bindPatrimonioLoad(forceFresh: forceServer));
   }
+
+  String _selectedCountLabel() =>
+      '${widget.selectedIds.length} selecionado(s)';
 
   /// Busca + filtros como slivers: rolagem única evita scroll “travado” (web / shell / mobile).
   List<Widget> _bensTabHeaderSlivers() {
@@ -2585,6 +2902,35 @@ class _BensTabState extends State<_BensTab> {
     );
 
     return [
+      if (widget.canWrite && ThemeCleanPremium.isMobile(context))
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              ThemeCleanPremium.spaceLg,
+              ThemeCleanPremium.spaceSm,
+              ThemeCleanPremium.spaceLg,
+              0,
+            ),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                onPressed: () => widget.onOpenForm(null),
+                icon: const Icon(Icons.add_rounded, size: 20),
+                label: const Text(
+                  'Novo Bem',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(
+                    ThemeCleanPremium.minTouchTarget,
+                    ThemeCleanPremium.minTouchTarget,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                ),
+              ),
+            ),
+          ),
+        ),
       SliverToBoxAdapter(
         child: Padding(
           padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg,
@@ -2640,6 +2986,44 @@ class _BensTabState extends State<_BensTab> {
                   ),
                   onChanged: widget.onSearchChanged,
                 ),
+                const SizedBox(height: ThemeCleanPremium.spaceSm),
+                if (widget.canWrite)
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: widget.selectionMode
+                            ? null
+                            : widget.onStartSelection,
+                        icon: const Icon(Icons.checklist_rounded, size: 18),
+                        label: const Text('Selecionar'),
+                      ),
+                      if (widget.onExcluirPorCategoria != null)
+                        OutlinedButton.icon(
+                          onPressed: widget.selectionMode
+                              ? null
+                              : widget.onExcluirPorCategoria,
+                          icon: Icon(Icons.delete_sweep_rounded,
+                              size: 18, color: Colors.red.shade400),
+                          label: Text(
+                            'Excluir categoria',
+                            style: TextStyle(color: Colors.red.shade400),
+                          ),
+                        ),
+                    ],
+                  ),
+                if (widget.selectionMode) ...[
+                  const SizedBox(height: ThemeCleanPremium.spaceSm),
+                  Text(
+                    'Toque nos bens para selecionar · ${_selectedCountLabel()}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: ThemeCleanPremium.primary,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: ThemeCleanPremium.spaceSm),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
@@ -2846,7 +3230,17 @@ class _BensTabState extends State<_BensTab> {
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snap) {
-        if (snap.hasError) {
+        final loadFailed = snap.hasError;
+        var allDocs = snap.data?.docs ?? [];
+        if (allDocs.isEmpty && _loadedDocs.isNotEmpty) {
+          allDocs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+            _loadedDocs,
+          );
+        }
+        if (loadFailed && allDocs.isEmpty) {
+          allDocs = _peekPatrimonioCacheDocs(_tenantId);
+        }
+        if (loadFailed && allDocs.isEmpty) {
           return CustomScrollView(
             primary: false,
             physics: const AlwaysScrollableScrollPhysics(),
@@ -2854,16 +3248,20 @@ class _BensTabState extends State<_BensTab> {
               ..._bensTabHeaderSlivers(),
               SliverFillRemaining(
                 hasScrollBody: false,
-                child: ChurchPanelErrorBody(
-                  title: 'Não foi possível carregar o patrimônio',
+                child: ChurchPanelResilientLoadBanner(
+                  hasLocalData: false,
+                  isSyncing: false,
+                  errorTitle: 'Não foi possível carregar o patrimônio',
                   error: snap.error,
-                  onRetry: refresh,
+                  onRetry: () => refresh(forceServer: true),
                 ),
               ),
             ],
           );
         }
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData &&
+            allDocs.isEmpty) {
           return CustomScrollView(
             primary: false,
             physics: const AlwaysScrollableScrollPhysics(),
@@ -2876,8 +3274,6 @@ class _BensTabState extends State<_BensTab> {
             ],
           );
         }
-
-        final allDocs = snap.data?.docs ?? [];
 
         final now = DateTime.now();
         final soon = now.add(const Duration(days: 7));
@@ -2958,9 +3354,52 @@ class _BensTabState extends State<_BensTab> {
                       ],
                       const SizedBox(height: 16),
                       OutlinedButton.icon(
-                        onPressed: refresh,
-                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        onPressed: () => refresh(forceServer: true),
+                        icon: const Icon(Icons.refresh_rounded),
                         label: const Text('Atualizar lista'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+
+        if (docs.isEmpty) {
+          return CustomScrollView(
+            primary: false,
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              ..._bensTabHeaderSlivers(),
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.search_off_rounded,
+                          size: 48, color: Colors.grey.shade300),
+                      const SizedBox(height: 12),
+                      Text(
+                        '${allDocs.length} bem(ns) no total — nenhum com estes filtros',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          widget.onCategoriaChanged('');
+                          widget.onStatusChanged('');
+                          widget.searchController.clear();
+                          widget.onSearchChanged('');
+                        },
+                        icon: const Icon(Icons.filter_alt_off_rounded),
+                        label: const Text('Limpar filtros'),
                       ),
                     ],
                   ),
@@ -2984,6 +3423,24 @@ class _BensTabState extends State<_BensTab> {
 
             final contentSlivers = <Widget>[
               ..._bensTabHeaderSlivers(),
+              if (loadFailed)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      ThemeCleanPremium.spaceLg,
+                      0,
+                      ThemeCleanPremium.spaceLg,
+                      ThemeCleanPremium.spaceSm,
+                    ),
+                    child: ChurchPanelResilientLoadBanner(
+                      hasLocalData: true,
+                      isSyncing: false,
+                      showStaleCache: true,
+                      errorTitle: 'Não foi possível carregar o patrimônio',
+                      onRetry: () => refresh(forceServer: true),
+                    ),
+                  ),
+                ),
               if (manutCount > 0)
                 SliverToBoxAdapter(
                   child: Padding(
@@ -3168,13 +3625,27 @@ class _BensTabState extends State<_BensTab> {
                         child: _PatrimonioCard(
                           key: ValueKey('list_${docs[i].id}'),
                           doc: docs[i],
-                          selected: false,
+                          selected: widget.selectionMode &&
+                              widget.selectedIds.contains(docs[i].id),
                           catIcon: catIcon,
                           catColor: catColor,
                           statusLabel: statusLabel,
                           statusColor: statusColor,
                           fmtMoney: fmtMoney,
-                          onTap: () => onShowDetail(docs[i]),
+                          onTap: () {
+                            if (widget.selectionMode) {
+                              widget.onToggleSelect(docs[i].id);
+                            } else {
+                              onShowDetail(docs[i]);
+                            }
+                          },
+                          onLongPress: widget.canWrite &&
+                                  widget.onStartSelection != null
+                              ? () {
+                                  widget.onStartSelection!();
+                                  widget.onToggleSelect(docs[i].id);
+                                }
+                              : null,
                           onEdit:
                               canWrite ? () => onOpenForm(docs[i]) : null,
                           onDelete:
@@ -3218,13 +3689,27 @@ class _BensTabState extends State<_BensTab> {
                       (context, i) => _PatrimonioGalleryTile(
                         key: ValueKey('grid_${docs[i].id}'),
                         doc: docs[i],
-                        selected: false,
+                        selected: widget.selectionMode &&
+                            widget.selectedIds.contains(docs[i].id),
                         catIcon: catIcon,
                         catColor: catColor,
                         statusLabel: statusLabel,
                         statusColor: statusColor,
                         fmtMoney: fmtMoney,
-                        onTap: () => onShowDetail(docs[i]),
+                        onTap: () {
+                          if (widget.selectionMode) {
+                            widget.onToggleSelect(docs[i].id);
+                          } else {
+                            onShowDetail(docs[i]);
+                          }
+                        },
+                        onLongPress: widget.canWrite &&
+                                widget.onStartSelection != null
+                            ? () {
+                                widget.onStartSelection!();
+                                widget.onToggleSelect(docs[i].id);
+                              }
+                            : null,
                         onEdit: canWrite ? () => onOpenForm(docs[i]) : null,
                         onDelete: canWrite ? () => onExcluir(docs[i]) : null,
                         onQrCode: () => onShowQrCode(docs[i]),
@@ -3276,6 +3761,7 @@ class _PatrimonioCard extends StatelessWidget {
   final Color Function(String?) statusColor;
   final String Function(dynamic) fmtMoney;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onQrCode;
@@ -3291,6 +3777,7 @@ class _PatrimonioCard extends StatelessWidget {
     required this.statusColor,
     required this.fmtMoney,
     required this.onTap,
+    this.onLongPress,
     this.onEdit,
     this.onDelete,
     this.onQrCode,
@@ -3392,6 +3879,7 @@ class _PatrimonioCard extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
           onTap: onTap,
+          onLongPress: onLongPress,
           child: Padding(
             padding: const EdgeInsets.all(ThemeCleanPremium.spaceSm),
             child: Row(
@@ -3615,6 +4103,7 @@ class _PatrimonioGalleryTile extends StatelessWidget {
   final Color Function(String?) statusColor;
   final String Function(dynamic) fmtMoney;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final VoidCallback? onQrCode;
@@ -3630,6 +4119,7 @@ class _PatrimonioGalleryTile extends StatelessWidget {
     required this.statusColor,
     required this.fmtMoney,
     required this.onTap,
+    this.onLongPress,
     this.onEdit,
     this.onDelete,
     this.onQrCode,
@@ -3699,6 +4189,7 @@ class _PatrimonioGalleryTile extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         onTap: onTap,
+        onLongPress: onLongPress,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
@@ -3947,10 +4438,7 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
   void _bindRelatoriosLoad({bool forceFresh = false}) {
     final tid = _tenantId;
     final seeded =
-        ChurchPatrimonioLoadService.peekRam(
-              tid,
-              limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
-            ) ??
+        ChurchPatrimonioLoadService.peekRamAny(tid) ??
             _PatrimonioRamCache.peek(tid)?.docs
                 .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
             const [];
@@ -3960,35 +4448,40 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
 
   Future<void> _fetchRelatorios({bool forceFresh = false}) async {
     final tid = _tenantId;
-    if (tid.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _loadHint = 'Igreja não identificada.';
-        _future = Future.error(StateError(_loadHint!));
-      });
-      return;
-    }
+    var cached = ChurchPatrimonioLoadService.peekRamAny(tid) ??
+        _PatrimonioRamCache.peek(tid)?.docs
+            .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+        const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     try {
+      if (tid.isEmpty) {
+        if (!mounted) return;
+        setState(() => _loadHint = 'Igreja não identificada.');
+        return;
+      }
       final result = await ChurchPatrimonioLoadService.loadAll(
         seedTenantId: tid,
         forceRefresh: forceFresh,
         forceServer: forceFresh,
       );
       if (!mounted) return;
-      if (result.docs.isEmpty && result.hasHardError) {
+      if (result.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(tid, result.snapshot);
+        setState(() => _future = Future.value(result.snapshot));
+      } else if (cached.isNotEmpty) {
+        setState(() => _loadHint = result.softError);
+      } else {
         setState(() {
           _loadHint = result.softError;
-          _future = Future.error(StateError(result.softError!));
+          _future = Future.value(MergedFirestoreQuerySnapshot(const []));
         });
-        return;
       }
-      _PatrimonioRamCache.store(tid, result.snapshot);
-      setState(() => _future = Future.value(result.snapshot));
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loadHint = '$e';
-        _future = Future.error(e);
+        if (cached.isEmpty) {
+          _future = Future.value(MergedFirestoreQuerySnapshot(const []));
+        }
       });
     }
   }
@@ -4110,17 +4603,25 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snap) {
-        if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar o patrimônio',
+        final loadFailed = snap.hasError;
+        var all = snap.data?.docs ?? [];
+        if (loadFailed && all.isEmpty) {
+          all = _peekPatrimonioCacheDocs(_tenantId);
+        }
+        if (loadFailed && all.isEmpty) {
+          return ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: false,
+            errorTitle: 'Não foi possível carregar o patrimônio',
             error: snap.error,
             onRetry: () => setState(_reloadPatrimonio),
           );
         }
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData &&
+            all.isEmpty) {
           return const ChurchPanelLoadingBody();
         }
-        final all = snap.data?.docs ?? [];
         final filtered = _applyFilters(all);
         double soma = 0;
         for (final d in filtered) {
@@ -4135,6 +4636,17 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (loadFailed)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: true,
+                    isSyncing: false,
+                    showStaleCache: true,
+                    errorTitle: 'Não foi possível carregar o patrimônio',
+                    onRetry: () => setState(_reloadPatrimonio),
+                  ),
+                ),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(18),
@@ -4751,10 +5263,7 @@ class _DashboardTabState extends State<_DashboardTab> {
   void _bindDashboardLoad({bool forceFresh = false}) {
     final tid = _tenantId;
     final seeded =
-        ChurchPatrimonioLoadService.peekRam(
-              tid,
-              limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
-            ) ??
+        ChurchPatrimonioLoadService.peekRamAny(tid) ??
             _PatrimonioRamCache.peek(tid)?.docs
                 .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
             const [];
@@ -4764,35 +5273,40 @@ class _DashboardTabState extends State<_DashboardTab> {
 
   Future<void> _fetchDashboard({bool forceFresh = false}) async {
     final tid = _tenantId;
-    if (tid.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _loadHint = 'Igreja não identificada.';
-        _future = Future.error(StateError(_loadHint!));
-      });
-      return;
-    }
+    var cached = ChurchPatrimonioLoadService.peekRamAny(tid) ??
+        _PatrimonioRamCache.peek(tid)?.docs
+            .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+        const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     try {
+      if (tid.isEmpty) {
+        if (!mounted) return;
+        setState(() => _loadHint = 'Igreja não identificada.');
+        return;
+      }
       final result = await ChurchPatrimonioLoadService.loadAll(
         seedTenantId: tid,
         forceRefresh: forceFresh,
         forceServer: forceFresh,
       );
       if (!mounted) return;
-      if (result.docs.isEmpty && result.hasHardError) {
+      if (result.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(tid, result.snapshot);
+        setState(() => _future = Future.value(result.snapshot));
+      } else if (cached.isNotEmpty) {
+        setState(() => _loadHint = result.softError);
+      } else {
         setState(() {
           _loadHint = result.softError;
-          _future = Future.error(StateError(result.softError!));
+          _future = Future.value(MergedFirestoreQuerySnapshot(const []));
         });
-        return;
       }
-      _PatrimonioRamCache.store(tid, result.snapshot);
-      setState(() => _future = Future.value(result.snapshot));
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loadHint = '$e';
-        _future = Future.error(e);
+        if (cached.isEmpty) {
+          _future = Future.value(MergedFirestoreQuerySnapshot(const []));
+        }
       });
     }
   }
@@ -4811,18 +5325,26 @@ class _DashboardTabState extends State<_DashboardTab> {
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snap) {
-        if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar os dados do painel',
+        final loadFailed = snap.hasError;
+        var docs = snap.data?.docs ?? [];
+        if (loadFailed && docs.isEmpty) {
+          docs = _peekPatrimonioCacheDocs(_tenantId);
+        }
+        if (loadFailed && docs.isEmpty) {
+          return ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: false,
+            errorTitle: 'Não foi possível carregar os dados do painel',
             error: snap.error,
             onRetry: refresh,
           );
         }
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData &&
+            docs.isEmpty) {
           return const ChurchPanelLoadingBody();
         }
 
-        final docs = snap.data?.docs ?? [];
         final total = docs.length;
 
         double valorTotal = 0;
@@ -5030,6 +5552,18 @@ class _DashboardTabState extends State<_DashboardTab> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (loadFailed)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: true,
+                    isSyncing: false,
+                    showStaleCache: true,
+                    errorTitle:
+                        'Não foi possível carregar os dados do painel',
+                    onRetry: refresh,
+                  ),
+                ),
               // ── 4 Summary cards ──
               LayoutBuilder(
                 builder: (context, constraints) {
@@ -5661,10 +6195,7 @@ class _InventarioTabState extends State<_InventarioTab> {
   void _bindInventarioLoad({bool forceFresh = false}) {
     final tid = _tenantId;
     final seeded =
-        ChurchPatrimonioLoadService.peekRam(
-              tid,
-              limit: ChurchPatrimonioLoadService.kDefaultAllLimit,
-            ) ??
+        ChurchPatrimonioLoadService.peekRamAny(tid) ??
             _PatrimonioRamCache.peek(tid)?.docs
                 .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
             const [];
@@ -5674,35 +6205,40 @@ class _InventarioTabState extends State<_InventarioTab> {
 
   Future<void> _fetchInventario({bool forceFresh = false}) async {
     final tid = _tenantId;
-    if (tid.isEmpty) {
-      if (!mounted) return;
-      setState(() {
-        _loadHint = 'Igreja não identificada.';
-        _future = Future.error(StateError(_loadHint!));
-      });
-      return;
-    }
+    var cached = ChurchPatrimonioLoadService.peekRamAny(tid) ??
+        _PatrimonioRamCache.peek(tid)?.docs
+            .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
+        const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     try {
+      if (tid.isEmpty) {
+        if (!mounted) return;
+        setState(() => _loadHint = 'Igreja não identificada.');
+        return;
+      }
       final result = await ChurchPatrimonioLoadService.loadAll(
         seedTenantId: tid,
         forceRefresh: forceFresh,
         forceServer: forceFresh,
       );
       if (!mounted) return;
-      if (result.docs.isEmpty && result.hasHardError) {
+      if (result.docs.isNotEmpty) {
+        _PatrimonioRamCache.store(tid, result.snapshot);
+        setState(() => _future = Future.value(result.snapshot));
+      } else if (cached.isNotEmpty) {
+        setState(() => _loadHint = result.softError);
+      } else {
         setState(() {
           _loadHint = result.softError;
-          _future = Future.error(StateError(result.softError!));
+          _future = Future.value(MergedFirestoreQuerySnapshot(const []));
         });
-        return;
       }
-      _PatrimonioRamCache.store(tid, result.snapshot);
-      setState(() => _future = Future.value(result.snapshot));
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loadHint = '$e';
-        _future = Future.error(e);
+        if (cached.isEmpty) {
+          _future = Future.value(MergedFirestoreQuerySnapshot(const []));
+        }
       });
     }
   }
@@ -5830,17 +6366,25 @@ class _InventarioTabState extends State<_InventarioTab> {
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: _future,
       builder: (context, snap) {
-        if (snap.hasError) {
-          return ChurchPanelErrorBody(
-            title: 'Não foi possível carregar o inventário',
+        final loadFailed = snap.hasError;
+        var docs = snap.data?.docs ?? [];
+        if (loadFailed && docs.isEmpty) {
+          docs = _peekPatrimonioCacheDocs(_tenantId);
+        }
+        if (loadFailed && docs.isEmpty) {
+          return ChurchPanelResilientLoadBanner(
+            hasLocalData: false,
+            isSyncing: false,
+            errorTitle: 'Não foi possível carregar o inventário',
             error: snap.error,
             onRetry: refresh,
           );
         }
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+        if (snap.connectionState == ConnectionState.waiting &&
+            !snap.hasData &&
+            docs.isEmpty) {
           return const ChurchPanelLoadingBody();
         }
-        final docs = snap.data?.docs ?? [];
         if (docs.isEmpty) {
           return Center(
               child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -5877,6 +6421,17 @@ class _InventarioTabState extends State<_InventarioTab> {
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 88),
           children: [
+            if (loadFailed)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: ChurchPanelResilientLoadBanner(
+                  hasLocalData: true,
+                  isSyncing: false,
+                  showStaleCache: true,
+                  errorTitle: 'Não foi possível carregar o inventário',
+                  onRetry: refresh,
+                ),
+              ),
             _InventarioHistoricoSection(
               tenantId: widget.tenantId,
               categorias: widget.categorias,
@@ -7767,7 +8322,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               .timeout(const Duration(seconds: 25));
           novosBytes.add(bytes);
           novosNomes.add(
-            f.name.isNotEmpty ? f.name : 'foto_${novosBytes.length}.webp',
+            f.name.isNotEmpty ? f.name : 'foto_${novosBytes.length}.jpg',
           );
         } catch (e) {
           if (mounted) {
@@ -7817,7 +8372,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           .timeout(const Duration(seconds: 25));
       setState(() {
         _newImages.add(bytes);
-        _newNames.add(file.name.isNotEmpty ? file.name : 'camera.webp');
+        _newNames.add(file.name.isNotEmpty ? file.name : 'camera.jpg');
       });
       if (mounted) {
         ImmediateMediaAttachFeedback.showArquivoAnexado(
@@ -7878,6 +8433,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       _uploadProgress = 0;
       _uploadProgressLabel = 'A preparar…';
     });
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final wasNew = widget.doc == null;
     try {
       YahwehFlowLog.patrimonioStart();
       final tenantId = _churchIdForPublish;
@@ -7887,16 +8445,14 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
 
       final allUrls = List<String>.from(_existingUrls);
       final prev = widget.doc?.data();
+      final prevPaths = prev != null ? PatrimonioPhotoFields.pathsFromData(prev) : const <String>[];
       final prevPathByUrl = <String, String>{};
       if (prev != null) {
-        final pUrls = _fotoUrlsFromData(prev);
-        final rawP = prev['fotoStoragePaths'];
-        if (rawP is List) {
-          for (var i = 0; i < pUrls.length && i < rawP.length; i++) {
-            final ku = sanitizeImageUrl(pUrls[i]);
-            if (ku.isNotEmpty) {
-              prevPathByUrl[ku] = rawP[i].toString().trim();
-            }
+        final pUrls = PatrimonioPhotoFields.urlsFromData(prev);
+        for (var i = 0; i < pUrls.length && i < prevPaths.length; i++) {
+          final ku = sanitizeImageUrl(pUrls[i]);
+          if (ku.isNotEmpty) {
+            prevPathByUrl[ku] = prevPaths[i];
           }
         }
       }
@@ -7937,87 +8493,92 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
           'numeroSerie': _serie.text.trim(),
           'status': _status,
           'observacoes': _obs.text.trim(),
+          'churchId': tenantId,
+          'tenantId': tenantId,
+          'ativo': true,
         };
       }
 
-      if (nBatch == 0 && widget.doc != null && prev != null) {
-        final oldList = _fotoUrlsFromData(prev)
-            .map((e) => sanitizeImageUrl(e))
-            .where((e) => e.isNotEmpty)
-            .toList();
-        final oldSet = oldList.toSet();
-        final newSet = allUrls
-            .map((e) => sanitizeImageUrl(e))
-            .where((e) => e.isNotEmpty)
-            .toSet();
-        await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
-            oldSet.difference(newSet));
-        final oldFirst = oldList.isEmpty ? '' : oldList.first;
-        final newFirst = allUrls.isEmpty ? '' : sanitizeImageUrl(allUrls.first);
-        if (oldFirst.isNotEmpty && oldFirst != newFirst) {
-          await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
-            FirebaseStorageCleanupService.urlsFromVariantMap(
-                prev['imageVariants']),
-          );
-          await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
-            FirebaseStorageCleanupService.urlsFromVariantMap(
-                prev['fotoVariants']),
-          );
-        }
-      }
-
-      await PatrimonioSaveService.save(
-        churchIdHint: tenantId,
-        itemId: itemId,
-        corePayload: buildCorePayload(),
-        isNewDoc: isNewItem,
-        newImages: nBatch > 0
-            ? List<Uint8List>.from(_newImages.take(nBatch))
-            : const [],
-        startSlot: startSlot,
-        existingPaths: allPaths,
-        existingUrls: allUrls,
-        onProgress: (p, label) {
-          if (mounted) {
-            setState(() {
-              _uploadProgress = p;
-              _uploadProgressLabel = label;
-            });
-          }
-        },
+      final optimisticPayload = buildCorePayload();
+      PatrimonioPhotoFields.applyToPayload(
+        optimisticPayload,
+        allUrls,
+        allPaths,
       );
 
       _itemStubEnsured = true;
-      if (nBatch == 0) {
-        YahwehFlowLog.patrimonioFirestoreOk();
-        unawaited(_cleanupUnusedPatrimonioSlots(tenantId, itemId, allPaths));
-      }
       if (!mounted) return;
       YahwehFlowLog.patrimonioSuccess();
-      unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
-      ScaffoldMessenger.of(context).showSnackBar(
+      navigator.pop(<String, dynamic>{
+        'ok': true,
+        'itemId': itemId,
+        'payload': optimisticPayload,
+      });
+      messenger.showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          widget.doc == null
-              ? 'Bem cadastrado com sucesso!'
-              : 'Patrimônio atualizado com sucesso!',
+          wasNew
+              ? 'Bem cadastrado — sincronizando fotos e dados…'
+              : 'Patrimônio atualizado — sincronizando…',
         ),
       );
-      Navigator.pop(context, true);
+
+      unawaited(() async {
+        try {
+          if (nBatch == 0 && widget.doc != null && prev != null) {
+            final oldList = _fotoUrlsFromData(prev)
+                .map((e) => sanitizeImageUrl(e))
+                .where((e) => e.isNotEmpty)
+                .toList();
+            final oldSet = oldList.toSet();
+            final newSet = allUrls
+                .map((e) => sanitizeImageUrl(e))
+                .where((e) => e.isNotEmpty)
+                .toSet();
+            await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
+                oldSet.difference(newSet));
+            final oldFirst = oldList.isEmpty ? '' : oldList.first;
+            final newFirst =
+                allUrls.isEmpty ? '' : sanitizeImageUrl(allUrls.first);
+            if (oldFirst.isNotEmpty && oldFirst != newFirst) {
+              await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
+                FirebaseStorageCleanupService.urlsFromVariantMap(
+                    prev['imageVariants']),
+              );
+              await FirebaseStorageCleanupService.deleteManyByUrlPathOrGs(
+                FirebaseStorageCleanupService.urlsFromVariantMap(
+                    prev['fotoVariants']),
+              );
+            }
+          }
+
+          await PatrimonioSaveService.save(
+            churchIdHint: tenantId,
+            itemId: itemId,
+            corePayload: buildCorePayload(),
+            isNewDoc: isNewItem,
+            newImages: nBatch > 0
+                ? List<Uint8List>.from(_newImages.take(nBatch))
+                : const [],
+            startSlot: startSlot,
+            existingPaths: allPaths,
+            existingUrls: allUrls,
+          );
+
+          if (nBatch == 0) {
+            YahwehFlowLog.patrimonioFirestoreOk();
+            unawaited(
+                _cleanupUnusedPatrimonioSlots(tenantId, itemId, allPaths));
+          }
+          unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
+        } catch (e, st) {
+          if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
+            unawaited(ChurchPatrimonioLoadService.invalidate(tenantId));
+            return;
+          }
+          YahwehCatchLog.log(e, st, tag: 'patrimonio_save_bg');
+        }
+      }());
     } catch (e, st) {
-      if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
-        _itemStubEnsured = true;
-        if (!mounted) return;
-        unawaited(ChurchPatrimonioLoadService.invalidate(_churchIdForPublish));
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            widget.doc == null
-                ? 'Bem cadastrado — sincroniza em background.'
-                : 'Patrimônio guardado — sincroniza em background.',
-          ),
-        );
-        Navigator.pop(context, true);
-        return;
-      }
       YahwehCatchLog.log(e, st, tag: 'patrimonio_save');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -8417,6 +8978,16 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         ),
         title: Text(isEditing ? 'Editar Patrimônio' : 'Novo Patrimônio'),
         actions: [
+          TextButton(
+            onPressed: _saving ? null : () => Navigator.maybePop(context),
+            child: const Text(
+              'Cancelar',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
           TextButton.icon(
             onPressed: _saving ? null : _save,
             icon: _saving

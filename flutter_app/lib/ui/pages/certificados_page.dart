@@ -766,11 +766,13 @@ class _CertificadosPageState extends State<CertificadosPage> {
     return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
       future: _membersFuture,
       builder: (context, snap) {
-        if (snap.hasError) {
+        if (snap.hasError && _seedMemberDocs.isEmpty) {
           return Padding(
             padding: const EdgeInsets.all(24),
-            child: ChurchPanelErrorBody(
-              title: 'Não foi possível carregar os membros',
+            child: ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: false,
+              errorTitle: 'Não foi possível carregar os membros',
               error: snap.error,
               onRetry: _refreshMembers,
             ),
@@ -1607,14 +1609,14 @@ class _CertificadosPageState extends State<CertificadosPage> {
           ],
         ),
                     _CertificadosEmitidosHistoricoView(
-                      tenantId: widget.tenantId,
+                      tenantId: _effectiveTenantId,
                       onReprint: (cid) =>
                           _reemitirCertificadoPorProtocolo(context, cid),
                       showCharts: true,
                       showList: false,
                     ),
                     _CertificadosEmitidosHistoricoView(
-                      tenantId: widget.tenantId,
+                      tenantId: _effectiveTenantId,
                       onReprint: (cid) =>
                           _reemitirCertificadoPorProtocolo(context, cid),
                       showCharts: false,
@@ -2834,12 +2836,305 @@ class _CertificadosPageState extends State<CertificadosPage> {
     final nome = (data['NOME_COMPLETO'] ?? data['nome'] ?? '').toString();
     final signatoryOptions = _buildSignatoryOptions(allMembers);
 
+    Widget buildSelectorShell({
+      required BuildContext ctx,
+      required ScrollController scrollCtrl,
+      required VoidCallback close,
+      required bool compactHeader,
+    }) {
+      var visualId = 'classico_dourado';
+      return StatefulBuilder(
+        builder: (context, setModal) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (!compactHeader) const SizedBox(height: 8),
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  ThemeCleanPremium.spaceLg,
+                  compactHeader ? ThemeCleanPremium.spaceMd : 8,
+                  ThemeCleanPremium.spaceSm,
+                  ThemeCleanPremium.spaceSm,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Escolher certificado',
+                        style: TextStyle(
+                          fontSize: compactHeader ? 18 : 16,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.grey.shade900,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: close,
+                      icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                      label: const Text('Voltar'),
+                    ),
+                    TextButton(
+                      onPressed: close,
+                      child: const Text('Cancelar'),
+                    ),
+                  ],
+                ),
+              ),
+              if (!compactHeader)
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade400,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  ThemeCleanPremium.spaceLg,
+                  0,
+                  ThemeCleanPremium.spaceLg,
+                  0,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Modelo visual do papel',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey.shade800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 132,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: kCertificateVisualTemplates.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 12),
+                        itemBuilder: (context, vi) {
+                          final vt = kCertificateVisualTemplates[vi];
+                          final sel = visualId == vt.id;
+                          return Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () => setModal(() => visualId = vt.id),
+                              child: Ink(
+                                width: 116,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: sel
+                                        ? ThemeCleanPremium.primary
+                                        : Colors.grey.shade300,
+                                    width: sel ? 2.5 : 1,
+                                  ),
+                                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                                  gradient: LinearGradient(
+                                    colors: vt.previewGradient,
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(10),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.layers_rounded,
+                                        color: vt.previewAccent,
+                                        size: 26,
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        vt.nome,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      Text(
+                                        vt.descricao,
+                                        textAlign: TextAlign.center,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 9,
+                                          height: 1.2,
+                                          color: Colors.grey.shade800
+                                              .withValues(alpha: 0.78),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Logo dedicada (opcional): igrejas/{id}/certificados/logo_atual.jpg. '
+                      'Fundos em alta resolução: igrejas/{id}/templates/certificados/.',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade600,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
+                child: Column(
+                  children: [
+                    Text('Emitir certificado para',
+                        style: TextStyle(
+                            fontSize: 13, color: Colors.grey.shade600)),
+                    const SizedBox(height: 6),
+                    Text(nome,
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w800)),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  controller: scrollCtrl,
+                  padding: EdgeInsets.fromLTRB(
+                    ThemeCleanPremium.spaceLg,
+                    0,
+                    ThemeCleanPremium.spaceLg,
+                    24,
+                  ),
+                  itemCount: _templates.length,
+                  itemBuilder: (context, i) {
+                    final t = _templates[i];
+                    final cor = _corForTemplate(t);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius:
+                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
+                        border: Border.all(color: cor.withOpacity(0.2)),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusMd),
+                          onTap: () async {
+                            close();
+                            await _openEditor(
+                              context,
+                              t,
+                              memberDoc,
+                              signatoryOptions,
+                              allMemberDocs: allMembers,
+                              initialVisualTemplateId: visualId,
+                            );
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 18, vertical: 16),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                      color: cor.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm)),
+                                  child:
+                                      Icon(t.icon, color: cor, size: 26),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(_tituloForTemplate(t),
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 14)),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                          'Toque para personalizar e gerar PDF',
+                                          style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.grey.shade500)),
+                                    ],
+                                  ),
+                                ),
+                                Icon(Icons.arrow_forward_ios_rounded,
+                                    size: 16, color: cor.withOpacity(0.5)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        },
+      );
+    }
+
+    if (kIsWeb) {
+      showDialog<void>(
+        context: context,
+        builder: (ctx) {
+          final scrollCtrl = ScrollController();
+          return Dialog(
+            backgroundColor: const Color(0xFFF8FAFC),
+            insetPadding: EdgeInsets.symmetric(
+              horizontal: MediaQuery.sizeOf(ctx).width > 920 ? 80 : 20,
+              vertical: 40,
+            ),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 780,
+                maxHeight: MediaQuery.sizeOf(ctx).height * 0.88,
+              ),
+              child: buildSelectorShell(
+                ctx: ctx,
+                scrollCtrl: scrollCtrl,
+                close: () => Navigator.pop(ctx),
+                compactHeader: true,
+              ),
+            ),
+          );
+        },
+      );
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
-        var visualId = 'classico_dourado';
         return Container(
           decoration: const BoxDecoration(
             color: Color(0xFFF8FAFC),
@@ -2848,223 +3143,14 @@ class _CertificadosPageState extends State<CertificadosPage> {
           ),
           child: DraggableScrollableSheet(
             expand: false,
-            initialChildSize: 0.78,
-            maxChildSize: 0.95,
-            minChildSize: 0.45,
-            builder: (ctx2, scrollCtrl) => StatefulBuilder(
-              builder: (context, setModal) {
-                return Column(
-                  children: [
-                    const SizedBox(height: 12),
-                    Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                            color: Colors.grey.shade400,
-                            borderRadius: BorderRadius.circular(2))),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(
-                        ThemeCleanPremium.spaceLg,
-                        ThemeCleanPremium.spaceSm,
-                        ThemeCleanPremium.spaceLg,
-                        0,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Modelo visual do papel',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.grey.shade800,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            height: 132,
-                            child: ListView.separated(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: kCertificateVisualTemplates.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(width: 12),
-                              itemBuilder: (context, vi) {
-                                final vt = kCertificateVisualTemplates[vi];
-                                final sel = visualId == vt.id;
-                                return Material(
-                                  color: Colors.transparent,
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(16),
-                                    onTap: () =>
-                                        setModal(() => visualId = vt.id),
-                                    child: Ink(
-                                      width: 116,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(16),
-                                        border: Border.all(
-                                          color: sel
-                                              ? ThemeCleanPremium.primary
-                                              : Colors.grey.shade300,
-                                          width: sel ? 2.5 : 1,
-                                        ),
-                                        boxShadow:
-                                            ThemeCleanPremium.softUiCardShadow,
-                                        gradient: LinearGradient(
-                                          colors: vt.previewGradient,
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                        ),
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(10),
-                                        child: Column(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.center,
-                                          children: [
-                                            Icon(
-                                              Icons.layers_rounded,
-                                              color: vt.previewAccent,
-                                              size: 26,
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Text(
-                                              vt.nome,
-                                              textAlign: TextAlign.center,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                            Text(
-                                              vt.descricao,
-                                              textAlign: TextAlign.center,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                fontSize: 9,
-                                                height: 1.2,
-                                                color: Colors.grey.shade800
-                                                    .withValues(alpha: 0.78),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Logo dedicada (opcional): igrejas/{id}/certificados/logo_atual.jpg. '
-                            'Fundos em alta resolução: igrejas/{id}/templates/certificados/'
-                            '(ex.: modelo_classico_dourado.png). Impressão: PDF em alta definição; '
-                            'CMYK depende da gráfica.',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey.shade600,
-                              height: 1.35,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-                      child: Column(
-                        children: [
-                          Text('Emitir certificado para',
-                              style: TextStyle(
-                                  fontSize: 13, color: Colors.grey.shade600)),
-                          const SizedBox(height: 6),
-                          Text(nome,
-                              style: const TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.w800)),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: ListView.builder(
-                        controller: scrollCtrl,
-                        padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 0,
-                            ThemeCleanPremium.spaceLg, 24),
-                        itemCount: _templates.length,
-                        itemBuilder: (context, i) {
-                          final t = _templates[i];
-                          final cor = _corForTemplate(t);
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusMd),
-                              boxShadow: ThemeCleanPremium.softUiCardShadow,
-                              border: Border.all(color: cor.withOpacity(0.2)),
-                            ),
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusMd),
-                                onTap: () async {
-                                  Navigator.pop(ctx);
-                                  await _openEditor(
-                                    context,
-                                    t,
-                                    memberDoc,
-                                    signatoryOptions,
-                                    allMemberDocs: allMembers,
-                                    initialVisualTemplateId: visualId,
-                                  );
-                                },
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 18, vertical: 16),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                            color: cor.withOpacity(0.12),
-                                            borderRadius: BorderRadius.circular(
-                                                ThemeCleanPremium.radiusSm)),
-                                        child: Icon(t.icon, color: cor, size: 26),
-                                      ),
-                                      const SizedBox(width: 14),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(_tituloForTemplate(t),
-                                                style: const TextStyle(
-                                                    fontWeight: FontWeight.w700,
-                                                    fontSize: 14)),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                                'Toque para personalizar e gerar PDF',
-                                                style: TextStyle(
-                                                    fontSize: 11,
-                                                    color: Colors.grey.shade500)),
-                                          ],
-                                        ),
-                                      ),
-                                      Icon(Icons.arrow_forward_ios_rounded,
-                                          size: 16, color: cor.withOpacity(0.5)),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                  },
-                ),
-              ),
-            ],
-                );
-              },
+            initialChildSize: 0.88,
+            maxChildSize: 0.96,
+            minChildSize: 0.55,
+            builder: (ctx2, scrollCtrl) => buildSelectorShell(
+              ctx: ctx2,
+              scrollCtrl: scrollCtrl,
+              close: () => Navigator.pop(ctx),
+              compactHeader: false,
             ),
           ),
         );
@@ -6382,6 +6468,9 @@ class _CertificadosEmitidosHistoricoViewState
   DateTime? _diaFiltro;
   DateTime? _periodoInicio;
   DateTime? _periodoFim;
+  bool _loading = true;
+  String? _loadError;
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = const [];
 
   static const _chartPalette = [
     Color(0xFF2563EB),
@@ -6395,9 +6484,47 @@ class _CertificadosEmitidosHistoricoViewState
   ];
 
   @override
+  void initState() {
+    super.initState();
+    unawaited(_loadHistorico());
+  }
+
+  @override
   void dispose() {
     _nomeCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CertificadosEmitidosHistoricoView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId.trim() != widget.tenantId.trim()) {
+      unawaited(_loadHistorico(force: true));
+    }
+  }
+
+  Future<void> _loadHistorico({bool force = false}) async {
+    setState(() {
+      _loading = _docs.isEmpty;
+      _loadError = null;
+    });
+    try {
+      final docs = await CertificateEmitidoService.loadHistorico(
+        widget.tenantId,
+        forceRefresh: force,
+      );
+      if (!mounted) return;
+      setState(() {
+        _docs = docs;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadError = e.toString();
+        _loading = false;
+      });
+    }
   }
 
   void _limparFiltros() {
@@ -6854,82 +6981,102 @@ class _CertificadosEmitidosHistoricoViewState
   @override
   Widget build(BuildContext context) {
     final edge = ThemeCleanPremium.pagePadding(context);
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: CertificateEmitidoService.historicoQuery(widget.tenantId)
-          .watchSafe(),
-      builder: (context, snap) {
-        if (snap.hasError) {
-          return Padding(
-            padding: edge,
-            child: Center(
-              child: Text(
-                'Não foi possível carregar o histórico.\n${snap.error}',
+
+    if (_loading && _docs.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_loadError != null && _docs.isEmpty) {
+      return Padding(
+        padding: edge,
+        child: ChurchPanelResilientLoadBanner(
+          hasLocalData: false,
+          isSyncing: _loading,
+          errorTitle: 'Erro ao carregar emissões',
+          error: _loadError,
+          onRetry: () => _loadHistorico(force: true),
+        ),
+      );
+    }
+
+    final docs = _docs;
+    if (docs.isEmpty) {
+      return Padding(
+        padding: edge,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.insert_chart_outlined_rounded,
+                  size: 56, color: Colors.grey.shade400),
+              const SizedBox(height: 16),
+              Text(
+                'Ainda não há emissões registadas.',
                 textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade800,
+                ),
               ),
-            ),
-          );
-        }
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final docs = snap.data?.docs ?? [];
-        if (docs.isEmpty) {
-          return Padding(
-            padding: edge,
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.insert_chart_outlined_rounded,
-                      size: 56, color: Colors.grey.shade400),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Ainda não há emissões registadas.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.grey.shade800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Ao gerar certificados, os protocolos aparecem aqui '
-                    'para consulta, gráficos e reimpressão.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                  ),
-                ],
+              const SizedBox(height: 8),
+              Text(
+                'Ao gerar certificados, os protocolos aparecem aqui '
+                'para consulta, gráficos e reimpressão.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
               ),
-            ),
-          );
-        }
-
-        final filtrados =
-            widget.showList ? _filtrar(docs) : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-        final docsGraf = widget.showCharts
-            ? (widget.showList ? filtrados : docs)
-            : docs;
-        final anosDisponiveis = <int>{};
-        for (final doc in docs) {
-          final dt = _certificadoEmissaoDiaCivil(doc.data());
-          if (dt != null) anosDisponiveis.add(dt.year);
-        }
-        final anosLista = anosDisponiveis.toList()..sort((a, b) => b.compareTo(a));
-        final tipoOpcoes = _rotulosTipo(docs);
-        final porTipo = _contagemPorTipo(docsGraf);
-        final rotulosGraf = _rotulosTipo(docsGraf);
-        final serie = _serieMensal(docsGraf);
-        final wide = MediaQuery.sizeOf(context).width >= 760;
-        final chipPainel = widget.showList
-            ? '${filtrados.length}/${docs.length}'
-            : '${docs.length}';
-
-        return CustomScrollView(
-          physics: const AlwaysScrollableScrollPhysics(
-            parent: BouncingScrollPhysics(),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: () => _loadHistorico(force: true),
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Atualizar'),
+              ),
+            ],
           ),
-          slivers: [
+        ),
+      );
+    }
+
+    final filtrados =
+        widget.showList ? _filtrar(docs) : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final docsGraf = widget.showCharts
+        ? (widget.showList ? filtrados : docs)
+        : docs;
+    final anosDisponiveis = <int>{};
+    for (final doc in docs) {
+      final dt = _certificadoEmissaoDiaCivil(doc.data());
+      if (dt != null) anosDisponiveis.add(dt.year);
+    }
+    final anosLista = anosDisponiveis.toList()..sort((a, b) => b.compareTo(a));
+    final tipoOpcoes = _rotulosTipo(docs);
+    final porTipo = _contagemPorTipo(docsGraf);
+    final rotulosGraf = _rotulosTipo(docsGraf);
+    final serie = _serieMensal(docsGraf);
+    final wide = MediaQuery.sizeOf(context).width >= 760;
+    final chipPainel = widget.showList
+        ? '${filtrados.length}/${docs.length}'
+        : '${docs.length}';
+
+    return RefreshIndicator(
+      onRefresh: () => _loadHistorico(force: true),
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        slivers: [
+          if (_loadError != null)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: edge.copyWith(top: 8, bottom: 4),
+                child: ChurchPanelResilientLoadBanner(
+                  hasLocalData: true,
+                  isSyncing: false,
+                  errorTitle: 'Erro ao sincronizar',
+                  error: _loadError,
+                  onRetry: () => _loadHistorico(force: true),
+                ),
+              ),
+            ),
             if (widget.showCharts)
             SliverPadding(
               padding: edge.copyWith(top: 12, bottom: 8),
@@ -7632,8 +7779,7 @@ class _CertificadosEmitidosHistoricoViewState
                 ),
               ),
           ],
-        );
-      },
+        ),
     );
   }
 }

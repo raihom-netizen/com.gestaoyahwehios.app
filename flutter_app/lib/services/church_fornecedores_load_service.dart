@@ -66,6 +66,27 @@ abstract final class ChurchFornecedoresLoadService {
   }) =>
       _peekRam(_resolve(seedTenantId), limit);
 
+  /// Qualquer entrada RAM deste tenant (warm com limites diferentes).
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekRamAny(
+    String seedTenantId,
+  ) {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return null;
+    for (final limit in [800, kDefaultLimit, 200, 80, 50]) {
+      final hit = _peekRam(churchId, limit);
+      if (hit != null && hit.isNotEmpty) return hit;
+    }
+    final prefix = '${churchId}_fornecedores_';
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? best;
+    for (final e in _ram.entries) {
+      if (!e.key.startsWith(prefix) || e.value.docs.isEmpty) continue;
+      if (best == null || e.value.docs.length > best.length) {
+        best = e.value.docs;
+      }
+    }
+    return best;
+  }
+
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekRam(
     String churchId,
     int limit,
@@ -123,6 +144,25 @@ abstract final class ChurchFornecedoresLoadService {
     final capped = FirebasePerformanceLimits.capListLimit('fornecedores', limit);
 
     if (!forceRefresh && !forceServer) {
+      final anyRam = peekRamAny(churchId);
+      if (anyRam != null && anyRam.isNotEmpty) {
+        final docs = _sortByNome(anyRam);
+        _putRam(ramKey, docs);
+        unawaited(_refreshInBackground(
+          churchId: churchId,
+          ramKey: ramKey,
+          limit: capped,
+          reference: reference,
+        ));
+        return ChurchFornecedoresLoadResult(
+          churchId: churchId,
+          docs: docs,
+          readSource: 'ram_any',
+          collectionPath: path,
+          fromCache: true,
+        );
+      }
+
       final ramHit = _peekRam(churchId, limit);
       if (ramHit != null) {
         unawaited(_refreshInBackground(
@@ -258,7 +298,7 @@ abstract final class ChurchFornecedoresLoadService {
       );
     }
 
-    final ramFallback = _peekRam(churchId, limit);
+    final ramFallback = peekRamAny(churchId) ?? _peekRam(churchId, limit);
     if (ramFallback != null) {
       return ChurchFornecedoresLoadResult(
         churchId: churchId,

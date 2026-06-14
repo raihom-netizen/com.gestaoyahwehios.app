@@ -194,12 +194,27 @@ abstract final class ChurchAprovacoesLoadService {
       final hive = await TenantModuleHiveCache.readDocs(
         churchId,
         TenantModuleKeys.membros,
-      ).timeout(const Duration(seconds: 3));
+      ).timeout(const Duration(seconds: 2));
       if (hive.isNotEmpty) {
         return _ok(
           churchId: churchId,
           allDocs: TenantModuleHiveCache.toQueryDocuments(hive),
           readSource: 'hive',
+          fromCache: true,
+        );
+      }
+    } catch (_) {}
+
+    try {
+      final cacheSnap = await ChurchUiCollections.membros(churchId)
+          .limit(kMembrosScanLimit)
+          .get(const GetOptions(source: Source.cache))
+          .timeout(const Duration(seconds: 3));
+      if (cacheSnap.docs.isNotEmpty) {
+        return _ok(
+          churchId: churchId,
+          allDocs: cacheSnap.docs,
+          readSource: 'firestore_cache',
           fromCache: true,
         );
       }
@@ -237,8 +252,8 @@ abstract final class ChurchAprovacoesLoadService {
         ? await FirestoreWebGuard.runWithWebRecovery(
             readPlain,
             maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
-        : await readPlain().timeout(ChurchPanelReadTimeouts.queryCap);
+          ).timeout(const Duration(seconds: 14))
+        : await readPlain().timeout(ChurchPanelReadTimeouts.warmCap);
 
     return snap.docs;
   }
@@ -269,8 +284,9 @@ abstract final class ChurchAprovacoesLoadService {
 
     Object? lastError;
     try {
-      final allDocs = await _fetchMembrosNetwork(churchId, cacheKey)
-          .timeout(ChurchPanelReadTimeouts.queryCap);
+      final allDocs = await _fetchMembrosNetwork(churchId, cacheKey).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      );
       return _ok(
         churchId: churchId,
         allDocs: allDocs,
@@ -304,8 +320,9 @@ abstract final class ChurchAprovacoesLoadService {
     String cacheKey,
   ) async {
     try {
-      final allDocs = await _fetchMembrosNetwork(churchId, cacheKey)
-          .timeout(ChurchPanelReadTimeouts.queryCap);
+      final allDocs = await _fetchMembrosNetwork(churchId, cacheKey).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      );
       _ok(churchId: churchId, allDocs: allDocs, readSource: 'background');
     } catch (_) {}
   }

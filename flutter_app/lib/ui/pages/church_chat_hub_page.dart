@@ -35,6 +35,7 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_notification_settings_page.dart';
 import 'package:gestao_yahweh/ui/pages/church_chat_thread_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_thread_foreground_notif_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_department_avatar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_department_chat_members_sheet.dart';
@@ -228,6 +229,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   late final VoidCallback _localConvListener;
   bool _resumeChatThreadAttempted = false;
   bool _conversasSkeletonTimedOut = false;
+  bool _conversasListPrimed = false;
   Timer? _conversasSkeletonTimer;
   Timer? _lazyMemberWarmupTimer;
   final Map<String, int> _unreadCountByThreadId = {};
@@ -774,7 +776,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           ChurchChatThreadsListCache.saveFromSnapshot(tenantId, fallback),
         );
       }
-    } catch (_) {}
+    } catch (_) {} finally {
+      if (mounted) setState(() => _conversasListPrimed = true);
+    }
   }
 
   void _scheduleUnreadCountsLoad(
@@ -882,7 +886,6 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       ChurchChatHubDepartmentsService.loadDocs(seedTenantId: tid)
           .catchError((_) => const <QueryDocumentSnapshot<Map<String, dynamic>>>[]),
     );
-    unawaited(_openGruposFast(tid));
     unawaited(_syncMemberDepartments(tid));
     unawaited(_silentSyncConversasIndex(tid, force: true));
     if (mounted) {
@@ -1188,10 +1191,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       }
       final docs = await ChurchChatHubDepartmentsService.loadDocs(
         seedTenantId: seed,
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 90),
       );
       if (!mounted) return;
-      if (docs.isNotEmpty && seesAll) {
-        _ChatHubDepartmentsRamCache.put(ChurchPanelTenant.resolve(seed), docs);
+      if (docs.isNotEmpty) {
+        if (seesAll) {
+          _ChatHubDepartmentsRamCache.put(ChurchPanelTenant.resolve(seed), docs);
+        }
         setState(() {
           _departments = _entriesFromDeptDocs(docs);
           _departmentsLoading = false;
@@ -1200,12 +1207,22 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         if (uid.isNotEmpty) {
           unawaited(_ensureDeptThreadsBackground(seed, uid, _departments));
         }
+        return;
       }
-    } catch (_) {
-      if (!mounted) return;
-      if (_departments.isEmpty) {
-        setState(() => _departmentsLoading = false);
+    } catch (_) {}
+
+    if (mounted && _departments.isEmpty) {
+      final fromThreads = await _loadDepartmentsFromDeptChatThreads(seed);
+      if (fromThreads.isNotEmpty && mounted) {
+        setState(() => _departments = fromThreads);
+        final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+        if (uid.isNotEmpty) {
+          unawaited(_ensureDeptThreadsBackground(seed, uid, _departments));
+        }
       }
+    }
+    if (mounted) {
+      setState(() => _departmentsLoading = false);
     }
   }
 
@@ -1268,12 +1285,23 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
   ) async {
     try {
       final op = ChurchContextService.panelChurchId(tid);
-      final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => ChurchUiCollections.chats(op)
-            .where('type', isEqualTo: 'department')
-            .limit(80)
-            .get(const GetOptions(source: Source.server)),
-      ).timeout(const Duration(seconds: 14));
+      Future<QuerySnapshot<Map<String, dynamic>>> read({Source? source}) =>
+          FirestoreWebGuard.runWithWebRecovery(
+            () => ChurchUiCollections.chats(op)
+                .where('type', isEqualTo: 'department')
+                .limit(80)
+                .get(GetOptions(source: source ?? Source.server)),
+          );
+      QuerySnapshot<Map<String, dynamic>> snap;
+      try {
+        snap = await read(source: Source.cache)
+            .timeout(const Duration(seconds: 3));
+      } catch (_) {
+        snap = await read().timeout(const Duration(seconds: 14));
+      }
+      if (snap.docs.isEmpty) {
+        snap = await read().timeout(const Duration(seconds: 14));
+      }
       final out = <_DeptEntry>[];
       for (final doc in snap.docs) {
         final data = doc.data();
@@ -1365,11 +1393,14 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     }
 
     Timer? cap;
-    cap = Timer(const Duration(seconds: 90), () {
+    cap = Timer(
+      kIsWeb ? const Duration(seconds: 14) : const Duration(seconds: 90),
+      () {
       if (mounted && syncGen == _deptSyncGeneration && _departmentsLoading) {
         setState(() => _departmentsLoading = false);
       }
-    });
+    },
+    );
 
     try {
       if (_chatHubSeesAllDepartmentGroups(widget.role, widget.permissions)) {
@@ -1961,9 +1992,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     required String? peerUid,
     required ChurchChatMemberPrefsModel prefs,
     required String memberRole,
+    Map<String, dynamic>? departmentDocData,
   }) async {
-    final canDeleteGroup =
-        isDepartment && ChurchChatModeration.canDeleteGroupConversation(memberRole);
+    final cpf = widget.cpf.replaceAll(RegExp(r'\D'), '');
+    final canDeleteGroup = isDepartment &&
+        ChurchChatModeration.canDeleteGroupConversation(
+          memberRole,
+          departmentData: departmentDocData,
+          memberCpfDigits: cpf,
+        );
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: ThemeCleanPremium.surface,
@@ -2445,7 +2482,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         ChurchChatPendingStatusBanner(
           tenantId: tid,
           compact: true,
-          alwaysOfferClear: false,
+          alwaysOfferClear: true,
           role: widget.role,
           permissions: widget.permissions,
         ),
@@ -2596,25 +2633,17 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                       physics: const AlwaysScrollableScrollPhysics(),
                       padding: const EdgeInsets.all(24),
                       children: [
-                      Icon(
-                        Icons.cloud_off_rounded,
-                        size: 48,
-                        color: ThemeCleanPremium.onSurfaceVariant,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Não foi possível carregar a lista de conversas. '
-                        'Verifique a ligação ou peça ao gestor para atualizar as regras do Firebase.\n'
-                        '$streamError',
-                        style: TextStyle(
-                          color: ThemeCleanPremium.onSurfaceVariant,
-                          height: 1.45,
-                          fontWeight: FontWeight.w600,
+                        ChurchPanelResilientLoadBanner(
+                          hasLocalData: false,
+                          isSyncing: false,
+                          errorTitle:
+                              'Não foi possível carregar a lista de conversas',
+                          error: streamError,
+                          onRetry: _pullRefreshConversas,
                         ),
-                      ),
-                    ],
-                  ),
-                );
+                      ],
+                    ),
+                  );
                 }
                 final hasInstantList = snapForList != null &&
                     snapForList.docs.isNotEmpty;
@@ -2622,6 +2651,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
                 if (snap.connectionState == ConnectionState.waiting &&
                     !hasInstantList &&
                     !hasLocalFallback &&
+                    !_conversasListPrimed &&
                     !_conversasSkeletonTimedOut) {
                   return RefreshIndicator(
                     onRefresh: _pullRefreshConversas,
@@ -2645,37 +2675,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
 
                 if (streamError != null && snapForList != null) {
                   threads.add(
-                    Material(
-                      color: const Color(0xFFFFF8E1),
-                      borderRadius: BorderRadius.circular(12),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.warning_amber_rounded,
-                              color: Colors.amber.shade900,
-                              size: 22,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'Não foi possível sincronizar agora — está a ver a última lista '
-                                'recebida. A ligação restabelece-se sozinha; puxe para atualizar ou '
-                                'abra o chat de novo. As conversas só somem se as apagar ou, nos grupos, '
-                                'se um gestor as remover.',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  height: 1.35,
-                                  color: Colors.grey.shade900,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                    ChurchPanelResilientLoadBanner(
+                      hasLocalData: true,
+                      isSyncing: false,
+                      showStaleCache: true,
+                      errorTitle:
+                          'Não foi possível sincronizar a lista de conversas',
+                      onRetry: _pullRefreshConversas,
+                      staleMessage:
+                          'Modo offline — última lista de conversas guardada. Puxe para atualizar.',
                     ),
                   );
                   threads.add(const SizedBox(height: 10));
@@ -3630,6 +3638,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         peerUid: null,
         prefs: prefs,
         memberRole: widget.role,
+        departmentDocData: entry.deptData,
       ),
       onMoreTap: () => _showThreadActionsSheet(
         context: context,
@@ -3640,6 +3649,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         peerUid: null,
         prefs: prefs,
         memberRole: widget.role,
+        departmentDocData: entry.deptData,
       ),
     );
   }
@@ -3719,6 +3729,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         peerUid: null,
         prefs: prefs,
         memberRole: widget.role,
+        departmentDocData: deptEntry?.deptData ?? data,
       ),
       onMoreTap: () => _showThreadActionsSheet(
         context: context,
@@ -3729,6 +3740,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         peerUid: null,
         prefs: prefs,
         memberRole: widget.role,
+        departmentDocData: deptEntry?.deptData ?? data,
       ),
     );
   }
@@ -4529,15 +4541,15 @@ class _AllMembersDirectoryViewState extends State<_AllMembersDirectoryView> {
       }
     } catch (_) {
       fetchFailed = true;
+    } finally {
+      if (!mounted) return;
+      _loadCapTimer?.cancel();
+      setState(() {
+        if (rows.isNotEmpty) _rows = rows;
+        _loading = false;
+        _loadFailed = _rows.isEmpty && fetchFailed;
+      });
     }
-
-    if (!mounted) return;
-    _loadCapTimer?.cancel();
-    setState(() {
-      if (rows.isNotEmpty) _rows = rows;
-      _loading = false;
-      _loadFailed = _rows.isEmpty && fetchFailed;
-    });
 
     if (_rows.isNotEmpty) {
       _schedulePresencePoll();

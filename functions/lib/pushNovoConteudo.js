@@ -89,6 +89,13 @@ async function sendGyTopicPushCluster(tenantId, kind, build) {
     await sendGyTopicPush(tenantId, kind, build);
 }
 async function sendNovoAvisoMuralPush(tenantId, postId, d) {
+    if (!isPushableAvisoDoc(d)) {
+        functions.logger.info("onNovoAvisoMuralPush skip — título/mídia inválidos", {
+            tenantId,
+            postId,
+        });
+        return;
+    }
     const title = clip(String(d.title || d.titulo || "Novo aviso"), 80) || "Novo aviso";
     const rawBody = String(d.text || d.body || d.mensagem || "").trim();
     const body = clip(rawBody, 140) || title;
@@ -122,13 +129,60 @@ function isPublishedFeedDoc(d) {
     const status = String(d.status || "").trim().toLowerCase();
     return status === "publicado";
 }
+const JUNK_TITLES = new Set([
+    "sem título",
+    "sem titulo",
+    "sem titulo.",
+    "sem título.",
+]);
+function resolveFeedTitle(d) {
+    for (const k of ["title", "titulo", "name", "nome"]) {
+        const v = String(d[k] || "").trim();
+        if (v)
+            return v;
+    }
+    return "";
+}
+function hasValidFeedTitle(d) {
+    const t = resolveFeedTitle(d);
+    if (!t)
+        return false;
+    return !JUNK_TITLES.has(t.toLowerCase());
+}
+function hasValidFeedMedia(d) {
+    for (const k of [
+        "imageUrl",
+        "coverPhotoUrl",
+        "coverPhoto",
+        "photoUrl",
+        "bannerUrl",
+        "fotoUrl",
+        "imageStoragePath",
+        "fotoPath",
+        "thumbStoragePath",
+        "bannerStoragePath",
+        "storagePath",
+    ]) {
+        if (String(d[k] || "").trim())
+            return true;
+    }
+    for (const k of ["imageUrls", "galeria", "photos", "photoUrls", "imageStoragePaths"]) {
+        const raw = d[k];
+        if (Array.isArray(raw) && raw.some((e) => String(e || "").trim()))
+            return true;
+    }
+    return false;
+}
+function isPushableAvisoDoc(d) {
+    return isPublishedFeedDoc(d) && hasValidFeedTitle(d) && hasValidFeedMedia(d);
+}
 exports.onNovoAvisoMuralPush = functions
     .region("us-central1")
     .firestore.document("igrejas/{tenantId}/avisos/{id}")
     .onCreate(async (snap, context) => {
     const tenantId = context.params.tenantId;
     const d = snap.data() || {};
-    if (!isPublishedFeedDoc(d))
+    if (!isPushableAvisoDoc(d))
         return null;
     try {
         await sendNovoAvisoMuralPush(tenantId, context.params.id, d);
@@ -146,7 +200,7 @@ exports.onNovoAvisoMuralPublishedPush = functions
     const after = change.after.data() || {};
     if (isPublishedFeedDoc(before))
         return null;
-    if (!isPublishedFeedDoc(after))
+    if (!isPushableAvisoDoc(after))
         return null;
     const tenantId = context.params.tenantId;
     try {

@@ -1,12 +1,18 @@
+import 'dart:async';
+
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_reports_engine_fetcher.dart';
+import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -19,7 +25,7 @@ import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 
 /// Período do relatório fornecedores/prestadores.
 enum _PeriodoFornecedor { mes, ano, personalizado }
@@ -74,6 +80,7 @@ class _RelatorioGastosFornecedoresPageState
 
   bool _loading = true;
   String? _err;
+  bool _showingStaleCache = false;
   final Map<String, double> _despesas = {};
   final Map<String, double> _receitas = {};
   double _totalDespesas = 0;
@@ -129,26 +136,35 @@ class _RelatorioGastosFornecedoresPageState
   }
 
   Future<void> _load() async {
+    final hadLocal = _despesas.isNotEmpty || _receitas.isNotEmpty;
     setState(() {
-      _loading = true;
-      _err = null;
-      _despesas.clear();
-      _receitas.clear();
-      _totalDespesas = 0;
-      _totalReceitas = 0;
-      _amostraDocs = 0;
+      _loading = !hadLocal;
+      if (!hadLocal) {
+        _err = null;
+        _despesas.clear();
+        _receitas.clear();
+        _totalDespesas = 0;
+        _totalReceitas = 0;
+        _amostraDocs = 0;
+      }
     });
     try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
       final p = _periodoAtual();
       final rows = await YahwehReportsEngineFetcher.fetchFinanceRowsForPeriod(
         churchIdHint: widget.tenantId,
         inicio: p.inicio,
         fim: p.fim,
-        limit: 4000,
-      );
+        limit: YahwehReportsEngineFetcher.kFinanceReportLimit,
+      ).timeout(PanelResilientLoad.queryCap);
+      final nextDespesas = <String, double>{};
+      final nextReceitas = <String, double>{};
+      var totalDespesas = 0.0;
+      var totalReceitas = 0.0;
       _amostraDocs = rows.length;
       for (final m in rows) {
-        if (!_dataNoPeriodo(m)) continue;
         final fid = (m['fornecedorId'] ?? '').toString().trim();
         if (fid.isEmpty) continue;
         final nome =
@@ -156,17 +172,41 @@ class _RelatorioGastosFornecedoresPageState
         final tipo = (m['tipo'] ?? '').toString().toLowerCase();
         final v = financeParseValorBr(m['valor'] ?? m['amount']);
         if (tipo == 'saida' || tipo.contains('despesa')) {
-          _despesas[nome] = (_despesas[nome] ?? 0) + v;
-          _totalDespesas += v;
+          nextDespesas[nome] = (nextDespesas[nome] ?? 0) + v;
+          totalDespesas += v;
         } else if (tipo == 'entrada' || tipo.contains('receita')) {
-          _receitas[nome] = (_receitas[nome] ?? 0) + v;
-          _totalReceitas += v;
+          nextReceitas[nome] = (nextReceitas[nome] ?? 0) + v;
+          totalReceitas += v;
         }
       }
+      if (mounted) {
+        setState(() {
+          _despesas
+            ..clear()
+            ..addAll(nextDespesas);
+          _receitas
+            ..clear()
+            ..addAll(nextReceitas);
+          _totalDespesas = totalDespesas;
+          _totalReceitas = totalReceitas;
+          _err = null;
+          _showingStaleCache = false;
+        });
+      }
     } catch (e) {
-      _err = '$e';
+      final ui = PanelResilientLoad.afterError(
+        hadLocalData: hadLocal,
+        error: e,
+      );
+      if (mounted) {
+        setState(() {
+          _err = ui.loadError;
+          _showingStaleCache = ui.showingStaleCache;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    if (mounted) setState(() => _loading = false);
   }
 
   String _tituloPeriodo() {
@@ -191,13 +231,22 @@ class _RelatorioGastosFornecedoresPageState
     PdfDigitalStampInput? rightDigitalStamp,
   })?> _pickPdfSigners() async {
     final op = ChurchRepository.churchId(widget.tenantId.trim());
-    final snap = await         ChurchUiCollections.membros(op)
-        .get();
-    final opts = snap.docs
-        .map((d) {
-          final m = d.data();
+    List<Map<String, dynamic>> raw = const [];
+    try {
+      final dir = await MembersDirectorySnapshotService.readOnce(op);
+      if (dir.hasEntries) {
+        raw = dir.entries
+            .map((e) => {...e.toMemberDataMap(), 'id': e.memberDocId})
+            .toList();
+      } else {
+        final snap = await ChurchTenantResilientReads.membrosRecent(op, limit: 800);
+        raw = snap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
+      }
+    } catch (_) {}
+    final opts = raw
+        .map((m) {
           return (
-            id: d.id,
+            id: (m['id'] ?? '').toString(),
             nome: (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
                 .toString()
                 .trim(),
@@ -211,7 +260,7 @@ class _RelatorioGastosFornecedoresPageState
                 (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim(),
           );
         })
-        .where((e) => e.nome.isNotEmpty)
+        .where((e) => e.nome.isNotEmpty && e.id.isNotEmpty)
         .toList()
       ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
     if (!mounted) return null;
@@ -633,10 +682,20 @@ class _RelatorioGastosFornecedoresPageState
           ],
         ),
       ),
-      body: _loading
+      body: _loading && _despesas.isEmpty && _receitas.isEmpty
           ? const Center(child: CircularProgressIndicator())
-          : _err != null
-              ? Center(child: Text(_err!, textAlign: TextAlign.center))
+          : _err != null && _despesas.isEmpty && _receitas.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: ChurchPanelResilientLoadBanner(
+                    hasLocalData: false,
+                    isSyncing: false,
+                    errorTitle:
+                        'Não foi possível carregar o relatório de fornecedores',
+                    error: _err,
+                    onRetry: _load,
+                  ),
+                )
               : Container(
                   width: double.infinity,
                   decoration: BoxDecoration(
@@ -651,6 +710,20 @@ class _RelatorioGastosFornecedoresPageState
                   ),
                   child: Column(
                     children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                        child: ChurchPanelResilientLoadBanner(
+                          hasLocalData:
+                              _despesas.isNotEmpty || _receitas.isNotEmpty,
+                          isSyncing: _loading,
+                          showStaleCache:
+                              _showingStaleCache && !_loading,
+                          errorTitle:
+                              'Não foi possível carregar o relatório de fornecedores',
+                          error: _err,
+                          onRetry: _load,
+                        ),
+                      ),
                       _buildFiltroPeriodo(nf),
                       Expanded(
                         child: TabBarView(

@@ -9,6 +9,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
+import 'package:gestao_yahweh/core/escala_member_payload.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -388,6 +390,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   bool _deptsFetching = false;
   String? _templatesLoadHint;
   String? _instancesLoadHint;
+  Timer? _webLoadCap;
 
   DocumentReference<Map<String, dynamic>> _churchDoc(String tid) => ChurchUiCollections.churchDoc(tid);
   CollectionReference<Map<String, dynamic>> _templatesCol(String tid) =>
@@ -468,6 +471,20 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     _tenantFuture = _churchDoc(_churchId).get();
   }
 
+  void _startWebLoadingCap() {
+    if (!kIsWeb) return;
+    _webLoadCap?.cancel();
+    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+      if (!mounted) return;
+      if (!_templatesFetching && !_instancesFetching && !_deptsFetching) return;
+      setState(() {
+        _templatesFetching = false;
+        _instancesFetching = false;
+        _deptsFetching = false;
+      });
+    });
+  }
+
   void _seedSchedulesPanel() {
     final churchId = _churchId;
     if (churchId.isEmpty) {
@@ -494,8 +511,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               const [];
       _deptsItems = const [];
     }
-    _templatesFetching = true;
-    _instancesFetching = true;
+    _templatesFetching = _templatesDocs.isEmpty;
+    _instancesFetching = _instancesDocs.isEmpty;
     _deptsFetching = _deptsItems.isEmpty;
     _templatesLoadHint = null;
     _instancesLoadHint = null;
@@ -516,6 +533,16 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       return;
     }
     _effectiveTenantId = churchId;
+    final hadTemplates = _templatesDocs.isNotEmpty;
+    final hadInstances = _instancesDocs.isNotEmpty;
+    if (mounted) {
+      setState(() {
+        if (_templatesDocs.isEmpty) _templatesFetching = true;
+        if (_instancesDocs.isEmpty) _instancesFetching = true;
+        if (_deptsItems.isEmpty) _deptsFetching = true;
+      });
+    }
+    _startWebLoadingCap();
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
@@ -524,7 +551,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         _fetchTemplates(churchId, forceServer: forceFresh),
         _fetchEscalas(churchId, forceServer: forceFresh),
         _loadDepartmentsForTenant(churchId),
-      ]).timeout(ChurchPanelReadTimeouts.queryCap);
+      ]).timeout(PanelResilientLoad.queryCap);
       if (!mounted) return;
       final templates =
           (results[0] as QuerySnapshot<Map<String, dynamic>>).docs;
@@ -537,12 +564,24 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         instances: instances,
         depts: depts,
       );
+      final tplUi = PanelResilientLoad.afterFetch(
+        hadLocalData: hadTemplates,
+        newItems: templates,
+        fromCache: false,
+        forceFresh: forceFresh,
+      );
+      final instUi = PanelResilientLoad.afterFetch(
+        hadLocalData: hadInstances,
+        newItems: instances,
+        fromCache: false,
+        forceFresh: forceFresh,
+      );
       setState(() {
         _templatesDocs = templates;
         _instancesDocs = instances;
         _deptsItems = depts;
-        _templatesFetching = false;
-        _instancesFetching = false;
+        _templatesFetching = tplUi.fetching;
+        _instancesFetching = instUi.fetching;
         _deptsFetching = false;
         _syncLegacyFutures();
         if (templates.isEmpty && instances.isNotEmpty && _tab.index == 0) {
@@ -551,9 +590,17 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       });
     } catch (e) {
       if (!mounted) return;
+      final tplUi = PanelResilientLoad.afterError(
+        hadLocalData: hadTemplates,
+        error: e,
+      );
+      final instUi = PanelResilientLoad.afterError(
+        hadLocalData: hadInstances,
+        error: e,
+      );
       setState(() {
-        _templatesFetching = false;
-        _instancesFetching = false;
+        _templatesFetching = tplUi.fetching;
+        _instancesFetching = instUi.fetching;
         _deptsFetching = false;
         if (_templatesDocs.isEmpty) {
           _templatesLoadHint ??= '$e';
@@ -563,6 +610,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         }
         _syncLegacyFutures();
       });
+    } finally {
+      _webLoadCap?.cancel();
+      if (mounted) {
+        setState(() {
+          _templatesFetching = false;
+          _instancesFetching = false;
+          _deptsFetching = false;
+        });
+      }
     }
   }
 
@@ -1442,6 +1498,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
   @override
   void dispose() {
+    _webLoadCap?.cancel();
     _tab.dispose();
     super.dispose();
   }
@@ -2199,6 +2256,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       }
       final selCpfs = eligible.map((i) => allCpfs[i]).toList();
       final selNames = eligible.map((i) => i < allNames.length ? allNames[i] : '').toList();
+      final memberIndex = EscalaMemberPayload.buildMemberDocIndexByCpf(
+        membersForYmds,
+      );
+      final escalados = EscalaMemberPayload.rowsFromParallelLists(
+        cpfs: selCpfs,
+        names: selNames,
+        memberDocByCpfDigits: memberIndex,
+      );
+      final memberFields = EscalaMemberPayload.writeFieldsFromMembers(escalados);
 
       for (final c in selCpfs) freq[c] = (freq[c] ?? 0) + 1;
 
@@ -2209,9 +2275,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         'time': time,
         'departmentId': deptId,
         'departmentName': deptName,
-        'memberCpfs': selCpfs,
-        'memberNames': selNames,
+        ...memberFields,
         'confirmations': {},
+        'unavailabilityReasons': {},
         'templateId': doc.id,
         'observations': '',
         'preparedByName': pick.preparedByName,
@@ -2355,8 +2421,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         !_templatesFetching) {
       return Padding(
         padding: const EdgeInsets.all(16),
-        child: ChurchPanelErrorBody(
-          title: 'Não foi possível carregar os modelos de escala',
+        child: ChurchPanelResilientLoadBanner(
+          hasLocalData: false,
+          isSyncing: false,
+          errorTitle: 'Não foi possível carregar os modelos de escala',
           error: _templatesLoadHint,
           onRetry: _refreshTemplates,
         ),
@@ -3205,8 +3273,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         !_instancesFetching) {
       return Padding(
         padding: const EdgeInsets.all(16),
-        child: ChurchPanelErrorBody(
-          title: 'Não foi possível carregar as escalas',
+        child: ChurchPanelResilientLoadBanner(
+          hasLocalData: false,
+          isSyncing: false,
+          errorTitle: 'Não foi possível carregar as escalas',
           error: _instancesLoadHint,
           onRetry: _refreshInstances,
         ),
@@ -4989,363 +5059,674 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   void _showInstanceDetail(DocumentSnapshot<Map<String, dynamic>> doc, Color deptColor) {
     final dataHolder = ValueNotifier<Map<String, dynamic>>(Map<String, dynamic>.from(doc.data() ?? {}));
     final filterNotifier = ValueNotifier<_InstanceDetailMemberFilter>(_InstanceDetailMemberFilter.todos);
+    final memberSearchNotifier = ValueNotifier<String>('');
     final docRef = doc.reference;
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.7,
-        maxChildSize: 0.95,
-        minChildSize: 0.4,
-        builder: (ctx, scroll) {
-        return ValueListenableBuilder<Map<String, dynamic>>(
-          valueListenable: dataHolder,
-          builder: (context, data, _) {
-            final title = (data['title'] ?? '').toString();
-            final dept = (data['departmentName'] ?? '').toString();
-            final time = (data['time'] ?? '').toString();
-            final cpfs = ((data['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-            final names = ((data['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
-            final confirmations = (data['confirmations'] as Map<String, dynamic>?) ?? {};
-            final unavailabilityReasons = (data['unavailabilityReasons'] as Map<String, dynamic>?) ?? {};
-            DateTime? dt;
-            try { dt = (data['date'] as Timestamp).toDate(); } catch (_) {}
-            final dateTxt = dt == null ? '' : '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-            final obs = (data['observations'] ?? '').toString().trim();
+    Navigator.of(context)
+        .push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (pageCtx) {
+          return ValueListenableBuilder<Map<String, dynamic>>(
+            valueListenable: dataHolder,
+            builder: (context, data, _) {
+              final title = (data['title'] ?? '').toString();
+              final dept = (data['departmentName'] ?? '').toString();
+              final time = (data['time'] ?? '').toString();
+              final members = EscalaMemberPayload.parseMembers(data);
+              final cpfs = members.map((m) => m.cpf).toList();
+              final names = members.map((m) => m.name).toList();
+              final confirmations = (data['confirmations'] as Map<String, dynamic>?) ?? {};
+              final unavailabilityReasons = (data['unavailabilityReasons'] as Map<String, dynamic>?) ?? {};
+              DateTime? dt;
+              try {
+                dt = (data['date'] as Timestamp).toDate();
+              } catch (_) {}
+              final dateTxt = dt == null
+                  ? ''
+                  : '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+              final obs = (data['observations'] ?? '').toString().trim();
+              final pageEdge = ThemeCleanPremium.pagePadding(pageCtx);
 
-            final bottomInset = MediaQuery.paddingOf(context).bottom;
-            return ValueListenableBuilder<_InstanceDetailMemberFilter>(
-              valueListenable: filterNotifier,
-              builder: (context, instanceMemberFilter, _) {
-                return Padding(
-                  padding: EdgeInsets.fromLTRB(20, 12, 20, 20 + bottomInset),
-                  child: ListView(
-                    controller: scroll,
-                    children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
-                        boxShadow: ThemeCleanPremium.softUiCardShadow,
+              void closeDetail() => Navigator.pop(pageCtx);
+
+              return Scaffold(
+                backgroundColor: ThemeCleanPremium.surfaceVariant,
+                appBar: AppBar(
+                  elevation: 0,
+                  flexibleSpace: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          deptColor,
+                          Color.lerp(deptColor, Colors.white, 0.25)!,
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Row(children: [
-                    Container(width: 4, height: 28, decoration: BoxDecoration(color: deptColor, borderRadius: BorderRadius.circular(2))),
-                    const SizedBox(width: 12),
-                    Expanded(child: Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800))),
-                  ]),
-                  const SizedBox(height: 8),
-                  Row(children: [
-                    if (dateTxt.isNotEmpty) ...[
-                      Icon(Icons.calendar_today_rounded, size: 14, color: Colors.grey.shade600),
-                      const SizedBox(width: 4),
-                      Text(dateTxt, style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
-                      const SizedBox(width: 14),
-                    ],
-                    if (time.isNotEmpty) ...[
-                      Icon(Icons.access_time_rounded, size: 14, color: Colors.grey.shade600),
-                      const SizedBox(width: 4),
-                      Text(time, style: TextStyle(fontSize: 13, color: Colors.grey.shade700)),
-                      const SizedBox(width: 14),
-                    ],
-                    if (dept.isNotEmpty) ...[
-                      Icon(Icons.groups_rounded, size: 14, color: deptColor),
-                      const SizedBox(width: 4),
-                      Flexible(child: Text(dept, style: TextStyle(fontSize: 13, color: deptColor, fontWeight: FontWeight.w600))),
-                    ],
-                  ]),
-                  if (obs.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.blueGrey.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.blueGrey.shade100),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.notes_rounded, size: 18, color: Colors.blueGrey.shade700),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              obs,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.blueGrey.shade900,
-                                height: 1.35,
-                              ),
-                            ),
-                          ),
-                        ],
+                  foregroundColor: Colors.white,
+                  leading: IconButton(
+                    tooltip: 'Voltar',
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    onPressed: closeDetail,
+                  ),
+                  title: Text(
+                    title.isEmpty ? 'Detalhe da escala' : title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 17,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: closeDetail,
+                      child: const Text(
+                        'Cancelar',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 20),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    alignment: WrapAlignment.start,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: () async {
-                          await _exportEscalaInstancePdf(doc);
-                        },
-                        icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
-                        label: const Text('Imprimir PDF'),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: ThemeCleanPremium.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                          minimumSize: Size(0, ThemeCleanPremium.minTouchTarget),
-                        ),
-                      ),
-                      if (_canWrite) ...[
-                        FilledButton.tonalIcon(
-                          onPressed: () async {
-                            Navigator.pop(ctx);
-                            await _notifySchedulePublished(doc.id);
-                          },
-                          icon: const Icon(Icons.notifications_active_rounded, size: 20),
-                          label: const Text('Notificar membros'),
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            minimumSize: Size(0, ThemeCleanPremium.minTouchTarget),
-                          ),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _editInstance(doc);
-                          },
-                          icon: const Icon(Icons.edit_calendar_rounded, size: 20),
-                          label: const Text('Editar escala'),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            minimumSize: Size(0, ThemeCleanPremium.minTouchTarget),
-                          ),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _deleteInstance(doc);
-                          },
-                          icon: Icon(Icons.delete_outline_rounded, size: 20, color: ThemeCleanPremium.error),
-                          label: Text('Excluir', style: TextStyle(color: ThemeCleanPremium.error)),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: ThemeCleanPremium.error,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            minimumSize: Size(0, ThemeCleanPremium.minTouchTarget),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: () {
-                      final segs = doc.reference.path.split('/');
-                      final tid = segs.length >= 2 && segs[0] == 'igrejas' ? segs[1] : '';
-                      if (tid.isEmpty) {
-                        return Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
-                      }
-                      return ChurchUiCollections.churchDoc(tid)
-                          .collection('escala_trocas')
-                          .where('escalaId', isEqualTo: doc.id)
-                          .watchSafe();
-                    }(),
-                    builder: (context, tSnap) {
-                      final docs = (tSnap.hasData && !tSnap.hasError) ? tSnap.data!.docs : <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-                      final concluidas =
-                          docs.where((x) => (x.data()['status'] ?? '').toString() == 'concluida').toList();
-                      final cpfsSwapNorm = <String>{};
-                      for (final d in concluidas) {
-                        final m = d.data();
-                        for (final key in ['solicitanteCpf', 'alvoCpf']) {
-                          final n = _normCpfKeyForFilter((m[key] ?? '').toString());
-                          if (n.length == 11) cpfsSwapNorm.add(n);
-                        }
-                      }
-                      final pendingLeader = docs
-                          .where((x) => (x.data()['status'] ?? '').toString() == 'pendente')
-                          .toList();
-                      final pendingAlvo = docs
-                          .where((x) => (x.data()['status'] ?? '').toString() == 'pendente_alvo')
-                          .toList();
-                      final showPending = _canWrite && (pendingLeader.isNotEmpty || pendingAlvo.isNotEmpty);
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (showPending)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (pendingAlvo.isNotEmpty) ...[
-                                    Text(
-                                      'Trocas aguardando o substituto',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.blueGrey.shade800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    ...pendingAlvo.map((t) {
-                                      final td = t.data();
-                                      final alvo = (td['alvoCpf'] ?? '').toString();
-                                      return Card(
-                                        margin: const EdgeInsets.only(bottom: 8),
-                                        color: Colors.blueGrey.shade50,
-                                        child: ListTile(
-                                          leading: Icon(Icons.hourglass_top_rounded, color: Colors.blueGrey.shade600),
-                                          title: const Text('Convite enviado ao substituto'),
-                                          subtitle: Text(
-                                            'Substituto (CPF): $alvo — quando aceitar no app, a escala atualiza e você recebe aviso.',
-                                            style: const TextStyle(fontSize: 12),
+                ),
+                body: SafeArea(
+                  top: false,
+                  child: ValueListenableBuilder<_InstanceDetailMemberFilter>(
+                    valueListenable: filterNotifier,
+                    builder: (context, instanceMemberFilter, _) {
+                      return ValueListenableBuilder<String>(
+                        valueListenable: memberSearchNotifier,
+                        builder: (context, memberSearch, _) {
+                          final searchQ = memberSearch.trim().toLowerCase();
+                          return ListView(
+                            padding: pageEdge.copyWith(top: 16, bottom: 24),
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(
+                                    ThemeCleanPremium.spaceMd),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusMd),
+                                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                                  border: Border.all(
+                                    color: deptColor.withValues(alpha: 0.18),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          width: 4,
+                                          height: 28,
+                                          decoration: BoxDecoration(
+                                            color: deptColor,
+                                            borderRadius:
+                                                BorderRadius.circular(2),
                                           ),
-                                          isThreeLine: true,
                                         ),
-                                      );
-                                    }),
-                                    if (pendingLeader.isNotEmpty) const SizedBox(height: 12),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            title,
+                                            style: const TextStyle(
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: -0.2,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Wrap(
+                                      spacing: 14,
+                                      runSpacing: 8,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        if (dateTxt.isNotEmpty) ...[
+                                          Icon(Icons.calendar_today_rounded,
+                                              size: 14,
+                                              color: Colors.grey.shade600),
+                                          Text(dateTxt,
+                                              style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: Colors.grey.shade700)),
+                                        ],
+                                        if (time.isNotEmpty) ...[
+                                          Icon(Icons.access_time_rounded,
+                                              size: 14,
+                                              color: Colors.grey.shade600),
+                                          Text(time,
+                                              style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: Colors.grey.shade700)),
+                                        ],
+                                        if (dept.isNotEmpty) ...[
+                                          Icon(Icons.groups_rounded,
+                                              size: 14, color: deptColor),
+                                          Text(dept,
+                                              style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: deptColor,
+                                                  fontWeight: FontWeight.w700)),
+                                        ],
+                                      ],
+                                    ),
+                                    if (obs.isNotEmpty) ...[
+                                      const SizedBox(height: 12),
+                                      Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blueGrey.shade50,
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          border: Border.all(
+                                              color: Colors.blueGrey.shade100),
+                                        ),
+                                        child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Icon(Icons.notes_rounded,
+                                                size: 18,
+                                                color:
+                                                    Colors.blueGrey.shade700),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                obs,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color:
+                                                      Colors.blueGrey.shade900,
+                                                  height: 1.35,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ],
-                                  if (pendingLeader.isNotEmpty) ...[
-                                    Text(
-                                      'Trocas pendentes (aprovação manual)',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.deepPurple.shade800,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 10,
+                                alignment: WrapAlignment.start,
+                                children: [
+                                  FilledButton.icon(
+                                    onPressed: () async {
+                                      await _exportEscalaInstancePdf(doc);
+                                    },
+                                    icon: const Icon(
+                                        Icons.picture_as_pdf_rounded,
+                                        size: 20),
+                                    label: const Text('Imprimir PDF'),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor:
+                                          ThemeCleanPremium.primary,
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 18, vertical: 12),
+                                      minimumSize: const Size(
+                                          0, ThemeCleanPremium.minTouchTarget),
+                                    ),
+                                  ),
+                                  if (_canWrite) ...[
+                                    FilledButton.tonalIcon(
+                                      onPressed: () async {
+                                        closeDetail();
+                                        await _notifySchedulePublished(doc.id);
+                                      },
+                                      icon: const Icon(
+                                          Icons.notifications_active_rounded,
+                                          size: 20),
+                                      label: const Text('Notificar membros'),
+                                      style: FilledButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 12),
+                                        minimumSize: const Size(
+                                            0, ThemeCleanPremium.minTouchTarget),
                                       ),
                                     ),
-                                    const SizedBox(height: 8),
-                                    ...pendingLeader.map((t) {
-                                      final td = t.data();
-                                      final sol = (td['solicitanteCpf'] ?? '').toString();
-                                      final alvo = (td['alvoCpf'] ?? '').toString();
-                                      return Card(
-                                        margin: const EdgeInsets.only(bottom: 8),
-                                        child: ListTile(
-                                          leading: Icon(Icons.swap_horiz_rounded, color: Colors.deepPurple.shade600),
-                                          title: const Text('Pedido de troca de escala'),
-                                          subtitle: Text(
-                                            'Solicitante: $sol\nSubstituto: $alvo',
-                                            style: const TextStyle(fontSize: 12),
-                                          ),
-                                          isThreeLine: true,
-                                          trailing: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              IconButton(
-                                                tooltip: 'Aprovar',
-                                                icon: const Icon(Icons.check_circle_rounded, color: Color(0xFF16A34A)),
-                                                onPressed: () => _resolverTrocaEscala(aprovar: true, troca: t),
-                                              ),
-                                              IconButton(
-                                                tooltip: 'Recusar',
-                                                icon: const Icon(Icons.cancel_rounded, color: Color(0xFFDC2626)),
-                                                onPressed: () => _resolverTrocaEscala(aprovar: false, troca: t),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    }),
+                                    OutlinedButton.icon(
+                                      onPressed: () {
+                                        closeDetail();
+                                        _editInstance(doc);
+                                      },
+                                      icon: const Icon(
+                                          Icons.edit_calendar_rounded,
+                                          size: 20),
+                                      label: const Text('Editar escala'),
+                                      style: OutlinedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 12),
+                                        minimumSize: const Size(
+                                            0, ThemeCleanPremium.minTouchTarget),
+                                      ),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: () {
+                                        closeDetail();
+                                        _deleteInstance(doc);
+                                      },
+                                      icon: Icon(Icons.delete_outline_rounded,
+                                          size: 20,
+                                          color: ThemeCleanPremium.error),
+                                      label: Text('Excluir',
+                                          style: TextStyle(
+                                              color: ThemeCleanPremium.error)),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor:
+                                            ThemeCleanPremium.error,
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 12),
+                                        minimumSize: const Size(
+                                            0, ThemeCleanPremium.minTouchTarget),
+                                      ),
+                                    ),
                                   ],
                                 ],
                               ),
-                            ),
-                          _InteractiveStatusSummary(
-                            confirmations: confirmations,
-                            memberCpfs: cpfs,
-                            trocasRealizadasCount: concluidas.length,
-                            selected: instanceMemberFilter,
-                            onSelect: (f) => filterNotifier.value = f,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Membros escalados',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: ThemeCleanPremium.onSurface),
-                          ),
-                          const SizedBox(height: 10),
-                          for (var i = 0; i < cpfs.length; i++)
-                            if (_memberMatchesInstanceDetailFilter(
-                              instanceMemberFilter,
-                              cpfs[i],
-                              confirmations,
-                              cpfsNormInCompletedSwaps: cpfsSwapNorm,
-                            ))
-                              Builder(
-                                builder: (context) {
-                                  final memberIndex = i;
-                                  final cpfKey = cpfs[memberIndex];
-                                  return _MemberConfirmationTile(
-                                    cpf: cpfKey,
-                                    name: memberIndex < names.length ? names[memberIndex] : '',
-                                    status: _scheduleCpfKeyedMapValue(cpfKey, confirmations),
-                                    unavailabilityReason: _reasonForCpf(unavailabilityReasons, cpfKey),
-                                    canWrite: _canWrite,
-                                    onChangeStatus: (newStatus) async {
-                                      try {
-                                        if (newStatus.isEmpty) {
-                                          await docRef.update({
-                                            'confirmations.$cpfKey': FieldValue.delete(),
-                                            'unavailabilityReasons.$cpfKey': FieldValue.delete(),
-                                          });
-                                        } else {
-                                          await docRef.update({'confirmations.$cpfKey': newStatus});
-                                          if (newStatus != 'indisponivel') {
-                                            await docRef.update({'unavailabilityReasons.$cpfKey': FieldValue.delete()});
-                                          }
-                                        }
-                                        final snap = await docRef.get();
-                                        if (snap.exists) dataHolder.value = Map<String, dynamic>.from(snap.data() ?? {});
-                                        if (context.mounted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Status gravado com sucesso.'));
-                                          _refreshInstances();
-                                        }
-                                      } catch (e) {
-                                        if (context.mounted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(content: Text('Erro ao gravar: $e'), backgroundColor: ThemeCleanPremium.error),
-                                          );
-                                        }
-                                      }
-                                    },
-                                    onSubstituir: _canWrite ? () { Navigator.pop(ctx); _substituirMembro(context, doc, memberIndex); } : null,
-                                    onExcluirMembro: _canWrite ? () { Navigator.pop(ctx); _excluirMembroDaEscala(context, doc, memberIndex); } : null,
+                              const SizedBox(height: 16),
+                              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                stream: () {
+                                  final segs = doc.reference.path.split('/');
+                                  final tid = segs.length >= 2 &&
+                                          segs[0] == 'igrejas'
+                                      ? segs[1]
+                                      : '';
+                                  if (tid.isEmpty) {
+                                    return Stream<
+                                        QuerySnapshot<
+                                            Map<String, dynamic>>>.empty();
+                                  }
+                                  return ChurchUiCollections.churchDoc(tid)
+                                      .collection('escala_trocas')
+                                      .where('escalaId', isEqualTo: doc.id)
+                                      .watchSafe();
+                                }(),
+                                builder: (context, tSnap) {
+                                  final docs = (tSnap.hasData && !tSnap.hasError)
+                                      ? tSnap.data!.docs
+                                      : <QueryDocumentSnapshot<
+                                          Map<String, dynamic>>>[];
+                                  final concluidas = docs
+                                      .where((x) =>
+                                          (x.data()['status'] ?? '')
+                                              .toString() ==
+                                          'concluida')
+                                      .toList();
+                                  final cpfsSwapNorm = <String>{};
+                                  for (final d in concluidas) {
+                                    final m = d.data();
+                                    for (final key in [
+                                      'solicitanteCpf',
+                                      'alvoCpf'
+                                    ]) {
+                                      final n = _normCpfKeyForFilter(
+                                          (m[key] ?? '').toString());
+                                      if (n.length == 11) cpfsSwapNorm.add(n);
+                                    }
+                                  }
+                                  final pendingLeader = docs
+                                      .where((x) =>
+                                          (x.data()['status'] ?? '')
+                                              .toString() ==
+                                          'pendente')
+                                      .toList();
+                                  final pendingAlvo = docs
+                                      .where((x) =>
+                                          (x.data()['status'] ?? '')
+                                              .toString() ==
+                                          'pendente_alvo')
+                                      .toList();
+                                  final showPending = _canWrite &&
+                                      (pendingLeader.isNotEmpty ||
+                                          pendingAlvo.isNotEmpty);
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (showPending)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                              bottom: 16),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              if (pendingAlvo.isNotEmpty) ...[
+                                                Text(
+                                                  'Trocas aguardando o substituto',
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: Colors
+                                                        .blueGrey.shade800,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                ...pendingAlvo.map((t) {
+                                                  final td = t.data();
+                                                  final alvo = (td['alvoCpf'] ??
+                                                          '')
+                                                      .toString();
+                                                  return Card(
+                                                    margin:
+                                                        const EdgeInsets.only(
+                                                            bottom: 8),
+                                                    color: Colors
+                                                        .blueGrey.shade50,
+                                                    child: ListTile(
+                                                      leading: Icon(
+                                                          Icons
+                                                              .hourglass_top_rounded,
+                                                          color: Colors
+                                                              .blueGrey
+                                                              .shade600),
+                                                      title: const Text(
+                                                          'Convite enviado ao substituto'),
+                                                      subtitle: Text(
+                                                        'Substituto (CPF): $alvo — quando aceitar no app, a escala atualiza e você recebe aviso.',
+                                                        style: const TextStyle(
+                                                            fontSize: 12),
+                                                      ),
+                                                      isThreeLine: true,
+                                                    ),
+                                                  );
+                                                }),
+                                                if (pendingLeader.isNotEmpty)
+                                                  const SizedBox(height: 12),
+                                              ],
+                                              if (pendingLeader.isNotEmpty) ...[
+                                                Text(
+                                                  'Trocas pendentes (aprovação manual)',
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: Colors
+                                                        .deepPurple.shade800,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                ...pendingLeader.map((t) {
+                                                  final td = t.data();
+                                                  final sol =
+                                                      (td['solicitanteCpf'] ??
+                                                              '')
+                                                          .toString();
+                                                  final alvo = (td['alvoCpf'] ??
+                                                          '')
+                                                      .toString();
+                                                  return Card(
+                                                    margin:
+                                                        const EdgeInsets.only(
+                                                            bottom: 8),
+                                                    child: ListTile(
+                                                      leading: Icon(
+                                                          Icons
+                                                              .swap_horiz_rounded,
+                                                          color: Colors
+                                                              .deepPurple
+                                                              .shade600),
+                                                      title: const Text(
+                                                          'Pedido de troca de escala'),
+                                                      subtitle: Text(
+                                                        'Solicitante: $sol\nSubstituto: $alvo',
+                                                        style: const TextStyle(
+                                                            fontSize: 12),
+                                                      ),
+                                                      isThreeLine: true,
+                                                      trailing: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          IconButton(
+                                                            tooltip: 'Aprovar',
+                                                            icon: const Icon(
+                                                                Icons
+                                                                    .check_circle_rounded,
+                                                                color: Color(
+                                                                    0xFF16A34A)),
+                                                            onPressed: () =>
+                                                                _resolverTrocaEscala(
+                                                                    aprovar:
+                                                                        true,
+                                                                    troca: t),
+                                                          ),
+                                                          IconButton(
+                                                            tooltip: 'Recusar',
+                                                            icon: const Icon(
+                                                                Icons
+                                                                    .cancel_rounded,
+                                                                color: Color(
+                                                                    0xFFDC2626)),
+                                                            onPressed: () =>
+                                                                _resolverTrocaEscala(
+                                                                    aprovar:
+                                                                        false,
+                                                                    troca: t),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                  );
+                                                }),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                      _InteractiveStatusSummary(
+                                        confirmations: confirmations,
+                                        memberCpfs: cpfs,
+                                        trocasRealizadasCount:
+                                            concluidas.length,
+                                        selected: instanceMemberFilter,
+                                        onSelect: (f) =>
+                                            filterNotifier.value = f,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      TextField(
+                                        onChanged: (v) =>
+                                            memberSearchNotifier.value = v,
+                                        decoration: InputDecoration(
+                                          hintText:
+                                              'Buscar membro por nome ou CPF…',
+                                          prefixIcon: Icon(
+                                            Icons.search_rounded,
+                                            color: ThemeCleanPremium.primary
+                                                .withValues(alpha: 0.75),
+                                          ),
+                                          suffixIcon: searchQ.isNotEmpty
+                                              ? IconButton(
+                                                  icon: const Icon(
+                                                      Icons.close_rounded,
+                                                      size: 20),
+                                                  onPressed: () =>
+                                                      memberSearchNotifier
+                                                          .value = '',
+                                                )
+                                              : null,
+                                          filled: true,
+                                          fillColor: Colors.white,
+                                          border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(
+                                                    ThemeCleanPremium
+                                                        .radiusSm),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            'Membros escalados',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w800,
+                                              color:
+                                                  ThemeCleanPremium.onSurface,
+                                            ),
+                                          ),
+                                          const Spacer(),
+                                          Text(
+                                            '${members.length} total',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: Colors.grey.shade600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      for (var i = 0; i < members.length; i++)
+                                        if (_memberMatchesInstanceDetailFilter(
+                                              instanceMemberFilter,
+                                              members[i].cpf,
+                                              confirmations,
+                                              cpfsNormInCompletedSwaps:
+                                                  cpfsSwapNorm,
+                                            ) &&
+                                            (searchQ.isEmpty ||
+                                                members[i]
+                                                    .name
+                                                    .toLowerCase()
+                                                    .contains(searchQ) ||
+                                                members[i]
+                                                    .cpf
+                                                    .replaceAll(
+                                                        RegExp(r'[^0-9]'), '')
+                                                    .contains(searchQ.replaceAll(
+                                                        RegExp(r'[^0-9]'),
+                                                        ''))))
+                                          Builder(
+                                            builder: (context) {
+                                              final memberIndex = i;
+                                              final member = members[memberIndex];
+                                              final cpfKey = member.cpf;
+                                              return Padding(
+                                                padding: const EdgeInsets.only(
+                                                    bottom: 8),
+                                                child: _MemberConfirmationTile(
+                                                  cpf: cpfKey,
+                                                  name: member.name,
+                                                  status: EscalaMemberPayload
+                                                      .confirmationStatus(
+                                                    data,
+                                                    member,
+                                                  ),
+                                                  unavailabilityReason:
+                                                      _reasonForCpf(
+                                                    unavailabilityReasons,
+                                                    cpfKey,
+                                                  ),
+                                                  canWrite: _canWrite,
+                                                  onChangeStatus:
+                                                      (newStatus) async {
+                                                    final prev =
+                                                        Map<String, dynamic>.from(
+                                                            dataHolder.value);
+                                                    dataHolder.value =
+                                                        EscalaMemberPayload
+                                                            .applyConfirmationOptimistic(
+                                                      data: prev,
+                                                      member: member,
+                                                      status: newStatus,
+                                                    );
+                                                    if (context.mounted) {
+                                                      ScaffoldMessenger.of(
+                                                              context)
+                                                          .showSnackBar(
+                                                        ThemeCleanPremium
+                                                            .successSnackBar(
+                                                          'Status atualizado.',
+                                                        ),
+                                                      );
+                                                    }
+                                                    try {
+                                                      await docRef.update(
+                                                        EscalaMemberPayload
+                                                            .buildConfirmationUpdates(
+                                                          member: member,
+                                                          status: newStatus,
+                                                        ),
+                                                      );
+                                                    } catch (e) {
+                                                      dataHolder.value = prev;
+                                                      if (context.mounted) {
+                                                        ScaffoldMessenger.of(
+                                                                context)
+                                                            .showSnackBar(
+                                                          SnackBar(
+                                                            content: Text(
+                                                                'Erro ao gravar: $e'),
+                                                            backgroundColor:
+                                                                ThemeCleanPremium
+                                                                    .error,
+                                                          ),
+                                                        );
+                                                      }
+                                                    }
+                                                  },
+                                                  onSubstituir: _canWrite
+                                                      ? () {
+                                                          closeDetail();
+                                                          _substituirMembro(
+                                                              context,
+                                                              doc,
+                                                              memberIndex);
+                                                        }
+                                                      : null,
+                                                  onExcluirMembro: _canWrite
+                                                      ? () {
+                                                          closeDetail();
+                                                          _excluirMembroDaEscala(
+                                                              context,
+                                                              doc,
+                                                              memberIndex);
+                                                        }
+                                                      : null,
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                    ],
                                   );
                                 },
                               ),
-                        ],
+                            ],
+                          );
+                        },
                       );
                     },
                   ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
-        );
-      },
-    ),
-    ).whenComplete(() {
+                ),
+              );
+            },
+          );
+        },
+      ),
+    )
+        .whenComplete(() {
       filterNotifier.dispose();
       dataHolder.dispose();
+      memberSearchNotifier.dispose();
     });
   }
 

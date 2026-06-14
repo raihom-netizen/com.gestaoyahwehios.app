@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 
 /// Quem pode **apagar para todos** (alinhado a `chatMessageDeleteForEveryoneAllowed` nas regras).
@@ -33,18 +34,46 @@ abstract final class ChurchChatModeration {
         }.contains(normalized);
   }
 
-  /// Apagar mensagem de **outro** no grupo — só pastoral/gestão (adm, gestor, pastor, secretário, tesoureiro).
-  /// Líder de departamento e membro comum só apagam a **própria** mensagem ([canDeleteMessageForEveryone]).
+  /// Apagar mensagem de **outro** no grupo — pastoral/gestão ou líder deste departamento.
   static bool canDeleteChatMessage({
     required String memberRole,
     required String memberCpfDigits,
     required bool isDepartmentThread,
     Map<String, dynamic>? departmentData,
   }) {
+    return canManageDepartmentGroup(
+      memberRole: memberRole,
+      memberCpfDigits: memberCpfDigits,
+      isDepartmentThread: isDepartmentThread,
+      departmentData: departmentData,
+    );
+  }
+
+  /// Adicionar/remover membros, apagar mensagens alheias, envio em massa a grupos.
+  static bool canManageDepartmentGroup({
+    required String memberRole,
+    required String memberCpfDigits,
+    required bool isDepartmentThread,
+    Map<String, dynamic>? departmentData,
+  }) {
+    if (!isDepartmentThread) return true;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return false;
     final n = ChurchRolePermissions.normalize(memberRole);
-    return _churchWideChatModerator(n);
+    if (_churchWideChatModerator(n)) return true;
+    if (departmentData != null) {
+      if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(
+        departmentData,
+        memberCpfDigits,
+      )) {
+        return true;
+      }
+      if (ChurchDepartmentLeaders.leaderUidsFromDepartmentData(departmentData)
+          .contains(uid)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Apagar para **todos** (alinhado a `chatMessageDeleteForEveryoneAllowed` nas regras):
@@ -69,16 +98,17 @@ abstract final class ChurchChatModeration {
     );
   }
 
-  /// Excluir **grupo** de departamento (thread + histórico) — pastor, administrador (adm/gestor) e secretário.
-  static bool canDeleteGroupConversation(String memberRole) {
-    final n = ChurchRolePermissions.normalize(memberRole);
-    return const {
-      ChurchRoleKeys.pastor,
-      ChurchRoleKeys.pastorAuxiliar,
-      ChurchRoleKeys.pastorPresidente,
-      ChurchRoleKeys.adm,
-      ChurchRoleKeys.gestor,
-      ChurchRoleKeys.secretario,
-    }.contains(n);
+  /// Excluir **grupo** de departamento (thread + histórico) — moderadores do grupo.
+  static bool canDeleteGroupConversation(
+    String memberRole, {
+    Map<String, dynamic>? departmentData,
+    String memberCpfDigits = '',
+  }) {
+    return canManageDepartmentGroup(
+      memberRole: memberRole,
+      memberCpfDigits: memberCpfDigits,
+      isDepartmentThread: true,
+      departmentData: departmentData,
+    );
   }
 }

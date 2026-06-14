@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 
 /// Integração Membros ↔ Departamentos ↔ Escalas (denormalização + limpeza de escalas futuras).
@@ -450,6 +452,78 @@ class DepartmentMemberIntegrationService {
       }
     }
     await commitIfNeeded();
+  }
+
+  /// Grava [leaderCpfs] + [leaderName]/[leaderFotoUrl] denormalizados no doc do departamento.
+  static Future<Map<String, dynamic>> buildLeaderFirestorePayload({
+    required String tenantId,
+    required List<String> leaderCpfs,
+    Map<String, Map<String, dynamic>>? memberDataByCpf,
+    Map<String, String>? nameByCpf,
+  }) async {
+    final cpfs = ChurchDepartmentLeaders.cpfsFromDepartmentData(<String, dynamic>{
+      'leaderCpfs': leaderCpfs,
+    });
+    final members = Map<String, Map<String, dynamic>>.from(memberDataByCpf ?? {});
+    final names = Map<String, String>.from(nameByCpf ?? {});
+
+    if (cpfs.isNotEmpty) {
+      try {
+        final directory =
+            await MembersDirectorySnapshotService.readOnce(tenantId);
+        for (final cpf in cpfs) {
+          if (names.containsKey(cpf) && members.containsKey(cpf)) continue;
+          for (final e in directory.entries) {
+            final raw = (e.cpfDigits ?? '').trim();
+            if (raw.isEmpty) continue;
+            final c = ChurchDepartmentLeaders.canonicalCpfDigits(raw);
+            if (c != cpf) continue;
+            if (e.displayName.trim().isNotEmpty) {
+              names.putIfAbsent(c, () => e.displayName.trim());
+            }
+            break;
+          }
+        }
+      } catch (_) {}
+
+      final missing = cpfs.where((c) => !members.containsKey(c)).toList();
+      if (missing.isNotEmpty) {
+        try {
+          final tid = ChurchRepository.churchId(tenantId);
+          if (tid.isNotEmpty) {
+            final snap = await ChurchRepository.collection(
+              'membros',
+              churchIdHint: tid,
+            )
+                .limit(200)
+                .get(const GetOptions(source: Source.serverAndCache))
+                .timeout(const Duration(seconds: 10));
+            for (final d in snap.docs) {
+              final data = d.data();
+              final raw = (data['CPF'] ?? data['cpf'] ?? '').toString();
+              final c = ChurchDepartmentLeaders.canonicalCpfDigits(
+                _normCpf(raw),
+              );
+              if (c.length != 11 || !missing.contains(c)) continue;
+              members[c] = data;
+              final n = (data['NOME_COMPLETO'] ??
+                      data['nome'] ??
+                      data['name'] ??
+                      '')
+                  .toString()
+                  .trim();
+              if (n.isNotEmpty) names.putIfAbsent(c, () => n);
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    return ChurchDepartmentLeaders.firestoreLeaderPayloadFromCpfs(
+      leaderCpfs,
+      memberDataByCpf: members,
+      nameByCpf: names,
+    );
   }
 
   /// IDs de departamentos em que o CPF é líder ([leaderCpfs] ou legado [leaderCpf]/[viceLeaderCpf]).

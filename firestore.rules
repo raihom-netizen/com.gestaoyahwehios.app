@@ -1,7 +1,11 @@
 rules_version = '2';
-// Deploy â€” membros: indisponibilidade escala por e-mail (campos dedicados) + leitura sÃ³ na prÃ³pria igreja (+ operador global); CPF pÃºblico via Cloud Function.
+// Deploy — membros: indisponibilidade escala por e-mail (campos dedicados) + leitura só na própria igreja (+ operador global); CPF público via Cloud Function.
 // Operador global (multi-tenant): e-mail raihom@gmail.com OU CPF 94536368191 em users/{uid} OU documento admins/{uid}.
-// ADM/gestor/pastor **da igreja** ficam isolados ao tenant (sameChurch / canAccessTenant); nÃ£o recebem bypass por role() ADM/MASTER no doc users.
+// ADM/gestor/pastor **da igreja** ficam isolados ao tenant (sameChurch / canAccessTenant); não recebem bypass por role() ADM/MASTER no doc users.
+//
+// Blindagem offline-first (2026-06): paths canónicos igrejas/{churchId}/… — chat em chats/{threadId}/messages;
+// create membros exige canAccessTenant + staff; delete/aprovação via canStaffEditAnyMemberRecord (pastor/admin/secretário/tesoureiro);
+// delete mensagem grupo: autor, pastoral/gestão ou líder do departamento (leaderCpfs no doc departamentos).
 //
 // GravaÃ§Ã£o simples (padrÃ£o Controle Total): ficheiros â†’ Firebase Storage (putData); metadados â†’ coleÃ§Ãµes de negÃ³cio.
 // `igrejas/{id}/pending_uploads` descontinuada no cliente — só leitura/delete para limpar jobs antigos.
@@ -126,6 +130,30 @@ service cloud.firestore {
         r == 'TESOURARIA' || r == 'tesouraria' || r == 'Tesouraria'
       );
     }
+    /// Pastor/pastora (sem secretário) — módulo financeiro exclusivo.
+    function isPastorOnlyRole() {
+      let r = role();
+      return isSignedIn() && r != null && (
+        r == 'PASTOR' || r == 'pastor' || r == 'PASTORA' || r == 'pastora' || r == 'Pastor' || r == 'Pastora' ||
+        r == 'pastor_presidente' || r == 'PASTOR_PRESIDENTE' || r == 'Pastor Presidente' || r == 'pastora_presidente' ||
+        r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar' ||
+        r == 'ministerial' || r == 'pastor_auxiliar_ministerial'
+      );
+    }
+    /// Financeiro (dízimos, ofertas, fluxo de caixa) — pastor + tesoureiro(a).
+    function isFinanceExclusiveReader(tenantId) {
+      return isMaster()
+        || (canAccessTenant(tenantId) && (isPastorOnlyRole() || isTreasurer()));
+    }
+    /// Patrimônio, fornecedores e contas a pagar — núcleo administrativo.
+    function isCorporateModuleReader(tenantId) {
+      return isMaster()
+        || (canAccessTenant(tenantId) && (
+          canManageChurch()
+          || isPastoralOrSecretariatMuralRole()
+          || isTreasurer()
+        ));
+    }
     function isDepartmentLeaderRole() {
       let r = role();
       return r != null && (
@@ -210,7 +238,13 @@ service cloud.firestore {
           && memberId.matches('^[0-9]{11}$'))
       );
     }
-    /// Gestor, pastoral, secretariado ou tesouraria â€” editar ficha/foto de qualquer membro no mÃ³dulo Membros.
+    /// Aprovar cadastros públicos pendentes — pastoral, secretário, tesoureiro, gestor, líder de dept.
+    function canApprovePendingMemberRecord(tenantId) {
+      return isMaster()
+        || canStaffEditAnyMemberRecord(tenantId)
+        || (canAccessTenant(tenantId) && isDepartmentLeaderRole());
+    }
+    /// Gestor, pastoral, secretariado ou tesouraria — editar ficha/foto de qualquer membro no módulo Membros.
     function canStaffEditAnyMemberRecord(tenantId) {
       return isMaster() || isAdminPanel() || canWriteTenant(tenantId)
         || (canAccessTenant(tenantId) && (
@@ -671,8 +705,11 @@ service cloud.firestore {
         // SÃ³ gestores/membros da igreja (ou master). CPF no site sem login: resolveCpfToChurchPublic (Functions).
         allow read: if isMaster() || canAccessTenant(id);
 
-        // Cadastro pelo painel (usuÃ¡rio autenticado) ou pÃºblico (sem login) â€” status pendente atÃ© gestor aprovar
-        allow create: if request.auth != null
+        // Cadastro pelo painel: staff da igreja (pastor/admin/secretÃ¡rio/tesoureiro/gestor) + isolamento tenant.
+        // Cadastro pÃºblico (sem login) â€” status pendente atÃ© gestor aprovar.
+        allow create: if (request.auth != null
+          && canAccessTenant(id)
+          && (isMaster() || canStaffEditAnyMemberRecord(id)))
           || (request.auth == null
           && request.resource.data.PUBLIC_SIGNUP == true
           && request.resource.data.MEMBER_ID == memberId
@@ -706,6 +743,7 @@ service cloud.firestore {
           || (request.auth != null && (
               isMaster()
               || canStaffEditAnyMemberRecord(id)
+              || canApprovePendingMemberRecord(id)
               || (canAccessTenant(id) && isDepartmentLeaderRole())
               || (canAccessTenant(id) && deptLeaderFromRolesArrays(id))
               || (canAccessTenant(id) && hasTenantMembrosDirectoryEditPermission(id))
@@ -713,7 +751,8 @@ service cloud.firestore {
               || (canAccessTenant(id) && escalaIndisponibilidadeUpdateOnly() && memberEmailMatchesAuth())
             ));
         allow delete: if request.auth != null
-          && (isMaster() || canWriteTenant(id) || (canAccessTenant(id) && isPastoralOrSecretariatRole())
+          && (isMaster() || canStaffEditAnyMemberRecord(id)
+              || canApprovePendingMemberRecord(id)
               || (canAccessTenant(id) && hasTenantMembrosDirectoryEditPermission(id)));
       }
 
@@ -780,8 +819,7 @@ service cloud.firestore {
         allow write: if false;
       }
       match /finance_mp_notifications/{docId} {
-        allow read: if isMaster()
-          || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
+        allow read: if isFinanceExclusiveReader(id);
         allow write: if false;
       }
       // HistÃ³rico leve de dÃ­zimos/ofertas (MP) â€” retenÃ§Ã£o ~5 meses; escrita sÃ³ servidor (webhook / prune).
@@ -831,44 +869,47 @@ service cloud.firestore {
         allow delete: if isMaster() || canWriteTenant(id);
       }
       match /patrimonio/{docId} {
-        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+        allow read: if isCorporateModuleReader(id)
+          || (canAccessTenant(id) && hasTenantModulePermission(id, 'patrimonio'));
         allow create, update, delete: if isChurchStaffWriter(id);
         // SubcoleÃ§Ãµes do bem (manutenÃ§Ãµes, transferÃªncias) â€” mesmas permissÃµes do documento pai.
         match /manutencoes/{mid} {
-          allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+          allow read: if isCorporateModuleReader(id)
+            || (canAccessTenant(id) && hasTenantModulePermission(id, 'patrimonio'));
           allow create, update, delete: if isChurchStaffWriter(id);
         }
         match /transferencias/{tid} {
-          allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+          allow read: if isCorporateModuleReader(id)
+            || (canAccessTenant(id) && hasTenantModulePermission(id, 'patrimonio'));
           allow create, update, delete: if isChurchStaffWriter(id);
         }
       }
       // SessÃµes de inventÃ¡rio finalizadas (aba InventÃ¡rio â€” histÃ³rico auditÃ¡vel).
       match /patrimonio_inventario_historico/{hid} {
-        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || hasTenantModulePermission(id, 'patrimonio')));
+        allow read: if isCorporateModuleReader(id)
+          || (canAccessTenant(id) && hasTenantModulePermission(id, 'patrimonio'));
         allow create, update, delete: if isChurchStaffWriter(id);
       }
       // LanÃ§amentos: sem lista fechada de chaves no cliente â€” importaÃ§Ã£o inteligente pode gravar
       // `smartPasteBatchId`, `source`, `parsedSnippet`, etc. (alinhado Controle Total; ver regras de merge no app).
       match /finance/{docId} {
-        allow read: if isMaster()
-          || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')))
+        allow read: if isFinanceExclusiveReader(id)
           || (canAccessTenant(id) && financeDocReadBySubjectMember(id));
         allow write: if isChurchStaffWriter(id);
       }
       // Auditoria: exclusÃµes e aÃ§Ãµes (somente append; sem ediÃ§Ã£o pelo cliente).
       match /finance_logs/{logId} {
-        allow read: if isMaster()
-          || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
+        allow read: if isFinanceExclusiveReader(id);
         allow create: if isChurchStaffWriter(id);
         allow update, delete: if false;
       }
       match /fornecedores/{docId} {
-        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro') || hasTenantModulePermission(id, 'fornecedores')));
+        allow read: if isCorporateModuleReader(id)
+          || (canAccessTenant(id) && hasTenantModulePermission(id, 'fornecedores'));
         allow write: if isChurchStaffWriter(id);
       }
       match /fornecedor_compromissos/{docId} {
-        allow read: if isMaster() || (canAccessTenant(id) && (canManageChurch() || isTreasurer() || hasTenantModulePermission(id, 'financeiro')));
+        allow read: if isCorporateModuleReader(id);
         allow write: if isChurchStaffWriter(id);
       }
       match /categorias_receitas/{docId} {
@@ -1393,8 +1434,16 @@ service cloud.firestore {
         );
       }
 
+      /// LÃ­der do departamento do grupo (`leaderCpfs` / `leaderUids` no doc departamentos) â€” alinhado a [ChurchChatModeration].
+      function chatDepartmentLeaderOfThread(tenantId, threadId, t) {
+        let deptId = t.departmentId is string && t.departmentId.size() > 0 ? t.departmentId : '';
+        return deptId.size() > 0
+          && (canAccessTenant(tenantId) || memberLinkedToTenant(tenantId))
+          && departmentDocListsRequesterAsLeader(tenantId, deptId);
+      }
+
       /// Â«Apagar para todosÂ» (DELETE): DM â€” qualquer participante pode apagar qualquer mensagem (estilo limpar conversa).
-      /// Grupo â€” o autor apaga a prÃ³pria; pastor/gestor/ADM (canWriteTenant + pastoral) ou lÃ­der do departamento apagam qualquer uma.
+      /// Grupo â€” o autor apaga a prÃ³pria; pastor/gestor/ADM/secretÃ¡rio/tesoureiro ou lÃ­der do departamento apagam qualquer uma.
       function chatMessageDeleteForEveryoneAllowed(tenantId, threadId) {
         let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
         let t = get(path).data;
@@ -1410,6 +1459,7 @@ service cloud.firestore {
             || chatPastoralModeratorRole()
             || isTreasurer()
             || isPastoralOrSecretariatRole()
+            || (isDept && chatDepartmentLeaderOfThread(tenantId, threadId, t))
             || (isDm && participants)
             || (
               isDept
@@ -1419,14 +1469,17 @@ service cloud.firestore {
           );
       }
 
-      /// Apagar o documento do thread (ex.: grupo de departamento): sÃ³ gestÃ£o/pastoral (nÃ£o lÃ­der de dept).
+      /// Apagar o documento do thread (ex.: grupo de departamento): gestÃ£o/pastoral ou lÃ­der do departamento.
       function chatThreadDeleteAllowed(tenantId, threadId) {
         let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
+        let t = exists(path) ? get(path).data : {};
+        let isDept = t.type == 'department' || threadId.matches('^dept_.+');
         return isAdminPanel()
           || canWriteTenant(tenantId)
           || chatPastoralModeratorRole()
           || isTreasurer()
-          || isPastoralOrSecretariatRole();
+          || isPastoralOrSecretariatRole()
+          || (isDept && chatDepartmentLeaderOfThread(tenantId, threadId, t));
       }
 
       /// Â«Apagar para mimÂ»: sÃ³ acrescenta o prÃ³prio uid em `hiddenForUids` (merge seguro).
@@ -1681,7 +1734,8 @@ service cloud.firestore {
             || chatMessageDeliveredByRecipient(id, threadId)
             || chatMessageHideForMeOnly(id, threadId)
             || chatMessageReactionsByUidOnly(id, threadId);
-          allow delete: if canAccessTenant(id) && canReadChatThreadDoc(id, threadId)
+          allow delete: if (canAccessTenant(id) || memberLinkedToTenant(id))
+            && canReadChatThreadDoc(id, threadId)
             && chatMessageDeleteForEveryoneAllowed(id, threadId);
         }
       }

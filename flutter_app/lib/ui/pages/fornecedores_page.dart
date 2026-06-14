@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
     show kChurchShellNavEntries, kFornecedoresModuleIcon;
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/services/brasil_cnpj_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -26,6 +27,7 @@ import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart'
     show excluirLancamentoFinanceiroComAuditoria, showFinanceLancamentoEditorForTenant;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/module_header_premium.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
@@ -34,6 +36,12 @@ import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
+import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
+import 'package:gestao_yahweh/ui/widgets/fornecedor_finance_panels.dart';
+import 'package:gestao_yahweh/services/fornecedor_compromisso_comprovante_service.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_comprovante_ui.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -71,6 +79,57 @@ abstract final class _FornecedoresRamCache {
   }
 }
 
+/// Cache RAM — compromissos (`fornecedor_compromissos`).
+abstract final class _CompromissosRamCache {
+  _CompromissosRamCache._();
+
+  static final Map<
+      String,
+      ({
+        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+        DateTime at,
+      })> _ram = {};
+
+  static const Duration _ttl = Duration(minutes: 20);
+
+  static String _key(String churchId, {String filter = '', int limit = 60}) =>
+      '${churchId}_fornecedor_compromissos_${filter.trim()}_$limit';
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peek(
+    String tenantId, {
+    String fornecedorIdFilter = '',
+    int limit = 60,
+  }) {
+    final tid = ChurchRepository.churchId(tenantId);
+    if (tid.isEmpty) return null;
+    final hit = _ram[_key(tid, filter: fornecedorIdFilter, limit: limit)];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _ram.remove(_key(tid, filter: fornecedorIdFilter, limit: limit));
+      return null;
+    }
+    return hit.docs;
+  }
+
+  static void store(
+    String tenantId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    String fornecedorIdFilter = '',
+    int limit = 60,
+  }) {
+    final tid = ChurchRepository.churchId(tenantId);
+    if (tid.isEmpty) return;
+    _ram[_key(tid, filter: fornecedorIdFilter, limit: limit)] =
+        (docs: List.from(docs), at: DateTime.now());
+  }
+
+  static void invalidate(String tenantId) {
+    final tid = ChurchRepository.churchId(tenantId);
+    if (tid.isEmpty) return;
+    _ram.removeWhere((k, _) => k.startsWith('${tid}_fornecedor_compromissos_'));
+  }
+}
+
 typedef _FornecedoresAgendaBundle = ({
   QuerySnapshot<Map<String, dynamic>> fornecedores,
   QuerySnapshot<Map<String, dynamic>> compromissos,
@@ -79,13 +138,16 @@ typedef _FornecedoresAgendaBundle = ({
 _FornecedoresAgendaBundle _seedFornecedoresAgendaBundle(String tenantId) {
   final tid = ChurchRepository.churchId(tenantId);
   final fnDocs =
-      ChurchFornecedoresLoadService.peekRam(tid) ??
+      ChurchFornecedoresLoadService.peekRamAny(tid) ??
           _FornecedoresRamCache.peek(tid)?.docs
               .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
           const [];
+  final compDocs =
+      _CompromissosRamCache.peek(tid, limit: YahwehPerformanceV4.defaultPageSize * 3) ??
+          const [];
   return (
     fornecedores: MergedFirestoreQuerySnapshot(fnDocs),
-    compromissos: const MergedFirestoreQuerySnapshot([]),
+    compromissos: MergedFirestoreQuerySnapshot(compDocs),
   );
 }
 
@@ -98,27 +160,54 @@ Future<_FornecedoresAgendaBundle> _loadFornecedoresAgendaBundle({
 }) async {
   final tid = ChurchRepository.churchId(tenantId);
   if (tid.isEmpty) {
-    throw StateError('Igreja não identificada.');
+    return _seedFornecedoresAgendaBundle(tenantId);
   }
   if (kIsWeb) {
     await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
   }
-  final results = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-    ChurchFornecedoresLoadService.load(
+
+  QuerySnapshot<Map<String, dynamic>> fnSnap =
+      _seedFornecedoresAgendaBundle(tid).fornecedores;
+  try {
+    final fnResult = await ChurchFornecedoresLoadService.load(
       seedTenantId: tid,
       limit: YahwehPerformanceV4.defaultPageSize,
       forceRefresh: forceFresh,
       forceServer: forceFresh,
-    ).then((r) => r.snapshot),
-    _loadFornecedorCompromissosQuery(
+    ).timeout(
+      ChurchPanelReadTimeouts.queryCap,
+      onTimeout: () => ChurchFornecedoresLoadResult(
+        churchId: tid,
+        docs: fnSnap.docs
+            .cast<QueryDocumentSnapshot<Map<String, dynamic>>>(),
+        readSource: 'timeout',
+        collectionPath: 'igrejas/$tid/fornecedores',
+        softError: 'Tempo esgotado ao carregar fornecedores.',
+      ),
+    );
+    fnSnap = fnResult.snapshot;
+    _FornecedoresRamCache.store(tid, fnSnap);
+  } catch (_) {}
+
+  QuerySnapshot<Map<String, dynamic>> compSnap =
+      MergedFirestoreQuerySnapshot(
+    _CompromissosRamCache.peek(
+          tid,
+          fornecedorIdFilter: fornecedorIdFilter ?? '',
+          limit: compromissosLimit,
+        ) ??
+        const [],
+  );
+  try {
+    compSnap = await _loadFornecedorCompromissosQuery(
       tid,
       limit: compromissosLimit,
       fornecedorIdFilter: fornecedorIdFilter,
       descending: descending,
-    ),
-  ]).timeout(ChurchPanelReadTimeouts.queryCap);
-  _FornecedoresRamCache.store(tid, results[0]);
-  return (fornecedores: results[0], compromissos: results[1]);
+    ).timeout(ChurchPanelReadTimeouts.queryCap);
+  } catch (_) {}
+
+  return (fornecedores: fnSnap, compromissos: compSnap);
 }
 
 Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
@@ -135,6 +224,15 @@ Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
   final col = ChurchUiCollections.churchDoc(churchId)
       .collection('fornecedor_compromissos');
   final f = (fornecedorIdFilter ?? '').trim();
+
+  final cached = _CompromissosRamCache.peek(
+    churchId,
+    fornecedorIdFilter: f,
+    limit: limit,
+  );
+  if (cached != null && cached.isNotEmpty) {
+    return MergedFirestoreQuerySnapshot(cached);
+  }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _sortByVencimento(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
@@ -181,11 +279,26 @@ Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
   }
 
   try {
-    return await FirestoreWebGuard.runWithWebRecovery(
+    final snap = await FirestoreWebGuard.runWithWebRecovery(
       read,
       maxAttempts: 4,
     ).timeout(ChurchPanelReadTimeouts.queryCap);
+    _CompromissosRamCache.store(
+      churchId,
+      snap.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>(),
+      fornecedorIdFilter: f,
+      limit: limit,
+    );
+    return snap;
   } catch (_) {
+    final fallback = _CompromissosRamCache.peek(
+      churchId,
+      fornecedorIdFilter: f,
+      limit: limit,
+    );
+    if (fallback != null) {
+      return MergedFirestoreQuerySnapshot(fallback);
+    }
     return const MergedFirestoreQuerySnapshot([]);
   }
 }
@@ -241,6 +354,44 @@ class FornecedorAgendaCalendarCells {
   FornecedorAgendaCalendarCells._();
 
   static const Color kNationalHolidayDot = Color(0xFFE11D48);
+
+  /// Paleta escolhível ao criar compromisso (estilo Controle Total).
+  static const List<Color> compromissoPalette = [
+    AgendaVisualPalette.curso,
+    AgendaVisualPalette.culto,
+    AgendaVisualPalette.evento,
+    AgendaVisualPalette.escala,
+    AgendaVisualPalette.pendencia,
+    AgendaVisualPalette.eventoSocial,
+    AgendaVisualPalette.lideranca,
+    AgendaVisualPalette.agendaInterna,
+    AgendaVisualPalette.feedEvento,
+    AgendaVisualPalette.feriado,
+  ];
+
+  static Color corFromCompromisso(
+    Map<String, dynamic> data, {
+    Color fallback = AgendaVisualPalette.curso,
+  }) {
+    final raw = data['cor'];
+    if (raw is int) return Color(raw);
+    if (raw is num) return Color(raw.toInt());
+    return fallback;
+  }
+
+  static List<Color> coresDoDia(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> items,
+  ) {
+    if (items.isEmpty) return const [];
+    return items
+        .take(3)
+        .map((d) => corFromCompromisso(
+              d.data(),
+              fallback: compromissoPalette[
+                  d.hashCode.abs() % compromissoPalette.length],
+            ))
+        .toList();
+  }
 
   static String dayKey(DateTime d) => DateFormat('yyyy-MM-dd')
       .format(DateTime(d.year, d.month, d.day));
@@ -417,12 +568,15 @@ class FornecedorAgendaCalendarCells {
     const outerPad = EdgeInsets.all(1.85);
     final radius = ControleTotalCalendarTheme.cellRadius;
     final primary = ThemeCleanPremium.primary;
-    const green = Color(0xFF16A34A);
     final isNationalHoliday = HolidayHelper.holidayNameOn(day) != null;
-
-    final Color fill1 = green;
-    final Color fill2 = const Color(0xFF2563EB);
-    final Color fill3 = const Color(0xFF9333EA);
+    final palette = coresDoDia(items);
+    final fill1 = palette.isNotEmpty ? palette[0] : AgendaVisualPalette.curso;
+    final fill2 = palette.length > 1
+        ? palette[1]
+        : const Color(0xFF2563EB);
+    final fill3 = palette.length > 2
+        ? palette[2]
+        : const Color(0xFF9333EA);
 
     Border border;
     List<BoxShadow>? cellShadow;
@@ -624,6 +778,43 @@ Future<bool> _confirmDeleteFornecedorCompromisso(BuildContext context) async {
   return r == true;
 }
 
+Future<bool> _confirmDeleteFornecedorCadastro(
+  BuildContext context, {
+  required int count,
+  String? nome,
+}) async {
+  final r = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+      ),
+      title: Text(count > 1 ? 'Excluir fornecedores' : 'Excluir fornecedor'),
+      content: Text(
+        count > 1
+            ? 'Deseja excluir $count cadastro(s)?\nLançamentos financeiros já gravados não são apagados automaticamente.'
+            : nome != null && nome.trim().isNotEmpty
+                ? 'Deseja excluir «$nome»?\nCompromissos e vínculos financeiros antigos permanecem no histórico.'
+                : 'Deseja excluir este cadastro?\nCompromissos e vínculos financeiros antigos permanecem no histórico.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          style: FilledButton.styleFrom(
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+          child: const Text('Excluir'),
+        ),
+      ],
+    ),
+  );
+  return r == true;
+}
+
 /// Novo compromisso ou edição (coleção [fornecedor_compromissos]).
 Future<void> showFornecedorCompromissoEditor(
   BuildContext context, {
@@ -636,6 +827,9 @@ Future<void> showFornecedorCompromissoEditor(
   final tituloCtrl = TextEditingController();
   final valorCtrl = TextEditingController();
   final timeNotify = ValueNotifier(const TimeOfDay(hour: 9, minute: 0));
+  var pickColor = existing != null
+      ? FornecedorAgendaCalendarCells.corFromCompromisso(existing.data())
+      : FornecedorAgendaCalendarCells.compromissoPalette.first;
 
   if (existing != null) {
     final m = existing.data();
@@ -653,6 +847,12 @@ Future<void> showFornecedorCompromissoEditor(
   }
 
   final dateNotify = ValueNotifier<DateTime>(initialDate);
+  FinanceComprovanteAttachment? pendingComprovante;
+  var hasComprovanteExistente = false;
+  if (existing != null) {
+    hasComprovanteExistente =
+        FinanceComprovanteAttachService.hasComprovanteReady(existing.data());
+  }
 
   final ok = await showModalBottomSheet<bool>(
     context: context,
@@ -676,7 +876,8 @@ Future<void> showFornecedorCompromissoEditor(
             ),
           ],
         ),
-        child: SingleChildScrollView(
+        child: StatefulBuilder(
+          builder: (ctx, setSheet) => SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -945,6 +1146,89 @@ Future<void> showFornecedorCompromissoEditor(
                 ),
               ),
               Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Cor no calendário',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final c
+                            in FornecedorAgendaCalendarCells.compromissoPalette)
+                          InkWell(
+                            onTap: () => setSheet(() => pickColor = c),
+                            borderRadius: BorderRadius.circular(99),
+                            child: CircleAvatar(
+                              backgroundColor: c,
+                              radius: 18,
+                              child: pickColor == c
+                                  ? const Icon(
+                                      Icons.check_rounded,
+                                      color: Colors.white,
+                                      size: 18,
+                                    )
+                                  : null,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final picked =
+                        await FinanceComprovanteAttachService.pickFromFiles(ctx);
+                    if (picked == null) return;
+                    setSheet(() {
+                      pendingComprovante = picked;
+                      hasComprovanteExistente = false;
+                    });
+                  },
+                  icon: const Icon(Icons.attach_file_rounded),
+                  label: Text(
+                    pendingComprovante != null
+                        ? 'Trocar comprovante'
+                        : (hasComprovanteExistente
+                            ? 'Trocar comprovante'
+                            : 'Anexar comprovante'),
+                  ),
+                ),
+              ),
+              if (pendingComprovante != null || hasComprovanteExistente)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Chip(
+                      avatar: Icon(
+                        Icons.receipt_long_rounded,
+                        size: 18,
+                        color: ThemeCleanPremium.primary,
+                      ),
+                      label: Text(
+                        pendingComprovante?.fileName ??
+                            FinanceComprovanteAttachService.displayNameFromDoc(
+                              existing?.data() ?? {},
+                            ),
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ),
+              Padding(
                 padding: const EdgeInsets.fromLTRB(20, 4, 20, 22),
                 child: Row(
                   children: [
@@ -982,6 +1266,7 @@ Future<void> showFornecedorCompromissoEditor(
             ],
           ),
         ),
+        ),
       ),
     ),
   );
@@ -1003,21 +1288,80 @@ Future<void> showFornecedorCompromissoEditor(
     tod.hour,
     tod.minute,
   );
-  if (existing == null) {
-    await compCol.add({
-      'fornecedorId': fornecedorId,
-      'titulo': tituloSalvar.isEmpty ? 'Compromisso' : tituloSalvar,
-      'dataVencimento': Timestamp.fromDate(dt),
-      'valorEstimado': valorParse,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-  } else {
-    await existing.reference.update({
-      'titulo': tituloSalvar.isEmpty ? 'Compromisso' : tituloSalvar,
-      'dataVencimento': Timestamp.fromDate(dt),
-      'valorEstimado': valorParse,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+  final churchId = compCol.parent?.id.trim() ?? '';
+  if (churchId.isEmpty) return;
+  final payload = <String, dynamic>{
+    'fornecedorId': fornecedorId,
+    'churchId': churchId,
+    'tenantId': churchId,
+    'titulo': tituloSalvar.isEmpty ? 'Compromisso' : tituloSalvar,
+    'dataVencimento': Timestamp.fromDate(dt),
+    'valorEstimado': valorParse,
+    'status': 'pendente',
+    'cor': pickColor.value,
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+
+  _CompromissosRamCache.invalidate(churchId);
+
+  try {
+    DocumentReference<Map<String, dynamic>> docRef;
+    if (existing == null) {
+      docRef = await compCol.add({
+        ...payload,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } else {
+      docRef = existing.reference;
+      await docRef.update(payload);
+    }
+
+    if (pendingComprovante != null) {
+      final ext = FinanceComprovanteAttachService.extensionForMime(
+        pendingComprovante!.mimeType,
+      );
+      await FinanceComprovanteUi.runWithProgress(
+        context,
+        label: 'Enviando comprovante…',
+        action: (_) async {
+          final url = await FornecedorCompromissoComprovanteService.upload(
+            churchId: churchId,
+            fornecedorId: fornecedorId,
+            compromissoId: docRef.id,
+            bytes: pendingComprovante!.bytes,
+            contentType: pendingComprovante!.mimeType,
+            ext: ext,
+          );
+          final storagePath =
+              ChurchStorageLayout.fornecedorCompromissoComprovantePath(
+            tenantId: churchId,
+            fornecedorId: fornecedorId,
+            compromissoId: docRef.id,
+            ext: ext,
+          );
+          await docRef.update({
+            'comprovanteStoragePath': storagePath,
+            'comprovanteUrl': url,
+            'hasComprovante': true,
+            'comprovanteFileName': pendingComprovante!.fileName,
+            'comprovanteMimeType': pendingComprovante!.mimeType,
+          });
+          return true;
+        },
+      );
+    }
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar('Compromisso salvo.'),
+      );
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao salvar: $e')),
+      );
+    }
   }
 }
 
@@ -1061,6 +1405,10 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   String? _resolvedTenantId;
   String? _loadHint;
   String? _fornecedoresError;
+  bool _fornecedoresShowingStaleCache = false;
+  Timer? _fornecedoresWebCap;
+  bool _cadastrosSelectionMode = false;
+  final Set<String> _cadastrosSelectedIds = {};
 
   String get _effectiveTenantId {
     final hint = (_resolvedTenantId ?? '').trim().isNotEmpty
@@ -1074,16 +1422,33 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   void _seedFornecedoresLocal() {
     final tid = _effectiveTenantId;
     final seeded =
-        ChurchFornecedoresLoadService.peekRam(
-              tid,
-              limit: _fornecedoresListLimit,
-            ) ??
+        ChurchFornecedoresLoadService.peekRamAny(tid) ??
             _FornecedoresRamCache.peek(tid)?.docs
                 .cast<QueryDocumentSnapshot<Map<String, dynamic>>>() ??
             const [];
     _fornecedoresSnap = MergedFirestoreQuerySnapshot(seeded);
-    _fornecedoresFetching = true;
+    _fornecedoresFetching = seeded.isEmpty;
     _fornecedoresError = null;
+    _fornecedoresShowingStaleCache = seeded.isNotEmpty;
+  }
+
+  void _startFornecedoresWebCap() {
+    if (!kIsWeb) return;
+    _fornecedoresWebCap?.cancel();
+    _fornecedoresWebCap = Timer(PanelResilientLoad.webLoadingCap, () {
+      if (!mounted || !_fornecedoresFetching) return;
+      final hasLocal = (_fornecedoresSnap?.docs.isNotEmpty ?? false);
+      setState(() {
+        _fornecedoresFetching = false;
+        if (hasLocal) {
+          _fornecedoresShowingStaleCache = true;
+          _fornecedoresError = null;
+        } else {
+          _fornecedoresError ??=
+              'Tempo esgotado ao carregar fornecedores. Toque em atualizar.';
+        }
+      });
+    });
   }
 
   void _bindFornecedoresLoad({bool forceFresh = false}) {
@@ -1093,6 +1458,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
       _seedFornecedoresLocal();
     }
     unawaited(_fetchFornecedores(forceFresh: forceFresh));
+    _startFornecedoresWebCap();
   }
 
   Future<void> _fetchFornecedores({bool forceFresh = false}) async {
@@ -1126,36 +1492,59 @@ class _FornecedoresPageState extends State<FornecedoresPage>
         ),
       );
       if (!mounted) return;
-      if (result.docs.isEmpty && result.hasHardError) {
+      if (result.docs.isNotEmpty) {
+        final snap = result.snapshot;
+        _FornecedoresRamCache.store(tid, snap);
+        setState(() {
+          _fornecedoresSnap = snap;
+          _fornecedoresFetching = false;
+          _fornecedoresError = null;
+          _fornecedoresShowingStaleCache = {
+            'ram',
+            'hive',
+            'firestore_mem',
+            'firestore_cache',
+          }.contains(result.readSource);
+          _loadHint =
+              'igrejas/$tid/fornecedores (${result.readSource}, ${result.docs.length})';
+        });
+      } else if (result.softError != null && result.softError!.isNotEmpty) {
+        final hadLocal = (_fornecedoresSnap?.docs.isNotEmpty ?? false);
+        final ui = PanelResilientLoad.afterFetch(
+          hadLocalData: hadLocal,
+          newItems: result.docs,
+          fromCache: result.readSource.contains('cache') ||
+              result.readSource == 'ram',
+          softError: result.softError,
+          forceFresh: forceFresh,
+        );
         setState(() {
           _loadHint = result.softError;
-          _fornecedoresError = result.softError;
-          _fornecedoresFetching = false;
-        });
-        return;
-      }
-      final snap = result.snapshot;
-      _FornecedoresRamCache.store(tid, snap);
-      setState(() {
-        _fornecedoresSnap = snap;
-        _fornecedoresFetching = false;
-        _fornecedoresError = null;
-        _loadHint =
-            'igrejas/$tid/fornecedores (${result.readSource}, ${result.docs.length})';
-      });
-    } catch (e) {
-      if (!mounted) return;
-      if ((_fornecedoresSnap?.docs ?? const []).isEmpty) {
-        setState(() {
-          _loadHint = '$e';
-          _fornecedoresError = '$e';
-          _fornecedoresFetching = false;
+          _fornecedoresFetching = ui.fetching;
+          _fornecedoresShowingStaleCache = ui.showingStaleCache;
+          _fornecedoresError = ui.loadError;
         });
       } else {
-        setState(() => _fornecedoresFetching = false);
+        setState(() {
+          _fornecedoresSnap = result.snapshot;
+          _fornecedoresFetching = false;
+          _fornecedoresError = null;
+          _fornecedoresShowingStaleCache = false;
+        });
       }
+    } catch (e) {
+      if (!mounted) return;
+      final hadLocal = (_fornecedoresSnap?.docs.isNotEmpty ?? false);
+      final ui = PanelResilientLoad.afterError(hadLocalData: hadLocal, error: e);
+      setState(() {
+        _loadHint = '$e';
+        _fornecedoresFetching = ui.fetching;
+        _fornecedoresShowingStaleCache = ui.showingStaleCache;
+        _fornecedoresError = ui.loadError;
+      });
     } finally {
-      if (mounted && _fornecedoresFetching) {
+      _fornecedoresWebCap?.cancel();
+      if (mounted) {
         setState(() => _fornecedoresFetching = false);
       }
     }
@@ -1214,6 +1603,10 @@ class _FornecedoresPageState extends State<FornecedoresPage>
       icon: Icon(kFornecedoresModuleIcon, size: 20),
     ),
     Tab(
+      text: 'Financeiro',
+      icon: Icon(Icons.payments_rounded, size: 20),
+    ),
+    Tab(
       text: 'Agenda geral',
       icon: Icon(Icons.calendar_month_rounded, size: 20),
     ),
@@ -1226,7 +1619,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   @override
   void initState() {
     super.initState();
-    _tabMain = TabController(length: 3, vsync: this);
+    _tabMain = TabController(length: 4, vsync: this);
     _tabMain.addListener(() {
       if (!_tabMain.indexIsChanging && mounted) setState(() {});
     });
@@ -1234,7 +1627,6 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     if (initial.isNotEmpty) _resolvedTenantId = initial;
     _seedFornecedoresLocal();
     unawaited(_fetchFornecedores());
-    unawaited(_warmFornecedoresData(initial));
     unawaited(_bootstrapTenant());
   }
 
@@ -1262,16 +1654,110 @@ class _FornecedoresPageState extends State<FornecedoresPage>
         permissions: widget.permissions,
       );
 
+  bool get _canWrite =>
+      ChurchRolePermissions.isCorporateModuleTeam(widget.role);
+
+  void _exitCadastrosSelection() {
+    setState(() {
+      _cadastrosSelectionMode = false;
+      _cadastrosSelectedIds.clear();
+    });
+  }
+
+  void _toggleCadastrosSelect(String id) {
+    setState(() {
+      if (_cadastrosSelectedIds.contains(id)) {
+        _cadastrosSelectedIds.remove(id);
+      } else {
+        _cadastrosSelectedIds.add(id);
+      }
+      if (_cadastrosSelectedIds.isEmpty) _cadastrosSelectionMode = false;
+    });
+  }
+
+  Future<void> _deleteFornecedorDoc(String docId) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForCriticalWrite();
+    }
+    await FirestoreWebGuard.runWithWebRecovery(
+      () => _col.doc(docId).delete(),
+      maxAttempts: 4,
+    );
+    unawaited(ChurchFornecedoresLoadService.invalidate(_effectiveTenantId));
+    _CompromissosRamCache.invalidate(_effectiveTenantId);
+  }
+
+  Future<void> _excluirFornecedor(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    if (!_canWrite) return;
+    final nome = (doc.data()['nome'] ?? '').toString().trim();
+    if (!await _confirmDeleteFornecedorCadastro(context, count: 1, nome: nome)) {
+      return;
+    }
+    try {
+      await _deleteFornecedorDoc(doc.id);
+      _cadastrosSelectedIds.remove(doc.id);
+      _reloadFornecedoresList();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar('Fornecedor excluído.'),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao excluir: $e')),
+      );
+    }
+  }
+
+  Future<void> _excluirFornecedoresEmLote(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) async {
+    if (!_canWrite || docs.isEmpty) return;
+    if (!await _confirmDeleteFornecedorCadastro(context, count: docs.length)) {
+      return;
+    }
+    try {
+      for (final doc in docs) {
+        await _deleteFornecedorDoc(doc.id);
+      }
+      _exitCadastrosSelection();
+      _reloadFornecedoresList();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          '${docs.length} fornecedor(es) excluído(s).',
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao excluir: $e')),
+      );
+    }
+  }
+
+  Future<void> _excluirFornecedoresSelecionados() async {
+    final rawDocs = _fornecedoresSnap?.docs ?? const [];
+    final selected = rawDocs
+        .where((d) => _cadastrosSelectedIds.contains(d.id))
+        .cast<QueryDocumentSnapshot<Map<String, dynamic>>>()
+        .toList();
+    await _excluirFornecedoresEmLote(selected);
+  }
+
   CollectionReference<Map<String, dynamic>> get _col =>
       ChurchUiCollections.fornecedores(_effectiveTenantId);
 
-  void _openHub(String id) {
+  void _openHub(String id, {int initialTabIndex = 0}) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => FornecedorHubPage(
           tenantId: _effectiveTenantId,
           role: widget.role,
           fornecedorId: id,
+          initialTabIndex: initialTabIndex,
           podeVerFinanceiro: widget.podeVerFinanceiro,
           podeVerFornecedores: widget.podeVerFornecedores,
           permissions: widget.permissions,
@@ -1337,6 +1823,10 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                     icon: Icon(kFornecedoresModuleIcon, size: 20),
                   ),
                   Tab(
+                    text: 'Financeiro',
+                    icon: Icon(Icons.payments_rounded, size: 20),
+                  ),
+                  Tab(
                     text: 'Agenda geral',
                     icon: Icon(Icons.calendar_month_rounded, size: 20),
                   ),
@@ -1348,7 +1838,9 @@ class _FornecedoresPageState extends State<FornecedoresPage>
               ),
             )
           : null,
-      floatingActionButton: _tabMain.index == 0
+      floatingActionButton: _tabMain.index == 0 &&
+              !_cadastrosSelectionMode &&
+              _canWrite
           ? Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
@@ -1390,6 +1882,50 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                     fontSize: 15,
                     letterSpacing: -0.3,
                   ),
+                ),
+              ),
+            )
+          : null,
+      bottomNavigationBar: _tabMain.index == 0 &&
+              _cadastrosSelectionMode &&
+              _canWrite
+          ? SafeArea(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                  border: Border(
+                    top: BorderSide(color: Colors.grey.shade200),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_cadastrosSelectedIds.length} selecionado(s)',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _exitCadastrosSelection,
+                      child: const Text('Cancelar'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      onPressed: _cadastrosSelectedIds.isEmpty
+                          ? null
+                          : _excluirFornecedoresSelecionados,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: ThemeCleanPremium.error,
+                      ),
+                      icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                      label: const Text('Excluir'),
+                    ),
+                  ],
                 ),
               ),
             )
@@ -1451,6 +1987,10 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                       icon: Icon(kFornecedoresModuleIcon, size: 20),
                     ),
                     Tab(
+                      text: 'Financeiro',
+                      icon: Icon(Icons.payments_rounded, size: 20),
+                    ),
+                    Tab(
                       text: 'Agenda geral',
                       icon: Icon(Icons.calendar_month_rounded, size: 20),
                     ),
@@ -1465,6 +2005,12 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                   controller: _tabMain,
                   children: [
                     _buildCadastrosTab(),
+                    FornecedoresFinanceModuloTab(
+                      tenantId: _effectiveTenantId,
+                      panelRole: widget.role,
+                      onOpenFornecedorFinance: (id) =>
+                          _openHub(id, initialTabIndex: 1),
+                    ),
                     _FornecedoresAgendaGeralTab(
                       tenantId: _effectiveTenantId,
                       colFornecedores: _col,
@@ -1529,6 +2075,35 @@ class _FornecedoresPageState extends State<FornecedoresPage>
             ),
           ),
         ),
+        if (_canWrite && (_fornecedoresSnap?.docs.isNotEmpty ?? false))
+          Padding(
+            padding: ThemeCleanPremium.pagePadding(context).copyWith(bottom: 4),
+            child: Row(
+              children: [
+                if (!_cadastrosSelectionMode)
+                  OutlinedButton.icon(
+                    onPressed: () => setState(() => _cadastrosSelectionMode = true),
+                    icon: const Icon(Icons.checklist_rounded, size: 18),
+                    label: const Text('Selecionar em lote'),
+                  )
+                else
+                  TextButton.icon(
+                    onPressed: _exitCadastrosSelection,
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    label: const Text('Cancelar seleção'),
+                  ),
+                const Spacer(),
+                if (_cadastrosSelectionMode)
+                  Text(
+                    'Toque nos cartões para marcar',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+              ],
+            ),
+          ),
         Expanded(
           child: _buildFornecedoresListBody(accent),
         ),
@@ -1537,19 +2112,25 @@ class _FornecedoresPageState extends State<FornecedoresPage>
   }
 
   Widget _buildFornecedoresListBody(Color accent) {
-    if (_fornecedoresError != null &&
-        (_fornecedoresSnap?.docs.isEmpty ?? true)) {
-      return ChurchPanelErrorBody(
-        title: 'Erro ao carregar fornecedores',
+    final rawDocs = _fornecedoresSnap?.docs ?? const [];
+    final hasLocal = rawDocs.isNotEmpty;
+    if (!hasLocal &&
+        _fornecedoresError != null &&
+        !_fornecedoresFetching) {
+      return ChurchPanelResilientLoadBanner(
+        hasLocalData: false,
+        isSyncing: false,
+        errorTitle: 'Erro ao carregar fornecedores',
         error: _fornecedoresError,
         onRetry: _reloadFornecedoresList,
       );
     }
-    if (_fornecedoresSnap == null) {
+    if (_fornecedoresSnap == null ||
+        (_fornecedoresFetching && !hasLocal)) {
       return const ChurchPanelLoadingBody();
     }
 
-    final docs = _fornecedoresSnap!.docs.where((d) {
+    final docs = rawDocs.where((d) {
       if (_q.isEmpty) return true;
       final m = d.data();
       final blob = [
@@ -1648,7 +2229,23 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     }
 
     final showLoadMore = docs.length >= _fornecedoresListLimit && _q.isEmpty;
-    return ListView.builder(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: ThemeCleanPremium.pagePadding(context).copyWith(bottom: 0),
+          child: ChurchPanelResilientLoadBanner(
+            hasLocalData: hasLocal,
+            isSyncing: _fornecedoresFetching && hasLocal,
+            showStaleCache:
+                _fornecedoresShowingStaleCache && !_fornecedoresFetching,
+            errorTitle: 'Erro ao carregar fornecedores',
+            error: hasLocal ? null : _fornecedoresError,
+            onRetry: _reloadFornecedoresList,
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
       padding: ThemeCleanPremium.pagePadding(context).copyWith(bottom: 88),
       itemCount: docs.length + (showLoadMore ? 1 : 0),
       itemBuilder: (_, i) {
@@ -1672,12 +2269,19 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                 : 'Ativo';
         final cidade = (m['cidade'] ?? '').toString();
         final doc = m['cpfCnpj'] ?? '';
+        final selected = _cadastrosSelectedIds.contains(d.id);
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              onTap: () => _openHub(d.id),
+              onTap: () {
+                if (_cadastrosSelectionMode) {
+                  _toggleCadastrosSelect(d.id);
+                } else {
+                  _openHub(d.id);
+                }
+              },
               borderRadius: BorderRadius.circular(22),
               child: Ink(
                 decoration: BoxDecoration(
@@ -1686,13 +2290,17 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Colors.white,
+                      selected
+                          ? ThemeCleanPremium.primary.withValues(alpha: 0.08)
+                          : Colors.white,
                       ThemeCleanPremium.primary.withValues(alpha: 0.045),
                     ],
                   ),
                   border: Border.all(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                    width: 1.1,
+                    color: selected
+                        ? ThemeCleanPremium.primary.withValues(alpha: 0.45)
+                        : ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                    width: selected ? 1.6 : 1.1,
                   ),
                   boxShadow: [
                     BoxShadow(
@@ -1714,6 +2322,18 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                   ),
                   child: Row(
                     children: [
+                      if (_cadastrosSelectionMode) ...[
+                        Icon(
+                          selected
+                              ? Icons.check_circle_rounded
+                              : Icons.radio_button_unchecked_rounded,
+                          color: selected
+                              ? ThemeCleanPremium.primary
+                              : Colors.grey.shade400,
+                          size: 24,
+                        ),
+                        const SizedBox(width: 10),
+                      ],
                       Container(
                         width: 52,
                         height: 52,
@@ -1811,10 +2431,30 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                           ),
                         ),
                       ),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        color: Colors.grey.shade400,
-                      ),
+                      if (!_cadastrosSelectionMode && _canWrite) ...[
+                        IconButton(
+                          tooltip: 'Editar',
+                          onPressed: () => _openEditor(docId: d.id),
+                          icon: Icon(
+                            Icons.edit_rounded,
+                            color: ThemeCleanPremium.primary,
+                            size: 22,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Excluir',
+                          onPressed: () => _excluirFornecedor(d),
+                          icon: const Icon(
+                            Icons.delete_outline_rounded,
+                            color: Color(0xFFDC2626),
+                            size: 22,
+                          ),
+                        ),
+                      ] else if (!_cadastrosSelectionMode)
+                        Icon(
+                          Icons.chevron_right_rounded,
+                          color: Colors.grey.shade400,
+                        ),
                     ],
                   ),
                 ),
@@ -1823,9 +2463,14 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           ),
         );
       },
+    ),
+        ),
+      ],
     );
   }
 }
+
+enum _CompromissosListaPeriodo { todos, semana, mes, ano, periodo }
 
 /// Lista rolável de compromissos — mesmo padrão visual premium; editar/excluir sem depender do calendário.
 class _FornecedoresCompromissosListaTab extends StatefulWidget {
@@ -1852,9 +2497,15 @@ class _FornecedoresCompromissosListaTabState
     extends State<_FornecedoresCompromissosListaTab>
     with AutomaticKeepAliveClientMixin {
   int _retryNonce = 0;
+  _CompromissosListaPeriodo _periodo = _CompromissosListaPeriodo.todos;
+  DateTime? _customStart;
+  DateTime? _customEnd;
+  String? _fornecedorFiltroId;
   _FornecedoresAgendaBundle? _agendaBundle;
   bool _agendaFetching = false;
+  bool _agendaLoadedOnce = false;
   String? _agendaError;
+  bool _agendaShowingStaleCache = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -1868,7 +2519,8 @@ class _FornecedoresCompromissosListaTabState
   void initState() {
     super.initState();
     _agendaBundle = _seedFornecedoresAgendaBundle(_tenantId);
-    _agendaFetching = true;
+    _agendaFetching = _agendaBundle!.fornecedores.docs.isEmpty &&
+        _agendaBundle!.compromissos.docs.isEmpty;
     unawaited(_fetchAgenda());
   }
 
@@ -1885,17 +2537,25 @@ class _FornecedoresCompromissosListaTabState
       setState(() {
         _agendaBundle = bundle;
         _agendaFetching = false;
+        _agendaLoadedOnce = true;
         _agendaError = null;
+        _agendaShowingStaleCache = false;
       });
     } catch (e) {
       if (!mounted) return;
+      final hadLocal = (_agendaBundle?.compromissos.docs.isNotEmpty ?? false) ||
+          (_agendaBundle?.fornecedores.docs.isNotEmpty ?? false);
+      final ui = PanelResilientLoad.afterError(hadLocalData: hadLocal, error: e);
       setState(() {
         _agendaFetching = false;
-        if ((_agendaBundle?.fornecedores.docs.isEmpty ?? true) &&
-            (_agendaBundle?.compromissos.docs.isEmpty ?? true)) {
-          _agendaError = '$e';
-        }
+        _agendaLoadedOnce = true;
+        _agendaShowingStaleCache = ui.showingStaleCache;
+        _agendaError = ui.loadError;
       });
+    } finally {
+      if (mounted) {
+        setState(() => _agendaFetching = false);
+      }
     }
   }
 
@@ -1905,6 +2565,109 @@ class _FornecedoresCompromissosListaTabState
       _agendaError = null;
     });
     unawaited(_fetchAgenda(forceFresh: true));
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    var out = docs;
+    if (widget.fornecedorIdFilter != null) {
+      final fid = widget.fornecedorIdFilter!.trim();
+      out = out
+          .where((d) =>
+              (d.data()['fornecedorId'] ?? '').toString().trim() == fid)
+          .toList();
+    } else if (_fornecedorFiltroId != null &&
+        _fornecedorFiltroId!.trim().isNotEmpty) {
+      final fid = _fornecedorFiltroId!.trim();
+      out = out
+          .where((d) =>
+              (d.data()['fornecedorId'] ?? '').toString().trim() == fid)
+          .toList();
+    }
+
+    if (_periodo == _CompromissosListaPeriodo.todos) return out;
+
+    final now = DateTime.now();
+    DateTime? start;
+    DateTime? end;
+    switch (_periodo) {
+      case _CompromissosListaPeriodo.semana:
+        start = now.subtract(Duration(days: now.weekday - 1));
+        end = DateTime(now.year, now.month, now.day, 23, 59, 59);
+      case _CompromissosListaPeriodo.mes:
+        start = DateTime(now.year, now.month, 1);
+        end = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+      case _CompromissosListaPeriodo.ano:
+        start = DateTime(now.year, 1, 1);
+        end = DateTime(now.year, 12, 31, 23, 59, 59);
+      case _CompromissosListaPeriodo.periodo:
+        start = _customStart;
+        end = _customEnd != null
+            ? DateTime(
+                _customEnd!.year,
+                _customEnd!.month,
+                _customEnd!.day,
+                23,
+                59,
+                59,
+              )
+            : null;
+      case _CompromissosListaPeriodo.todos:
+        break;
+    }
+
+    if (start == null && end == null) return out;
+
+    return out.where((d) {
+      final ts = d.data()['dataVencimento'];
+      if (ts is! Timestamp) return false;
+      final dt = ts.toDate();
+      if (start != null) {
+        final s = DateTime(start.year, start.month, start.day);
+        if (dt.isBefore(s)) return false;
+      }
+      if (end != null && dt.isAfter(end)) return false;
+      return true;
+    }).toList();
+  }
+
+  String _periodoLabel(_CompromissosListaPeriodo p) {
+    switch (p) {
+      case _CompromissosListaPeriodo.todos:
+        return 'Todos';
+      case _CompromissosListaPeriodo.semana:
+        return 'Semana';
+      case _CompromissosListaPeriodo.mes:
+        return 'Mês';
+      case _CompromissosListaPeriodo.ano:
+        return 'Ano';
+      case _CompromissosListaPeriodo.periodo:
+        return 'Período';
+    }
+  }
+
+  Future<void> _pickCustomDate({required bool isStart}) async {
+    final now = DateTime.now();
+    final initial = isStart
+        ? (_customStart ?? now.subtract(const Duration(days: 30)))
+        : (_customEnd ?? now);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(now.year + 2),
+      locale: const Locale('pt', 'BR'),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _periodo = _CompromissosListaPeriodo.periodo;
+      if (isStart) {
+        _customStart = picked;
+      } else {
+        _customEnd = picked;
+      }
+    });
   }
 
   Future<void> _editar(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
@@ -1929,6 +2692,7 @@ class _FornecedoresCompromissosListaTabState
 
   Future<void> _excluir(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
     if (!await _confirmDeleteFornecedorCompromisso(context)) return;
+    _CompromissosRamCache.invalidate(_tenantId);
     await doc.reference.delete();
     if (mounted) setState(_reloadAgenda);
   }
@@ -1941,10 +2705,16 @@ class _FornecedoresCompromissosListaTabState
       key: ValueKey<int>(_retryNonce),
       child: Builder(
         builder: (context) {
-          if (_agendaError != null &&
-              (_agendaBundle?.compromissos.docs.isEmpty ?? true)) {
-            return ChurchPanelErrorBody(
-              title: 'Erro ao carregar agendamentos',
+          final hasLocalAgenda =
+              (_agendaBundle?.compromissos.docs.isNotEmpty ?? false) ||
+                  (_agendaBundle?.fornecedores.docs.isNotEmpty ?? false);
+          if (!hasLocalAgenda &&
+              _agendaError != null &&
+              !_agendaFetching) {
+            return ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: false,
+              errorTitle: 'Erro ao carregar agendamentos',
               error: _agendaError,
               onRetry: () => setState(() {
                 _retryNonce++;
@@ -1952,7 +2722,8 @@ class _FornecedoresCompromissosListaTabState
               }),
             );
           }
-          if (_agendaBundle == null) {
+          if (_agendaBundle == null ||
+              (!_agendaLoadedOnce && _agendaFetching)) {
             return const ChurchPanelLoadingBody();
           }
           final fnSnap = _agendaBundle!.fornecedores;
@@ -1961,13 +2732,7 @@ class _FornecedoresCompromissosListaTabState
           for (final d in fnSnap.docs) {
             nomePorId[d.id] = (d.data()['nome'] ?? '').toString().trim();
           }
-          final docs = snap.docs;
-          if (docs.isEmpty && _agendaFetching) {
-            return const ChurchPanelLoadingBody();
-          }
-            final deep = Color.lerp(
-                    ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.35) ??
-                ThemeCleanPremium.primary;
+          final docs = _filterDocs(snap.docs);
             return DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -2056,12 +2821,98 @@ class _FornecedoresCompromissosListaTabState
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 12),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    for (final p in _CompromissosListaPeriodo.values)
+                                      FilterChip(
+                                        label: Text(_periodoLabel(p)),
+                                        selected: _periodo == p,
+                                        onSelected: (_) => setState(() {
+                                          _periodo = p;
+                                        }),
+                                      ),
+                                  ],
+                                ),
+                                if (_periodo ==
+                                    _CompromissosListaPeriodo.periodo) ...[
+                                  const SizedBox(height: 10),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      OutlinedButton.icon(
+                                        onPressed: () =>
+                                            _pickCustomDate(isStart: true),
+                                        icon: const Icon(
+                                            Icons.calendar_today_rounded,
+                                            size: 16),
+                                        label: Text(
+                                          _customStart != null
+                                              ? DateFormat('dd/MM/yyyy')
+                                                  .format(_customStart!)
+                                              : 'Data inicial',
+                                        ),
+                                      ),
+                                      OutlinedButton.icon(
+                                        onPressed: () =>
+                                            _pickCustomDate(isStart: false),
+                                        icon: const Icon(
+                                            Icons.event_rounded, size: 16),
+                                        label: Text(
+                                          _customEnd != null
+                                              ? DateFormat('dd/MM/yyyy')
+                                                  .format(_customEnd!)
+                                              : 'Data final',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                                if (widget.showFornecedorLine &&
+                                    fnSnap.docs.isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  DropdownButtonFormField<String?>(
+                                    value: _fornecedorFiltroId,
+                                    decoration: InputDecoration(
+                                      labelText: 'Fornecedor',
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                    ),
+                                    items: [
+                                      const DropdownMenuItem<String?>(
+                                        value: null,
+                                        child: Text('Todos os fornecedores'),
+                                      ),
+                                      for (final d in fnSnap.docs)
+                                        DropdownMenuItem<String?>(
+                                          value: d.id,
+                                          child: Text(
+                                            (d.data()['nome'] ?? d.id)
+                                                .toString(),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                    ],
+                                    onChanged: (v) =>
+                                        setState(() => _fornecedorFiltroId = v),
+                                  ),
+                                ],
                               ],
                             ),
                           );
                         }
                         final d = docs[i - 1];
                         final m = d.data();
+                        final barColor =
+                            FornecedorAgendaCalendarCells.corFromCompromisso(m);
                         final fid = (m['fornecedorId'] ?? '').toString().trim();
                         final nomeFn = nomePorId[fid] ??
                             (fid.isEmpty ? 'Fornecedor' : 'Fornecedor #$fid');
@@ -2121,8 +2972,13 @@ class _FornecedoresCompromissosListaTabState
                                             begin: Alignment.topCenter,
                                             end: Alignment.bottomCenter,
                                             colors: [
-                                              ThemeCleanPremium.primary,
-                                              deep,
+                                              barColor,
+                                              Color.lerp(
+                                                    barColor,
+                                                    const Color(0xFF0F172A),
+                                                    0.35,
+                                                  ) ??
+                                                  barColor,
                                             ],
                                           ),
                                         ),
@@ -2262,7 +3118,9 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
   DateTime? _selected;
   _FornecedoresAgendaBundle? _agendaBundle;
   bool _agendaFetching = false;
+  bool _agendaLoadedOnce = false;
   String? _agendaError;
+  bool _agendaShowingStaleCache = false;
 
   String get _tenantId => ChurchRepository.churchId(widget.tenantId);
 
@@ -2273,7 +3131,8 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
   void initState() {
     super.initState();
     _agendaBundle = _seedFornecedoresAgendaBundle(_tenantId);
-    _agendaFetching = true;
+    _agendaFetching = _agendaBundle!.fornecedores.docs.isEmpty &&
+        _agendaBundle!.compromissos.docs.isEmpty;
     unawaited(_fetchAgenda());
   }
 
@@ -2288,16 +3147,25 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
       setState(() {
         _agendaBundle = bundle;
         _agendaFetching = false;
+        _agendaLoadedOnce = true;
         _agendaError = null;
+        _agendaShowingStaleCache = false;
       });
     } catch (e) {
       if (!mounted) return;
+      final hadLocal = (_agendaBundle?.compromissos.docs.isNotEmpty ?? false) ||
+          (_agendaBundle?.fornecedores.docs.isNotEmpty ?? false);
+      final ui = PanelResilientLoad.afterError(hadLocalData: hadLocal, error: e);
       setState(() {
         _agendaFetching = false;
-        if ((_agendaBundle?.compromissos.docs.isEmpty ?? true)) {
-          _agendaError = '$e';
-        }
+        _agendaLoadedOnce = true;
+        _agendaShowingStaleCache = ui.showingStaleCache;
+        _agendaError = ui.loadError;
       });
+    } finally {
+      if (mounted) {
+        setState(() => _agendaFetching = false);
+      }
     }
   }
 
@@ -2369,6 +3237,7 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
     if (!await _confirmDeleteFornecedorCompromisso(context)) return;
+    _CompromissosRamCache.invalidate(_tenantId);
     await doc.reference.delete();
     if (mounted) setState(_reloadAgenda);
   }
@@ -2603,25 +3472,23 @@ class _FornecedoresAgendaGeralTabState extends State<_FornecedoresAgendaGeralTab
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    if (_agendaError != null &&
-        (_agendaBundle?.fornecedores.docs.isEmpty ?? true) &&
-        (_agendaBundle?.compromissos.docs.isEmpty ?? true)) {
-      return ChurchPanelErrorBody(
-        title: 'Erro ao carregar agenda geral',
+    final hasLocalAgenda =
+        (_agendaBundle?.compromissos.docs.isNotEmpty ?? false) ||
+            (_agendaBundle?.fornecedores.docs.isNotEmpty ?? false);
+    if (!hasLocalAgenda && _agendaError != null && !_agendaFetching) {
+      return ChurchPanelResilientLoadBanner(
+        hasLocalData: false,
+        isSyncing: false,
+        errorTitle: 'Erro ao carregar agenda geral',
         error: _agendaError,
         onRetry: _reloadAgenda,
       );
     }
-    if (_agendaBundle == null) {
+    if (_agendaBundle == null || (!_agendaLoadedOnce && _agendaFetching)) {
       return const ChurchPanelLoadingBody();
     }
     final fnSnap = _agendaBundle!.fornecedores;
     final snap = _agendaBundle!.compromissos;
-    if (fnSnap.docs.isEmpty &&
-        snap.docs.isEmpty &&
-        _agendaFetching) {
-      return const ChurchPanelLoadingBody();
-    }
     final nomePorId = <String, String>{};
     for (final d in fnSnap.docs) {
       nomePorId[d.id] = (d.data()['nome'] ?? '').toString().trim();
@@ -3656,6 +4523,7 @@ class FornecedorHubPage extends StatefulWidget {
   final String tenantId;
   final String role;
   final String fornecedorId;
+  final int initialTabIndex;
   final bool? podeVerFinanceiro;
   final bool? podeVerFornecedores;
   final List<String>? permissions;
@@ -3665,6 +4533,7 @@ class FornecedorHubPage extends StatefulWidget {
     required this.tenantId,
     required this.role,
     required this.fornecedorId,
+    this.initialTabIndex = 0,
     this.podeVerFinanceiro,
     this.podeVerFornecedores,
     this.permissions,
@@ -3680,7 +4549,11 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 4, vsync: this);
+    _tab = TabController(
+      length: 4,
+      vsync: this,
+      initialIndex: widget.initialTabIndex.clamp(0, 3),
+    );
   }
 
   @override
@@ -3869,10 +4742,23 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: _fornecedorRef.watchSafe(),
       builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Fornecedor')),
+            body: const ChurchPanelLoadingBody(),
+          );
+        }
         if (!snap.hasData || !snap.data!.exists) {
           return Scaffold(
             appBar: AppBar(title: const Text('Fornecedor')),
-            body: const Center(child: Text('Registro não encontrado.')),
+            body: ChurchPanelResilientLoadBanner(
+              hasLocalData: false,
+              isSyncing: snap.connectionState == ConnectionState.waiting,
+              errorTitle: 'Fornecedor não encontrado',
+              error:
+                  'Não foi possível carregar o cadastro. Verifique a conexão ou tente novamente.',
+              onRetry: () => setState(() {}),
+            ),
           );
         }
         final nome = (snap.data!.data()?['nome'] ?? 'Fornecedor').toString();
@@ -3959,11 +4845,14 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
               _CadastroTab(
                 fornecedorRef: _fornecedorRef,
                 tenantId: widget.tenantId,
+                canWrite: ChurchRolePermissions.isCorporateModuleTeam(
+                  widget.role,
+                ),
               ),
               _FinanceiroTab(
                 tenantId: widget.tenantId,
                 fornecedorId: widget.fornecedorId,
-                financeCol: _financeCol,
+                panelRole: widget.role,
                 onNovaDespesa: _novaDespesa,
                 onNovaReceita: _novaReceita,
                 onEditar: _editarLancamento,
@@ -3993,8 +4882,13 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
 class _CadastroTab extends StatelessWidget {
   final DocumentReference<Map<String, dynamic>> fornecedorRef;
   final String tenantId;
+  final bool canWrite;
 
-  const _CadastroTab({required this.fornecedorRef, required this.tenantId});
+  const _CadastroTab({
+    required this.fornecedorRef,
+    required this.tenantId,
+    this.canWrite = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -4025,30 +4919,84 @@ class _CadastroTab extends StatelessWidget {
         }
 
         final wa = (m['whatsapp'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+        final nome = (m['nome'] ?? 'Fornecedor').toString();
         return ListView(
           padding: ThemeCleanPremium.pagePadding(context),
           children: [
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                backgroundColor: ThemeCleanPremium.primary,
-                foregroundColor: Colors.white,
+            if (canWrite) ...[
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  backgroundColor: ThemeCleanPremium.primary,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () async {
+                  await showModalBottomSheet<void>(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (ctx) => _FornecedorFormSheet(
+                      tenantId: tenantId,
+                      col: fornecedorRef.parent,
+                      docId: fornecedorRef.id,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.edit_rounded),
+                label: const Text(
+                  'Editar dados cadastrais',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
               ),
-              onPressed: () async {
-                await showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: Colors.transparent,
-                  builder: (ctx) => _FornecedorFormSheet(
-                    tenantId: tenantId,
-                    col: fornecedorRef.parent,
-                    docId: fornecedorRef.id,
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: ThemeCleanPremium.error,
+                  side: BorderSide(
+                    color: ThemeCleanPremium.error.withValues(alpha: 0.55),
+                    width: 1.4,
                   ),
-                );
-              },
-              icon: const Icon(Icons.edit_rounded),
-              label: const Text('Editar dados cadastrais', style: TextStyle(fontWeight: FontWeight.w800)),
-            ),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () async {
+                  if (!await _confirmDeleteFornecedorCadastro(
+                    context,
+                    count: 1,
+                    nome: nome,
+                  )) {
+                    return;
+                  }
+                  try {
+                    if (kIsWeb) {
+                      await FirestoreWebGuard.prepareForCriticalWrite();
+                    }
+                    await FirestoreWebGuard.runWithWebRecovery(
+                      () => fornecedorRef.delete(),
+                      maxAttempts: 4,
+                    );
+                    unawaited(ChurchFornecedoresLoadService.invalidate(tenantId));
+                    _CompromissosRamCache.invalidate(tenantId);
+                    if (!context.mounted) return;
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      ThemeCleanPremium.successSnackBar('Fornecedor excluído.'),
+                    );
+                  } catch (e) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Erro ao excluir: $e')),
+                    );
+                  }
+                },
+                icon: Icon(Icons.delete_outline_rounded,
+                    color: ThemeCleanPremium.error),
+                label: const Text(
+                  'Excluir fornecedor',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+            if (canWrite) const SizedBox(height: 16),
             if (wa.length >= 10) ...[
               const SizedBox(height: 10),
               OutlinedButton.icon(
@@ -4141,17 +5089,19 @@ class _CadastroTab extends StatelessWidget {
 class _FinanceiroTab extends StatelessWidget {
   final String tenantId;
   final String fornecedorId;
-  final CollectionReference<Map<String, dynamic>> financeCol;
+  final String panelRole;
   final VoidCallback onNovaDespesa;
   final VoidCallback onNovaReceita;
-  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc) onEditar;
-  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc) onExcluir;
+  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)
+      onEditar;
+  final Future<void> Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)
+      onExcluir;
   final Future<void> Function(Map<String, dynamic> m, String id) onRecibo;
 
   const _FinanceiroTab({
     required this.tenantId,
     required this.fornecedorId,
-    required this.financeCol,
+    required this.panelRole,
     required this.onNovaDespesa,
     required this.onNovaReceita,
     required this.onEditar,
@@ -4161,214 +5111,15 @@ class _FinanceiroTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final q = financeCol
-        .where('fornecedorId', isEqualTo: fornecedorId)
-        .orderBy('createdAt', descending: true)
-        .limit(120);
-
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFFEE2E2),
-                    foregroundColor: const Color(0xFFB91C1C),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    elevation: 0,
-                  ),
-                  onPressed: onNovaDespesa,
-                  icon: const Icon(Icons.trending_down_rounded),
-                  label: const Text('Despesa', style: TextStyle(fontWeight: FontWeight.w800)),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFFDCEEFC),
-                    foregroundColor: const Color(0xFF1D4ED8),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    elevation: 0,
-                  ),
-                  onPressed: onNovaReceita,
-                  icon: const Icon(Icons.trending_up_rounded),
-                  label: const Text('Receita / estorno', style: TextStyle(fontWeight: FontWeight.w800)),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: q.watchSafe(),
-            builder: (context, snap) {
-              if (snap.hasError) {
-                return Center(child: Text('Erro: ${snap.error}'));
-              }
-              if (!snap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final docs = snap.data!.docs;
-              if (docs.isEmpty) {
-                return const Center(child: Text('Nenhum lançamento vinculado ainda.'));
-              }
-              double totalSaida = 0, totalEntrada = 0;
-              for (final d in docs) {
-                final m = d.data();
-                final tipo = (m['type'] ?? '').toString().toLowerCase();
-                final valor = (m['amount'] ?? m['valor'] ?? 0);
-                final v = valor is num ? valor.toDouble() : 0.0;
-                if (tipo == 'saida') totalSaida += v;
-                if (tipo == 'entrada') totalEntrada += v;
-              }
-              return Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
-                      children: [
-                        _chipResumo('Saídas', totalSaida, const Color(0xFFFEE2E2), const Color(0xFFB91C1C)),
-                        const SizedBox(width: 8),
-                        _chipResumo('Entradas', totalEntrada, const Color(0xFFDCEEFC), const Color(0xFF1D4ED8)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      itemCount: docs.length,
-                      itemBuilder: (_, i) {
-                        final d = docs[i];
-                        final m = d.data();
-                        final tipo = (m['type'] ?? '').toString().toLowerCase();
-                        final valor = (m['amount'] ?? m['valor'] ?? 0);
-                        final v = valor is num ? valor.toDouble() : 0.0;
-                        final ts = m['createdAt'];
-                        String dataStr = '';
-                        if (ts is Timestamp) {
-                          dataStr = DateFormat('dd/MM/yyyy').format(ts.toDate());
-                        }
-                        final isSaida = tipo == 'saida';
-                        final cor = isSaida ? const Color(0xFFB91C1C) : const Color(0xFF1D4ED8);
-                        final emitiuRecibo = m['reciboEmitidoAt'] != null;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: Material(
-                            color: Colors.white,
-                            elevation: 0,
-                            borderRadius: BorderRadius.circular(18),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(color: const Color(0xFFE2E8F0)),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: cor.withValues(alpha: 0.12),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                            leading: CircleAvatar(
-                              backgroundColor: cor.withValues(alpha: 0.12),
-                              child: Icon(
-                              isSaida ? Icons.south_west_rounded : Icons.north_east_rounded,
-                              color: cor,
-                            ),
-                            ),
-                            title: Text(
-                              '${isSaida ? 'Despesa' : 'Receita'} · R\$ ${v.toStringAsFixed(2)}',
-                              style: const TextStyle(fontWeight: FontWeight.w800),
-                            ),
-                            subtitle: Text(
-                              '${m['descricao'] ?? ''}\n$dataStr · ${m['categoria'] ?? ''}'
-                              '${emitiuRecibo ? '\nRecibo PDF gerado' : ''}',
-                            ),
-                            isThreeLine: true,
-                            onTap: () => onEditar(d),
-                            trailing: PopupMenuButton<String>(
-                              icon: const Icon(Icons.more_vert_rounded),
-                              tooltip: 'Opções',
-                              onSelected: (v) async {
-                                if (v == 'editar') await onEditar(d);
-                                if (v == 'excluir') await onExcluir(d);
-                                if (v == 'recibo') await onRecibo(m, d.id);
-                              },
-                              itemBuilder: (_) => [
-                                const PopupMenuItem(
-                                  value: 'editar',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.edit_rounded, size: 18),
-                                      SizedBox(width: 8),
-                                      Text('Editar (comprovante, conta…)'),
-                                    ],
-                                  ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'excluir',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.delete_outline_rounded, size: 18, color: Color(0xFFB91C1C)),
-                                      SizedBox(width: 8),
-                                      Text('Excluir', style: TextStyle(color: Color(0xFFB91C1C))),
-                                    ],
-                                  ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'recibo',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.picture_as_pdf_rounded, size: 18),
-                                      SizedBox(width: 8),
-                                      Text('Emitir recibo PDF'),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _chipResumo(String label, double v, Color bg, Color fg) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: TextStyle(fontSize: 12, color: fg.withValues(alpha: 0.85))),
-            Text(
-              NumberFormat.currency(locale: 'pt_BR', symbol: r'R$').format(v),
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: fg),
-            ),
-          ],
-        ),
-      ),
+    return FornecedorFinanceHubPanel(
+      tenantId: tenantId,
+      fornecedorId: fornecedorId,
+      panelRole: panelRole,
+      onNovaDespesa: onNovaDespesa,
+      onNovaReceita: onNovaReceita,
+      onEditar: onEditar,
+      onExcluir: onExcluir,
+      onRecibo: onRecibo,
     );
   }
 }

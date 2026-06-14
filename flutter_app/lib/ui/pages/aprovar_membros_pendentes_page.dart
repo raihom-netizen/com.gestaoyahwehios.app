@@ -1,4 +1,4 @@
-import 'dart:async' show TimeoutException, unawaited;
+import 'dart:async' show TimeoutException, Timer, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_aprovacoes_load_service.dart';
@@ -63,8 +64,10 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
   late TabController _tabCtrl;
   String _effectiveTenantId = '';
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _pendentesDocs = [];
-  bool _pendentesLoading = true;
+  bool _pendentesLoading = false;
+  bool _showingStaleCache = false;
   Object? _pendentesError;
+  Timer? _webLoadCap;
 
   String get _tid =>
       _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId;
@@ -75,64 +78,96 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       ChurchUiCollections.membros(_churchId);
 
   void _seedPendentesFromCache() {
-    if (!ChurchAprovacoesLoadService.hasPendentesRam(_churchId)) return;
     final ram = ChurchAprovacoesLoadService.peekPendentesRam(_churchId);
     if (ram == null) return;
     _pendentesDocs = ram;
     _pendentesLoading = false;
+    _showingStaleCache = true;
+  }
+
+  void _startWebLoadingCap() {
+    if (!kIsWeb) return;
+    _webLoadCap?.cancel();
+    _webLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+      if (!mounted) return;
+      if (_pendentesLoading) {
+        setState(() => _pendentesLoading = false);
+      }
+    });
+  }
+
+  Future<void> _primePendentesFromCache() async {
+    if (_pendentesDocs.isNotEmpty || !mounted) return;
+    try {
+      final result = await ChurchAprovacoesLoadService.loadPendentes(
+        seedTenantId: _churchId,
+      ).timeout(const Duration(milliseconds: 1800));
+      if (!mounted) return;
+      setState(() {
+        if (_pendentesDocs.isEmpty) {
+          _pendentesDocs = result.docs;
+        }
+        _pendentesLoading = false;
+        _showingStaleCache = result.fromCache;
+        _pendentesError = null;
+      });
+    } catch (_) {}
   }
 
   Future<void> _loadPendentes({bool forceRefresh = false}) async {
     if (!mounted) return;
     setState(() {
-      _pendentesLoading = _pendentesDocs.isEmpty &&
-          !ChurchAprovacoesLoadService.hasPendentesRam(_churchId);
-      _pendentesError = null;
+      _pendentesLoading = PanelResilientLoad.shouldShowFetching(
+        listEmpty: _pendentesDocs.isEmpty,
+        forceRefresh: forceRefresh,
+      );
+      if (forceRefresh) _pendentesError = null;
     });
     try {
-      final result = await ChurchAprovacoesLoadService.loadPendentes(
-        seedTenantId: _churchId,
-        forceRefresh: forceRefresh,
-      ).timeout(
-        ChurchRepository.panelQueryTimeout,
-        onTimeout: () {
-          final ram = ChurchAprovacoesLoadService.peekPendentesRam(_churchId);
-          if (ram != null) {
-            return ChurchAprovacoesPendentesResult(
-              churchId: _churchId,
-              docs: ram,
-              readSource: 'timeout_ram',
-              fromCache: true,
-              softError: 'Rede lenta — exibindo última lista conhecida.',
-            );
-          }
-          throw TimeoutException('Tempo esgotado ao carregar pendentes.');
-        },
-      );
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final hadLocal = _pendentesDocs.isNotEmpty;
+      final result = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchAprovacoesLoadService.loadPendentes(
+          seedTenantId: _churchId,
+          forceRefresh: forceRefresh,
+        ),
+        maxAttempts: 4,
+      ).timeout(PanelResilientLoad.queryCap);
       if (!mounted) return;
+      final ui = PanelResilientLoad.afterFetch(
+        hadLocalData: hadLocal,
+        newItems: result.docs,
+        fromCache: result.fromCache,
+        softError: result.softError,
+        forceFresh: forceRefresh,
+      );
       setState(() {
-        _pendentesDocs = result.docs;
-        _pendentesLoading = false;
-        // Lista vazia sem pendentes = sucesso. Erro só se falhou de verdade.
-        _pendentesError = result.hasHardError && result.docs.isEmpty
-            ? result.softError
-            : null;
-        _effectiveTenantId = result.churchId.isNotEmpty
-            ? result.churchId
-            : _effectiveTenantId;
+        if (result.docs.isNotEmpty || !hadLocal) {
+          _pendentesDocs = result.docs;
+        }
+        _showingStaleCache = ui.showingStaleCache;
+        _pendentesError = ui.loadError;
+        if (result.churchId.isNotEmpty) {
+          _effectiveTenantId = result.churchId;
+        }
       });
     } catch (e) {
       if (!mounted) return;
-      final ram = ChurchAprovacoesLoadService.peekPendentesRam(_churchId);
+      final ui = PanelResilientLoad.afterError(
+        hadLocalData: _pendentesDocs.isNotEmpty,
+        error: e,
+      );
       setState(() {
-        _pendentesLoading = false;
-        if (ram != null) {
-          _pendentesDocs = ram;
-          _pendentesError = null;
-        } else {
-          _pendentesError = e;
-        }
+        _showingStaleCache = ui.showingStaleCache;
+        _pendentesError = ui.loadError;
       });
+    } finally {
+      _webLoadCap?.cancel();
+      if (mounted) {
+        setState(() => _pendentesLoading = false);
+      }
     }
   }
 
@@ -145,6 +180,8 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       if (mounted) setState(() {});
     });
     _seedPendentesFromCache();
+    _startWebLoadingCap();
+    unawaited(_primePendentesFromCache());
     unawaited(
       ChurchRepository.listCacheFirst(
         module: ChurchRepository.membros,
@@ -171,6 +208,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
 
   @override
   void dispose() {
+    _webLoadCap?.cancel();
     _tabCtrl.dispose();
     super.dispose();
   }
@@ -207,12 +245,31 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         .call({'tenantId': _churchId, 'memberId': memberId});
   }
 
-  Future<void> _afterApprovalMutation() async {
+  Future<void> _afterApprovalMutation({bool skipReload = false}) async {
+    if (skipReload) return;
     await ChurchAprovacoesLoadService.invalidate(_churchId);
     if (mounted) unawaited(_loadPendentes(forceRefresh: true));
   }
 
+  void _removePendenteLocal(String id) {
+    setState(() {
+      _pendentesDocs = _pendentesDocs.where((d) => d.id != id).toList();
+      _selecionados.remove(id);
+    });
+    ChurchAprovacoesLoadService.removePendentesFromRam(_churchId, [id]);
+  }
+
+  void _restorePendentesLocal(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> previous,
+  ) {
+    if (!mounted) return;
+    setState(() => _pendentesDocs = previous);
+  }
+
   Future<void> _aprovarUm(String id) async {
+    final previous =
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_pendentesDocs);
+    _removePendenteLocal(id);
     try {
       final linkage = await _getTenantLinkage();
       await runFirestorePublishWithRecovery(
@@ -228,10 +285,9 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         ),
         criticalWrite: true,
       );
-      await _invokeSetMemberApproved(id);
-      await _afterApprovalMutation();
+      unawaited(_invokeSetMemberApproved(id));
+      unawaited(_afterApprovalMutation(skipReload: true));
       if (mounted) {
-        setState(() => _selecionados.remove(id));
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
             'Membro aprovado. Login criado (senha inicial 123456).',
@@ -239,6 +295,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         );
       }
     } catch (e) {
+      _restorePendentesLocal(previous);
       _showApprovalError(e);
     }
   }
@@ -266,6 +323,9 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       ),
     );
     if (ok != true) return;
+    final previous =
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_pendentesDocs);
+    _removePendenteLocal(id);
     try {
       await runFirestorePublishWithRecovery(
         () => FirestoreWebGuard.runWithWebRecovery(
@@ -273,13 +333,13 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         ),
         criticalWrite: true,
       );
-      await _afterApprovalMutation();
+      unawaited(_afterApprovalMutation(skipReload: true));
       if (mounted) {
-        setState(() => _selecionados.remove(id));
         ScaffoldMessenger.of(context)
             .showSnackBar(ThemeCleanPremium.successSnackBar('Cadastro excluído.'));
       }
     } catch (e) {
+      _restorePendentesLocal(previous);
       _showApprovalError(e);
     }
   }
@@ -312,6 +372,14 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         ),
       );
       if (ok != true) return;
+      final previous =
+          List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_pendentesDocs);
+      setState(() {
+        _pendentesDocs =
+            _pendentesDocs.where((d) => !ids.contains(d.id)).toList();
+        _selecionados.clear();
+      });
+      ChurchAprovacoesLoadService.removePendentesFromRam(_churchId, ids);
       try {
         await runFirestorePublishWithRecovery(
           () async {
@@ -323,18 +391,31 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
           },
           criticalWrite: true,
         );
-        await _afterApprovalMutation();
+        unawaited(_afterApprovalMutation(skipReload: true));
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(
               count == 1 ? 'Cadastro excluído.' : '$count cadastros excluídos.'));
-          setState(() => _selecionados.clear());
         }
       } catch (e) {
+        _restorePendentesLocal(previous);
+        setState(() => _selecionados.addAll(ids));
         _showApprovalError(e);
       }
       return;
     }
 
+    final previous =
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_pendentesDocs);
+    setState(() {
+      _pendentesDocs = _pendentesDocs.where((d) => !ids.contains(d.id)).toList();
+      _selecionados.clear();
+    });
+    ChurchAprovacoesLoadService.removePendentesFromRam(_churchId, ids);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar('$count membro(s) aprovado(s).'),
+      );
+    }
     try {
       final linkage = await _getTenantLinkage();
       await runFirestorePublishWithRecovery(
@@ -356,16 +437,13 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       );
       if (newStatus == 'ativo') {
         for (final id in ids) {
-          await _invokeSetMemberApproved(id);
+          unawaited(_invokeSetMemberApproved(id));
         }
       }
-      await _afterApprovalMutation();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(
-            '$count membro(s) aprovado(s).'));
-        setState(() => _selecionados.clear());
-      }
+      unawaited(_afterApprovalMutation(skipReload: true));
     } catch (e) {
+      _restorePendentesLocal(previous);
+      setState(() => _selecionados.addAll(ids));
       _showApprovalError(e);
     }
   }
@@ -387,6 +465,19 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     );
     if (ok != true) return;
     final n = docs.length;
+    final ids = docs.map((d) => d.id).toList();
+    final previous =
+        List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_pendentesDocs);
+    setState(() {
+      _pendentesDocs = _pendentesDocs.where((d) => !ids.contains(d.id)).toList();
+      _selecionados.clear();
+    });
+    ChurchAprovacoesLoadService.removePendentesFromRam(_churchId, ids);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar('$n membro(s) aprovado(s)!'),
+      );
+    }
     try {
       final linkage = await _getTenantLinkage();
       await runFirestorePublishWithRecovery(
@@ -406,16 +497,12 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         },
         criticalWrite: true,
       );
-      for (final d in docs) {
-        await _invokeSetMemberApproved(d.id);
+      for (final id in ids) {
+        unawaited(_invokeSetMemberApproved(id));
       }
-      await _afterApprovalMutation();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar('$n membro(s) aprovado(s)!'));
-        setState(() => _selecionados.clear());
-      }
+      unawaited(_afterApprovalMutation(skipReload: true));
     } catch (e) {
+      _restorePendentesLocal(previous);
       _showApprovalError(e);
     }
   }
@@ -564,11 +651,15 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
 
   Widget _buildPendentesTab(bool isMobile) {
     final docs = _pendentesDocs;
-    if (_pendentesError != null && docs.isEmpty && !_pendentesLoading) {
+    final hasLocal = docs.isNotEmpty;
+
+    if (!hasLocal && _pendentesError != null && !_pendentesLoading) {
       return Padding(
         padding: ThemeCleanPremium.pagePadding(context),
-        child: ChurchPanelErrorBody(
-          title: 'Não foi possível carregar os membros pendentes',
+        child: ChurchPanelResilientLoadBanner(
+          hasLocalData: false,
+          isSyncing: false,
+          errorTitle: 'Não foi possível carregar os membros pendentes',
           error: _pendentesError,
           onRetry: () {
             _pendentesLoadKey++;
@@ -588,7 +679,21 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
             top: 12,
             bottom: 0,
           ),
-          child: _AprovacoesHeroHeader(pendentesCount: docs.length),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ChurchPanelResilientLoadBanner(
+                hasLocalData: hasLocal,
+                isSyncing: _pendentesLoading && hasLocal,
+                showStaleCache: _showingStaleCache && !_pendentesLoading,
+                errorTitle: 'Não foi possível carregar os membros pendentes',
+                error: _pendentesError,
+                onRetry: () => unawaited(_loadPendentes(forceRefresh: true)),
+              ),
+              const SizedBox(height: 8),
+              _AprovacoesHeroHeader(pendentesCount: docs.length),
+            ],
+          ),
         ),
         if (_selecionados.isNotEmpty)
           Container(
@@ -1018,13 +1123,16 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
   int _yearFilter = DateTime.now().year;
   DateTime? _customStart;
   DateTime? _customEnd;
-  late Future<_HistoryData> _historicoFuture;
   late final TextEditingController _periodoInicioCtrl;
   late final TextEditingController _periodoFimCtrl;
 
   bool _selectionMode = false;
   final Set<String> _selectedIds = {};
   bool _bulkDeleting = false;
+  bool _historicoLoading = false;
+  bool _historicoStale = false;
+  Object? _historicoError;
+  Timer? _historicoLoadCap;
   _HistoryData? _lastData;
 
   @override
@@ -1032,11 +1140,105 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
     super.initState();
     _periodoInicioCtrl = TextEditingController();
     _periodoFimCtrl = TextEditingController();
-    _historicoFuture = _loadHistorico();
+    unawaited(_fetchHistorico());
+  }
+
+  void _startHistoricoLoadCap() {
+    if (!kIsWeb) return;
+    _historicoLoadCap?.cancel();
+    _historicoLoadCap = Timer(PanelResilientLoad.webLoadingCap, () {
+      if (!mounted) return;
+      if (_historicoLoading) {
+        setState(() => _historicoLoading = false);
+      }
+    });
+  }
+
+  Future<void> _fetchHistorico({bool forceRefresh = false}) async {
+    if (!mounted) return;
+    final hadLocal = _lastData != null;
+    setState(() {
+      _historicoLoading = PanelResilientLoad.shouldShowFetching(
+        listEmpty: _lastData == null,
+        forceRefresh: forceRefresh,
+      );
+      if (forceRefresh) _historicoError = null;
+    });
+    _startHistoricoLoadCap();
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final range = _effectiveRange;
+      final result = await FirestoreWebGuard.runWithWebRecovery(
+        () => ChurchAprovacoesLoadService.loadHistorico(
+          seedTenantId: widget.churchId,
+          rangeStart: range.$1,
+          rangeEnd: range.$2,
+          forceRefresh: forceRefresh,
+        ),
+        maxAttempts: 4,
+      ).timeout(PanelResilientLoad.queryCap);
+      final data = _HistoryData.fromSnapshots(
+        range.$1,
+        range.$2,
+        MergedFirestoreQuerySnapshot(result.approved),
+        MergedFirestoreQuerySnapshot(result.rejected),
+      );
+      if (!mounted) return;
+      final fromCache = result.readSource.contains('cache') ||
+          result.readSource == 'hive' ||
+          result.readSource.contains('fallback');
+      final ui = PanelResilientLoad.afterFetch(
+        hadLocalData: hadLocal,
+        newItems: data.events,
+        fromCache: fromCache,
+        softError: result.softError,
+        forceFresh: forceRefresh,
+      );
+      setState(() {
+        if (data.events.isNotEmpty || !hadLocal) {
+          _lastData = data;
+        }
+        _historicoStale = ui.showingStaleCache;
+        _historicoError = ui.loadError;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      final ui = PanelResilientLoad.afterError(
+        hadLocalData: _lastData != null,
+        error: e,
+      );
+      setState(() {
+        _historicoStale = ui.showingStaleCache;
+        _historicoError = ui.loadError;
+      });
+    } finally {
+      _historicoLoadCap?.cancel();
+      if (mounted) setState(() => _historicoLoading = false);
+    }
+  }
+
+  void _refreshHistorico() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+    unawaited(_fetchHistorico(forceRefresh: true));
+  }
+
+  void _reloadHistoricoForRangeChange() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+      _lastData = null;
+    });
+    unawaited(_fetchHistorico());
   }
 
   @override
   void dispose() {
+    _historicoLoadCap?.cancel();
     _periodoInicioCtrl.dispose();
     _periodoFimCtrl.dispose();
     super.dispose();
@@ -1076,40 +1278,6 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
         }
         return (start, end);
     }
-  }
-
-  Future<_HistoryData> _loadHistorico() async {
-    final range = _effectiveRange;
-    final result = await ChurchAprovacoesLoadService.loadHistorico(
-      seedTenantId: widget.churchId,
-      rangeStart: range.$1,
-      rangeEnd: range.$2,
-    ).timeout(
-      const Duration(seconds: 24),
-      onTimeout: () => ChurchAprovacoesHistoricoResult(
-        churchId: widget.churchId,
-        approved: const [],
-        rejected: const [],
-        readSource: 'timeout',
-        rangeStart: range.$1,
-        rangeEnd: range.$2,
-        softError: 'Tempo esgotado ao carregar histórico.',
-      ),
-    );
-    return _HistoryData.fromSnapshots(
-      range.$1,
-      range.$2,
-      MergedFirestoreQuerySnapshot(result.approved),
-      MergedFirestoreQuerySnapshot(result.rejected),
-    );
-  }
-
-  void _refreshHistorico() {
-    setState(() {
-      _selectionMode = false;
-      _selectedIds.clear();
-      _historicoFuture = _loadHistorico();
-    });
   }
 
   void _exitSelectionMode() {
@@ -1305,8 +1473,8 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
       _periodoFimCtrl.text = formatBrDateDdMmYyyy(
         DateTime(_customEnd!.year, _customEnd!.month, _customEnd!.day),
       );
-      _historicoFuture = _loadHistorico();
     });
+    _reloadHistoricoForRangeChange();
   }
 
   void _aplicarPeriodoDigitado() {
@@ -1339,8 +1507,8 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
       _customEnd = endDay;
       _periodoInicioCtrl.text = formatBrDateDdMmYyyy(start);
       _periodoFimCtrl.text = formatBrDateDdMmYyyy(endDay);
-      _historicoFuture = _loadHistorico();
     });
+    _reloadHistoricoForRangeChange();
   }
 
   Future<void> _abrirCalendarioPeriodo() async {
@@ -1382,8 +1550,8 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
       _periodoFimCtrl.text = formatBrDateDdMmYyyy(
         DateTime(range.end.year, range.end.month, range.end.day),
       );
-      _historicoFuture = _loadHistorico();
     });
+    _reloadHistoricoForRangeChange();
   }
 
   String _presetBadgeLabel() {
@@ -1490,26 +1658,27 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
     final periodoLabel =
         '${DateFormat('dd/MM/yyyy').format(range.$1)} — ${DateFormat('dd/MM/yyyy').format(range.$2)}';
 
-    return FutureBuilder<_HistoryData>(
-      future: _historicoFuture,
-      builder: (context, snap) {
-        if (snap.hasError) {
-          return Padding(
-            padding: ThemeCleanPremium.pagePadding(context),
-            child: ChurchPanelErrorBody(
-              title: 'Não foi possível carregar o histórico',
-              error: snap.error,
-              onRetry: _refreshHistorico,
-            ),
-          );
-        }
-        if (!snap.hasData) {
-          return const ChurchPanelLoadingBody();
-        }
-        final data = snap.data!;
-        _lastData = data;
+    if (_lastData == null && _historicoError != null && !_historicoLoading) {
+      return Padding(
+        padding: ThemeCleanPremium.pagePadding(context),
+        child: ChurchPanelResilientLoadBanner(
+          hasLocalData: false,
+          isSyncing: false,
+          errorTitle: 'Não foi possível carregar o histórico',
+          error: _historicoError,
+          onRetry: _refreshHistorico,
+        ),
+      );
+    }
+    if (_historicoLoading && _lastData == null) {
+      return const ChurchPanelLoadingBody();
+    }
+    final data = _lastData;
+    if (data == null) {
+      return const ChurchPanelLoadingBody();
+    }
 
-        return Column(
+    return Column(
           children: [
             Expanded(
               child: Padding(
@@ -1518,6 +1687,16 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
             primary: false,
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
+            SliverToBoxAdapter(
+              child: ChurchPanelResilientLoadBanner(
+                hasLocalData: true,
+                isSyncing: _historicoLoading,
+                showStaleCache: _historicoStale && !_historicoLoading,
+                errorTitle: 'Não foi possível carregar o histórico',
+                error: _historicoError,
+                onRetry: _refreshHistorico,
+              ),
+            ),
             SliverToBoxAdapter(
               child: Container(
                 padding: const EdgeInsets.all(18),
@@ -1699,38 +1878,40 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
                           label: 'Mês atual',
                           selected: _preset == _HistoryPreset.mesAtual,
                           icon: Icons.calendar_month_rounded,
-                          onTap: () => setState(() {
-                            _preset = _HistoryPreset.mesAtual;
-                            _historicoFuture = _loadHistorico();
-                          }),
+                          onTap: () {
+                            setState(() => _preset = _HistoryPreset.mesAtual);
+                            _reloadHistoricoForRangeChange();
+                          },
                         ),
                         _filterChip(
                           label: 'Trimestre',
                           selected: _preset == _HistoryPreset.trimestre,
                           icon: Icons.date_range_rounded,
-                          onTap: () => setState(() {
-                            _preset = _HistoryPreset.trimestre;
-                            _historicoFuture = _loadHistorico();
-                          }),
+                          onTap: () {
+                            setState(() => _preset = _HistoryPreset.trimestre);
+                            _reloadHistoricoForRangeChange();
+                          },
                         ),
                         _filterChip(
                           label: '90 dias',
                           selected: _preset == _HistoryPreset.ultimos90,
                           icon: Icons.timelapse_rounded,
-                          onTap: () => setState(() {
-                            _preset = _HistoryPreset.ultimos90;
-                            _historicoFuture = _loadHistorico();
-                          }),
+                          onTap: () {
+                            setState(() => _preset = _HistoryPreset.ultimos90);
+                            _reloadHistoricoForRangeChange();
+                          },
                         ),
                         _filterChip(
                           label: 'Ano',
                           selected: _preset == _HistoryPreset.ano,
                           icon: Icons.calendar_view_month_rounded,
-                          onTap: () => setState(() {
-                            _preset = _HistoryPreset.ano;
-                            _yearFilter = DateTime.now().year;
-                            _historicoFuture = _loadHistorico();
-                          }),
+                          onTap: () {
+                            setState(() {
+                              _preset = _HistoryPreset.ano;
+                              _yearFilter = DateTime.now().year;
+                            });
+                            _reloadHistoricoForRangeChange();
+                          },
                         ),
                         _filterChip(
                           label: 'Período…',
@@ -1790,8 +1971,8 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
                                         setState(() {
                                           _yearFilter = y;
                                           _preset = _HistoryPreset.ano;
-                                          _historicoFuture = _loadHistorico();
                                         });
+                                        _reloadHistoricoForRangeChange();
                                       },
                                     ),
                                   ),
@@ -2249,8 +2430,6 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
             if (_selectionMode) _buildHistoricoSelectionBar(),
           ],
         );
-      },
-    );
   }
 }
 

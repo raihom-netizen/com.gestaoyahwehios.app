@@ -4,15 +4,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
-import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
+import 'package:gestao_yahweh/core/prayer_orando_membros_denorm.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -91,7 +92,26 @@ abstract final class ChurchPedidosOracaoLoadService {
     String key,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
+    if (docs.isEmpty) return;
     _ram[key] = (docs: List.from(docs), at: DateTime.now());
+  }
+
+  static void putRam(
+    String churchId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    bool? respondidaFilter,
+    int limit = kDefaultLimit,
+  }) {
+    final id = _resolve(churchId);
+    if (id.isEmpty || docs.isEmpty) return;
+    final allKey = cacheKey(id, null, limit);
+    final sorted = _sortByCreatedAt(docs);
+    _putRam(allKey, sorted.length > limit ? sorted.sublist(0, limit) : sorted);
+    final filtered = _filterRespondida(sorted, respondidaFilter);
+    _putRam(
+      cacheKey(id, respondidaFilter, limit),
+      filtered.length > limit ? filtered.sublist(0, limit) : filtered,
+    );
   }
 
   static DateTime? _createdAt(Map<String, dynamic> data) {
@@ -180,25 +200,44 @@ abstract final class ChurchPedidosOracaoLoadService {
         );
       }
 
+      final allRam = _peekRam(allKey);
+      if (allRam != null && respondidaFilter != null) {
+        final filtered = _sortByCreatedAt(
+          _filterRespondida(allRam, respondidaFilter),
+        );
+        if (filtered.isNotEmpty) {
+          _putRam(ramKey, filtered);
+          unawaited(_refreshInBackground(
+            churchId: churchId,
+            respondidaFilter: respondidaFilter,
+            ramKey: ramKey,
+            allKey: allKey,
+            limit: limit,
+          ));
+          return ChurchPedidosOracaoLoadResult(
+            churchId: churchId,
+            docs: filtered.length > limit
+                ? filtered.sublist(0, limit)
+                : filtered,
+            readSource: 'ram_all_filtered',
+            collectionPath: path,
+            fromCache: true,
+          );
+        }
+      }
+
       try {
-        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
+        final hive = await TenantModuleHiveCache.readDocs(
           churchId,
           TenantModuleKeys.pedidosOracao,
-        ).timeout(const Duration(seconds: 3));
-        if (updatedAt != null) {
-          final hive = await TenantModuleHiveCache.readDocs(
-            churchId,
-            TenantModuleKeys.pedidosOracao,
-          );
-          var docs = _filterRespondida(
-            TenantModuleHiveCache.toQueryDocuments(hive),
-            respondidaFilter,
-          );
-          docs = _sortByCreatedAt(docs);
-          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
-            _putRam(allKey, _sortByCreatedAt(
-              TenantModuleHiveCache.toQueryDocuments(hive),
-            ));
+        ).timeout(const Duration(seconds: 2));
+        if (hive.isNotEmpty) {
+          final allDocs =
+              _sortByCreatedAt(TenantModuleHiveCache.toQueryDocuments(hive));
+          if (allDocs.isNotEmpty) {
+            _putRam(allKey, allDocs);
+            var docs = _filterRespondida(allDocs, respondidaFilter);
+            docs = _sortByCreatedAt(docs);
             _putRam(ramKey, docs);
             unawaited(_refreshInBackground(
               churchId: churchId,
@@ -209,12 +248,40 @@ abstract final class ChurchPedidosOracaoLoadService {
             ));
             return ChurchPedidosOracaoLoadResult(
               churchId: churchId,
-              docs: docs,
+              docs: docs.length > limit ? docs.sublist(0, limit) : docs,
               readSource: 'hive',
               collectionPath: path,
               fromCache: true,
             );
           }
+        }
+      } catch (_) {}
+
+      try {
+        final cacheSnap = await ChurchUiCollections.pedidosOracao(churchId)
+            .limit(limit)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 3));
+        if (cacheSnap.docs.isNotEmpty) {
+          final allDocs = _sortByCreatedAt(cacheSnap.docs);
+          _putRam(allKey, allDocs);
+          var docs = _filterRespondida(allDocs, respondidaFilter);
+          docs = _sortByCreatedAt(docs);
+          _putRam(ramKey, docs);
+          unawaited(_refreshInBackground(
+            churchId: churchId,
+            respondidaFilter: respondidaFilter,
+            ramKey: ramKey,
+            allKey: allKey,
+            limit: limit,
+          ));
+          return ChurchPedidosOracaoLoadResult(
+            churchId: churchId,
+            docs: docs.length > limit ? docs.sublist(0, limit) : docs,
+            readSource: 'firestore_cache',
+            collectionPath: path,
+            fromCache: true,
+          );
         }
       } catch (_) {}
     }
@@ -250,7 +317,9 @@ abstract final class ChurchPedidosOracaoLoadService {
         moduleLabel: 'Pedidos de Oração',
         limit: limit,
         cacheKey: '${ramKey}_direct',
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
+      ).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      );
       var docs = _filterRespondida(snap.docs, respondidaFilter);
       docs = _sortByCreatedAt(docs);
       _putRam(ramKey, docs);
@@ -344,16 +413,18 @@ abstract final class ChurchPedidosOracaoLoadService {
     try {
       final docs = await _loadFirestore(
         churchId: churchId,
-        respondidaFilter: respondidaFilter,
-        cacheKey: ramKey,
+        respondidaFilter: null,
+        cacheKey: allKey,
         forceServer: false,
         limit: limit,
       );
-      _putRam(ramKey, docs);
-      if (respondidaFilter == null) {
-        _putRam(allKey, docs);
-        await _persistHive(churchId, docs);
-      }
+      if (docs.isEmpty) return;
+      _putRam(allKey, docs);
+      _putRam(
+        ramKey,
+        _sortByCreatedAt(_filterRespondida(docs, respondidaFilter)),
+      );
+      await _persistHive(churchId, docs);
     } catch (_) {}
   }
 
@@ -361,6 +432,7 @@ abstract final class ChurchPedidosOracaoLoadService {
     String churchId,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) async {
+    if (docs.isEmpty) return;
     try {
       await TenantModuleHiveCache.saveFromQuerySnapshot(
         churchId,
@@ -368,6 +440,14 @@ abstract final class ChurchPedidosOracaoLoadService {
         MergedFirestoreQuerySnapshot(docs),
       );
     } catch (_) {}
+  }
+
+  static Future<void> persistAfterLoad(
+    ChurchPedidosOracaoLoadResult result,
+  ) async {
+    if (result.churchId.isEmpty || result.docs.isEmpty) return;
+    putRam(result.churchId, result.docs);
+    await _persistHive(result.churchId, result.docs);
   }
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
@@ -425,6 +505,12 @@ abstract final class ChurchPedidosOracaoLoadService {
     }
 
     Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> readServer() async {
+      // Prefer plain load + client filter (avoids compound index hangs on web).
+      if (respondidaFilter != null) {
+        try {
+          return await plainLoad();
+        } catch (_) {}
+      }
       try {
         final snap = await FirestoreReadResilience.getQuery(
           ordered(),
@@ -443,7 +529,9 @@ abstract final class ChurchPedidosOracaoLoadService {
         final plain = await FirestoreWebGuard.runWithWebRecovery(
           plainLoad,
           maxAttempts: 4,
-        ).timeout(ChurchPanelReadTimeouts.queryCap);
+        ).timeout(
+        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
+      );
         if (plain.isNotEmpty) return plain;
       } catch (_) {}
     }
@@ -452,7 +540,7 @@ abstract final class ChurchPedidosOracaoLoadService {
         ? await FirestoreWebGuard.runWithWebRecovery(
             readServer,
             maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
+          ).timeout(const Duration(seconds: 14))
         : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
 
     if (docs.isEmpty) {
@@ -505,6 +593,7 @@ abstract final class ChurchPedidosOracaoLoadService {
     final create = Map<String, dynamic>.from(data)
       ..putIfAbsent('orandoCount', () => 0)
       ..putIfAbsent('orandoUids', () => <String>[])
+      ..putIfAbsent(PrayerOrandoMembrosDenorm.field, () => <Map<String, dynamic>>[])
       ..putIfAbsent('respondida', () => false)
       ..['createdAt'] = FieldValue.serverTimestamp();
 
@@ -517,35 +606,200 @@ abstract final class ChurchPedidosOracaoLoadService {
     return docRef.id;
   }
 
+  static Future<({String nome, String fotoUrl})> resolveOrandoMemberProfile({
+    required String churchId,
+    required String uid,
+    String? nomeHint,
+    String? fotoHint,
+  }) async {
+    var nome = (nomeHint ?? '').trim();
+    var foto = (fotoHint ?? '').trim();
+    if (nome.isEmpty || foto.isEmpty) {
+      try {
+        final directory =
+            await MembersDirectorySnapshotService.readOnce(churchId);
+        for (final e in directory.entries) {
+          if (e.authUid != uid) continue;
+          if (nome.isEmpty) nome = e.displayName.trim();
+          if (foto.isEmpty) {
+            foto = (e.photoThumbUrl ?? e.photoUrl ?? '').trim();
+          }
+          break;
+        }
+      } catch (_) {}
+    }
+    if (nome.isEmpty) nome = 'Membro';
+    return (nome: nome, fotoUrl: foto);
+  }
+
+  /// Reconstrói `orandoMembros` a partir de UIDs + Members Directory.
+  static Future<List<Map<String, dynamic>>> rebuildOrandoMembrosFromUids({
+    required String churchId,
+    required List<String> uids,
+    List<Map<String, dynamic>>? existingMembros,
+  }) async {
+    final cid = _resolve(churchId);
+    final uidSet = uids.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    if (uidSet.isEmpty) return const [];
+
+    final prevByUid = <String, Map<String, dynamic>>{};
+    for (final m in PrayerOrandoMembrosDenorm.parseList(existingMembros)) {
+      final uid = (m['uid'] ?? '').toString();
+      if (uid.isNotEmpty) prevByUid[uid] = m;
+    }
+
+    MembersDirectorySnapshot? directory;
+    try {
+      directory = await MembersDirectorySnapshotService.readOnce(cid);
+    } catch (_) {}
+
+    final out = <Map<String, dynamic>>[];
+    for (final uid in uidSet) {
+      final prev = prevByUid[uid];
+      var nome = (prev?['nome'] ?? '').toString().trim();
+      var foto = (prev?['fotoUrl'] ?? '').toString().trim();
+      if (directory != null) {
+        for (final e in directory.entries) {
+          if (e.authUid != uid) continue;
+          if (nome.isEmpty) nome = e.displayName.trim();
+          if (foto.isEmpty) foto = (e.photoThumbUrl ?? e.photoUrl ?? '').trim();
+          break;
+        }
+      }
+      if (nome.isEmpty) nome = 'Membro';
+      out.add(PrayerOrandoMembrosDenorm.entry(
+        uid: uid,
+        nome: nome,
+        fotoUrl: foto,
+      ));
+    }
+    return out;
+  }
+
+  /// Remove um intercessor (self ou líder).
+  static Future<void> removeOrandoMember({
+    required String churchId,
+    required String docId,
+    required String targetUid,
+    List<Map<String, dynamic>>? currentOrandoMembros,
+  }) =>
+      toggleOrando(
+        churchId: churchId,
+        docId: docId,
+        uid: targetUid,
+        removing: true,
+        currentOrandoMembros: currentOrandoMembros,
+      );
+
+  /// Remove o mesmo intercessor de vários pedidos.
+  static Future<int> removeOrandoMemberFromPedidos({
+    required String seedTenantId,
+    required String targetUid,
+    required Iterable<({String docId, List<Map<String, dynamic>> membros})>
+        targets,
+  }) async {
+    final uid = targetUid.trim();
+    if (uid.isEmpty) return 0;
+    var count = 0;
+    for (final t in targets) {
+      final membros = PrayerOrandoMembrosDenorm.parseList(t.membros);
+      if (!PrayerOrandoMembrosDenorm.uidsFromMembros(membros).contains(uid)) {
+        continue;
+      }
+      await removeOrandoMember(
+        churchId: seedTenantId,
+        docId: t.docId,
+        targetUid: uid,
+        currentOrandoMembros: membros,
+      );
+      count++;
+    }
+    unawaited(invalidate(seedTenantId));
+    return count;
+  }
+
+  /// Limpa todos os intercessores de um pedido.
+  static Future<void> clearOrandoFromPedido({
+    required String churchId,
+    required String docId,
+  }) async {
+    final cid = _resolve(churchId);
+    await OptimisticFirestoreWrite.update(
+      ref: ChurchUiCollections.pedidosOracao(cid).doc(docId.trim()),
+      data: {
+        'orandoUids': <String>[],
+        'orandoCount': 0,
+        PrayerOrandoMembrosDenorm.field: <Map<String, dynamic>>[],
+      },
+      module: OfflineModules.pedidosOracao,
+      tenantId: cid,
+    );
+  }
+
+  /// Limpa intercessores de vários pedidos (lote).
+  static Future<int> clearOrandoFromPedidos({
+    required String seedTenantId,
+    required Iterable<String> docIds,
+  }) async {
+    final ids = docIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    if (ids.isEmpty) return 0;
+    for (final id in ids) {
+      await clearOrandoFromPedido(churchId: seedTenantId, docId: id);
+    }
+    unawaited(invalidate(seedTenantId));
+    return ids.length;
+  }
+
   static Future<void> toggleOrando({
     required String churchId,
     required String docId,
     required String uid,
     required bool removing,
+    String? memberNome,
+    String? memberFotoUrl,
+    List<Map<String, dynamic>>? currentOrandoMembros,
   }) async {
     final cid = _resolve(churchId);
     final ref = ChurchUiCollections.pedidosOracao(cid).doc(docId.trim());
+    var membros = PrayerOrandoMembrosDenorm.parseList(currentOrandoMembros);
+
     if (removing) {
+      membros = PrayerOrandoMembrosDenorm.removeUid(membros, uid);
       await OptimisticFirestoreWrite.update(
         ref: ref,
         data: {
           'orandoUids': FieldValue.arrayRemove([uid]),
-          'orandoCount': FieldValue.increment(-1),
+          'orandoCount': membros.length,
+          PrayerOrandoMembrosDenorm.field: membros,
         },
         module: OfflineModules.pedidosOracao,
         tenantId: cid,
       );
-    } else {
-      await OptimisticFirestoreWrite.update(
-        ref: ref,
-        data: {
-          'orandoUids': FieldValue.arrayUnion([uid]),
-          'orandoCount': FieldValue.increment(1),
-        },
-        module: OfflineModules.pedidosOracao,
-        tenantId: cid,
-      );
+      return;
     }
+
+    final profile = await resolveOrandoMemberProfile(
+      churchId: cid,
+      uid: uid,
+      nomeHint: memberNome,
+      fotoHint: memberFotoUrl,
+    );
+    membros = PrayerOrandoMembrosDenorm.upsert(
+      membros,
+      uid: uid,
+      nome: profile.nome,
+      fotoUrl: profile.fotoUrl,
+    );
+    await OptimisticFirestoreWrite.update(
+      ref: ref,
+      data: {
+        'orandoUids': FieldValue.arrayUnion([uid]),
+        'orandoCount': membros.length,
+        PrayerOrandoMembrosDenorm.field: membros,
+      },
+      module: OfflineModules.pedidosOracao,
+      tenantId: cid,
+    );
   }
 
   static Future<void> marcarRespondida({
