@@ -209,7 +209,7 @@ async function resolveFirstPath(paths: string[]): Promise<string | null> {
   return null;
 }
 
-async function enrichPostMedia(
+export async function enrichPostMedia(
   tenantId: string,
   collection: string,
   postId: string,

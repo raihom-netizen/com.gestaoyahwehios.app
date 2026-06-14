@@ -2486,6 +2486,15 @@ class _BensTabState extends State<_BensTab> {
         limit: _pageSize,
         forceRefresh: forceFresh,
         forceServer: forceFresh,
+      ).timeout(
+        ChurchPanelReadTimeouts.queryCap,
+        onTimeout: () => ChurchPatrimonioLoadResult(
+          churchId: tid,
+          docs: const [],
+          readSource: 'timeout',
+          collectionPath: 'igrejas/$tid/patrimonio',
+          softError: 'Tempo esgotado ao carregar patrimônio.',
+        ),
       );
       if (!mounted) return;
       if (result.docs.isEmpty && result.hasHardError && _loadedDocs.isEmpty) {

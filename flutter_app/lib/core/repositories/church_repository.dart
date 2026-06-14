@@ -10,6 +10,8 @@ library;
 
 export 'package:gestao_yahweh/core/church_panel_paths.dart';
 export 'package:gestao_yahweh/core/yahweh_unified_image_pipeline.dart';
+export 'package:gestao_yahweh/core/gestao_yahweh_write_first_publish_service.dart';
+export 'package:gestao_yahweh/core/yahweh_data_engine_fetcher.dart';
 export 'package:gestao_yahweh/core/data/church_data_paths.dart';
 export 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 export 'package:gestao_yahweh/core/data/church_data_result.dart';

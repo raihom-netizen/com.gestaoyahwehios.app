@@ -7,8 +7,8 @@ import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
-import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -84,33 +84,25 @@ abstract final class MuralPostMediaPayload {
         if (!await f.exists()) {
           throw StateError('Foto ${i + 1} não encontrada no aparelho.');
         }
-        if (IosPublishImagePipeline.useIosLightweightPublish) {
-          final r = await IosPublishImagePipeline.uploadFeedPhotoSlot(
-            tenantId: tenantId,
-            postType: postType,
-            postId: postId,
-            slotIndex: startSlotIndex + i,
-            localPath: path,
-            onProgress: report,
-          );
-          return r.primaryUrl;
-        }
-        final bytes =
-            await IosPublishImagePipeline.compressForPublishFromPath(path);
-        return uploadPhotoSlot(
+        final slot = await ChurchInstantUploadPipeline.uploadFeedPhotoSlot(
           tenantId: tenantId,
           postType: postType,
           postId: postId,
-          bytes: bytes,
-          localPath: path,
           slotIndex: startSlotIndex + i,
+          localPath: path,
           onProgress: report,
-        ).timeout(_photoSlotTimeout);
+        );
+        final url = sanitizeImageUrl(slot.downloadUrl ?? '');
+        if (url.isEmpty || !isValidImageUrl(url)) {
+          throw StateError('Upload da foto ${i + 1} não devolveu URL válida.');
+        }
+        return url;
       },
     ).timeout(_batchTimeout);
     return dedupeImageRefsByStorageIdentity(uploaded);
   }
 
+  /// Um slot — path canónico `capa_aviso.jpg` / `banner_evento.jpg` (JPEG 1080 px).
   static Future<String> uploadPhotoSlot({
     required String tenantId,
     required String postType,
@@ -132,7 +124,7 @@ abstract final class MuralPostMediaPayload {
     return r.primaryUrl;
   }
 
-  /// WebP thumb/medium/full — feed e site público carregam [medium_800] primeiro.
+  /// Retorna URL + variantes vazias — feed usa ficheiro único `.jpg` (sem `_medium_800.webp`).
   static Future<
       ({
         String primaryUrl,
@@ -146,9 +138,8 @@ abstract final class MuralPostMediaPayload {
     void Function(double progress)? onProgress,
     String? localPath,
   }) async {
-    // v1555: 1 WebP por foto (web + mobile) — CF `optimizeImage` gera variantes.
     try {
-      return await IosPublishImagePipeline.uploadFeedPhotoSlot(
+      final slot = await ChurchInstantUploadPipeline.uploadFeedPhotoSlot(
         tenantId: tenantId,
         postType: postType,
         postId: postId,
@@ -157,11 +148,16 @@ abstract final class MuralPostMediaPayload {
         localPath: localPath,
         onProgress: onProgress,
       );
+      final url = sanitizeImageUrl(slot.downloadUrl ?? '');
+      if (url.isEmpty || !isValidImageUrl(url)) {
+        throw StateError('Upload da foto não devolveu URL válida.');
+      }
+      return (primaryUrl: url, imageVariants: const <String, dynamic>{});
     } catch (e, st) {
       await YahwehTelemetry.recordUploadFailure(
         e,
         st,
-        context: 'uploadPhotoSlotWithVariants_fast',
+        context: 'uploadPhotoSlotWithVariants_canonical',
       );
       rethrow;
     }

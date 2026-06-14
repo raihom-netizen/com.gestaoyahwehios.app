@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/app_shell.dart';
@@ -42,7 +43,7 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
 
   Future<void> _loadChurchMeta() async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
       final snap = await ChurchUiCollections.churchDoc(op)
           .get(const GetOptions(source: Source.cache));
       var d = snap.data() ?? {};

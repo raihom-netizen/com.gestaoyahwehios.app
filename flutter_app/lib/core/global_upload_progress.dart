@@ -37,6 +37,14 @@ class GlobalUploadProgress {
     state.value = s.copyWith(progress: progress.clamp(0.0, 1.0));
   }
 
+  void updateLabel(String label) {
+    final trimmed = label.trim();
+    if (trimmed.isEmpty) return;
+    final s = state.value;
+    if (s == null) return;
+    state.value = s.copyWith(label: trimmed);
+  }
+
   void updateBatch({
     required int currentItem,
     required int totalItems,

@@ -28,6 +28,7 @@ import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
+import 'package:gestao_yahweh/core/yahweh_chat_engine_service.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
@@ -1098,8 +1099,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     List<String> ids,
   ) async {
     if (ids.isEmpty) return [];
-    final op = ChurchContextService.panelChurchId(tid);
-    final deptCol =         ChurchUiCollections.departamentos(op);
+    final churchId = ChurchRepository.churchId(tid);
+    final deptCol = ChurchUiCollections.departamentos(churchId);
     final futures = ids.map((id) async {
       try {
         var doc = await deptCol
@@ -1146,8 +1147,35 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     final seed = (tenantOverride ?? _resolvedTenantId ?? widget.tenantId).trim();
     if (seed.isEmpty) return;
 
+    final seesAll =
+        _chatHubSeesAllDepartmentGroups(widget.role, widget.permissions);
+
+    if (!seesAll) {
+      try {
+        if (kIsWeb) {
+          await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        }
+        final prefIds =
+            await YahwehChatEngineService.loadMemberDepartmentGroupIds(seed);
+        if (prefIds.isNotEmpty) {
+          final fromPrefs = await _fetchDeptEntriesParallel(seed, prefIds);
+          if (fromPrefs.isNotEmpty && mounted) {
+            setState(() {
+              _departments = fromPrefs;
+              _departmentsLoading = false;
+            });
+            final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+            if (uid.isNotEmpty) {
+              unawaited(_ensureDeptThreadsBackground(seed, uid, _departments));
+            }
+            return;
+          }
+        }
+      } catch (_) {}
+    }
+
     final instant = ChurchChatHubDepartmentsService.peekInstant(seed);
-    if (instant != null && instant.isNotEmpty && mounted) {
+    if (seesAll && instant != null && instant.isNotEmpty && mounted) {
       setState(() {
         _departments = _entriesFromDeptDocs(instant);
         _departmentsLoading = false;
@@ -1162,7 +1190,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         seedTenantId: seed,
       );
       if (!mounted) return;
-      if (docs.isNotEmpty) {
+      if (docs.isNotEmpty && seesAll) {
         _ChatHubDepartmentsRamCache.put(ChurchPanelTenant.resolve(seed), docs);
         setState(() {
           _departments = _entriesFromDeptDocs(docs);
@@ -1196,6 +1224,13 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         forceServer: cached.isEmpty,
       );
       var entries = _entriesFromDeptDocs(docs);
+      if (entries.isEmpty) {
+        final prefIds =
+            await YahwehChatEngineService.loadMemberDepartmentGroupIds(tid);
+        if (prefIds.isNotEmpty) {
+          entries = await _fetchDeptEntriesParallel(tid, prefIds);
+        }
+      }
       if (entries.isEmpty) {
         entries = await _loadDepartmentsFromDeptChatThreads(tid);
       }
@@ -1365,9 +1400,15 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     int syncGen,
   ) async {
     try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      final prefs = await YahwehChatEngineService.loadMemberPrefs(tid);
+      final prefsGroupIds = prefs.departmentGroupOrderIds;
+
       final digits = widget.cpf.replaceAll(RegExp(r'\D'), '');
-      final op = ChurchContextService.panelChurchId(tid);
-      final base =           ChurchUiCollections.membros(op);
+      final churchId = ChurchRepository.churchId(tid);
+      final base = ChurchUiCollections.membros(churchId);
 
       DocumentSnapshot<Map<String, dynamic>>? membro;
       try {
@@ -1404,6 +1445,9 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       } catch (_) {}
 
       final deptIds = <String>[];
+      if (prefsGroupIds.isNotEmpty) {
+        deptIds.addAll(prefsGroupIds);
+      }
       if (membro != null && membro.exists) {
         final d = membro.data() ?? {};
         final raw = d['departamentosIds'];
@@ -1412,7 +1456,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
         }
         final depNames = d['DEPARTAMENTOS'];
         if (depNames is List) {
-          final col =               ChurchUiCollections.departamentos(tid);
+          final col = ChurchUiCollections.departamentos(churchId);
           final nameFutures = depNames.map((name) async {
             try {
               final hit = await col
@@ -1438,21 +1482,19 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
       final deptIdSet = deptIds.toSet();
       await _appendLeaderDepartmentIds(tid, uid, digits, deptIdSet);
 
-      final uniqueIds = deptIdSet.toList();
+      final uniqueIds = prefsGroupIds.isNotEmpty
+          ? [
+              ...prefsGroupIds,
+              ...deptIdSet.where((id) => !prefsGroupIds.contains(id)),
+            ]
+          : deptIdSet.toList();
       if (uniqueIds.isNotEmpty) {
         final cachedEntries = await _fetchDeptEntriesParallel(tid, uniqueIds);
         if (cachedEntries.isNotEmpty && mounted) {
           setState(() => _departments = cachedEntries);
         }
-      } else {
-        final allDepts = await ChurchTenantResilientReads.departamentos(
-          tid,
-          limit: 120,
-        ).timeout(const Duration(seconds: 12));
-        final allEntries = _entriesFromDeptDocs(allDepts.docs);
-        if (allEntries.isNotEmpty && mounted) {
-          setState(() => _departments = allEntries);
-        }
+      } else if (mounted && _departments.isEmpty) {
+        setState(() => _departments = const []);
       }
 
       unawaited(

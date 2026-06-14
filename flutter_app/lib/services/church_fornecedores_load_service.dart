@@ -1,17 +1,15 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
-import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga fornecedores — `igrejas/{churchId}/fornecedores`.
 class ChurchFornecedoresLoadResult {
@@ -166,20 +164,23 @@ abstract final class ChurchFornecedoresLoadService {
             TenantModuleKeys.fornecedores,
           );
           final docs = _sortByNome(TenantModuleHiveCache.toQueryDocuments(hive));
-          _putRam(ramKey, docs);
-          unawaited(_refreshInBackground(
-            churchId: churchId,
-            ramKey: ramKey,
-            limit: capped,
-            reference: reference,
-          ));
-          return ChurchFornecedoresLoadResult(
-            churchId: churchId,
-            docs: docs,
-            readSource: docs.isEmpty ? 'hive_empty' : 'hive',
-            collectionPath: path,
-            fromCache: true,
-          );
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+            _putRam(ramKey, docs);
+            unawaited(_refreshInBackground(
+              churchId: churchId,
+              ramKey: ramKey,
+              limit: capped,
+              reference: reference,
+            ));
+            return ChurchFornecedoresLoadResult(
+              churchId: churchId,
+              docs: docs,
+              readSource: 'hive',
+              collectionPath: path,
+              fromCache: true,
+            );
+          }
+          // Hive vazio/obsoleto — continua para Firestore.
         }
       } catch (_) {}
     }
@@ -325,65 +326,15 @@ abstract final class ChurchFornecedoresLoadService {
     required String cacheKey,
     required bool forceServer,
     required int limit,
-  }) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
-
-    Query<Map<String, dynamic>> ordered(CollectionReference<Map<String, dynamic>> c) =>
-        c.orderBy('nome').limit(limit);
-    Query<Map<String, dynamic>> plain(CollectionReference<Map<String, dynamic>> c) =>
-        c.limit(limit);
-
-    if (!forceServer) {
-      try {
-        final cacheSnap = await ordered(reference)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 5));
-        if (cacheSnap.docs.isNotEmpty) {
-          return _sortByNome(cacheSnap.docs);
-        }
-      } catch (_) {}
-    }
-
-    Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
-      if (kIsWeb) {
-        try {
-          final plainSnap = await FirestoreReadResilience.getQuery(
-            plain(reference),
-            cacheKey: '${cacheKey}_plain',
-            maxAttempts: 4,
-            attemptTimeout: ChurchPanelReadTimeouts.attempt,
-          );
-          if (plainSnap.docs.isNotEmpty) return plainSnap;
-        } catch (_) {}
-      }
-      try {
-        return await FirestoreReadResilience.getQuery(
-          ordered(reference),
-          cacheKey: cacheKey,
-          maxAttempts: kIsWeb ? 5 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-      } catch (_) {
-        return FirestoreReadResilience.getQuery(
-          plain(reference),
-          cacheKey: '${cacheKey}_plain',
-          maxAttempts: kIsWeb ? 4 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-      }
-    }
-
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
-        : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
-
-    return _sortByNome(snap.docs);
-  }
+  }) =>
+      ChurchModuleFirestoreListRead.queryPlainFirst(
+        reference: reference,
+        cacheKey: cacheKey,
+        limit: limit,
+        forceServer: forceServer,
+        orderByField: 'nome',
+        sortDocs: _sortByNome,
+      );
 
   static Future<void> invalidate(String seedTenantId) async {
     final churchId = _resolve(seedTenantId);

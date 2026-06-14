@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Modos de alerta (alinhados a [ChurchChatNotificationPrefs]).
 const Set<String> _kChatAlertModes = {'sound', 'vibrate', 'silent'};
@@ -203,6 +205,22 @@ class ChurchChatMemberPrefs {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return const ChurchChatMemberPrefsModel();
     final snap = await docRef(tenantId, uid).get();
+    return parse(snap);
+  }
+
+  /// Leitura com recuperação Web (painel) — evita prefs vazias por falha transitória do SDK.
+  static Future<ChurchChatMemberPrefsModel> loadResilient(String tenantId) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) {
+      return const ChurchChatMemberPrefsModel();
+    }
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+    final snap = await FirestoreWebGuard.runWithWebRecovery(
+      () => docRef(tenantId, uid).get(),
+      maxAttempts: 4,
+    );
     return parse(snap);
   }
 

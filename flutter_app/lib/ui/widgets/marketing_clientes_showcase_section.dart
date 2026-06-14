@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/core/ui_asset_layout_constants.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -737,7 +738,7 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
     Future<Map<String, dynamic>?> fetchTenantDoc() async {
       if (tid.isEmpty) return null;
       try {
-        final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+        final op = ChurchPanelTenantGateway.churchId(tid.trim());
         final doc = await             ChurchUiCollections.churchDoc(op)
             .get()
             .timeout(

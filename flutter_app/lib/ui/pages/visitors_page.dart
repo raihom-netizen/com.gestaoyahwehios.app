@@ -284,15 +284,15 @@ class _VisitorsPageState extends State<VisitorsPage> {
     return result.snapshot;
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadVisitantes() {
+  Future<QuerySnapshot<Map<String, dynamic>>> _seedOrLoadVisitantes() async {
     final cid = _churchId.trim();
     if (cid.isEmpty) {
-      return Future.value(const MergedFirestoreQuerySnapshot([]));
+      return const MergedFirestoreQuerySnapshot([]);
     }
 
     final ram = ChurchVisitantesLoadService.peekRam(cid);
-    if (ram != null) {
-      return Future.value(MergedFirestoreQuerySnapshot(ram));
+    if (ram != null && ram.isNotEmpty) {
+      return MergedFirestoreQuerySnapshot(ram);
     }
 
     final memKey = ChurchVisitantesLoadService.cacheKey(
@@ -300,12 +300,11 @@ class _VisitorsPageState extends State<VisitorsPage> {
       ChurchVisitantesLoadService.kDefaultLimit,
     );
     final mem = FirestoreReadResilience.peekLastGoodQuery(memKey);
-    if (mem != null) {
-      return Future.value(mem);
+    if (mem != null && mem.docs.isNotEmpty) {
+      return mem;
     }
 
-    // Cache-first: lista vazia instantânea — rede actualiza em background.
-    return Future.value(const MergedFirestoreQuerySnapshot([]));
+    return _loadVisitantes();
   }
 
   Future<void> _refreshVisitantesBackground() async {

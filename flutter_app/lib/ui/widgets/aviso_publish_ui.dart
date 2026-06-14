@@ -1,11 +1,90 @@
 import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show formatUploadErrorForUser;
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
 /// Progresso bloqueante — avisos, eventos, património, etc. (padrão Ecofire).
 abstract final class EcofirePublishProgressUi {
   EcofirePublishProgressUi._();
+
+  /// Publicação estilo WhatsApp: fecha o editor de imediato e mostra barra global
+  /// ([GlobalUploadProgress] / [StorageUploadProgressIndicator] no feed).
+  static Future<T> runInBackgroundNonBlocking<T>({
+    required BuildContext context,
+    required String uploadLabel,
+    required String saveLabel,
+    required String distributeLabel,
+    required String successMessage,
+    required VoidCallback closeEditor,
+    required Future<T> Function(void Function(double progress)) action,
+    String Function(Object error)? formatError,
+  }) async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    closeEditor();
+    GlobalUploadProgress.instance.start(uploadLabel);
+    var phaseLabel = uploadLabel;
+
+    void reportProgress(double p) {
+      final next = p < 0.78
+          ? uploadLabel
+          : p < 0.94
+              ? saveLabel
+              : distributeLabel;
+      if (next != phaseLabel) {
+        phaseLabel = next;
+        GlobalUploadProgress.instance.updateLabel(next);
+      }
+      GlobalUploadProgress.instance.update(p);
+    }
+
+    try {
+      final result = await action(reportProgress);
+      messenger?.showSnackBar(
+        ThemeCleanPremium.successSnackBar(successMessage),
+      );
+      return result;
+    } catch (e) {
+      final msg = formatError?.call(e) ?? formatUploadErrorForUser(e);
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: ThemeCleanPremium.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      rethrow;
+    } finally {
+      GlobalUploadProgress.instance.end();
+    }
+  }
+
+  /// Fire-and-forget — não bloqueia o chamador após fechar o editor.
+  static void schedule<T>({
+    required BuildContext context,
+    required String uploadLabel,
+    required String saveLabel,
+    required String distributeLabel,
+    required String successMessage,
+    required VoidCallback closeEditor,
+    required Future<T> Function(void Function(double progress)) action,
+    String Function(Object error)? formatError,
+  }) {
+    unawaited(
+      runInBackgroundNonBlocking<T>(
+        context: context,
+        uploadLabel: uploadLabel,
+        saveLabel: saveLabel,
+        distributeLabel: distributeLabel,
+        successMessage: successMessage,
+        closeEditor: closeEditor,
+        action: action,
+        formatError: formatError,
+      ),
+    );
+  }
 
   static Future<T> runWithProgress<T>(
     BuildContext context, {

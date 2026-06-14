@@ -869,7 +869,11 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _cidadeCtrl.text = (data['cidade'] ?? data['localidade'] ?? '').toString();
     _estadoCtrl.text = (data['estado'] ?? data['uf'] ?? '').toString();
     _bairroCtrl.text = (data['bairro'] ?? '').toString();
-    _ruaCtrl.text = (data['rua'] ?? data['address'] ?? '').toString();
+    final enderecoLinha =
+        (data['endereco'] ?? data['endereço'] ?? data['addressLine'] ?? '')
+            .toString()
+            .trim();
+    _ruaCtrl.text = (data['rua'] ?? data['address'] ?? enderecoLinha).toString();
     _quadraLoteNumeroCtrl.text = (data['quadraLoteNumero'] ??
             data['quadra_lote_numero'] ??
             data['qdLtNumero'] ??
@@ -1752,13 +1756,19 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<bool> _commitLogoUploadFromPending({
     bool showCommitSuccessSnack = true,
     bool deferFirestorePatch = false,
+    bool suppressProgressUi = false,
   }) async {
     if (!_canEdit || _logoBytes == null || !mounted) return true;
-    setState(() {
+    if (!suppressProgressUi) {
+      setState(() {
+        _uploadingLogo = true;
+        _logoUploadProgress = 0;
+        _logoUploadPhase = 'encoding';
+      });
+    } else {
       _uploadingLogo = true;
-      _logoUploadProgress = 0;
-      _logoUploadPhase = 'encoding';
-    });
+      _logoUploadPhase = 'uploading';
+    }
     try {
       await ensureFirebaseReadyForPublishUpload();
       await FirebaseAuth.instance.currentUser?.getIdToken(false);
@@ -1766,10 +1776,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       final png =
           await encodeChurchLogoAsPngInIsolate(_logoBytes!, maxSide: 1920);
       if (!mounted) return true;
-      setState(() {
-        _logoUploadPhase = 'uploading';
-        _logoUploadProgress = 0.05;
-      });
+      if (!suppressProgressUi) {
+        setState(() {
+          _logoUploadPhase = 'uploading';
+          _logoUploadProgress = 0.05;
+        });
+      }
       await _deleteChurchLogoStorageObjectAndVariants(_logoStoragePath);
       // Mantém só a identidade canónica em PNG: remove legado `.jpg` no mesmo sítio.
       try {
@@ -1784,10 +1796,12 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         storagePath: identityPath,
         bytes: png,
         contentType: 'image/png',
-        onProgress: (p) {
-          if (!mounted) return;
-          setState(() => _logoUploadProgress = p.clamp(0.0, 1.0));
-        },
+        onProgress: suppressProgressUi
+            ? null
+            : (p) {
+                if (!mounted) return;
+                setState(() => _logoUploadProgress = p.clamp(0.0, 1.0));
+              },
       );
       final url = upload.downloadUrl;
       if (!mounted) return true;
@@ -1994,14 +2008,22 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           _logoStagedNotUploaded &&
           _logoBytes != null &&
           !_uploadingLogo) {
-        final logoOk = await _commitLogoUploadFromPending(
-          showCommitSuccessSnack: false,
-          deferFirestorePatch: true,
-        );
-        if (!mounted) return;
-        if (!logoOk) {
-          setState(() => _saving = false);
-          return;
+        if (kIsWeb) {
+          unawaited(_commitLogoUploadFromPending(
+            showCommitSuccessSnack: true,
+            deferFirestorePatch: false,
+            suppressProgressUi: true,
+          ));
+        } else {
+          final logoOk = await _commitLogoUploadFromPending(
+            showCommitSuccessSnack: false,
+            deferFirestorePatch: true,
+          );
+          if (!mounted) return;
+          if (!logoOk) {
+            setState(() => _saving = false);
+            return;
+          }
         }
       }
       final slugRaw = _slugCtrl.text

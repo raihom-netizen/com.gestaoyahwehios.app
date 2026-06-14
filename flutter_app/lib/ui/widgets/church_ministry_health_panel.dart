@@ -5,6 +5,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_query_limits.dart';
 import 'package:gestao_yahweh/core/dashboard/church_ministry_intel.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
@@ -1980,7 +1981,7 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
   Future<void> _sync() async {
     setState(() => _loading = true);
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
       final snap = await           ChurchUiCollections.financeiro(op)
           .orderBy('createdAt', descending: true)
           .limit(1000)

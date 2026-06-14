@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/evento_calendar_integration.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -40,7 +41,7 @@ Future<ChurchProximoCultoSnapshot?> fetchChurchProximoCultoSnapshot(
   if (tid.isEmpty) return null;
   final now = DateTime.now();
   try {
-    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final op = ChurchPanelTenantGateway.churchId(tid.trim());
     final snap = await         ChurchUiCollections.churchDoc(op)
         .collection(ChurchTenantPostsCollections.eventos)
         .where('type', isEqualTo: 'evento')

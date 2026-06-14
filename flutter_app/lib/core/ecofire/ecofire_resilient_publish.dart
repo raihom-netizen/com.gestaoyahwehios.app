@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
@@ -17,6 +17,7 @@ import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
+import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/offline_payload_codec.dart';
 import 'package:gestao_yahweh/core/offline/offline_write_operations.dart';
@@ -148,7 +149,7 @@ abstract final class EcoFireResilientPublish {
     localPayload['ativo'] = true;
     localPayload['publicado'] = true;
     localPayload['status'] = 'publicado';
-    localPayload['publishState'] = 'pending_sync';
+    localPayload['publishState'] = MuralFastPublishService.stateUploading;
     localPayload['photoUploadState'] = EntityPublishStatus.uploading;
 
     await TenantOfflineWrite.setDocument(
@@ -311,6 +312,31 @@ abstract final class EcoFireResilientPublish {
     String? previousDownloadUrl,
   }) async {
     final tid = churchId.trim();
+
+    // Web online: fila Hive/SharedPreferences perde bytes — upload imediato.
+    if (kIsWeb && AppConnectivityService.instance.isOnline) {
+      try {
+        await FinanceComprovantePublishService.uploadComprovanteNow(
+          tenantId: tid,
+          docRef: docRef,
+          rawBytes: bytes,
+          mimeType: mimeType,
+          fileName: fileName,
+          referenceDate: referenceDate,
+          previousStoragePath: previousStoragePath,
+          previousDownloadUrl: previousDownloadUrl,
+        );
+        scheduleSync(reason: 'finance_comprovante_web_direct');
+        return;
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint(
+            'EcoFireResilientPublish: web comprovante direct falhou, outbox: $e',
+          );
+        }
+      }
+    }
+
     await MuralPostPendingMediaCache.put(
       tenantId: tid,
       postId: 'finance_${docRef.id}',

@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -381,7 +382,10 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
     }
 
     final url = _displayUrl ?? norm;
-    if (!isValidImageUrl(url)) {
+    final bustedUrl = rev > 0 && isValidImageUrl(url)
+        ? YahwehMediaCacheBust.apply(url, rev)
+        : url;
+    if (!isValidImageUrl(bustedUrl)) {
       if (canStorage) {
         return core(_MemberPhotoStorageFallback(
           tenantId: tid,
@@ -407,8 +411,8 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
 
     return core(
       ResilientNetworkImage(
-        key: ValueKey<String>('smp_${url}_${tid}_${mid}_$rev'),
-        imageUrl: url,
+        key: ValueKey<String>('smp_${bustedUrl}_${tid}_${mid}_$rev'),
+        imageUrl: bustedUrl,
         width: widget.width,
         height: widget.height,
         fit: widget.fit,
@@ -418,7 +422,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
         storageCacheRevision: rev,
         placeholder: widget.placeholder ?? err,
         errorWidget: _buildLoadErrorFallback(
-          currentUrl: url,
+          currentUrl: bustedUrl,
           canStorage: canStorage,
           tid: tid,
           mid: mid,

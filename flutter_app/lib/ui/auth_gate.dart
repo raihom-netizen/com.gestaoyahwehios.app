@@ -27,6 +27,7 @@ import '../services/fcm_service.dart';
 import '../services/internal_notification_inbox_service.dart';
 import '../services/app_permissions.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -1209,7 +1210,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         churchData = Map<String, dynamic>.from(cached!['church'] as Map);
       } else {
         try {
-          final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
+          final op = ChurchPanelTenantGateway.churchId(igrejaId.trim());
           final ch = await               ChurchUiCollections.churchDoc(op)
               .get(const GetOptions(source: Source.cache));
           if (ch.exists) churchData = ch.data();

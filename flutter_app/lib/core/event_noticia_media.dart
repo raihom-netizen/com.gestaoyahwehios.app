@@ -285,6 +285,7 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
         final e = iv[key];
         if (e is Map) {
           pushFromAny(e['url'] ?? e['downloadUrl']);
+          pushFromAny(e['storagePath'] ?? e['storage_path']);
         } else {
           pushFromAny(e);
         }
@@ -305,6 +306,32 @@ List<String> eventNoticiaPhotoUrls(Map<String, dynamic>? data) {
   }
   return dedupeImageRefsByStorageIdentity(
       noticiaImageRefsPreferDisplayOrder(out));
+}
+
+/// Há foto resolvível no doc (URLs ou paths Storage) — evita spinner infinito no feed.
+bool eventNoticiaDocHasPhotoMedia(Map<String, dynamic>? data) {
+  if (data == null) return false;
+  if (eventNoticiaPhotoUrls(data).isNotEmpty) return true;
+  for (final key in ['imageStoragePaths', 'fotoStoragePaths']) {
+    final raw = data[key];
+    if (raw is List) {
+      for (final e in raw) {
+        final s = e.toString().trim();
+        if (s.isEmpty) continue;
+        if (firebaseStorageMediaUrlLooksLike(s) ||
+            s.toLowerCase().startsWith('gs://') ||
+            isValidImageUrl(s)) {
+          return true;
+        }
+      }
+    }
+  }
+  final single =
+      (data['imageStoragePath'] ?? data['fotoPath'] ?? '').toString().trim();
+  if (single.isEmpty) return false;
+  return firebaseStorageMediaUrlLooksLike(single) ||
+      single.toLowerCase().startsWith('gs://') ||
+      isValidImageUrl(single);
 }
 
 /// Proporção do carrossel estilo feed (retrato tipo Instagram 4:5; vídeo 16:9).

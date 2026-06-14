@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/core/saas_plan_limits.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
@@ -182,7 +183,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
       return _memberCountCache[tenantId]!;
     }
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(tenantId.trim());
       final agg = await           ChurchUiCollections.membros(op)
           .count()
           .get();
@@ -265,7 +266,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
           .map((s) => s.trim())
           .where((s) => s.isNotEmpty)
           .toList();
-      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(tenantId.trim());
       await ChurchUiCollections.churchDoc(op).set({
         'saas': {
           'authorizedDomains': list,
@@ -287,7 +288,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
   }
 
   Future<void> _setSaasTier(String tenantId, String tier) async {
-    final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+    final op = ChurchPanelTenantGateway.churchId(tenantId.trim());
     await ChurchUiCollections.churchDoc(op).set({
       'saasTier': tier,
       'saas': {'tier': tier, 'updatedAt': FieldValue.serverTimestamp()},

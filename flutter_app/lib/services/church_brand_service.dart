@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -240,8 +241,10 @@ abstract final class ChurchBrandService {
   static Future<void> persistLogoPath({
     required String churchId,
     required String storagePath,
+    int? cacheRevision,
   }) async {
     final cid = churchId.trim();
+    final rev = cacheRevision ?? YahwehMediaCacheBust.freshRevisionMs();
     var path = StorageMediaService.normalizeFirestoreStoragePath(storagePath) ??
         storagePath.trim();
     if (path.endsWith('/configuracoes') || path.endsWith('/configuracoes/')) {
@@ -258,7 +261,10 @@ abstract final class ChurchBrandService {
     await runFirestorePublishWithRecovery(
       () => FirestoreWebGuard.runWithWebRecovery(
         () => ChurchOperationalPaths.churchDoc(cid).set(
-              logoPathFirestorePatch(path),
+              {
+                ...logoPathFirestorePatch(path),
+                'logoCacheRevision': rev,
+              },
               SetOptions(merge: true),
             ),
         maxAttempts: 5,

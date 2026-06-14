@@ -2091,27 +2091,11 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
 
     if (kIsWeb) return null;
 
-    // Vídeo/documento/áudio: upload via putFile com path persistente.
-    if (pending.kind != 'image') return null;
+    // Imagem mobile: comprimir a partir do path no serviço (evita OOM com original 5–10 MB).
+    if (pending.kind == 'image') return null;
 
-    try {
-      final raw = await churchChatReadFileBytes(path);
-      if (raw.isEmpty) return null;
-      final u8 = raw is Uint8List ? raw : Uint8List.fromList(raw);
-      if (u8.length <= 48 * 1024 * 1024) {
-        unawaited(
-          ChurchChatPendingMediaCache.put(
-            tenantId: _tid,
-            threadId: widget.threadId,
-            localId: pending.localId,
-            bytes: u8,
-          ),
-        );
-      }
-      return u8;
-    } catch (_) {
-      return null;
-    }
+    // Vídeo/documento/áudio: upload via putFile com path persistente.
+    return null;
   }
 
   int? _maxBytesForChatKind(String kind) {
@@ -2253,23 +2237,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       tenantId: _tid,
       threadId: widget.threadId,
     ));
-    Uint8List? previewBytes;
-    if (kind == 'image' && !kIsWeb) {
-      try {
-        previewBytes = await SafeImageBytes.fromPath(
-          localPath,
-          maxEdge: 480,
-          quality: 72,
-        );
-      } catch (_) {}
-    }
     final pending = ChurchChatOutboundPending(
       localId: 'p_${DateTime.now().millisecondsSinceEpoch}_${albumIndex}',
       kind: kind,
       fileName: name,
       mime: mime,
       localPath: localPath,
-      previewBytes: previewBytes,
+      previewBytes: null,
       replyPreview: albumIndex == 0 ? _replyDraft?.preview : null,
       albumGroupId: albumGroupId,
       albumIndex: albumIndex,

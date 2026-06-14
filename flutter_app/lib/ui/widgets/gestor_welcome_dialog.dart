@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/core/roles_permissions.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 
 import 'package:google_fonts/google_fonts.dart';
 
@@ -63,7 +64,7 @@ class GestorWelcomeDialog {
     if (prefs.getBool('$_prefKeyPrefix$tenantId') == true) return;
 
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(tenantId.trim());
       final igrejaSnap = await           ChurchUiCollections.churchDoc(op)
           .get(const GetOptions(source: Source.server));
 

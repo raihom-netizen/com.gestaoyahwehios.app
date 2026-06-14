@@ -64,7 +64,11 @@ abstract final class TenantOfflineWrite {
         await ref.update(data);
         return;
       }
-      if (merge) {
+      final effectiveMerge = FirestoreWriteGuard.effectiveSetMerge(
+        merge: merge,
+        data: data,
+      );
+      if (effectiveMerge) {
         await ref.set(data, SetOptions(merge: true));
       } else {
         await ref.set(data);
@@ -83,12 +87,17 @@ abstract final class TenantOfflineWrite {
     final tid = tenantId?.trim().isNotEmpty == true
         ? tenantId!.trim()
         : OfflineModules.tenantIdFromPath(path);
+    final stripped = FirestoreWriteGuard.stripHeavyFields(
+      Map<String, dynamic>.from(data),
+    );
+    final effectiveMerge = FirestoreWriteGuard.effectiveSetMerge(
+      merge: merge,
+      data: stripped,
+    );
     final payload = FirestoreLastWriteWins.stamp(
       ChurchTenantFields.stamp(
         tid,
-        FirestoreWriteGuard.stripHeavyFields(
-          Map<String, dynamic>.from(data),
-        ),
+        stripped,
       ),
       includeCreatedAt: !merge,
     );
@@ -102,10 +111,14 @@ abstract final class TenantOfflineWrite {
         payload: {
           'path': path,
           'data': OfflinePayloadCodec.encodeMap(payload),
-          'merge': merge,
+          'merge': effectiveMerge,
         },
       );
-      await _mirrorToFirestoreCache(ref: ref, data: payload, merge: merge);
+      await _mirrorToFirestoreCache(
+        ref: ref,
+        data: payload,
+        merge: effectiveMerge,
+      );
       SyncService.notifyUserActionSaved();
       unawaited(
         TenantAuditService.logCreate(
@@ -119,7 +132,7 @@ abstract final class TenantOfflineWrite {
     }
 
     await runFirestorePublishWithRecovery<void>(() async {
-      if (merge) {
+      if (effectiveMerge) {
         await ref.set(payload, SetOptions(merge: true));
       } else {
         await ref.set(payload);
@@ -278,7 +291,11 @@ abstract final class TenantOfflineWrite {
         for (final w in writes) {
           final ref = FirebaseFirestore.instance.doc(w.path);
           final data = FirestoreWriteGuard.stripHeavyFields(w.data);
-          if (w.merge) {
+          final effectiveMerge = FirestoreWriteGuard.effectiveSetMerge(
+            merge: w.merge,
+            data: data,
+          );
+          if (effectiveMerge) {
             batch.set(ref, data, SetOptions(merge: true));
           } else {
             batch.set(ref, data);
@@ -295,7 +312,11 @@ abstract final class TenantOfflineWrite {
     for (final w in writes) {
       final ref = FirebaseFirestore.instance.doc(w.path);
       final data = FirestoreWriteGuard.stripHeavyFields(w.data);
-      if (w.merge) {
+      final effectiveMerge = FirestoreWriteGuard.effectiveSetMerge(
+        merge: w.merge,
+        data: data,
+      );
+      if (effectiveMerge) {
         batch.set(ref, data, SetOptions(merge: true));
       } else {
         batch.set(ref, data);

@@ -4,10 +4,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/utils/church_department_list.dart'
+    show churchDepartmentNameFromDoc;
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -31,7 +34,7 @@ class ChurchDepartmentsLoadResult {
   bool get isEmpty => docs.isEmpty;
 }
 
-/// Carga canónica Departamentos — directa `igrejas/{churchId}/departamentos`.
+/// Carga canónica Departamentos — `igrejas/{churchId}/departamentos` (plain-first Web).
 abstract final class ChurchDepartmentsLoadService {
   ChurchDepartmentsLoadService._();
 
@@ -78,6 +81,14 @@ abstract final class ChurchDepartmentsLoadService {
     return TenantModuleHiveCache.toQueryDocuments(rows);
   }
 
+  static int _sortByDisplayName(
+    QueryDocumentSnapshot<Map<String, dynamic>> a,
+    QueryDocumentSnapshot<Map<String, dynamic>> b,
+  ) =>
+      churchDepartmentNameFromDoc(a)
+          .toLowerCase()
+          .compareTo(churchDepartmentNameFromDoc(b).toLowerCase());
+
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _loadFirestoreFull(
     String churchId, {
@@ -88,38 +99,19 @@ abstract final class ChurchDepartmentsLoadService {
 
     final key = cacheKey(id);
 
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
-
-    if (!forceServer) {
-      try {
-        final cacheSnap = await ChurchUiCollections.departamentos(id)
-            .limit(kLimit)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 5));
-        if (cacheSnap.docs.isNotEmpty) return cacheSnap.docs;
-      } catch (_) {}
-    }
-
-    Future<QuerySnapshot<Map<String, dynamic>>> readServer() =>
-        FirestoreReadResilience.getQuery(
-          ChurchUiCollections.departamentos(id).limit(kLimit),
-          cacheKey: key,
-          maxAttempts: kIsWeb ? 5 : 3,
-          attemptTimeout: kIsWeb
-              ? const Duration(seconds: 24)
-              : const Duration(seconds: 16),
-        );
-
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 4,
-          ).timeout(const Duration(seconds: 100))
-        : await readServer().timeout(const Duration(seconds: 50));
-
-    return snap.docs;
+    final docs = await ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: ChurchUiCollections.departamentos(id),
+      cacheKey: key,
+      limit: kLimit,
+      forceServer: forceServer,
+      sortDocs: (list) {
+        final sorted =
+            List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(list)
+              ..sort(_sortByDisplayName);
+        return sorted;
+      },
+    );
+    return docs;
   }
 
   static Future<ChurchDepartmentsLoadResult> load({
@@ -140,6 +132,7 @@ abstract final class ChurchDepartmentsLoadService {
     if (!forceRefresh && !forceServer) {
       final ram = peekRam(churchId);
       if (ram != null && ram.isNotEmpty) {
+        unawaited(_refreshInBackground(churchId));
         return ChurchDepartmentsLoadResult(
           churchId: churchId,
           docs: ram,
@@ -150,6 +143,7 @@ abstract final class ChurchDepartmentsLoadService {
       final mem = FirestoreReadResilience.peekLastGoodQuery(cacheKey(churchId));
       if (mem != null && mem.docs.isNotEmpty) {
         putRam(churchId, mem.docs);
+        unawaited(_refreshInBackground(churchId));
         return ChurchDepartmentsLoadResult(
           churchId: churchId,
           docs: mem.docs,
@@ -158,14 +152,19 @@ abstract final class ChurchDepartmentsLoadService {
       }
 
       try {
-        final hive = await TenantModuleHiveCache.readDocs(
+        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
           churchId,
           TenantModuleKeys.departamentos,
-        );
-        if (hive.isNotEmpty) {
+        ).timeout(const Duration(seconds: 3));
+        if (updatedAt != null) {
+          final hive = await TenantModuleHiveCache.readDocs(
+            churchId,
+            TenantModuleKeys.departamentos,
+          );
           final docs = _docsFromHive(hive);
-          if (docs.isNotEmpty) {
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
             putRam(churchId, docs);
+            unawaited(_refreshInBackground(churchId));
             return ChurchDepartmentsLoadResult(
               churchId: churchId,
               docs: docs,
@@ -214,6 +213,28 @@ abstract final class ChurchDepartmentsLoadService {
       lastError ??= e;
     }
 
+    try {
+      final repo = await ChurchRepository.departamentos.listCacheFirst(
+        churchIdHint: churchId,
+        limit: kLimit,
+        firestoreCacheKey: cacheKey(churchId),
+      );
+      if (repo.items.isNotEmpty || repo.error == null) {
+        final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+          repo.items,
+        )..sort(_sortByDisplayName);
+        if (docs.isNotEmpty) putRam(churchId, docs);
+        return ChurchDepartmentsLoadResult(
+          churchId: churchId,
+          docs: docs,
+          readSource: 'repository_cache_first',
+          softError: repo.error,
+        );
+      }
+    } catch (e) {
+      lastError ??= e;
+    }
+
     final mem = FirestoreReadResilience.peekLastGoodQuery(cacheKey(churchId));
     if (mem != null && mem.docs.isNotEmpty) {
       return ChurchDepartmentsLoadResult(
@@ -234,6 +255,21 @@ abstract final class ChurchDepartmentsLoadService {
     );
   }
 
+  static Future<void> _refreshInBackground(String churchId) async {
+    try {
+      final docs = await _loadFirestoreFull(churchId);
+      if (docs.isEmpty) return;
+      putRam(churchId, docs);
+      await persistAfterLoad(
+        ChurchDepartmentsLoadResult(
+          churchId: churchId,
+          docs: docs,
+          readSource: 'background_refresh',
+        ),
+      );
+    } catch (_) {}
+  }
+
   static Future<void> persistAfterLoad(ChurchDepartmentsLoadResult result) async {
     if (result.docs.isEmpty) return;
     putRam(result.churchId, result.docs);
@@ -244,5 +280,11 @@ abstract final class ChurchDepartmentsLoadService {
         result.snapshot,
       );
     } catch (_) {}
+  }
+
+  static void invalidateRam(String churchId) {
+    final id = churchId.trim();
+    if (id.isEmpty) return;
+    _ram.remove(id);
   }
 }

@@ -1,15 +1,14 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga de `igrejas/{churchId}/cargos`.
 class ChurchCargosLoadResult {
@@ -33,7 +32,7 @@ class ChurchCargosLoadResult {
   bool get isEmpty => docs.isEmpty;
 }
 
-/// Carga canónica Cargos — directa `igrejas/{churchId}/cargos`.
+/// Carga canónica Cargos — `igrejas/{churchId}/cargos` (plain-first Web).
 abstract final class ChurchCargosLoadService {
   ChurchCargosLoadService._();
 
@@ -105,56 +104,14 @@ abstract final class ChurchCargosLoadService {
     if (id.isEmpty) return const [];
 
     final key = cacheKey(id);
-
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
-
-    if (!forceServer) {
-      try {
-        final cacheSnap = await ChurchUiCollections.cargos(id)
-            .limit(kLimit)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 5));
-        if (cacheSnap.docs.isNotEmpty) {
-          return _sortDocs(cacheSnap.docs);
-        }
-      } catch (_) {}
-    }
-
-    Future<QuerySnapshot<Map<String, dynamic>>> readPlain() =>
-        FirestoreReadResilience.getQuery(
-          ChurchUiCollections.cargos(id).limit(kLimit),
-          cacheKey: key,
-          maxAttempts: kIsWeb ? 5 : 3,
-          attemptTimeout: kIsWeb
-              ? const Duration(seconds: 24)
-              : const Duration(seconds: 16),
-        );
-
-    Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
-      try {
-        return await FirestoreReadResilience.getQuery(
-          ChurchUiCollections.cargos(id).orderBy('name').limit(kLimit),
-          cacheKey: '${key}_name',
-          maxAttempts: kIsWeb ? 4 : 3,
-          attemptTimeout: kIsWeb
-              ? const Duration(seconds: 24)
-              : const Duration(seconds: 16),
-        );
-      } catch (_) {
-        return readPlain();
-      }
-    }
-
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 4,
-          ).timeout(const Duration(seconds: 100))
-        : await readServer().timeout(const Duration(seconds: 50));
-
-    return _sortDocs(snap.docs);
+    return ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: ChurchUiCollections.cargos(id),
+      cacheKey: key,
+      limit: kLimit,
+      forceServer: forceServer,
+      orderByField: 'name',
+      sortDocs: _sortDocs,
+    );
   }
 
   static Future<ChurchCargosLoadResult> load({
@@ -178,6 +135,7 @@ abstract final class ChurchCargosLoadService {
     if (!forceRefresh && !forceServer) {
       final ram = peekRam(churchId);
       if (ram != null && ram.isNotEmpty) {
+        unawaited(_refreshInBackground(churchId));
         return ChurchCargosLoadResult(
           churchId: churchId,
           docs: ram,
@@ -190,6 +148,7 @@ abstract final class ChurchCargosLoadService {
       if (mem != null && mem.docs.isNotEmpty) {
         final docs = _sortDocs(mem.docs);
         putRam(churchId, docs);
+        unawaited(_refreshInBackground(churchId));
         return ChurchCargosLoadResult(
           churchId: churchId,
           docs: docs,
@@ -199,14 +158,19 @@ abstract final class ChurchCargosLoadService {
       }
 
       try {
-        final hive = await TenantModuleHiveCache.readDocs(
+        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
           churchId,
           TenantModuleKeys.cargos,
-        ).timeout(const Duration(seconds: 4));
-        if (hive.isNotEmpty) {
+        ).timeout(const Duration(seconds: 3));
+        if (updatedAt != null) {
+          final hive = await TenantModuleHiveCache.readDocs(
+            churchId,
+            TenantModuleKeys.cargos,
+          );
           final docs = _sortDocs(TenantModuleHiveCache.toQueryDocuments(hive));
-          if (docs.isNotEmpty) {
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
             putRam(churchId, docs);
+            unawaited(_refreshInBackground(churchId));
             return ChurchCargosLoadResult(
               churchId: churchId,
               docs: docs,
@@ -275,6 +239,27 @@ abstract final class ChurchCargosLoadService {
       lastError ??= e;
     }
 
+    try {
+      final repo = await ChurchRepository.cargos.listCacheFirst(
+        churchIdHint: churchId,
+        limit: kLimit,
+        firestoreCacheKey: cacheKey(churchId),
+      );
+      if (repo.items.isNotEmpty || repo.error == null) {
+        final docs = _sortDocs(repo.items);
+        if (docs.isNotEmpty) putRam(churchId, docs);
+        return ChurchCargosLoadResult(
+          churchId: churchId,
+          docs: docs,
+          readSource: 'repository_cache_first',
+          collectionPath: path,
+          softError: repo.error,
+        );
+      }
+    } catch (e) {
+      lastError ??= e;
+    }
+
     final mem = FirestoreReadResilience.peekLastGoodQuery(cacheKey(churchId));
     if (mem != null && mem.docs.isNotEmpty) {
       return ChurchCargosLoadResult(
@@ -297,6 +282,22 @@ abstract final class ChurchCargosLoadService {
     );
   }
 
+  static Future<void> _refreshInBackground(String churchId) async {
+    try {
+      final docs = await _loadFirestoreFull(churchId);
+      if (docs.isEmpty) return;
+      putRam(churchId, docs);
+      await persistAfterLoad(
+        ChurchCargosLoadResult(
+          churchId: churchId,
+          docs: docs,
+          readSource: 'background_refresh',
+          collectionPath: 'igrejas/$churchId/cargos',
+        ),
+      );
+    } catch (_) {}
+  }
+
   static Future<void> persistAfterLoad(ChurchCargosLoadResult result) async {
     if (result.docs.isEmpty) return;
     putRam(result.churchId, result.docs);
@@ -307,5 +308,11 @@ abstract final class ChurchCargosLoadService {
         result.snapshot,
       );
     } catch (_) {}
+  }
+
+  static void invalidateRam(String churchId) {
+    final id = churchId.trim();
+    if (id.isEmpty) return;
+    _ram.remove(id);
   }
 }

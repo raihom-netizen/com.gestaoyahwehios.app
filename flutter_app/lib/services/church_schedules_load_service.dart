@@ -4,9 +4,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -158,8 +160,7 @@ abstract final class ChurchSchedulesLoadService {
         limit: limit,
         forceRefresh: forceRefresh,
         forceServer: forceServer,
-        orderedQuery: (col, capped) =>
-            col.orderBy('date', descending: true).limit(capped),
+        orderedQuery: (col, capped) => col.limit(capped),
         plainQuery: (col, capped) => col.limit(capped),
         sortDocs: _sortEscalasByDateDesc,
       );
@@ -226,21 +227,23 @@ abstract final class ChurchSchedulesLoadService {
             TenantModuleKeys.escalas,
           );
           final all = TenantModuleHiveCache.toQueryDocuments(hive);
-          final docs = filterByMemberCpfs(all, cpf);
-          _putRam(_ramMemberEscalas, ramKey, docs);
-          unawaited(_refreshMemberEscalasInBackground(
-            churchId: churchId,
-            cpf: cpf,
-            limit: capped,
-            ramKey: ramKey,
-          ));
-          return ChurchSchedulesLoadResult(
-            churchId: churchId,
-            docs: docs,
-            readSource: docs.isEmpty ? 'hive_empty_member' : 'hive_member',
-            collection: ChurchDataPaths.escalas,
-            firestorePath: _path(churchId, ChurchDataPaths.escalas),
-          );
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(all)) {
+            final docs = filterByMemberCpfs(all, cpf);
+            _putRam(_ramMemberEscalas, ramKey, docs);
+            unawaited(_refreshMemberEscalasInBackground(
+              churchId: churchId,
+              cpf: cpf,
+              limit: capped,
+              ramKey: ramKey,
+            ));
+            return ChurchSchedulesLoadResult(
+              churchId: churchId,
+              docs: docs,
+              readSource: 'hive_member',
+              collection: ChurchDataPaths.escalas,
+              firestorePath: _path(churchId, ChurchDataPaths.escalas),
+            );
+          }
         }
       } catch (_) {}
     }
@@ -250,50 +253,23 @@ abstract final class ChurchSchedulesLoadService {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      final col = ChurchUiCollections.escalas(churchId);
-      Future<QuerySnapshot<Map<String, dynamic>>> read() async {
-        try {
-          return await FirestoreReadResilience.getQuery(
-            col
-                .where('memberCpfs', arrayContains: cpf)
-                .orderBy('date', descending: false)
-                .limit(capped),
-            cacheKey: ramKey,
-            maxAttempts: kIsWeb ? 5 : 3,
-            attemptTimeout: ChurchPanelReadTimeouts.attempt,
-          );
-        } catch (_) {
-          return FirestoreReadResilience.getQuery(
-            col.where('memberCpfs', arrayContains: cpf).limit(capped),
-            cacheKey: '${ramKey}_plain',
-            maxAttempts: kIsWeb ? 4 : 3,
-            attemptTimeout: ChurchPanelReadTimeouts.attempt,
-          );
-        }
-      }
-
-      final snap = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(
-              read,
-              maxAttempts: 4,
-            ).timeout(ChurchPanelReadTimeouts.queryCap)
-          : await read().timeout(ChurchPanelReadTimeouts.warmCap);
-
-      var docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(snap.docs)
-        ..sort((a, b) {
-          final da = (a.data()['date'] as Timestamp?)?.toDate();
-          final db = (b.data()['date'] as Timestamp?)?.toDate();
-          if (da == null || db == null) return 0;
-          return da.compareTo(db);
-        });
-
+      final all = await loadEscalas(
+        seedTenantId: churchId,
+        limit: capped,
+        forceRefresh: forceRefresh,
+        forceServer: forceServer,
+      );
+      final docs = filterByMemberCpfs(all.docs, cpf);
       _putRam(_ramMemberEscalas, ramKey, docs);
       return ChurchSchedulesLoadResult(
         churchId: churchId,
         docs: docs,
-        readSource: forceServer ? 'server_member' : 'firestore_member',
+        readSource: all.readSource.startsWith('ram')
+            ? 'member_filter_${all.readSource}'
+            : 'member_filter_firestore',
         collection: ChurchDataPaths.escalas,
         firestorePath: _path(churchId, ChurchDataPaths.escalas),
+        softError: docs.isEmpty ? all.softError : null,
       );
     } catch (e) {
       lastError = e;
@@ -348,12 +324,7 @@ abstract final class ChurchSchedulesLoadService {
       );
       final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
         snap.docs,
-      )..sort((a, b) {
-          final da = (a.data()['date'] as Timestamp?)?.toDate();
-          final db = (b.data()['date'] as Timestamp?)?.toDate();
-          if (da == null || db == null) return 0;
-          return da.compareTo(db);
-        });
+      )..sort(EscalaFirestoreFields.compareDateAsc);
       _putRam(_ramMemberEscalas, ramKey, docs);
     } catch (_) {}
   }
@@ -553,26 +524,28 @@ abstract final class ChurchSchedulesLoadService {
         if (updatedAt != null) {
           final hive = await TenantModuleHiveCache.readDocs(churchId, hiveModule);
           final docs = TenantModuleHiveCache.toQueryDocuments(hive);
-          _putRam(ramMap, ramKey, docs);
-          unawaited(
-            _loadFirestore(
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+            _putRam(ramMap, ramKey, docs);
+            unawaited(
+              _loadFirestore(
+                churchId: churchId,
+                collection: collection,
+                cacheKey: ramKey,
+                limit: capped,
+                forceServer: false,
+                orderedQuery: orderedQuery,
+                plainQuery: plainQuery,
+                sortDocs: sortDocs,
+              ).then((fresh) => _putRam(ramMap, ramKey, fresh)).catchError((_) {}),
+            );
+            return ChurchSchedulesLoadResult(
               churchId: churchId,
+              docs: docs,
+              readSource: 'hive',
               collection: collection,
-              cacheKey: ramKey,
-              limit: capped,
-              forceServer: false,
-              orderedQuery: orderedQuery,
-              plainQuery: plainQuery,
-              sortDocs: sortDocs,
-            ).then((fresh) => _putRam(ramMap, ramKey, fresh)).catchError((_) {}),
-          );
-          return ChurchSchedulesLoadResult(
-            churchId: churchId,
-            docs: docs,
-            readSource: docs.isEmpty ? 'hive_empty' : 'hive',
-            collection: collection,
-            firestorePath: path,
-          );
+              firestorePath: path,
+            );
+          }
         }
       } catch (_) {}
     }
@@ -669,48 +642,22 @@ abstract final class ChurchSchedulesLoadService {
       QueryDocumentSnapshot<Map<String, dynamic>> b,
     ) sortDocs,
   }) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
-
     final reference = _collectionRef(churchId, collection);
+    final orderField = collection == ChurchDataPaths.escalas ? 'date' : null;
 
-    if (!forceServer) {
-      try {
-        final cacheSnap = await orderedQuery(reference, limit)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 5));
-        if (cacheSnap.docs.isNotEmpty) return cacheSnap.docs;
-      } catch (_) {}
-    }
-
-    Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
-      try {
-        return await FirestoreReadResilience.getQuery(
-          orderedQuery(reference, limit),
-          cacheKey: cacheKey,
-          maxAttempts: kIsWeb ? 5 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-      } catch (_) {
-        return FirestoreReadResilience.getQuery(
-          plainQuery(reference, limit),
-          cacheKey: '${cacheKey}_plain',
-          maxAttempts: kIsWeb ? 4 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-      }
-    }
-
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
-        : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
-
-    final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(snap.docs)
-      ..sort(sortDocs);
+    final docs = await ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: reference,
+      cacheKey: cacheKey,
+      limit: limit,
+      forceServer: forceServer,
+      orderByField: orderField,
+      orderDescending: collection == ChurchDataPaths.escalas,
+      sortDocs: (list) {
+        final sorted = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(list)
+          ..sort(sortDocs);
+        return sorted;
+      },
+    );
     return docs;
   }
 
@@ -731,16 +678,8 @@ abstract final class ChurchSchedulesLoadService {
   static int _sortEscalasByDateDesc(
     QueryDocumentSnapshot<Map<String, dynamic>> a,
     QueryDocumentSnapshot<Map<String, dynamic>> b,
-  ) {
-    DateTime? da;
-    DateTime? db;
-    try {
-      da = (a.data()['date'] as Timestamp?)?.toDate();
-      db = (b.data()['date'] as Timestamp?)?.toDate();
-    } catch (_) {}
-    if (da == null || db == null) return 0;
-    return db.compareTo(da);
-  }
+  ) =>
+      EscalaFirestoreFields.compareDateDesc(a, b);
 
   static int _sortTemplatesByTitle(
     QueryDocumentSnapshot<Map<String, dynamic>> a,

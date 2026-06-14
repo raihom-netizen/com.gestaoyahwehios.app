@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
@@ -10,12 +9,11 @@ import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart'
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_feed_media_storage_fields.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
-import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show dedupeImageRefsByStorageIdentity, isValidImageUrl, sanitizeImageUrl;
+    show dedupeImageRefsByStorageIdentity;
 
 /// Publicação de aviso — fluxo Ecofire: Firebase → Storage → Firestore → site/notificar.
 abstract final class AvisoPublishService {
@@ -57,37 +55,8 @@ abstract final class AvisoPublishService {
         (newImagesBytes?.isNotEmpty ?? false) ||
         (newImagePaths?.isNotEmpty ?? false);
 
-    // Com fotos novas: publish STRICT (Storage → Firestore). Não enfileirar silenciosamente.
-    if (hasNewPhotos) {
-      await EcoFirePublishBootstrap.ensureHard(
-        logLabel: 'aviso_publish_strict',
-        strict: true,
-      );
-      final id = await _publishOnline(
-        docRef: docRef,
-        tenantId: tenantId,
-        churchId: churchId,
-        docId: docId,
-        corePayload: corePayload,
-        isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: startSlotIndex,
-        newImagesBytes: newImagesBytes,
-        newImagePaths: newImagePaths,
-        publicSite: publicSite,
-        calendarDate: calendarDate,
-        syncCalendar: syncCalendar,
-        onUploadProgress: onUploadProgress,
-      );
-      await AvisosPublishVerificationService.verifyPublishedMedia(
-        docRef,
-        minPhotos: 1,
-      );
-      return id;
-    }
-
     return EcoFireResilientPublish.runOrQueue(
-      logLabel: 'aviso_publish',
+      logLabel: hasNewPhotos ? 'aviso_publish_photos' : 'aviso_publish',
       optimisticResult: docId,
       onQueue: () => EcoFireResilientPublish.queueFeedPublish(
         churchId: churchId,
@@ -102,22 +71,37 @@ abstract final class AvisoPublishService {
         bytesList: newImagesBytes,
         localPaths: newImagePaths,
       ),
-      action: () => _publishOnline(
-        docRef: docRef,
-        tenantId: tenantId,
-        churchId: churchId,
-        docId: docId,
-        corePayload: corePayload,
-        isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: startSlotIndex,
-        newImagesBytes: newImagesBytes,
-        newImagePaths: newImagePaths,
-        publicSite: publicSite,
-        calendarDate: calendarDate,
-        syncCalendar: syncCalendar,
-        onUploadProgress: onUploadProgress,
-      ),
+      action: () async {
+        if (hasNewPhotos) {
+          await EcoFirePublishBootstrap.ensureHard(
+            logLabel: 'aviso_publish_strict',
+            strict: true,
+          );
+        }
+        final id = await _publishOnline(
+          docRef: docRef,
+          tenantId: tenantId,
+          churchId: churchId,
+          docId: docId,
+          corePayload: corePayload,
+          isNewDoc: isNewDoc,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlotIndex,
+          newImagesBytes: newImagesBytes,
+          newImagePaths: newImagePaths,
+          publicSite: publicSite,
+          calendarDate: calendarDate,
+          syncCalendar: syncCalendar,
+          onUploadProgress: onUploadProgress,
+        );
+        if (hasNewPhotos) {
+          await AvisosPublishVerificationService.verifyPublishedMedia(
+            docRef,
+            minPhotos: 1,
+          );
+        }
+        return id;
+      },
     );
   }
 
@@ -140,9 +124,27 @@ abstract final class AvisoPublishService {
     final hasNewPhotos =
         (newImagesBytes?.isNotEmpty ?? false) ||
         (newImagePaths?.isNotEmpty ?? false);
+
+    if (hasNewPhotos) {
+      return GestaoYahwehWriteFirstPublishService.publishFeedWithPendingMedia(
+        docRef: docRef,
+        churchId: churchId,
+        docId: docId,
+        postType: 'aviso',
+        corePayload: corePayload,
+        isNewDoc: isNewDoc,
+        existingUrls: existingUrls,
+        startSlotIndex: startSlotIndex,
+        hasVideo: false,
+        newImagesBytes: newImagesBytes,
+        newImagePaths: newImagePaths,
+        onUploadProgress: onUploadProgress,
+      );
+    }
+
     await EcoFirePublishBootstrap.ensureHard(
       logLabel: 'aviso_publish',
-      strict: hasNewPhotos,
+      strict: false,
     );
     ChurchPublishFlowLog.avisoStart();
 
@@ -150,60 +152,10 @@ abstract final class AvisoPublishService {
 
     var photoUrls =
         await EcoFireFeedPublishService.refsToPlayableUrls(existingUrls);
-    final uploadedPaths = <String>[];
     final alignedThumbPaths = <String>[];
     final alignedThumbUrls = <String>[];
 
-    if (hasNewPhotos) {
-      onUploadProgress?.call(0.05);
-      ChurchPublishFlowLog.uploadStart('aviso $docId');
-
-      final newCount = kIsWeb
-          ? (newImagesBytes?.length ?? 0)
-          : (newImagePaths
-                  ?.map((p) => p.trim())
-                  .where((p) => p.isNotEmpty)
-                  .length ??
-              0);
-
-      final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
-        tenantId: churchId,
-        postType: 'aviso',
-        postId: docId,
-        startSlotIndex: startSlotIndex,
-        bytesList: newImagesBytes,
-        localPaths: newImagePaths,
-        onProgress: newCount > 0
-            ? (p) => onUploadProgress?.call(0.05 + p * 0.75)
-            : null,
-      );
-
-      for (final slot in slots) {
-        uploadedPaths.add(slot.fullPath);
-        alignedThumbPaths.add(slot.thumbPath);
-        final direct = sanitizeImageUrl(slot.fullUrl);
-        if (isValidImageUrl(direct)) {
-          photoUrls = dedupeImageRefsByStorageIdentity([...photoUrls, direct]);
-        }
-        final thumbDirect = sanitizeImageUrl(slot.thumbUrl);
-        if (isValidImageUrl(thumbDirect)) {
-          alignedThumbUrls.add(thumbDirect);
-        }
-      }
-
-      ChurchPublishFlowLog.uploadOk('aviso $docId (${slots.length} fotos)');
-      onUploadProgress?.call(0.82);
-
-      if (uploadedPaths.isNotEmpty) {
-        await ChurchStorageMetadataVerify.assertAllExist(
-          uploadedPaths,
-          timeout: ChurchStorageMetadataVerify.kDefaultTimeout,
-          maxAttempts: ChurchStorageMetadataVerify.kMaxAttempts,
-        );
-      }
-    }
-
-    final allPaths = <String>[...existingPaths, ...uploadedPaths];
+    final allPaths = <String>[...existingPaths];
     final aspectRatio = _aspectRatioFromPayload(corePayload);
 
     final payload = Map<String, dynamic>.from(corePayload);
@@ -242,6 +194,7 @@ abstract final class AvisoPublishService {
         payload['thumbUrls'] = photoUrls;
       }
     }
+    payload['imageVariants'] = FieldValue.delete();
     payload['ativo'] = true;
     payload['publicado'] = true;
     payload['status'] = 'publicado';

@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
+import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -191,11 +192,13 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
       _phaseLabel = 'A preparar…';
     });
     try {
-      final result = await MemberProfilePhotoUpdateService.uploadAndPatchMember(
-        tenantId: widget.churchId,
-        memberDocId: widget.memberId,
-        memberData: widget.initialData,
-        rawBytes: bytes,
+      final result = await YahwehCentralEngineService.executeSingleProfileSave(
+        collectionId: 'membros',
+        docId: widget.memberId,
+        igrejaId: widget.churchId,
+        payloadFields: const {},
+        photoBytes: bytes,
+        memberDataHint: widget.initialData,
         onPhase: (label) {
           if (mounted) setState(() => _phaseLabel = label);
         },

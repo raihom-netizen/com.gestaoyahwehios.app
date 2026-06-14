@@ -28,6 +28,7 @@ import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/core/yahweh_reports_engine_fetcher.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
@@ -1566,7 +1567,7 @@ Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
     final mx = Map<String, dynamic>.from(raw.cast<String, dynamic>());
     final tipo0 = (mx['tipo'] ?? '').toString().toLowerCase();
     final categoria0 = (mx['categoria'] ?? '').toString();
-    final valor0 = (mx['valor'] is num) ? (mx['valor'] as num).toDouble() : 0.0;
+    final valor0 = financeParseValorBr(mx['valor'] ?? mx['amount']);
     if (tipo0 == 'transferencia') continue;
     if (tipo0.contains('entrada') || tipo0.contains('receita')) {
       final cl = categoria0.toLowerCase();
@@ -1618,7 +1619,7 @@ Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
       if (filtroStatusDespesa == 'aberta' && isPago) continue;
     }
 
-    final valor = (m['valor'] is num) ? (m['valor'] as num).toDouble() : 0.0;
+    final valor = financeParseValorBr(m['valor'] ?? m['amount']);
     if (tipo == 'transferencia') {
       outRows.add(m);
       continue;
@@ -1767,7 +1768,7 @@ _FinanceEvolucao _computeFinanceEvolucao(
     if (tipo == 'transferencia') continue;
     final ms = (m['createdAtMs'] ?? 0) as int;
     final dt = DateTime.fromMillisecondsSinceEpoch(ms);
-    final valor = (m['valor'] is num) ? (m['valor'] as num).toDouble() : 0.0;
+    final valor = financeParseValorBr(m['valor'] ?? m['amount']);
     var idx = -1;
     if (mode == _FinancePeriodMode.fullYear) {
       if (dt.year == inicio.year) idx = dt.month - 1;
@@ -2029,36 +2030,11 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
 
   Future<List<Map<String, dynamic>>> _queryFinanceRows() async {
     final p = _periodoSelecionado();
-    final snap = await _tenantRef
-        .collection('finance')
-        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(p.inicio))
-        .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(p.fim))
-        .orderBy('createdAt', descending: true)
-        .limit(2000)
-        .get(const GetOptions(source: Source.serverAndCache))
-        .timeout(const Duration(seconds: 30));
-    return snap.docs.map((d) {
-      final m = d.data();
-      final ts = m['createdAt'];
-      final created = ts is Timestamp ? ts.toDate() : DateTime.fromMillisecondsSinceEpoch(0);
-      final valorRaw = m['amount'] ?? m['valor'] ?? 0;
-      final valor = valorRaw is num ? valorRaw.toDouble() : 0.0;
-      return {
-        'id': d.id,
-        'createdAtMs': created.millisecondsSinceEpoch,
-        'tipo': (m['type'] ?? m['tipo'] ?? '').toString(),
-        'categoria': (m['categoria'] ?? '').toString(),
-        'descricao': (m['descricao'] ?? m['anotacoes'] ?? '').toString(),
-        'valor': valor,
-        'contaOrigemId': (m['contaOrigemId'] ?? '').toString(),
-        'contaDestinoId': (m['contaDestinoId'] ?? '').toString(),
-        'pago': m['pago'] == true,
-        'statusPagamento': (m['statusPagamento'] ?? m['status'] ?? '').toString(),
-        'comprovanteUrl': (m['comprovanteUrl'] ?? '').toString(),
-        'recebimentoConfirmado': m['recebimentoConfirmado'],
-        'pagamentoConfirmado': m['pagamentoConfirmado'],
-      };
-    }).toList();
+    return YahwehReportsEngineFetcher.fetchFinanceRowsForPeriod(
+      churchIdHint: _effectiveTenantId,
+      inicio: p.inicio,
+      fim: p.fim,
+    );
   }
 
   Future<Map<String, dynamic>> _loadFinanceSummary() async {
@@ -4033,13 +4009,12 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
       _loadError = null;
     });
     try {
-      final snap = await ChurchTenantResilientReads.patrimonioAll(
-        widget.tenantId,
-        limit: 500,
+      final docs = await YahwehReportsEngineFetcher.fetchPatrimonioDocs(
+        churchIdHint: _effectiveTenantId,
       );
       if (mounted) {
         setState(() {
-          _docs = snap.docs;
+          _docs = docs;
           _loading = false;
           _loadError = null;
         });

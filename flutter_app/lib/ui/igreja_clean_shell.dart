@@ -28,6 +28,7 @@ import 'package:gestao_yahweh/services/church_tenant_consolidation_service.dart'
 import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:gestao_yahweh/core/tenant/tenant_migration_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -706,7 +707,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   ) async {
     final tid = widget.tenantId.trim();
     if (tid.isEmpty || !mounted) return;
-    final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+    final op = ChurchPanelTenantGateway.churchId(tid.trim());
     final church = await ChurchUiCollections.churchDoc(op).get();
     if (!mounted) return;
     final d = church.data() ?? {};
@@ -886,7 +887,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           unawaited(
             runFirebaseBackgroundTask<void>(
               () async {
-                final op = await ChurchOperationalPaths.resolveCached(tid.trim());
+                final op = ChurchPanelTenantGateway.churchId(tid.trim());
                 final base =                     ChurchUiCollections.churchDoc(op);
                 await base
                     .collection('membros')
@@ -1643,7 +1644,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     if (nowMs - _lastSubscriptionSyncMs < 5 * 60 * 1000) return;
     _lastSubscriptionSyncMs = nowMs;
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
       await           ChurchUiCollections.churchDoc(op)
           .set(SubscriptionGuard.normalizedChurchFields(guard),
               SetOptions(merge: true));

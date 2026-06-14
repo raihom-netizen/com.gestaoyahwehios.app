@@ -278,6 +278,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       });
     } finally {
       _webLoadCap?.cancel();
+      if (mounted && _deptLoading) {
+        setState(() => _deptLoading = false);
+      }
     }
 
     unawaited(_refreshDepartmentsBackground());

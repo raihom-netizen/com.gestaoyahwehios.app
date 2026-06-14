@@ -36,7 +36,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.warmChurchPublicFeedCache = exports.refreshPublicFeedCacheOnNoticiaWrite = exports.refreshPublicFeedCacheOnAvisoWrite = exports.generatePublicFeedCache = exports.generateBirthdayCache = exports.compressVideo = exports.optimizeImage = void 0;
+exports.warmChurchPublicFeedCache = exports.getNoticiaSharePack = exports.refreshPublicFeedCacheOnNoticiaWrite = exports.refreshPublicFeedCacheOnAvisoWrite = exports.generatePublicFeedCache = exports.generateBirthdayCache = exports.compressVideo = exports.optimizeImage = void 0;
 exports.refreshPublicFeedCacheForTenant = refreshPublicFeedCacheForTenant;
 /**
  * Pacote definitivo de performance — Gestão YAHWEH
@@ -343,13 +343,25 @@ function lightPublicPost(id, collection, data) {
     return {
         id,
         collection,
+        postId: id,
+        docId: id,
         title: data.title ?? data.titulo ?? "",
+        titulo: data.titulo ?? data.title ?? "",
+        texto: data.texto ?? data.body ?? data.descricao ?? "",
         createdAt: data.createdAt ?? null,
         startAt: data.startAt ?? null,
-        type: data.type ?? "",
+        type: data.type ?? (collection === "avisos" ? "aviso" : "evento"),
         publishState: data.publishState ?? "published",
+        publicSite: data.publicSite !== false,
+        location: data.location ?? "",
+        locationLat: data.locationLat ?? null,
+        locationLng: data.locationLng ?? null,
         imageVariants: data.imageVariants ?? null,
         imagem_url: data.imagem_url ?? data.imageUrl ?? null,
+        photoUrls: Array.isArray(data.photoUrls) ? data.photoUrls : null,
+        feedCoverUrl: data.feedCoverUrl ?? null,
+        hostedVideoUrl: data.hostedVideoUrl ?? null,
+        videoThumbUrl: data.videoThumbUrl ?? null,
     };
 }
 /** Atualiza `public_feed` para uma igreja (reutilizado por cron e triggers). */
@@ -457,6 +469,49 @@ exports.refreshPublicFeedCacheOnNoticiaWrite = functions
     .firestore.document("igrejas/{tenantId}/eventos/{postId}")
     .onWrite((change, ctx) => onPublicPostWrite(ctx.params.tenantId, change.after));
 /** Warmup explícito pós-publicação: atualiza cache público imediatamente. */
+/**
+ * Pacote de mídia para partilha instantânea (URLs https já resolvidas no servidor).
+ * Evita rajada de getDownloadURL / Storage no cliente ao compartilhar aviso/evento.
+ */
+exports.getNoticiaSharePack = functions
+    .region("us-central1")
+    .runWith({ timeoutSeconds: 45, memory: "512MB" })
+    .https.onCall(async (request, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Login necessario");
+    }
+    const body = (request || {});
+    const tenantId = await (0, tenantCallableResolve_1.resolveTenantIdForCallable)({ uid: context.auth.uid, token: context.auth.token }, String(body.tenantId || body.churchId || ""));
+    const postId = String(body.postId || body.noticiaId || body.id || "").trim();
+    const collectionRaw = String(body.collection || body.kind || "eventos").trim();
+    const collection = collectionRaw === "avisos" ? "avisos" : "eventos";
+    if (!tenantId || !postId) {
+        throw new functions.https.HttpsError("invalid-argument", "tenantId e postId obrigatorios");
+    }
+    const db = (0, adminDb_1.fs)();
+    const postSnap = await db
+        .collection("igrejas")
+        .doc(tenantId)
+        .collection(collection)
+        .doc(postId)
+        .get();
+    if (!postSnap.exists) {
+        throw new functions.https.HttpsError("not-found", "publicacao nao encontrada");
+    }
+    const postData = (postSnap.data() ?? {});
+    const { enrichPostMedia } = await Promise.resolve().then(() => __importStar(require("./publicSiteMediaPrefetch")));
+    const media = await enrichPostMedia(tenantId, collection, postId, postData);
+    return {
+        ok: true,
+        tenantId,
+        postId,
+        collection,
+        photoUrls: media.photoUrls,
+        feedCoverUrl: media.feedCoverUrl,
+        videoThumbUrl: media.videoThumbUrl,
+        hostedVideoUrl: media.hostedVideoUrl,
+    };
+});
 exports.warmChurchPublicFeedCache = functions
     .region("us-central1")
     .https.onCall(async (request, context) => {

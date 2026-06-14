@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/yahweh_church_profile_engine.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga do Cadastro da Igreja — leitura directa `igrejas/{churchId}`.
@@ -67,6 +68,12 @@ abstract final class ChurchCadastroLoadService {
 
   static bool _isUsableProfile(Map<String, dynamic>? data) =>
       _profileScore(data) >= kMinProfileScore;
+
+  static bool _hasMinimalCadastroFields(Map<String, dynamic>? data) {
+    if (data == null || data.isEmpty) return false;
+    if (ChurchRootAggregatesParser.rootDocHasAggregateHints(data)) return true;
+    return _isUsableProfile(data);
+  }
 
   static ChurchCadastroLoadResult _resultFromData({
     required String seed,
@@ -150,7 +157,7 @@ abstract final class ChurchCadastroLoadService {
     ChurchCadastroLoadResult? paintedLocal;
     if (!forceRefresh) {
       final local = await tryLocalSources(seedTenantId: seed);
-      if (local != null && _isUsableProfile(local.data)) {
+      if (local != null && _hasMinimalCadastroFields(local.data)) {
         if (!kIsWeb) {
           return local;
         }
@@ -165,7 +172,7 @@ abstract final class ChurchCadastroLoadService {
       final direct = await IgrejaDirectFirestoreReads.readIgrejaDoc(churchId);
       if (direct != null &&
           direct.data.isNotEmpty &&
-          _isUsableProfile(direct.data)) {
+          _hasMinimalCadastroFields(direct.data)) {
         return _resultFromData(
           seed: seed,
           churchId: direct.docId,

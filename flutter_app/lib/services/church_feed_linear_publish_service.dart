@@ -144,7 +144,6 @@ abstract final class ChurchFeedLinearPublishService {
     final uploadedPaths = <String>[];
     final alignedThumbPaths = <String>[];
     final alignedThumbUrls = <String>[];
-    Map<String, dynamic>? mergedVariants;
 
     if (hasNewPhotos) {
       ChurchPublishFlowLog.uploadStart('$postType $docId');
@@ -156,14 +155,9 @@ abstract final class ChurchFeedLinearPublishService {
         newImagesBytes: newImagesBytes,
         newImagePaths: newImagePaths,
       );
-      Map<String, dynamic>? slotVariants;
       for (final slot in slots) {
         uploadedPaths.add(slot.fullPath);
         alignedThumbPaths.add(slot.thumbPath);
-        if (slot.imageVariants != null && slot.imageVariants!.isNotEmpty) {
-          slotVariants ??= <String, dynamic>{};
-          slotVariants.addAll(slot.imageVariants!);
-        }
         final direct = sanitizeImageUrl(slot.downloadUrl ?? '');
         if (isValidImageUrl(direct)) {
           existingUrls = dedupeImageRefsByStorageIdentity([
@@ -187,7 +181,6 @@ abstract final class ChurchFeedLinearPublishService {
         }
       }
       ChurchPublishFlowLog.uploadOk('$postType $docId (${slots.length} fotos)');
-      mergedVariants = slotVariants;
       if (alignedThumbUrls.isEmpty) {
         for (final tp in alignedThumbPaths) {
           final tu = await EcoFireFeedPublishService.refsToPlayableUrls([tp]);
@@ -228,7 +221,7 @@ abstract final class ChurchFeedLinearPublishService {
         aspectRatio: aspectRatio,
         hasVideo: hasVideo,
         allowDeleteSentinels: !isNewDoc,
-        imageVariants: mergedVariants,
+        imageVariants: null,
       ),
     );
     if (alignedThumbUrls.isNotEmpty) {

@@ -324,7 +324,28 @@ abstract final class ChurchStorageLayout {
         _ => 'docs',
       };
 
-  /// `igrejas/{tenant}/chat_media/{folder}/{uid}_{ts}_{name}` — sem threadId (estilo WhatsApp).
+  /// Extensão segura a partir do nome do picker (só sufixo; nunca usar o nome bruto como chave).
+  static String extensionFromPickerFileName(
+    String fileName, {
+    String fallback = 'jpg',
+  }) {
+    final dot = fileName.lastIndexOf('.');
+    if (dot <= 0 || dot >= fileName.length - 1) return fallback;
+    final ext = fileName
+        .substring(dot + 1)
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return ext.isEmpty ? fallback : ext;
+  }
+
+  /// Stem único para objetos sem slot fixo (chat, comprovantes ad-hoc).
+  /// Feed aviso/evento usa slots determinísticos (`capa_aviso.jpg`) — não substituir por isto.
+  static String uniqueStorageObjectStem() {
+    final ms = DateTime.now().microsecondsSinceEpoch;
+    return '${ms}_${ms.hashCode.abs().toRadixString(16)}';
+  }
+
+  /// `igrejas/{tenant}/chat_media/{folder}/{uid}_{ts}_{stem}.ext` — sem nome original do celular.
   static String buildChatMediaObjectPath({
     required String tenantId,
     required String threadId,
@@ -334,8 +355,9 @@ abstract final class ChurchStorageLayout {
     required String fileName,
   }) {
     final folder = chatMediaFolderForKind(kind);
-    final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-    return '${churchRoot(tenantId)}/chat_media/$folder/${uid}_${timestampMs}_$safeName';
+    final ext = extensionFromPickerFileName(fileName, fallback: 'jpg');
+    final stem = uniqueStorageObjectStem();
+    return '${churchRoot(tenantId)}/chat_media/$folder/${uid}_${timestampMs}_$stem.$ext';
   }
 
   /// Miniatura centralizada: `igrejas/{tenant}/chat_media/thumbs/{uid}_{ts}_{suffix}.webp`

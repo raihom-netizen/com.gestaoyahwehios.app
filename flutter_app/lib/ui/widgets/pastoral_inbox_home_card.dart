@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -475,7 +476,7 @@ class _PastoralInboxTileState extends State<_PastoralInboxTile>
     final r = _replyCtrl.text.trim();
     if (includeReply && r.isEmpty) return;
 
-    final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+    final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
     final leituraRef =         ChurchUiCollections.churchDoc(op)
         .collection('pastoral_mensagens')
         .doc(widget.messageId)

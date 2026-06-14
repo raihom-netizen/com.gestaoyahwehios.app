@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/yahweh_church_profile_engine.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 
@@ -48,15 +49,20 @@ class ChurchDashboardCacheSnapshot {
     final ts = raw['updatedAt'];
     if (ts is Timestamp) at = ts.toDate();
     return ChurchDashboardCacheSnapshot(
-      totalMembros: n(raw['totalMembros'] ?? raw['membros'] ?? raw['membersTotalCount']),
-      ativos: n(raw['ativos'] ?? raw['activeMembersCount']),
+      totalMembros: n(
+        raw['totalMembros'] ??
+            raw['membros'] ??
+            raw['membersTotalCount'] ??
+            raw['membersCount'],
+      ),
+      ativos: n(raw['ativos'] ?? raw['activeMembersCount'] ?? raw['activeMembers']),
       visitantes: n(raw['visitantes'] ?? raw['newVisitorsCount']),
       saldo: f(raw['saldo'] ?? raw['saldoAtual'] ?? raw['saldo_atual']),
       homens: n(raw['homens']),
       mulheres: n(raw['mulheres']),
       criancas: n(raw['criancas']),
-      eventos: n(raw['eventos']),
-      avisos: n(raw['avisos']),
+      eventos: n(raw['eventos'] ?? raw['eventsCount']),
+      avisos: n(raw['avisos'] ?? raw['avisosCount']),
       updatedAt: at,
     );
   }
@@ -70,6 +76,15 @@ abstract final class ChurchDashboardCacheService {
           .collection('_dashboard_cache')
           .doc('main');
 
+  static ChurchDashboardCacheSnapshot? fromChurchRootDoc(
+    Map<String, dynamic>? raw,
+  ) {
+    if (raw == null || raw.isEmpty) return null;
+    final merged = ChurchRootAggregatesParser.flattenRootAggregates(raw);
+    final parsed = ChurchDashboardCacheSnapshot.fromMap(merged);
+    return parsed.hasData ? parsed : null;
+  }
+
   static Future<ChurchDashboardCacheSnapshot?> load({
     String? churchIdHint,
   }) async {
@@ -81,8 +96,15 @@ abstract final class ChurchDashboardCacheService {
         cacheKey: 'dashboard_cache_main_$id',
         attemptTimeout: ChurchRepository.panelQueryTimeout,
       );
-      if (!snap.exists || snap.data() == null) return null;
-      return ChurchDashboardCacheSnapshot.fromMap(snap.data()!);
+      if (snap.exists && snap.data() != null) {
+        final parsed = ChurchDashboardCacheSnapshot.fromMap(snap.data()!);
+        if (parsed.hasData) return parsed;
+      }
+    } catch (_) {}
+
+    try {
+      final root = await ChurchRepository.loadByChurchId(id);
+      return fromChurchRootDoc(root.data);
     } catch (_) {
       return null;
     }

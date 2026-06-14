@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/smart_trash_service.dart';
 import 'package:gestao_yahweh/core/offline/firebase_remote_repository.dart';
 import 'package:gestao_yahweh/core/offline/offline_firestore_path.dart';
@@ -59,7 +60,7 @@ abstract final class OfflineFirestoreExecutor {
 
   static Future<void> _handleSet(SyncTask task) async {
     final path = (task.payload['path'] ?? '').toString();
-    final merge = task.payload['merge'] == true;
+    final mergeRequested = task.payload['merge'] == true;
     final data = OfflinePayloadCodec.decodeMap(
       Map<String, dynamic>.from(
         task.payload['data'] is Map
@@ -68,8 +69,12 @@ abstract final class OfflineFirestoreExecutor {
       ),
     );
     final ref = OfflineFirestorePath.document(path);
+    final effectiveMerge = FirestoreWriteGuard.effectiveSetMerge(
+      merge: mergeRequested,
+      data: data,
+    );
     await runFirestorePublishWithRecovery<void>(() async {
-      if (merge) {
+      if (effectiveMerge) {
         await ref.set(data, SetOptions(merge: true));
       } else {
         await ref.set(data);

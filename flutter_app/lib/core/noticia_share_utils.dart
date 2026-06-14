@@ -1,9 +1,10 @@
-import 'dart:async' show TimeoutException;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/services/noticia_share_prefetch_service.dart';
 import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
@@ -118,7 +119,8 @@ String buildNoticiaInviteShareMessage({
   final eventUrl = (inviteCardUrl ?? links?.eventPageUrl ?? '').trim();
 
   final buf = StringBuffer();
-  buf.writeln('✨ *${cn.toUpperCase()}*');
+  final kindEmoji = noticiaKind == 'evento' ? '🎉' : '📢';
+  buf.writeln('$kindEmoji *${cn.toUpperCase()}*');
   buf.writeln('━━━━━━━━━━━━━━━━━━');
   buf.writeln();
 
@@ -130,7 +132,8 @@ String buildNoticiaInviteShareMessage({
     final yyyy = d.year;
     final hm =
         '${d.hour.toString().padLeft(2, '0')}h${d.minute.toString().padLeft(2, '0')}';
-    buf.writeln('🗓 *$wd, $dd/$mm/$yyyy · $hm*');
+    buf.writeln('🗓 *$wd*');
+    buf.writeln('⏰ *$dd/$mm/$yyyy · $hm*');
     buf.writeln('🎯 *${t.toUpperCase()}*');
   } else {
     buf.writeln('📌 *$t*');
@@ -138,7 +141,7 @@ String buildNoticiaInviteShareMessage({
 
   if (cleanText.isNotEmpty) {
     buf.writeln();
-    buf.writeln(cleanText);
+    buf.writeln('💬 $cleanText');
   }
 
   final locBlock = _formatShareLocationBlock(
@@ -158,17 +161,20 @@ String buildNoticiaInviteShareMessage({
 
   if (site.isNotEmpty) {
     buf.writeln('🌐 *Site da igreja*');
-    buf.writeln(site);
+    buf.writeln('🔗 $site');
   }
 
   if (eventUrl.isNotEmpty) {
     buf.writeln();
     final cta = noticiaKind == 'evento'
-        ? '🎟 *Ver evento completo* (fotos e vídeos)'
-        : '📢 *Ver aviso completo*';
+        ? '🎟 *Ver evento completo* — fotos e vídeos'
+        : '📢 *Ver aviso completo* — fotos e detalhes';
     buf.writeln(cta);
-    buf.writeln(eventUrl);
+    buf.writeln('🔗 $eventUrl');
   }
+
+  buf.writeln();
+  buf.writeln('✨ _Gestão YAHWEH_');
 
   return buf.toString().trimRight();
 }
@@ -196,7 +202,7 @@ String _formatShareLocationBlock({
   if (mapsUrl.isEmpty) return '';
 
   final label = _shortLocationLabel(location, lat, lng);
-  return '📍 *$label*\n$mapsUrl';
+  return '📍 *$label*\n🗺 _Abrir no mapa:_\n$mapsUrl';
 }
 
 String _shortLocationLabel(String? location, double? lat, double? lng) {
@@ -242,40 +248,80 @@ class NoticiaShareMediaFile {
 Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   Map<String, dynamic> data, {
   int maxPhotos = 5,
+  String? tenantId,
+  String? postId,
+  String? collection,
 }) async {
   final out = <NoticiaShareMediaFile>[];
-  final gallery = noticiaGalleryRefsForShare(data);
-  var photoCount = 0;
+  final tid = (tenantId ?? data['tenantId'] ?? data['churchId'] ?? '').toString().trim();
+  final pid = (postId ?? data['id'] ?? data['postId'] ?? data['docId'] ?? '').toString().trim();
+  final colRaw = (collection ?? data['collection'] ?? data['type'] ?? 'eventos').toString();
+  final col = colRaw == 'avisos' ? 'avisos' : 'eventos';
 
-  for (final ref in gallery) {
-    if (photoCount >= maxPhotos) break;
+  final httpUrls = <String>[
+    ...NoticiaSharePrefetchService.httpPhotoUrlsFromPost(data),
+  ];
+
+  if (httpUrls.length < maxPhotos && tid.isNotEmpty && pid.isNotEmpty) {
+    final pack = await NoticiaSharePrefetchService.fetch(
+      tenantId: tid,
+      postId: pid,
+      collection: col,
+      postDataHint: data,
+    );
+    if (pack != null) {
+      for (final u in pack.photoUrls) {
+        if (!httpUrls.contains(u)) httpUrls.add(u);
+      }
+    }
+  }
+
+  if (httpUrls.isEmpty) {
+    httpUrls.addAll(noticiaGalleryRefsForShare(data));
+  }
+
+  final photoJobs = <Future<NoticiaShareMediaFile?>>[];
+
+  Future<NoticiaShareMediaFile?> downloadPhoto(String ref, int index) async {
     try {
       final u = sanitizeImageUrl(ref);
-      if (!isValidImageUrl(u)) continue;
+      if (!isValidImageUrl(u)) return null;
       Uint8List? bytes;
       if (isFirebaseStorageHttpUrl(u)) {
         bytes = await firebaseStorageBytesFromDownloadUrl(
           u,
           maxBytes: 4 * 1024 * 1024,
-        );
+        ).timeout(const Duration(seconds: 10), onTimeout: () => null);
       }
       bytes ??= await http
           .get(Uri.parse(u), headers: const {'Accept': 'image/*'})
-          .timeout(const Duration(seconds: 18))
+          .timeout(const Duration(seconds: 8))
           .then((r) => r.statusCode == 200 && r.bodyBytes.isNotEmpty
               ? r.bodyBytes
               : null);
-      if (bytes == null || bytes.length <= 32) continue;
+      if (bytes == null || bytes.length <= 32) return null;
       final desc = noticiaShareImageDescriptorFromBytes(bytes);
-      out.add(NoticiaShareMediaFile(
+      return NoticiaShareMediaFile(
         bytes: bytes,
-        fileName: photoCount == 0
+        fileName: index == 0
             ? desc.filename
-            : 'foto_${photoCount + 1}.${desc.filename.split('.').last}',
+            : 'foto_${index + 1}.${desc.filename.split('.').last}',
         mimeType: desc.mime,
-      ));
-      photoCount++;
-    } catch (_) {}
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  for (var i = 0; i < httpUrls.length && i < maxPhotos; i++) {
+    photoJobs.add(downloadPhoto(httpUrls[i], i));
+  }
+
+  if (photoJobs.isNotEmpty) {
+    final results = await Future.wait(photoJobs);
+    for (final f in results) {
+      if (f != null) out.add(f);
+    }
   }
 
   if (out.isEmpty) {
@@ -291,12 +337,22 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   }
 
   try {
-    final videoUrl = await resolveNoticiaHostedVideoShareUrl(data);
+    var videoUrl = await resolveNoticiaHostedVideoShareUrl(data);
+    if ((videoUrl == null || videoUrl.isEmpty) &&
+        tid.isNotEmpty &&
+        pid.isNotEmpty) {
+      final pack = NoticiaSharePrefetchService.peek(
+        tenantId: tid,
+        collection: col,
+        postId: pid,
+      );
+      videoUrl = pack?.hostedVideoUrl;
+    }
     if (videoUrl != null && videoUrl.isNotEmpty) {
       final vBytes = await firebaseStorageBytesFromDownloadUrl(
         videoUrl,
         maxBytes: 16 * 1024 * 1024,
-      );
+      ).timeout(const Duration(seconds: 18), onTimeout: () => null);
       if (vBytes != null && vBytes.length > 512) {
         out.add(NoticiaShareMediaFile(
           bytes: vBytes,

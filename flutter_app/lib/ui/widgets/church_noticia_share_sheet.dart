@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/noticia_share_utils.dart'
         fetchNoticiaShareMediaBundle,
         noticiaGalleryRefsForShare,
         resolveNoticiaShareSheetMedia;
+import 'package:gestao_yahweh/services/noticia_share_prefetch_service.dart';
 import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
@@ -162,7 +163,18 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
       );
     }
     try {
-      final media = await fetchNoticiaShareMediaBundle(noticiaDataForLazyMedia);
+      final media = await fetchNoticiaShareMediaBundle(
+        noticiaDataForLazyMedia,
+        tenantId: (noticiaDataForLazyMedia['tenantId'] ??
+                noticiaDataForLazyMedia['churchId'])
+            ?.toString(),
+        postId: (noticiaDataForLazyMedia['id'] ??
+                noticiaDataForLazyMedia['postId'])
+            ?.toString(),
+        collection: (noticiaDataForLazyMedia['collection'] ??
+                noticiaDataForLazyMedia['type'])
+            ?.toString(),
+      ).timeout(const Duration(seconds: 14));
       if (media.isNotEmpty) {
         await YahwehShareService.shareMediaBundle(
           files: media,
@@ -243,6 +255,38 @@ Future<void> showChurchNoticiaShareSheet(
       ? noticiaGalleryRefsForShare(noticiaDataForLazyMedia)
       : <String>[];
   final rootContext = context;
+
+  if (noticiaDataForLazyMedia != null) {
+    final tid = (noticiaDataForLazyMedia['tenantId'] ??
+            noticiaDataForLazyMedia['churchId'] ??
+            '')
+        .toString()
+        .trim();
+    final pid = (noticiaDataForLazyMedia['id'] ??
+            noticiaDataForLazyMedia['postId'] ??
+            noticiaDataForLazyMedia['docId'] ??
+            '')
+        .toString()
+        .trim();
+    final colRaw =
+        (noticiaDataForLazyMedia['collection'] ?? noticiaDataForLazyMedia['type'] ?? 'eventos')
+            .toString();
+    final col = colRaw == 'avisos' ? 'avisos' : 'eventos';
+    if (tid.isNotEmpty && pid.isNotEmpty) {
+      unawaited(NoticiaSharePrefetchService.warm(
+        tenantId: tid,
+        postId: pid,
+        collection: col,
+      ));
+    }
+    unawaited(
+      resolveNoticiaShareSheetMedia(
+        noticiaDataForLazyMedia,
+        resolveTimeout: const Duration(seconds: 4),
+      ),
+    );
+  }
+
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -297,18 +341,8 @@ Future<void> showChurchNoticiaShareSheet(
                     onTap: () {
                       Navigator.pop(ctx);
                       unawaited(() async {
-                        if (noticiaDataForLazyMedia != null && !kIsWeb) {
-                          final ok = await YahwehWhatsAppService.sendNoticiaWithMedia(
-                            message: shareMessage,
-                            postData: noticiaDataForLazyMedia,
-                            sharePositionOrigin: sharePositionOrigin,
-                          );
-                          if (!ok && rootContext.mounted) {
-                            YahwehWhatsAppService.showOpenFailedSnack(rootContext);
-                          }
-                          return;
-                        }
-                        final ok = await noticiaOpenWhatsAppWithText(shareMessage);
+                        final ok =
+                            await noticiaOpenWhatsAppWithText(shareMessage);
                         if (!ok && rootContext.mounted) {
                           YahwehWhatsAppService.showOpenFailedSnack(rootContext);
                         }
@@ -336,7 +370,7 @@ Future<void> showChurchNoticiaShareSheet(
                                   ),
                                 ),
                                 Text(
-                                  'Texto completo + fotos e vídeos',
+                                  'Texto premium + link com fotos e vídeos',
                                   style: TextStyle(
                                     color: Colors.white.withValues(alpha: 0.9),
                                     fontSize: 12,

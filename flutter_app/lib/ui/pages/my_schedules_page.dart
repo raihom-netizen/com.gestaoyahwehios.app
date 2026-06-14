@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
@@ -23,10 +24,7 @@ Map<DateTime, List<QueryDocumentSnapshot<Map<String, dynamic>>>> _groupSchedules
 ) {
   final map = <DateTime, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
   for (final d in docs) {
-    DateTime? dt;
-    try {
-      dt = (d.data()['date'] as Timestamp).toDate();
-    } catch (_) {}
+    final dt = EscalaFirestoreFields.parseDate(d.data());
     if (dt == null) continue;
     final day = DateTime(dt.year, dt.month, dt.day);
     map.putIfAbsent(day, () => []).add(d);
@@ -836,12 +834,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> source,
   ) {
     final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(source);
-    docs.sort((a, b) {
-      final da = (a.data()['date'] as Timestamp?)?.toDate();
-      final db = (b.data()['date'] as Timestamp?)?.toDate();
-      if (da == null || db == null) return 0;
-      return da.compareTo(db);
-    });
+    docs.sort(EscalaFirestoreFields.compareDateAsc);
     return docs;
   }
 
@@ -1069,9 +1062,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     final endOfNavYear = DateTime(yNav, 12, 31, 23, 59, 59);
 
     return _allDocs.where((d) {
-      DateTime? dt;
-      try { dt = (d.data()['date'] as Timestamp).toDate(); } catch (_) {}
-      if (dt == null) return false;
+      final dt = EscalaFirestoreFields.parseDate(d.data());
+      if (dt == null) return _dateFilter == 'month' || _dateFilter == 'year';
       switch (_dateFilter) {
         case 'month':
           return !dt.isBefore(startOfNavMonth) && !dt.isAfter(endOfNavMonth);
@@ -1095,14 +1087,8 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     final list =
         List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_filteredDocs);
     list.sort((a, b) {
-      DateTime? da;
-      DateTime? db;
-      try {
-        da = (a.data()['date'] as Timestamp).toDate();
-      } catch (_) {}
-      try {
-        db = (b.data()['date'] as Timestamp).toDate();
-      } catch (_) {}
+      final da = EscalaFirestoreFields.parseDate(a.data());
+      final db = EscalaFirestoreFields.parseDate(b.data());
       if (da == null && db == null) return 0;
       if (da == null) return 1;
       if (db == null) return -1;

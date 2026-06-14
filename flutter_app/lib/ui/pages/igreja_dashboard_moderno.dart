@@ -38,6 +38,8 @@ import 'package:gestao_yahweh/core/event_template_schedule.dart'
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/panel_programacao_loader.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
+import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/church_dashboard_current_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
@@ -101,6 +103,7 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/dashboard/church_dashboard_panel_controller.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_engagement_controller.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
 import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
@@ -290,13 +293,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       unawaited(_paintPanelFromLocalCacheFirst(tidBoot));
       unawaited(MembersDirectorySnapshotService.warmFromCallableIfStale(tidBoot));
       unawaited(_hydrateMembersDirectory(tidBoot));
-      unawaited(() async {
-        final cluster = await _clusterDocIdsForPanel(tidBoot);
-        if (!mounted || cluster.isEmpty) return;
+      final churchIdBoot = ChurchRepository.churchId(tidBoot);
+      if (churchIdBoot.isNotEmpty) {
         setState(() {
-          _deptStream ??= _createDepartmentsOneShotStream(cluster);
+          _deptStream ??= _createDepartmentsOneShotStream(churchIdBoot);
         });
-      }());
+      }
     }
     _loadStreams();
     _financeMutationListener = () {
@@ -307,28 +309,28 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         .addListener(_financeMutationListener!);
   }
 
-  void _attachHeavyDashboardStreamsInline(List<String> allIds) {
+  void _attachHeavyDashboardStreamsInline(String churchId) {
     _heavyDashboardStreamsScheduled = true;
     // Controle Total: directory + one-shot dept — evita 2+ listeners live por tenant no mobile.
     _membersStream = null;
-    _deptStream = _createDepartmentsOneShotStream(allIds);
+    _deptStream = _createDepartmentsOneShotStream(churchId);
     unawaited(_hydrateMembersDirectory(_effectiveTenantId));
   }
 
   void _scheduleHeavyDashboardStreams(
-    List<String> allIds, {
+    String churchId, {
     bool force = false,
   }) {
     if (!force && _heavyDashboardStreamsScheduled) return;
     if (!mounted) return;
     if (force) {
-      setState(() => _attachHeavyDashboardStreamsInline(allIds));
+      setState(() => _attachHeavyDashboardStreamsInline(churchId));
       return;
     }
     _heavyDashboardStreamsScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      setState(() => _attachHeavyDashboardStreamsInline(allIds));
+      setState(() => _attachHeavyDashboardStreamsInline(churchId));
     });
   }
 
@@ -414,7 +416,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       if (!mounted) return;
       unawaited(_hydrateMembersDirectory(tid));
       setState(() {
-        _scheduleHeavyDashboardStreams([tid], force: true);
+        _scheduleHeavyDashboardStreams(
+          ChurchRepository.churchId(tid).isNotEmpty
+              ? ChurchRepository.churchId(tid)
+              : tid,
+          force: true,
+        );
         if (_effectiveTenantId.trim().isNotEmpty) {
           _attachPanelFeedStreams(_effectiveTenantId);
         }
@@ -433,15 +440,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     if (bound.isNotEmpty) return bound;
     final id = ChurchRepository.churchId(widget.tenantId);
     return id.isNotEmpty ? id : widget.tenantId.trim();
-  }
-
-  Future<List<String>> _clusterDocIdsForPanel(String resolved) async {
-    final ids = await PanelDashboardSnapshotService.clusterDocIdsForPanel(
-      resolved,
-    );
-    if (ids.isNotEmpty) return ids;
-    final seed = resolved.trim();
-    return seed.isEmpty ? const [] : [seed];
   }
 
   static Stream<QuerySnapshot<Map<String, dynamic>>> _emptyQueryStream() =>
@@ -560,21 +558,24 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   Future<void> _attachPanelFeedStreams(String resolved) async {
     final op = ChurchRepository.churchId(resolved);
     if (op.isEmpty) return;
-    final tenantRef = ChurchRepository.churchDoc(op);
-    final avisosQ = tenantRef
-        .collection(ChurchTenantPostsCollections.avisos)
-        .where('publicado', isEqualTo: true)
-        .where('ativo', isEqualTo: true)
-        .orderBy('createdAt', descending: true)
-        .limit(10);
-    final eventosQ = tenantRef
-        .collection(ChurchTenantPostsCollections.eventos)
-        .orderBy('startAt', descending: true)
-        .limit(32);
     if (!mounted) return;
     setState(() {
-      _avisosStream = FirestoreStreamUtils.queryOneShot(avisosQ);
-      _noticiasPainelStream = FirestoreStreamUtils.queryOneShot(eventosQ);
+      _avisosStream = FirestoreStreamUtils.oneShotQueryFromFuture(() async {
+        final r = await ChurchAvisosLoadService.loadFeed(
+          seedTenantId: op,
+          limit: 10,
+        );
+        return r.snapshot;
+      });
+      _noticiasPainelStream = FirestoreStreamUtils.oneShotQueryFromFuture(
+        () async {
+          final r = await ChurchEventosLoadService.loadFeed(
+            seedTenantId: op,
+            limit: 32,
+          );
+          return r.snapshot;
+        },
+      );
     });
   }
 
@@ -594,7 +595,12 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
           _dashboardMainCache = mainCache;
         });
         if (mainCache.totalMembros > 0) {
-          _scheduleHeavyDashboardStreams([tid], force: true);
+          _scheduleHeavyDashboardStreams(
+          ChurchRepository.churchId(tid).isNotEmpty
+              ? ChurchRepository.churchId(tid)
+              : tid,
+          force: true,
+        );
         }
       }
       final quick = await IndependentFutures.pair(
@@ -625,10 +631,15 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         );
       }
       unawaited(_hydrateMembersDirectory(tid));
-      if (quickPanel != null &&
-          (quickPanel.isFreshForInstantPanel ||
-              quickPanel.membersTotalCount > 0)) {
-        _scheduleHeavyDashboardStreams([tid], force: true);
+      if (quickPanel != null && !quickPanel.isFreshForInstantPanel) {
+        if (quickPanel.membersTotalCount > 0) {
+          _scheduleHeavyDashboardStreams(
+          ChurchRepository.churchId(tid).isNotEmpty
+              ? ChurchRepository.churchId(tid)
+              : tid,
+          force: true,
+        );
+        }
       }
     } catch (_) {}
   }
@@ -691,31 +702,25 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     unawaited(FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: forceToken));
     if (!mounted) return;
     final churchId = ChurchRepository.churchId(resolved);
-    final tenantRef = ChurchRepository.churchDoc(churchId.isNotEmpty ? churchId : resolved);
+    var effectiveChurchId =
+        churchId.isNotEmpty ? churchId : resolved.trim();
     var churchSlug = '';
     var churchNome = '';
-    late List<String> allIds;
     DocumentSnapshot<Map<String, dynamic>>? igSnap;
     try {
-      igSnap = await tenantRef.get();
-      allIds = await _clusterDocIdsForPanel(
-        churchId.isNotEmpty ? churchId : resolved,
-      );
-      if (allIds.isEmpty) {
-        allIds = [churchId.isNotEmpty ? churchId : resolved];
-      }
+      igSnap = await ChurchRepository.churchDoc(effectiveChurchId).get();
       final id = igSnap.data() ?? {};
       churchSlug = _slugFromTenantData(id);
       churchNome = (id['name'] ?? id['nome'] ?? '').toString();
       if (churchSlug.isEmpty) {
         churchSlug = TenantResolverService.knownPublicSlugForChurchDocId(
-          churchId.isNotEmpty ? churchId : resolved,
+          effectiveChurchId,
         );
       }
       if (churchNome.trim().isEmpty || churchSlug.isEmpty) {
         try {
           final loaded = await ChurchRepository.loadByChurchId(
-            churchId.isNotEmpty ? churchId : resolved,
+            effectiveChurchId,
             seedTenantId: resolved,
           );
           if (loaded.data.isNotEmpty) {
@@ -732,16 +737,15 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       if (churchSlug.isEmpty) {
         try {
           churchSlug = await TenantResolverService.resolveChurchPublicSlug(
-            churchId.isNotEmpty ? churchId : resolved,
+            effectiveChurchId,
           );
         } catch (_) {}
       }
       _corpoAdminRoles = ChurchCorpoAdminRoles.configuredRolesFromTenant(id);
     } catch (_) {
-      allIds = [ChurchRepository.churchId(resolved).isNotEmpty
+      effectiveChurchId = ChurchRepository.churchId(resolved).isNotEmpty
           ? ChurchRepository.churchId(resolved)
-          : resolved];
-      if (allIds.isEmpty) allIds = [resolved];
+          : resolved;
     }
     if (!mounted) return;
     unawaited(_attachPanelFeedStreams(resolved));
@@ -765,9 +769,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
       if (skipHeavyMemberStream) {
         _heavyDashboardStreamsScheduled = true;
         _membersStream = null;
-        _deptStream = _createDepartmentsOneShotStream(allIds);
+        _deptStream = _createDepartmentsOneShotStream(effectiveChurchId);
       } else {
-        _attachHeavyDashboardStreamsInline(allIds);
+        _attachHeavyDashboardStreamsInline(effectiveChurchId);
       }
     });
     final panelSnap = results.$1;
@@ -894,39 +898,23 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   }
 
   static Stream<QuerySnapshot<Map<String, dynamic>>> _createDepartmentsOneShotStream(
-    List<String> allIds,
+    String churchId,
   ) {
     return FirestoreStreamUtils.oneShotQueryFromFuture(() async {
-      final merged = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
-      final seen = <String>{};
-
-      Future<void> fetchTenantDepts(String rawId) async {
-        final id = rawId.trim();
-        if (id.isEmpty) return;
-        try {
-          final snap = await ChurchTenantResilientReads.departamentos(
-            id,
-            limit: _dashboardDepartmentsLimit,
-          ).timeout(
-            const Duration(seconds: 6),
-            onTimeout: () => const MergedFirestoreQuerySnapshot([]),
-          );
-          for (final d in snap.docs) {
-            if (seen.add(d.id)) merged.add(d);
-          }
-        } catch (_) {}
+      final id = churchId.trim();
+      if (id.isEmpty) return const MergedFirestoreQuerySnapshot([]);
+      try {
+        final snap = await ChurchTenantResilientReads.departamentos(
+          id,
+          limit: _dashboardDepartmentsLimit,
+        ).timeout(
+          const Duration(seconds: 6),
+          onTimeout: () => const MergedFirestoreQuerySnapshot([]),
+        );
+        return MergedFirestoreQuerySnapshot(snap.docs);
+      } catch (_) {
+        return const MergedFirestoreQuerySnapshot([]);
       }
-
-      final ids = allIds.where((x) => x.trim().isNotEmpty).toList();
-      if (ids.isEmpty) return const MergedFirestoreQuerySnapshot([]);
-
-      await fetchTenantDepts(ids.first);
-      if (merged.isNotEmpty) return MergedFirestoreQuerySnapshot(merged);
-
-      if (ids.length > 1) {
-        await Future.wait(ids.skip(1).map(fetchTenantDepts));
-      }
-      return MergedFirestoreQuerySnapshot(merged);
     });
   }
 
@@ -2107,6 +2095,111 @@ class _DashboardPanelLoadError extends StatelessWidget {
   }
 }
 
+/// Aniversariantes sem `_panel_cache` — queries indexadas (`birthMonth`/`birthDay`), sem scan da coleção.
+class _AniversariantesBirthdayIndexedLoader extends StatefulWidget {
+  const _AniversariantesBirthdayIndexedLoader({
+    required this.tenantId,
+    required this.engagement,
+    required this.onRetry,
+    required this.builder,
+  });
+
+  final String tenantId;
+  final ChurchDashboardEngagementController engagement;
+  final Future<void> Function() onRetry;
+  final Widget Function(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs)
+      builder;
+
+  @override
+  State<_AniversariantesBirthdayIndexedLoader> createState() =>
+      _AniversariantesBirthdayIndexedLoaderState();
+}
+
+class _AniversariantesBirthdayIndexedLoaderState
+    extends State<_AniversariantesBirthdayIndexedLoader> {
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _future;
+  int _loadedTab = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.engagement.addListener(_onTabChanged);
+    _reloadForTab(widget.engagement.birthdayFilterTab);
+  }
+
+  @override
+  void dispose() {
+    widget.engagement.removeListener(_onTabChanged);
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    _reloadForTab(widget.engagement.birthdayFilterTab);
+  }
+
+  void _reloadForTab(int tab) {
+    if (_loadedTab == tab && _future != null) return;
+    _loadedTab = tab;
+    final tid = widget.tenantId.trim();
+    if (tid.isEmpty) {
+      setState(() => _future = Future.value(const []));
+      return;
+    }
+    setState(() {
+      _future = switch (tab) {
+        0 => ChurchDashboardPanelController.birthdaysToday(tid),
+        1 => ChurchDashboardPanelController.birthdaysThisWeek(tid),
+        _ => ChurchDashboardPanelController.birthdaysThisMonth(tid),
+      };
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: widget.engagement,
+      builder: (context, _) {
+        final future = _future;
+        if (future == null) {
+          return Padding(
+            padding: const EdgeInsets.all(4),
+            child: YahwehPremiumFeedShimmer.birthdayStoriesSkeleton(
+              listHeight: _AniversariantesCard.kRowHeight,
+              avatarRingRadius: _AniversariantesCard.kAvatarRadius,
+            ),
+          );
+        }
+        return FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+          future: future,
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting &&
+                !snap.hasData) {
+              return Padding(
+                padding: const EdgeInsets.all(4),
+                child: YahwehPremiumFeedShimmer.birthdayStoriesSkeleton(
+                  listHeight: _AniversariantesCard.kRowHeight,
+                  avatarRingRadius: _AniversariantesCard.kAvatarRadius,
+                ),
+              );
+            }
+            if (snap.hasError) {
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: _DashboardPanelLoadError(
+                  message:
+                      'Não foi possível carregar aniversariantes. Verifique a conexão ou toque abaixo para recarregar.',
+                  onRetry: widget.onRetry,
+                ),
+              );
+            }
+            return widget.builder(snap.data ?? const []);
+          },
+        );
+      },
+    );
+  }
+}
+
 /// Card Aniversariantes: filtros Hoje / Semana / Mês + fileira estilo Stories + Parabenizar (chat / WhatsApp).
 class _AniversariantesCard extends StatelessWidget {
   /// Raio do círculo interno da foto (anel +3.5px — visual ~93px).
@@ -2185,7 +2278,14 @@ class _AniversariantesCard extends StatelessWidget {
     if (panelCache.hasBirthdayData) {
       return _premiumContainer(child: _buildContentFromCache(context));
     }
-    return _premiumContainer(child: _buildContent(context));
+    return _premiumContainer(
+      child: _AniversariantesBirthdayIndexedLoader(
+        tenantId: tenantId,
+        engagement: engagement,
+        onRetry: onRetry,
+        builder: (docs) => _buildContentFromDocs(context, docs),
+      ),
+    );
   }
 
   DateTime? _birthDateFromLite(PanelHomeMemberLite m) {
@@ -2635,8 +2735,10 @@ class _AniversariantesCard extends StatelessWidget {
     );
   }
 
-  Widget _buildContent(BuildContext context) {
-    final docs = snap.data!.docs;
+  Widget _buildContentFromDocs(
+    BuildContext context,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     final preloadUrls = docs
         .map((d) => _anivFotoUrl(d.data()) ?? '')
         .where((u) => u.trim().isNotEmpty)

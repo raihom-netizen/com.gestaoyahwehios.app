@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -124,7 +125,12 @@ abstract final class ChurchVisitantesLoadService {
 
     if (!forceRefresh && !forceServer) {
       final ramHit = peekRam(seedTenantId, limit: limit);
-      if (ramHit != null) {
+      if (ramHit != null && ramHit.isNotEmpty) {
+        unawaited(_refreshInBackground(
+          churchId: churchId,
+          ramKey: ramKey,
+          limit: limit,
+        ));
         return ChurchVisitantesLoadResult(
           churchId: churchId,
           docs: ramHit,
@@ -134,9 +140,14 @@ abstract final class ChurchVisitantesLoadService {
       }
 
       final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
-      if (mem != null) {
+      if (mem != null && mem.docs.isNotEmpty) {
         final docs = _sortByCreatedAt(mem.docs);
         _putRam(ramKey, docs);
+        unawaited(_refreshInBackground(
+          churchId: churchId,
+          ramKey: ramKey,
+          limit: limit,
+        ));
         return ChurchVisitantesLoadResult(
           churchId: churchId,
           docs: docs,
@@ -146,21 +157,32 @@ abstract final class ChurchVisitantesLoadService {
       }
 
       try {
-        final hive = await TenantModuleHiveCache.readDocs(
+        final updatedAt = await TenantModuleHiveCache.readUpdatedAt(
           churchId,
           TenantModuleKeys.visitantes,
-        ).timeout(const Duration(seconds: 4));
-        if (hive.isNotEmpty) {
+        ).timeout(const Duration(seconds: 3));
+        if (updatedAt != null) {
+          final hive = await TenantModuleHiveCache.readDocs(
+            churchId,
+            TenantModuleKeys.visitantes,
+          );
           final docs = _sortByCreatedAt(
             TenantModuleHiveCache.toQueryDocuments(hive),
           );
-          _putRam(ramKey, docs);
-          return ChurchVisitantesLoadResult(
-            churchId: churchId,
-            docs: docs,
-            readSource: 'hive',
-            collectionPath: path,
-          );
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+            _putRam(ramKey, docs);
+            unawaited(_refreshInBackground(
+              churchId: churchId,
+              ramKey: ramKey,
+              limit: limit,
+            ));
+            return ChurchVisitantesLoadResult(
+              churchId: churchId,
+              docs: docs,
+              readSource: 'hive',
+              collectionPath: path,
+            );
+          }
         }
       } catch (_) {}
     }
@@ -259,51 +281,33 @@ abstract final class ChurchVisitantesLoadService {
     required bool forceServer,
     required int limit,
   }) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
+    return ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: ChurchUiCollections.visitantes(churchId),
+      cacheKey: cacheKey,
+      limit: limit,
+      forceServer: forceServer,
+      orderByField: 'createdAt',
+      orderDescending: true,
+      sortDocs: _sortByCreatedAt,
+    );
+  }
 
-    final col = ChurchUiCollections.visitantes(churchId);
-    final ordered = col.orderBy('createdAt', descending: true).limit(limit);
-
-    if (!forceServer) {
-      try {
-        final cacheSnap = await ordered
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 4));
-        if (cacheSnap.docs.isNotEmpty) {
-          return _sortByCreatedAt(cacheSnap.docs);
-        }
-      } catch (_) {}
-    }
-
-    Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
-      try {
-        return await FirestoreReadResilience.getQuery(
-          ordered,
-          cacheKey: cacheKey,
-          maxAttempts: kIsWeb ? 5 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-      } catch (_) {
-        final plain = await FirestoreReadResilience.getQuery(
-          col.limit(limit),
-          cacheKey: '${cacheKey}_plain',
-          maxAttempts: kIsWeb ? 4 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-        return MergedFirestoreQuerySnapshot(_sortByCreatedAt(plain.docs));
-      }
-    }
-
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
-        : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
-
-    return _sortByCreatedAt(snap.docs);
+  static Future<void> _refreshInBackground({
+    required String churchId,
+    required String ramKey,
+    required int limit,
+  }) async {
+    try {
+      final docs = await _loadFirestore(
+        churchId: churchId,
+        cacheKey: ramKey,
+        forceServer: false,
+        limit: limit,
+      );
+      if (docs.isEmpty) return;
+      _putRam(ramKey, docs);
+      await _persistHive(churchId, docs);
+    } catch (_) {}
   }
 
   static void removeFromRam(String seedTenantId, Iterable<String> docIds) {

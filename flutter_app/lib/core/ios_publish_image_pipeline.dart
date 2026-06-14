@@ -13,9 +13,7 @@ import 'package:gestao_yahweh/services/unified_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/yahweh_telemetry.dart';
 
-/// Feed nativo (iOS/Android) — evita 3× WebP + 3 uploads no telemóvel.
-///
-/// Fluxo: comprimir para WebP ≤1080px (q75, igual web) → 1 upload → CF gera variantes.
+/// Feed nativo (iOS/Android) — 1 ficheiro JPEG ≤1080px (q75) por foto, path `.jpg`.
 abstract final class IosPublishImagePipeline {
   IosPublishImagePipeline._();
 
@@ -79,18 +77,20 @@ abstract final class IosPublishImagePipeline {
   }
 
   static Future<Uint8List> _compressFileInline(String path) async {
-    try {
-      final out = await FlutterImageCompress.compressWithFile(
-        path,
-        quality: publishWebpQuality,
-        minWidth: publishMaxEdge,
-        minHeight: publishMaxEdge,
-        format: CompressFormat.webp,
-        autoCorrectionAngle: true,
-      );
-      if (out != null && out.isNotEmpty) return Uint8List.fromList(out);
-    } catch (e, st) {
-      await YahwehTelemetry.recordNonFatal(e, st, reason: 'ios_compress_file');
+    for (final format in [CompressFormat.jpeg, CompressFormat.webp]) {
+      try {
+        final out = await FlutterImageCompress.compressWithFile(
+          path,
+          quality: publishWebpQuality,
+          minWidth: publishMaxEdge,
+          minHeight: publishMaxEdge,
+          format: format,
+          autoCorrectionAngle: true,
+        );
+        if (out != null && out.isNotEmpty) return Uint8List.fromList(out);
+      } catch (e, st) {
+        await YahwehTelemetry.recordNonFatal(e, st, reason: 'ios_compress_file');
+      }
     }
     final f = File(path);
     if (await f.exists()) {
@@ -106,17 +106,19 @@ abstract final class IosPublishImagePipeline {
   }
 
   static Future<Uint8List> _compressBytesInline(Uint8List raw) async {
-    try {
-      final out = await FlutterImageCompress.compressWithList(
-        raw,
-        quality: publishWebpQuality,
-        minWidth: publishMaxEdge,
-        minHeight: publishMaxEdge,
-        format: CompressFormat.webp,
-      );
-      if (out.isNotEmpty) return Uint8List.fromList(out);
-    } catch (e, st) {
-      await YahwehTelemetry.recordNonFatal(e, st, reason: 'ios_compress_bytes');
+    for (final format in [CompressFormat.jpeg, CompressFormat.webp]) {
+      try {
+        final out = await FlutterImageCompress.compressWithList(
+          raw,
+          quality: publishWebpQuality,
+          minWidth: publishMaxEdge,
+          minHeight: publishMaxEdge,
+          format: format,
+        );
+        if (out.isNotEmpty) return Uint8List.fromList(out);
+      } catch (e, st) {
+        await YahwehTelemetry.recordNonFatal(e, st, reason: 'ios_compress_bytes');
+      }
     }
     return raw;
   }

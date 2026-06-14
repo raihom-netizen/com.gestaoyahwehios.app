@@ -3,7 +3,6 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/fcm_service.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_push_responses_section.dart';
@@ -268,9 +267,9 @@ class _PastoralComunicacaoPageState extends State<PastoralComunicacaoPage>
   /// a competir com [ListView]; Devocional/Evasão só sob demanda.
   final Set<int> _tabsBuilt = {0};
 
-  /// Mesmo ID canónico que Departamentos (`resolveChurchDocIdPreferringNonEmptyDepartments`):
-  /// evita ler `pastoral_*` / `departamentos` no doc errado (slug vs doc irmão _sistema/_bpc).
-  String _resolvedChurchDocId = '';
+  /// ID canónico — `ChurchRepository.churchId` (mesmo path que Membros/Departamentos).
+  String get _effectiveChurchId =>
+      ChurchRepository.churchId(widget.tenantId);
 
   void _onTabChanged() {
     if (!mounted) return;
@@ -285,37 +284,15 @@ class _PastoralComunicacaoPageState extends State<PastoralComunicacaoPage>
     super.initState();
     _tab = TabController(length: 3, vsync: this);
     _tab.addListener(_onTabChanged);
-    _resolveChurchDocId();
-  }
-
-  Future<void> _resolveChurchDocId() async {
-    final seed = widget.tenantId.trim();
-    if (seed.isEmpty) return;
-    try {
-      final id = await TenantResolverService
-          .resolveChurchDocIdPreferringNonEmptyDepartments(seed);
-      if (!mounted) return;
-      setState(() => _resolvedChurchDocId = id.trim());
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _resolvedChurchDocId = seed);
-    }
-  }
-
-  String get _effectiveChurchId {
-    final r = _resolvedChurchDocId.trim();
-    return r.isNotEmpty ? r : widget.tenantId.trim();
   }
 
   @override
   void didUpdateWidget(covariant PastoralComunicacaoPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
-      _resolvedChurchDocId = '';
       _tabsBuilt
         ..clear()
         ..add(0);
-      _resolveChurchDocId();
     }
   }
 

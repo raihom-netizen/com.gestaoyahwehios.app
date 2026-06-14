@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show bytesLookLikeWebp;
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
+import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
@@ -100,6 +101,10 @@ abstract final class UnifiedUploadService {
     bool useOfflineQueue = false,
   }) async {
     await _ensureReady(module: module.name);
+    LegacyPathGuard.assertCanonicalStoragePath(
+      storagePath,
+      context: 'UnifiedUploadService.uploadImage',
+    );
     logFirebasePublishPhase('UPLOAD_START', '$platformLabel|${module.name}|$storagePath|image');
     try {
       Future<T> withUploadTimeout<T>(Future<T> fut) {
@@ -185,6 +190,10 @@ abstract final class UnifiedUploadService {
     int maxAttempts = 3,
   }) async {
     await _ensureReady(module: 'video');
+    LegacyPathGuard.assertCanonicalStoragePath(
+      storagePath,
+      context: 'UnifiedUploadService.uploadVideo',
+    );
     logFirebasePublishPhase('UPLOAD_START', '$platformLabel|$storagePath|video');
     try {
       if (kIsWeb) {

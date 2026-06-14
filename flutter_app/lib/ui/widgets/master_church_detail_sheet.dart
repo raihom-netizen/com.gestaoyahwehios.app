@@ -5,6 +5,7 @@ import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
@@ -110,7 +111,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
 
   Future<void> _loadTechnicalHealth() async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
       final snap = await           ChurchUiCollections.churchDoc(op)
           .get();
       final data = snap.data() ?? widget.churchData;
@@ -230,7 +231,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
       if (free) {
         await BillingLicenseService().setTenantFreeMaster(widget.tenantId);
       } else {
-        final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+        final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
         await             ChurchUiCollections.churchDoc(op)
             .set({
           'license': {'isFree': false, 'updatedAt': FieldValue.serverTimestamp()},
@@ -259,7 +260,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
   Future<void> _saveNotes() async {
     setState(() => _busy = true);
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
       await           ChurchUiCollections.churchDoc(op)
           .set({
         'masterNotes': _notesCtrl.text.trim(),

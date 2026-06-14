@@ -10,11 +10,13 @@ import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
 import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
+import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/core/entity_publish_status.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap, sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Pipeline único — foto perfil membro: bootstrap → Storage → Firestore.
@@ -135,9 +137,20 @@ abstract final class MemberProfilePhotoSaveService {
       thumbStoragePath: uploaded.thumbStoragePath,
     ).timeout(const Duration(seconds: 20));
 
-    final revision = DateTime.now().millisecondsSinceEpoch;
-    final photoUrl = sanitizeImageUrl(uploaded.photoFull.trim());
-    final thumbUrl = sanitizeImageUrl(uploaded.photoThumb.trim());
+    final revision = YahwehMediaCacheBust.freshRevisionMs();
+    final photoUrlRaw = sanitizeImageUrl(uploaded.photoFull.trim());
+    final thumbUrlRaw = sanitizeImageUrl(uploaded.photoThumb.trim());
+    final photoUrl = photoUrlRaw.isNotEmpty
+        ? YahwehMediaCacheBust.apply(photoUrlRaw, revision)
+        : '';
+    final thumbUrl = thumbUrlRaw.isNotEmpty
+        ? YahwehMediaCacheBust.apply(thumbUrlRaw, revision)
+        : '';
+
+    final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
+    final previousThumb = sanitizeImageUrl(
+      MemberProfileVariantsService.listPhotoUrl(memberData) ?? '',
+    );
 
     final updates = <String, dynamic>{
       'photoStoragePath': uploaded.fullStoragePath,
@@ -187,9 +200,24 @@ abstract final class MemberProfilePhotoSaveService {
     );
 
     MemberProfilePhotoUpdateService.invalidateDisplayCaches(
+      previousDownloadUrl: previousUrl,
+      newDownloadUrl: photoUrlRaw.isNotEmpty ? photoUrlRaw : photoUrl,
       storagePath: uploaded.fullStoragePath,
-      newDownloadUrl: uploaded.photoFull,
+      thumbStoragePath: uploaded.thumbStoragePath,
+      tenantId: churchId,
+      memberDocId: docId,
+      authUid: authUid.isEmpty ? null : authUid,
     );
+    if (previousThumb.isNotEmpty) {
+      MemberProfilePhotoUpdateService.invalidateDisplayCaches(
+        previousDownloadUrl: previousThumb,
+        newDownloadUrl: thumbUrlRaw.isNotEmpty ? thumbUrlRaw : thumbUrl,
+        thumbStoragePath: uploaded.thumbStoragePath,
+        tenantId: churchId,
+        memberDocId: docId,
+        authUid: authUid.isEmpty ? null : authUid,
+      );
+    }
 
     unawaited(
       ModuleMediaOutboxService.clearMemberPhoto(
@@ -199,10 +227,11 @@ abstract final class MemberProfilePhotoSaveService {
     );
 
     return MemberProfilePhotoUpdateResult(
-      downloadUrl: uploaded.photoFull,
+      downloadUrl: photoUrl.isNotEmpty ? photoUrl : photoUrlRaw,
       storagePath: uploaded.fullStoragePath,
       cacheRevision: revision,
-      thumbDownloadUrl: uploaded.photoThumb,
+      thumbDownloadUrl:
+          thumbUrl.isNotEmpty ? thumbUrl : (thumbUrlRaw.isNotEmpty ? thumbUrlRaw : null),
       thumbStoragePath: uploaded.thumbStoragePath,
     );
   }

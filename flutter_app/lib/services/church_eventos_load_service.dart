@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -168,19 +169,21 @@ abstract final class ChurchEventosLoadService {
           );
           final docs =
               _sortByStartAt(TenantModuleHiveCache.toQueryDocuments(hive));
-          _putRam(ramKey, docs);
-          unawaited(_refreshFeedInBackground(
-            churchId: churchId,
-            limit: limit,
-            ramKey: ramKey,
-          ));
-          return ChurchEventosLoadResult(
-            churchId: churchId,
-            docs: docs.length > limit ? docs.sublist(0, limit) : docs,
-            readSource: docs.isEmpty ? 'hive_empty' : 'hive',
-            collectionPath: path,
-            fromCache: true,
-          );
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+            _putRam(ramKey, docs);
+            unawaited(_refreshFeedInBackground(
+              churchId: churchId,
+              limit: limit,
+              ramKey: ramKey,
+            ));
+            return ChurchEventosLoadResult(
+              churchId: churchId,
+              docs: docs.length > limit ? docs.sublist(0, limit) : docs,
+              readSource: 'hive',
+              collectionPath: path,
+              fromCache: true,
+            );
+          }
         }
       } catch (_) {}
     }
@@ -324,6 +327,21 @@ abstract final class ChurchEventosLoadService {
 
     Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
       try {
+        final plainSnap = await FirestoreReadResilience.getQuery(
+          plain(),
+          cacheKey: '${cacheKey}_plain',
+          maxAttempts: kIsWeb ? 4 : 3,
+          attemptTimeout: ChurchPanelReadTimeouts.attempt,
+        );
+        final filtered = ChurchModuleFirestoreListRead.filterPublishedFeedRecords(
+          plainSnap.docs,
+        );
+        if (filtered.isNotEmpty) {
+          return MergedFirestoreQuerySnapshot(_sortByStartAt(filtered));
+        }
+      } catch (_) {}
+
+      try {
         return await FirestoreReadResilience.getQuery(
           published(),
           cacheKey: '${cacheKey}_pub',
@@ -341,7 +359,7 @@ abstract final class ChurchEventosLoadService {
         } catch (_) {
           return FirestoreReadResilience.getQuery(
             plain(),
-            cacheKey: '${cacheKey}_plain',
+            cacheKey: '${cacheKey}_plain_retry',
             maxAttempts: kIsWeb ? 4 : 3,
             attemptTimeout: ChurchPanelReadTimeouts.attempt,
           );
@@ -451,15 +469,17 @@ abstract final class ChurchEventosLoadService {
           );
           final docs =
               _sortByStartAt(TenantModuleHiveCache.toQueryDocuments(hive));
-          _putRam(ramKey, docs);
-          unawaited(_refreshGalleryInBackground(churchId: churchId, ramKey: ramKey));
-          return ChurchEventosLoadResult(
-            churchId: churchId,
-            docs: docs,
-            readSource: docs.isEmpty ? 'hive_empty' : 'hive',
-            collectionPath: path,
-            fromCache: true,
-          );
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+            _putRam(ramKey, docs);
+            unawaited(_refreshGalleryInBackground(churchId: churchId, ramKey: ramKey));
+            return ChurchEventosLoadResult(
+              churchId: churchId,
+              docs: docs,
+              readSource: 'hive',
+              collectionPath: path,
+              fromCache: true,
+            );
+          }
         }
       } catch (_) {}
     }

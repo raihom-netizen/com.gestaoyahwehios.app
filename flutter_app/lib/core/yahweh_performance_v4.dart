@@ -30,7 +30,7 @@ abstract final class YahwehPerformanceV4 {
   static const String profileThumbFile = 'profile_thumb.webp';
   static const String profileMediumFile = 'profile_medium.webp';
 
-  // ——— Feed / mural (já alinhado a MediaImageVariantsService) ———
+  // ——— Feed / mural (1 ficheiro/slot — ChurchInstantUploadPipeline / EcoFire) ———
   static const int feedThumbEdge = 200;
   static const int feedMediumEdge = 800;
   static const int feedFullEdge = uploadMaxEdgePx;

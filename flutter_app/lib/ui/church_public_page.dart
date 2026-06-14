@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/public_church_site_bootstrap.dart';
 import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
 import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
@@ -80,6 +81,7 @@ import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/data/yahweh_data_repository.dart';
+import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart';
 import 'package:gestao_yahweh/core/event_gallery_archive.dart'
@@ -309,6 +311,24 @@ class _ChurchPublicMuralStreamSliverState
   }
 
   Future<void> _primeInstantFeedHint() async {
+    final local = await YahwehLocalSnapshotStore.readJsonList(
+      widget.igrejaId,
+      'public_feed',
+    );
+    if (local.isNotEmpty && mounted && _items == null) {
+      setState(() {
+        _cachedRows = local;
+        _skeletonPlaceholderCount = local.length.clamp(
+          1,
+          YahwehPublicFeedRepository.pageSize,
+        );
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(scheduleFeedMediaWarmup(context, local, maxDocs: 8));
+      });
+    }
+
     final results = await Future.wait([
       YahwehPublicFeedRepository.readInstantFeed(
         widget.igrejaId,
@@ -1573,7 +1593,7 @@ Future<_PublicSocialProofStats> _loadPublicSocialProofStats(
     }
   } catch (_) {}
   try {
-    final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
+    final op = ChurchPanelTenantGateway.churchId(igrejaId.trim());
     final from =
         Timestamp.fromDate(DateTime.now().subtract(const Duration(days: 30)));
     final postsNoticias = await ChurchUiCollections.churchDoc(op)
@@ -3565,7 +3585,7 @@ Future<List<Map<String, dynamic>>> _loadPublicProgramacao(
   try {
     final now = DateTime.now();
     final end = now.add(Duration(days: days));
-    final op = await ChurchOperationalPaths.resolveCached(igrejaId.trim());
+    final op = ChurchPanelTenantGateway.churchId(igrejaId.trim());
     final noticiasRef =         ChurchUiCollections.eventos(op);
     final eventosSnap = await noticiasRef
         .where('type', isEqualTo: 'evento')

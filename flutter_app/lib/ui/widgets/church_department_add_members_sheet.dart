@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -86,7 +87,7 @@ class _ChurchDepartmentAddMembersBodyState
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
       final q = await           ChurchUiCollections.membros(op)
           .limit(600)
           .get();

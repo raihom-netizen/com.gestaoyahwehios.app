@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -603,10 +604,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterInstancesByPeriod(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
     final now = DateTime.now();
     bool inRange(DateTime? dt) {
+      if (_periodFilter == 'todos') return true;
       if (dt == null) return false;
       switch (_periodFilter) {
-        case 'todos':
-          return true;
         case 'diario':
           final today = _startOfDay(now);
           return !dt.isBefore(today) && !dt.isAfter(_endOfDay(now));
@@ -630,8 +630,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       }
     }
     return docs.where((d) {
-      DateTime? dt;
-      try { dt = (d.data()['date'] as Timestamp?)?.toDate(); } catch (_) {}
+      final dt = EscalaFirestoreFields.parseDate(d.data());
       return inRange(dt);
     }).toList();
   }

@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
+import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
@@ -85,6 +86,7 @@ abstract final class FinanceComprovantePublishService {
     DocumentReference<Map<String, dynamic>>? existingRef,
     DocumentReference<Map<String, dynamic>>? preGeneratedRef,
     bool hasNewComprovante = false,
+    Map<String, dynamic>? previousPayloadForSaldo,
   }) async {
     YahwehFlowLog.financeiroStart();
     final patch = Map<String, dynamic>.from(payload);
@@ -101,22 +103,44 @@ abstract final class FinanceComprovantePublishService {
     if (isEdit && existingRef != null) {
       try {
         await _writeFirestore(
-          () => OptimisticFirestoreWrite.update(
-            ref: existingRef,
-            data: patch,
-            module: OfflineModules.financeiro,
-            tenantId: tenantId,
+          () => FinanceLancamentoWriteService.commitInTransaction(
+            churchId: tenantId,
+            lancamentoRef: existingRef,
+            payload: patch,
+            merge: true,
+            previousPayload: previousPayloadForSaldo,
           ),
         );
       } catch (e) {
-        if (!EcoFireResilientPublish.shouldQueueSilently(e)) rethrow;
-        await EcoFireResilientPublish.queueFinanceLancamento(
-          churchId: tenantId,
-          docRef: existingRef,
-          payload: patch,
-          isEdit: true,
-        );
-        EcoFireResilientPublish.scheduleSync(reason: 'finance_save_edit');
+        if (!EcoFireResilientPublish.shouldQueueSilently(e)) {
+          try {
+            await _writeFirestore(
+              () => OptimisticFirestoreWrite.update(
+                ref: existingRef,
+                data: patch,
+                module: OfflineModules.financeiro,
+                tenantId: tenantId,
+              ),
+            );
+          } catch (e2) {
+            if (!EcoFireResilientPublish.shouldQueueSilently(e2)) rethrow;
+            await EcoFireResilientPublish.queueFinanceLancamento(
+              churchId: tenantId,
+              docRef: existingRef,
+              payload: patch,
+              isEdit: true,
+            );
+            EcoFireResilientPublish.scheduleSync(reason: 'finance_save_edit');
+          }
+        } else {
+          await EcoFireResilientPublish.queueFinanceLancamento(
+            churchId: tenantId,
+            docRef: existingRef,
+            payload: patch,
+            isEdit: true,
+          );
+          EcoFireResilientPublish.scheduleSync(reason: 'finance_save_edit');
+        }
       }
       YahwehFlowLog.financeiroFirestoreOk();
       return existingRef;
@@ -124,22 +148,43 @@ abstract final class FinanceComprovantePublishService {
     targetRef = preGeneratedRef ?? financeCol.doc();
     try {
       await _writeFirestore(
-        () => OptimisticFirestoreWrite.set(
-          ref: targetRef,
-          data: patch,
-          module: OfflineModules.financeiro,
-          tenantId: tenantId,
+        () => FinanceLancamentoWriteService.commitInTransaction(
+          churchId: tenantId,
+          lancamentoRef: targetRef,
+          payload: patch,
+          merge: false,
         ),
       );
     } catch (e) {
-      if (!EcoFireResilientPublish.shouldQueueSilently(e)) rethrow;
-      await EcoFireResilientPublish.queueFinanceLancamento(
-        churchId: tenantId,
-        docRef: targetRef,
-        payload: patch,
-        isEdit: false,
-      );
-      EcoFireResilientPublish.scheduleSync(reason: 'finance_save_new');
+      if (!EcoFireResilientPublish.shouldQueueSilently(e)) {
+        try {
+          await _writeFirestore(
+            () => OptimisticFirestoreWrite.set(
+              ref: targetRef,
+              data: patch,
+              module: OfflineModules.financeiro,
+              tenantId: tenantId,
+            ),
+          );
+        } catch (e2) {
+          if (!EcoFireResilientPublish.shouldQueueSilently(e2)) rethrow;
+          await EcoFireResilientPublish.queueFinanceLancamento(
+            churchId: tenantId,
+            docRef: targetRef,
+            payload: patch,
+            isEdit: false,
+          );
+          EcoFireResilientPublish.scheduleSync(reason: 'finance_save_new');
+        }
+      } else {
+        await EcoFireResilientPublish.queueFinanceLancamento(
+          churchId: tenantId,
+          docRef: targetRef,
+          payload: patch,
+          isEdit: false,
+        );
+        EcoFireResilientPublish.scheduleSync(reason: 'finance_save_new');
+      }
     }
     YahwehFlowLog.financeiroFirestoreOk();
     return targetRef;

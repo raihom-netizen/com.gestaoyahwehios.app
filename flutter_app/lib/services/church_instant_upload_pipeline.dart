@@ -1,13 +1,11 @@
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
-import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
-import 'package:gestao_yahweh/services/media_image_variants_service.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl, sanitizeImageUrl;
@@ -17,7 +15,6 @@ class FeedPhotoSlotResult {
   const FeedPhotoSlotResult({
     required this.fullPath,
     required this.thumbPath,
-    this.imageVariants,
     this.downloadUrl,
     this.thumbDownloadUrl,
   });
@@ -25,17 +22,14 @@ class FeedPhotoSlotResult {
   final String fullPath;
   final String thumbPath;
 
-  /// Variantes por tier (`thumb_300`, `medium_800`, `full_1920`) — só `storagePath`.
-  final Map<String, dynamic>? imageVariants;
-
   /// URL HTTPS do ficheiro principal (getDownloadURL após upload).
   final String? downloadUrl;
 
-  /// URL HTTPS da miniatura (lista/painel); pode ser igual a [downloadUrl].
+  /// URL HTTPS da miniatura (lista/painel); igual a [downloadUrl] — 1 ficheiro por slot.
   final String? thumbDownloadUrl;
 }
 
-/// Pipeline instantâneo: comprimir → upload Storage → paths (upload-first, paralelo).
+/// Pipeline instantâneo: **1 JPEG 1080px** por foto → upload Storage (sem tiers WebP).
 abstract final class ChurchInstantUploadPipeline {
   ChurchInstantUploadPipeline._();
 
@@ -52,47 +46,28 @@ abstract final class ChurchInstantUploadPipeline {
     return IosPublishImagePipeline.compressForPublishBytes(raw);
   }
 
-  static String _variantPath({
+  static String _storagePathForSlot({
     required String postType,
     required String tenantId,
     required String postId,
     required int slotIndex,
-    required String tier,
   }) {
     final t = postType.trim().toLowerCase();
-    if (t == 'evento' || t == 'noticia' || t == 'noticias') {
-      return ChurchStorageLayout.eventPostPhotoVariantPath(
-        tenantId,
-        postId,
-        slotIndex,
-        tier,
-      );
+    if (t == 'aviso' || t == 'noticia' || t == 'noticias') {
+      return ChurchStorageLayout.avisoPostPhotoPath(tenantId, postId, slotIndex);
     }
-    return ChurchStorageLayout.avisoPostPhotoVariantPath(
-      tenantId,
-      postId,
-      slotIndex,
-      tier,
+    if (t == 'evento') {
+      return ChurchStorageLayout.eventPostPhotoPath(tenantId, postId, slotIndex);
+    }
+    return FeedTenantStorageMap.feedPhotoPath(
+      postType: postType,
+      tenantId: tenantId,
+      postDocId: postId,
+      slotIndex: slotIndex,
     );
   }
 
-  static Map<String, dynamic> _variantsPathsOnly(Map<String, dynamic> raw) {
-    final out = <String, dynamic>{};
-    for (final e in raw.entries) {
-      final v = e.value;
-      if (v is! Map) continue;
-      final m = Map<String, dynamic>.from(v);
-      final sp = (m['storagePath'] ?? '').toString().trim();
-      if (sp.isEmpty) continue;
-      out[e.key] = <String, dynamic>{
-        'storagePath': sp,
-        'contentType': (m['contentType'] ?? 'image/webp').toString(),
-      };
-    }
-    return out;
-  }
-
-  /// Upload de um slot do feed — evento: 1 ficheiro `galeria_XX.jpg` + URL no Firestore.
+  /// Upload de um slot — **1 ficheiro** `capa_aviso.jpg` / `galeria_XX.jpg` / `banner_evento.jpg`.
   static Future<FeedPhotoSlotResult> uploadFeedPhotoSlot({
     required String tenantId,
     required String postType,
@@ -102,114 +77,17 @@ abstract final class ChurchInstantUploadPipeline {
     String? localPath,
     void Function(double progress)? onProgress,
   }) async {
-    final pt = postType.trim().toLowerCase();
-    if (pt == 'evento' || pt == 'aviso') {
-      return _uploadSimpleFeedPhotoSlot(
-        postType: pt,
-        tenantId: tenantId,
-        postId: postId,
-        slotIndex: slotIndex,
-        bytes: bytes,
-        localPath: localPath,
-        onProgress: onProgress,
-      );
-    }
-
-    final useWebTiers = kIsWeb;
-    final useMobileTiers = !kIsWeb &&
-        !IosPublishImagePipeline.useNativeFastFeedUpload;
-
-    if (useWebTiers || useMobileTiers) {
-      Uint8List? prepared = bytes;
-      if (prepared == null || prepared.isEmpty) {
-        if (localPath != null && localPath.isNotEmpty) {
-          prepared = await prepareImageBytes(Uint8List(0), localPath: localPath);
-        }
-      } else {
-        prepared = await prepareImageBytes(prepared);
-      }
-      if (prepared == null || prepared.isEmpty) {
-        throw StateError('Sem imagem para enviar.');
-      }
-
-      final tiers = await MediaImageVariantsService.encodeFeedWebpTiers(
-        bytes: prepared,
-        localPath: localPath,
-      );
-      final thumbPath = _variantPath(
-        postType: postType,
-        tenantId: tenantId,
-        postId: postId,
-        slotIndex: slotIndex,
-        tier: MediaImageVariantsService.tierThumb,
-      );
-      final mediumPath = _variantPath(
-        postType: postType,
-        tenantId: tenantId,
-        postId: postId,
-        slotIndex: slotIndex,
-        tier: MediaImageVariantsService.tierMedium,
-      );
-      final fullPath = _variantPath(
-        postType: postType,
-        tenantId: tenantId,
-        postId: postId,
-        slotIndex: slotIndex,
-        tier: MediaImageVariantsService.tierFull,
-      );
-
-      final uploaded = await MediaImageVariantsService.uploadFeedTiers(
-        thumbPath: thumbPath,
-        mediumPath: mediumPath,
-        fullPath: fullPath,
-        thumbBytes: tiers.thumb,
-        mediumBytes: tiers.medium,
-        fullBytes: tiers.full,
-        onProgress: onProgress,
-      );
-
-      await ChurchStorageMetadataVerify.assertExists(fullPath);
-
-      return FeedPhotoSlotResult(
-        fullPath: fullPath,
-        thumbPath: thumbPath,
-        imageVariants: _variantsPathsOnly(uploaded.imageVariants),
-      );
-    }
-
-    await IosPublishImagePipeline.uploadFeedPhotoSlot(
+    return _uploadSimpleFeedPhotoSlot(
+      postType: postType.trim().toLowerCase(),
       tenantId: tenantId,
-      postType: postType,
       postId: postId,
       slotIndex: slotIndex,
       bytes: bytes,
       localPath: localPath,
       onProgress: onProgress,
     );
-
-    final storageFull = FeedTenantStorageMap.feedPhotoPath(
-      postType: postType,
-      tenantId: tenantId,
-      postDocId: postId,
-      slotIndex: slotIndex,
-    );
-    await ChurchStorageMetadataVerify.assertExists(storageFull);
-
-    final thumbPath = _variantPath(
-      postType: postType,
-      tenantId: tenantId,
-      postId: postId,
-      slotIndex: slotIndex,
-      tier: MediaImageVariantsService.tierThumb,
-    );
-
-    return FeedPhotoSlotResult(
-      fullPath: storageFull,
-      thumbPath: thumbPath,
-    );
   }
 
-  /// Aviso/evento — path legado estável `capa_aviso.jpg` / `galeria_XX.jpg`.
   static Future<FeedPhotoSlotResult> _uploadSimpleFeedPhotoSlot({
     required String postType,
     required String tenantId,
@@ -231,10 +109,12 @@ abstract final class ChurchInstantUploadPipeline {
     if (prepared == null || prepared.isEmpty) {
       throw StateError('Sem imagem para enviar.');
     }
-    final isAviso = postType.trim().toLowerCase() == 'aviso';
-    final storagePath = isAviso
-        ? ChurchStorageLayout.avisoPostPhotoPath(tenantId, postId, slotIndex)
-        : ChurchStorageLayout.eventPostPhotoPath(tenantId, postId, slotIndex);
+    final storagePath = _storagePathForSlot(
+      postType: postType,
+      tenantId: tenantId,
+      postId: postId,
+      slotIndex: slotIndex,
+    );
     final downloadUrl = await FeedPostMediaUpload.uploadFeedPhotoBytes(
       storagePath: storagePath,
       bytes: prepared,

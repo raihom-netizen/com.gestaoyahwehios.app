@@ -1,16 +1,17 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/agenda_firestore_fields.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/agenda_firestore_fields.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga agenda — `igrejas/{churchId}/agenda`.
 class ChurchAgendaLoadResult {
@@ -38,7 +39,9 @@ class ChurchAgendaLoadResult {
 abstract final class ChurchAgendaLoadService {
   ChurchAgendaLoadService._();
 
-  static const int _plainFallbackLimit = 500;
+  static const int plainFallbackLimit = 500;
+
+  static const int _plainFallbackLimit = plainFallbackLimit;
 
   static final Map<
       String,
@@ -57,20 +60,9 @@ abstract final class ChurchAgendaLoadService {
   static String cacheKey(String churchId, Timestamp start, Timestamp end) =>
       '${churchId.trim()}_agenda_${start.seconds}_${end.seconds}';
 
-  /// Extrai timestamp canónico — suporta campos legados.
-  static Timestamp? docStartTimestamp(Map<String, dynamic> data) {
-    for (final key in [
-      'startTime',
-      'startAt',
-      'dataEvento',
-      'data',
-      'date',
-    ]) {
-      final v = data[key];
-      if (v is Timestamp) return v;
-    }
-    return null;
-  }
+  /// Extrai timestamp canónico — suporta campos legados (`data`, `date`, strings BR).
+  static Timestamp? docStartTimestamp(Map<String, dynamic> data) =>
+      AgendaFirestoreFields.parseTimestamp(data);
 
   /// Pré-visualização síncrona — lista completa ou intervalo filtrado.
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekAnyRam(
@@ -161,16 +153,16 @@ abstract final class ChurchAgendaLoadService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
     final sorted = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
-    sorted.sort((a, b) {
-      final ta = docStartTimestamp(a.data());
-      final tb = docStartTimestamp(b.data());
-      if (ta != null && tb != null) return ta.compareTo(tb);
-      if (ta != null) return -1;
-      if (tb != null) return 1;
-      return 0;
-    });
+    sorted.sort(AgendaFirestoreFields.compareDateAsc);
     return sorted;
   }
+
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>> filterActiveDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) =>
+      docs
+          .where((d) => ChurchModuleFirestoreListRead.isActiveRecord(d.data()))
+          .toList(growable: false);
 
   /// Lista completa da agenda — cache-first; filtro por mês na UI.
   static Future<ChurchAgendaLoadResult> loadAll({
@@ -234,18 +226,20 @@ abstract final class ChurchAgendaLoadService {
           final docs = _sortByStartTime(
             TenantModuleHiveCache.toQueryDocuments(hive),
           );
-          _putRam(ramKey, docs);
-          unawaited(_refreshAllInBackground(
-            churchId: churchId,
-            ramKey: ramKey,
-            limit: limit,
-          ));
-          return ChurchAgendaLoadResult(
-            churchId: churchId,
-            docs: docs,
-            readSource: docs.isEmpty ? 'hive_empty_all' : 'hive_all',
-            collectionPath: path,
-          );
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+            _putRam(ramKey, docs);
+            unawaited(_refreshAllInBackground(
+              churchId: churchId,
+              ramKey: ramKey,
+              limit: limit,
+            ));
+            return ChurchAgendaLoadResult(
+              churchId: churchId,
+              docs: docs,
+              readSource: 'hive_all',
+              collectionPath: path,
+            );
+          }
         }
       } catch (_) {}
     }
@@ -419,54 +413,16 @@ abstract final class ChurchAgendaLoadService {
     required int limit,
     required bool forceServer,
   }) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
-
-    final col = ChurchUiCollections.agenda(churchId);
-
-    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> plainLoad() async {
-      Query<Map<String, dynamic>> q = col.limit(limit);
-      try {
-        final ordered = await FirestoreReadResilience.getQuery(
-          col.orderBy('startTime', descending: true).limit(limit),
-          cacheKey: '${cacheKey}_ordered',
-          maxAttempts: kIsWeb ? 5 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-        if (ordered.docs.isNotEmpty) {
-          return _sortByStartTime(ordered.docs);
-        }
-      } catch (_) {}
-
-      final plain = await FirestoreReadResilience.getQuery(
-        q,
-        cacheKey: '${cacheKey}_plain',
-        maxAttempts: kIsWeb ? 4 : 3,
-        attemptTimeout: ChurchPanelReadTimeouts.attempt,
-      );
-      return _sortByStartTime(plain.docs);
-    }
-
-    if (!forceServer) {
-      try {
-        final cacheSnap = await col
-            .limit(limit)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 5));
-        if (cacheSnap.docs.isNotEmpty) {
-          return _sortByStartTime(cacheSnap.docs);
-        }
-      } catch (_) {}
-    }
-
-    if (kIsWeb) {
-      return FirestoreWebGuard.runWithWebRecovery(
-        plainLoad,
-        maxAttempts: 4,
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
-    }
-    return plainLoad().timeout(ChurchPanelReadTimeouts.warmCap);
+    final docs = await ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: ChurchUiCollections.agenda(churchId),
+      cacheKey: cacheKey,
+      limit: limit,
+      forceServer: forceServer,
+      orderByField: 'startTime',
+      orderDescending: false,
+      sortDocs: _sortByStartTime,
+    );
+    return docs;
   }
 
   static Future<void> invalidate(String seedTenantId) async {

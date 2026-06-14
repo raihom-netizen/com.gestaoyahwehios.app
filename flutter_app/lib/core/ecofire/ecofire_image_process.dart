@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
+import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart'
+    show kEventoAvisoFeedEncodeMaxEdgePx;
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 
@@ -10,7 +12,7 @@ import 'package:gestao_yahweh/services/media_service.dart';
 abstract final class EcoFireImageProcess {
   EcoFireImageProcess._();
 
-  static const int feedMaxEdge = YahwehPerformanceV4.uploadMaxEdgePx;
+  static const int feedMaxEdge = kEventoAvisoFeedEncodeMaxEdgePx;
   static const int memberSize = YahwehPerformanceV4.profileFullEdge;
   static const int patrimonioSize = YahwehPerformanceV4.uploadMaxEdgePx;
   static const int logoMaxSide = YahwehPerformanceV4.uploadMaxEdgePx;
@@ -71,15 +73,13 @@ abstract final class EcoFireImageProcess {
     if (decoded == null) {
       throw StateError('Não foi possível decodificar a imagem (feed).');
     }
-    const aspect = feedMaxEdge / 1080.0;
-    final cropped = _cropCenterAspect(decoded, aspect);
-    final resized = img.copyResize(
-      cropped,
-      width: feedMaxEdge,
-      height: 1080,
-      interpolation: img.Interpolation.linear,
+    final resized = _resizeKeepAspect(decoded, feedMaxEdge);
+    final encoded = await _encodeProfile(
+      resized,
+      MediaImageProfile.feed,
+      preferWebp: false,
     );
-    return _encodeProfile(resized, MediaImageProfile.feed, preferWebp: true);
+    return (bytes: encoded.bytes, mime: 'image/jpeg');
   }
 
   static Future<({Uint8List bytes, String mime})> processForPatrimonio(

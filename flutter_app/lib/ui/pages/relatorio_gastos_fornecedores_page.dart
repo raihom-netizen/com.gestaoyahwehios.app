@@ -1,11 +1,12 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/yahweh_reports_engine_fetcher.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -118,11 +119,13 @@ class _RelatorioGastosFornecedoresPageState
     }
   }
 
-  bool _dataNoPeriodo(Timestamp? ts) {
-    if (ts == null) return false;
-    final d = ts.toDate();
+  bool _dataNoPeriodo(Map<String, dynamic> m) {
+    final dt = financeLancamentoDate(m);
+    if (dt == null) return false;
     final p = _periodoAtual();
-    return !d.isBefore(p.inicio) && !d.isAfter(p.fim);
+    final inicioDay = DateTime(p.inicio.year, p.inicio.month, p.inicio.day);
+    final fimEnd = DateTime(p.fim.year, p.fim.month, p.fim.day, 23, 59, 59, 999);
+    return !dt.isBefore(inicioDay) && !dt.isAfter(fimEnd);
   }
 
   Future<void> _load() async {
@@ -136,24 +139,22 @@ class _RelatorioGastosFornecedoresPageState
       _amostraDocs = 0;
     });
     try {
-      await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      final op = ChurchRepository.churchId(widget.tenantId.trim());
-      final snap = await           ChurchUiCollections.financeiro(op)
-          .orderBy('createdAt', descending: true)
-          .limit(4000)
-          .get();
-      _amostraDocs = snap.docs.length;
-      for (final d in snap.docs) {
-        final m = d.data();
-        final ts = m['createdAt'] as Timestamp?;
-        if (!_dataNoPeriodo(ts)) continue;
+      final p = _periodoAtual();
+      final rows = await YahwehReportsEngineFetcher.fetchFinanceRowsForPeriod(
+        churchIdHint: widget.tenantId,
+        inicio: p.inicio,
+        fim: p.fim,
+        limit: 4000,
+      );
+      _amostraDocs = rows.length;
+      for (final m in rows) {
+        if (!_dataNoPeriodo(m)) continue;
         final fid = (m['fornecedorId'] ?? '').toString().trim();
         if (fid.isEmpty) continue;
         final nome =
             (m['fornecedorNome'] ?? 'Fornecedor / prestador').toString().trim();
-        final tipo = (m['type'] ?? '').toString().toLowerCase();
-        final valor = (m['amount'] ?? m['valor'] ?? 0);
-        final v = valor is num ? valor.toDouble() : 0.0;
+        final tipo = (m['tipo'] ?? '').toString().toLowerCase();
+        final v = financeParseValorBr(m['valor'] ?? m['amount']);
         if (tipo == 'saida' || tipo.contains('despesa')) {
           _despesas[nome] = (_despesas[nome] ?? 0) + v;
           _totalDespesas += v;

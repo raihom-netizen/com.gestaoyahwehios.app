@@ -22,6 +22,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
+import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/public_member_signup_navigation.dart';
 import 'package:gestao_yahweh/core/church_role_extensions.dart';
@@ -222,28 +224,34 @@ class _MembersPageState extends State<MembersPage> {
     MemberProfilePhotoUpdateResult result,
   ) {
     final displayUrl = sanitizeImageUrl(result.downloadUrl);
+    final rev = result.cacheRevision;
+    final bustedUrl = displayUrl.isNotEmpty && rev > 0
+        ? YahwehMediaCacheBust.apply(displayUrl, rev)
+        : displayUrl;
     final patch = <String, dynamic>{
       'photoStoragePath': result.storagePath,
       'photoThumbStoragePath': result.thumbStoragePath,
       'fotoPath': result.storagePath,
       'fotoThumbPath': result.thumbStoragePath,
-      'fotoUrlCacheRevision': result.cacheRevision,
+      'fotoUrlCacheRevision': rev,
     };
-    if (displayUrl.isNotEmpty) {
+    if (bustedUrl.isNotEmpty) {
       patch.addAll({
-        'FOTO_URL_DB': displayUrl,
-        'avatarUrl': displayUrl,
-        'fotoUrl': displayUrl,
-        'FOTO_URL_OU_ID': displayUrl,
-        'foto_url': displayUrl,
-        'photoURL': displayUrl,
-        'photoUrl': displayUrl,
+        'FOTO_URL_DB': bustedUrl,
+        'avatarUrl': bustedUrl,
+        'fotoUrl': bustedUrl,
+        'FOTO_URL_OU_ID': bustedUrl,
+        'foto_url': bustedUrl,
+        'photoURL': bustedUrl,
+        'photoUrl': bustedUrl,
       });
     }
     final thumbUrl = sanitizeImageUrl(result.thumbDownloadUrl ?? '');
     if (thumbUrl.isNotEmpty) {
-      patch['fotoThumbUrl'] = thumbUrl;
-      patch['photoThumbUrl'] = thumbUrl;
+      final bustedThumb =
+          rev > 0 ? YahwehMediaCacheBust.apply(thumbUrl, rev) : thumbUrl;
+      patch['fotoThumbUrl'] = bustedThumb;
+      patch['photoThumbUrl'] = bustedThumb;
     }
     return patch;
   }
@@ -289,11 +297,13 @@ class _MembersPageState extends State<MembersPage> {
     required Map<String, dynamic> memberData,
     required Uint8List bytes,
   }) async {
-    final result = await MemberProfilePhotoUpdateService.uploadAndPatchMember(
-      tenantId: tenantId,
-      memberDocId: memberDocId,
-      memberData: memberData,
-      rawBytes: bytes,
+    final result = await YahwehCentralEngineService.executeSingleProfileSave(
+      collectionId: 'membros',
+      docId: memberDocId,
+      igrejaId: tenantId,
+      payloadFields: const {},
+      photoBytes: bytes,
+      memberDataHint: memberData,
     );
     if (!mounted) return;
     _applyMemberPhotoUpdateLocally(memberDocId, memberData, result);
@@ -1183,11 +1193,17 @@ class _MembersPageState extends State<MembersPage> {
         ChurchUiCollections.membros(effectiveId)
             .limit(_membersLoadLimit)
             .get(getOpts);
-    Future<QuerySnapshot<Map<String, dynamic>>> pendente() =>
-        ChurchUiCollections.membros(effectiveId)
-            .where('status', isEqualTo: 'pendente')
-            .limit(YahwehPerformanceV4.adminExportBatchLimit)
-            .get(getOpts);
+    Future<QuerySnapshot<Map<String, dynamic>>> pendente() async {
+      final snap = await ChurchUiCollections.membros(effectiveId)
+          .limit(_membersLoadLimit)
+          .get(getOpts);
+      final filtered = snap.docs.where((d) {
+        final status =
+            (d.data()['status'] ?? '').toString().trim().toLowerCase();
+        return status == 'pendente';
+      }).toList();
+      return _MergedQuerySnapshot(filtered);
+    }
 
     try {
       return await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
@@ -1273,14 +1289,12 @@ class _MembersPageState extends State<MembersPage> {
         !AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
 
     final churchId = ChurchRepository.churchId(effectiveId);
-    final relatedIgrejaDocIds =
-        churchId.isNotEmpty ? [churchId] : [effectiveId];
-
+    final loadId = churchId.isNotEmpty ? churchId : effectiveId;
     final db = firebaseDefaultFirestore;
 
     late final List<QuerySnapshot<Map<String, dynamic>>> initialCore;
     try {
-      initialCore = await _loadMembersCoreSnapshots(db, effectiveId, getOpts);
+      initialCore = await _loadMembersCoreSnapshots(db, loadId, getOpts);
     } catch (e) {
       var cache = await MembersDirectorySnapshotService.readOnce(effectiveId);
       if (!cache.hasEntries) {
@@ -1300,122 +1314,9 @@ class _MembersPageState extends State<MembersPage> {
     final membrosSnap = initialCore[0];
     final pendenteSnap = initialCore[1];
 
-    final needsUsers = membrosSnap.docs.isEmpty;
-    late final QuerySnapshot<Map<String, dynamic>> usersTSnap;
-    late final QuerySnapshot<Map<String, dynamic>> usersISnap;
-    if (needsUsers) {
-      final usersPair = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-        db
-            .collection('users')
-            .where('tenantId', isEqualTo: effectiveId)
-            .limit(_membersLoadLimit)
-            .get(getOpts),
-        db
-            .collection('users')
-            .where('igrejaId', isEqualTo: effectiveId)
-            .limit(_membersLoadLimit)
-            .get(getOpts),
-      ]);
-      usersTSnap = usersPair[0];
-      usersISnap = usersPair[1];
-    } else {
-      usersTSnap = _EmptyQuerySnapshot();
-      usersISnap = _EmptyQuerySnapshot();
-    }
+    var mergedMembers = membrosSnap.docs.toList();
+    var pendenteOut = pendenteSnap;
 
-    final mergedMembers = <QueryDocumentSnapshot<Map<String, dynamic>>>[
-      ...membrosSnap.docs
-    ];
-    final mergedMembros = <QueryDocumentSnapshot<Map<String, dynamic>>>[
-      ...membrosSnap.docs
-    ];
-    final mergedIgrejasMembers = <QueryDocumentSnapshot<Map<String, dynamic>>>[
-      ...membrosSnap.docs
-    ];
-    final mergedIgrejasMembros = <QueryDocumentSnapshot<Map<String, dynamic>>>[
-      ...membrosSnap.docs
-    ];
-    final seenMemberIds = <String>{...membrosSnap.docs.map((d) => d.id)};
-    final seenIgrejasIds = <String>{...membrosSnap.docs.map((d) => d.id)};
-
-    final allIdsToQuery = <String>{...relatedIgrejaDocIds};
-    if (originalId.isNotEmpty) allIdsToQuery.add(originalId);
-
-    final otherIds = allIdsToQuery
-        .where((id) => id != effectiveId)
-        .take(_maxRelatedTenantMemberQueries)
-        .toList();
-    if (otherIds.isNotEmpty) {
-      final extraSnaps = await Future.wait(otherIds.map((id) async {
-        try {
-          return await ChurchUiCollections.membros(id)
-              .limit(_membersLoadLimit)
-              .get(getOpts);
-        } catch (_) {
-          return null;
-        }
-      }));
-      for (final snap in extraSnaps) {
-        if (snap == null) continue;
-        for (final d in snap.docs) {
-          if (seenMemberIds.add(d.id)) {
-            mergedMembers.add(d);
-            mergedMembros.add(d);
-          }
-          if (seenIgrejasIds.add(d.id)) {
-            mergedIgrejasMembers.add(d);
-            mergedIgrejasMembros.add(d);
-          }
-        }
-      }
-    }
-
-    // Usuários (users) com tenantId/igrejaId em qualquer um dos IDs — membros podem estar em users
-    final allIdsForUsers = allIdsToQuery;
-    final mergedUsersT = <QueryDocumentSnapshot<Map<String, dynamic>>>[
-      ...usersTSnap.docs
-    ];
-    final mergedUsersI = <QueryDocumentSnapshot<Map<String, dynamic>>>[
-      ...usersISnap.docs
-    ];
-    final seenUserIds = <String>{
-      ...usersTSnap.docs.map((d) => d.id),
-      ...usersISnap.docs.map((d) => d.id)
-    };
-    final otherUserIds =
-        allIdsForUsers.where((id) => id != effectiveId).toList();
-    if (otherUserIds.isNotEmpty) {
-      final userPairs = await Future.wait(otherUserIds.map((id) async {
-        try {
-          final pair = await Future.wait<QuerySnapshot<Map<String, dynamic>>>([
-            db
-                .collection('users')
-                .where('tenantId', isEqualTo: id)
-                .limit(_membersLoadLimit)
-                .get(getOpts),
-            db
-                .collection('users')
-                .where('igrejaId', isEqualTo: id)
-                .limit(_membersLoadLimit)
-                .get(getOpts),
-          ]);
-          return (pair[0], pair[1]);
-        } catch (_) {
-          return null;
-        }
-      }));
-      for (final p in userPairs) {
-        if (p == null) continue;
-        for (final d in p.$1.docs) {
-          if (seenUserIds.add(d.id)) mergedUsersT.add(d);
-        }
-        for (final d in p.$2.docs) {
-          if (seenUserIds.add(d.id)) mergedUsersI.add(d);
-        }
-      }
-    }
-
-    QuerySnapshot<Map<String, dynamic>> pendenteOut = pendenteSnap;
     if (selfOnlyMemberList) {
       bool keepSelf(QueryDocumentSnapshot<Map<String, dynamic>> d) {
         final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -1437,29 +1338,19 @@ class _MembersPageState extends State<MembersPage> {
         return false;
       }
 
-      mergedMembers.retainWhere(keepSelf);
-      mergedMembros.retainWhere(keepSelf);
-      mergedIgrejasMembers.retainWhere(keepSelf);
-      mergedIgrejasMembros.retainWhere(keepSelf);
-      final cu = FirebaseAuth.instance.currentUser?.uid;
-      if (cu != null) {
-        mergedUsersT.retainWhere((d) => d.id == cu);
-        mergedUsersI.retainWhere((d) => d.id == cu);
-      } else {
-        mergedUsersT.clear();
-        mergedUsersI.clear();
-      }
+      mergedMembers = mergedMembers.where(keepSelf).toList();
       pendenteOut =
           _MergedQuerySnapshot(pendenteSnap.docs.where(keepSelf).toList());
     }
 
+    final emptyUsers = _EmptyQuerySnapshot();
     return [
       _MergedQuerySnapshot(mergedMembers),
-      _MergedQuerySnapshot(mergedMembros),
-      _MergedQuerySnapshot(mergedIgrejasMembers),
-      _MergedQuerySnapshot(mergedIgrejasMembros),
-      _MergedQuerySnapshot(mergedUsersT),
-      _MergedQuerySnapshot(mergedUsersI),
+      _MergedQuerySnapshot(mergedMembers),
+      _MergedQuerySnapshot(mergedMembers),
+      _MergedQuerySnapshot(mergedMembers),
+      emptyUsers,
+      emptyUsers,
       pendenteOut,
     ];
   }
@@ -1975,14 +1866,15 @@ class _MembersPageState extends State<MembersPage> {
     });
   }
 
-  /// URL da foto: overlay pós-upload + dados mesclados do Firestore.
+  /// URL da foto: overlay pós-upload + dados mesclados do Firestore (+ cache bust).
   String _photoUrlForMember(String memberId, Map<String, dynamic> data) {
     final up = _uploadedPhotoUrls[memberId];
     if (up != null && up.trim().isNotEmpty) {
       final s = sanitizeImageUrl(up);
       if (isValidImageUrl(s)) return s;
     }
-    return _photoUrlFromMemberData(data);
+    final raw = _photoUrlFromMemberData(data);
+    return YahwehMediaCacheBust.applyFromDocRevision(raw, data);
   }
 
   String _tenantIdForMemberData(Map<String, dynamic> data) {

@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/core/offline/offline_bootstrap.dart';
-import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
+import 'package:gestao_yahweh/services/background_upload_worker.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 
 /// Orquestra offline-first: Firestore persistence → Hive/SyncEngine → sync silenciosa.
@@ -44,7 +44,7 @@ abstract final class OfflineFirstCoordinator {
   static Future<void> _flushSilently({required String reason}) async {
     try {
       YahwehFlowLog.sync('OFFLINE_FIRST', reason);
-      await SyncEngine.flushAll(reason: reason);
+      await BackgroundUploadWorker.drainAll(reason: reason);
       await ChurchAutoSessionService.ensureAutoPainelFlagForPersistedSession();
       YahwehFlowLog.success('OFFLINE_FIRST');
     } catch (e, st) {

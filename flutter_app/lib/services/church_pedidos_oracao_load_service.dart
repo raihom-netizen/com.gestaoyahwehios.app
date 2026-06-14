@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -194,24 +195,26 @@ abstract final class ChurchPedidosOracaoLoadService {
             respondidaFilter,
           );
           docs = _sortByCreatedAt(docs);
-          _putRam(allKey, _sortByCreatedAt(
-            TenantModuleHiveCache.toQueryDocuments(hive),
-          ));
-          _putRam(ramKey, docs);
-          unawaited(_refreshInBackground(
-            churchId: churchId,
-            respondidaFilter: respondidaFilter,
-            ramKey: ramKey,
-            allKey: allKey,
-            limit: limit,
-          ));
-          return ChurchPedidosOracaoLoadResult(
-            churchId: churchId,
-            docs: docs,
-            readSource: docs.isEmpty ? 'hive_empty' : 'hive',
-            collectionPath: path,
-            fromCache: true,
-          );
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+            _putRam(allKey, _sortByCreatedAt(
+              TenantModuleHiveCache.toQueryDocuments(hive),
+            ));
+            _putRam(ramKey, docs);
+            unawaited(_refreshInBackground(
+              churchId: churchId,
+              respondidaFilter: respondidaFilter,
+              ramKey: ramKey,
+              allKey: allKey,
+              limit: limit,
+            ));
+            return ChurchPedidosOracaoLoadResult(
+              churchId: churchId,
+              docs: docs,
+              readSource: 'hive',
+              collectionPath: path,
+              fromCache: true,
+            );
+          }
         }
       } catch (_) {}
     }

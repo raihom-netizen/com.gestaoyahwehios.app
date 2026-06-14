@@ -374,13 +374,25 @@ function lightPublicPost(
   return {
     id,
     collection,
+    postId: id,
+    docId: id,
     title: data.title ?? data.titulo ?? "",
+    titulo: data.titulo ?? data.title ?? "",
+    texto: data.texto ?? data.body ?? data.descricao ?? "",
     createdAt: data.createdAt ?? null,
     startAt: data.startAt ?? null,
-    type: data.type ?? "",
+    type: data.type ?? (collection === "avisos" ? "aviso" : "evento"),
     publishState: data.publishState ?? "published",
+    publicSite: data.publicSite !== false,
+    location: data.location ?? "",
+    locationLat: data.locationLat ?? null,
+    locationLng: data.locationLng ?? null,
     imageVariants: data.imageVariants ?? null,
     imagem_url: data.imagem_url ?? data.imageUrl ?? null,
+    photoUrls: Array.isArray(data.photoUrls) ? data.photoUrls : null,
+    feedCoverUrl: data.feedCoverUrl ?? null,
+    hostedVideoUrl: data.hostedVideoUrl ?? null,
+    videoThumbUrl: data.videoThumbUrl ?? null,
   };
 }
 
@@ -504,6 +516,59 @@ export const refreshPublicFeedCacheOnNoticiaWrite = functions
   );
 
 /** Warmup explícito pós-publicação: atualiza cache público imediatamente. */
+/**
+ * Pacote de mídia para partilha instantânea (URLs https já resolvidas no servidor).
+ * Evita rajada de getDownloadURL / Storage no cliente ao compartilhar aviso/evento.
+ */
+export const getNoticiaSharePack = functions
+  .region("us-central1")
+  .runWith({ timeoutSeconds: 45, memory: "512MB" })
+  .https.onCall(async (request, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError("unauthenticated", "Login necessario");
+    }
+    const body = (request || {}) as Record<string, unknown>;
+    const tenantId = await resolveTenantIdForCallable(
+      { uid: context.auth.uid, token: context.auth.token as Record<string, unknown> },
+      String(body.tenantId || body.churchId || ""),
+    );
+    const postId = String(body.postId || body.noticiaId || body.id || "").trim();
+    const collectionRaw = String(body.collection || body.kind || "eventos").trim();
+    const collection = collectionRaw === "avisos" ? "avisos" : "eventos";
+    if (!tenantId || !postId) {
+      throw new functions.https.HttpsError(
+        "invalid-argument",
+        "tenantId e postId obrigatorios",
+      );
+    }
+
+    const db = fs();
+    const postSnap = await db
+      .collection("igrejas")
+      .doc(tenantId)
+      .collection(collection)
+      .doc(postId)
+      .get();
+    if (!postSnap.exists) {
+      throw new functions.https.HttpsError("not-found", "publicacao nao encontrada");
+    }
+    const postData = (postSnap.data() ?? {}) as admin.firestore.DocumentData;
+
+    const { enrichPostMedia } = await import("./publicSiteMediaPrefetch");
+    const media = await enrichPostMedia(tenantId, collection, postId, postData);
+
+    return {
+      ok: true,
+      tenantId,
+      postId,
+      collection,
+      photoUrls: media.photoUrls,
+      feedCoverUrl: media.feedCoverUrl,
+      videoThumbUrl: media.videoThumbUrl,
+      hostedVideoUrl: media.hostedVideoUrl,
+    };
+  });
+
 export const warmChurchPublicFeedCache = functions
   .region("us-central1")
   .https.onCall(async (request, context) => {

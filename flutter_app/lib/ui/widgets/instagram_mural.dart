@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
@@ -51,6 +52,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
+import 'package:gestao_yahweh/ui/widgets/storage_upload_progress_indicator.dart';
 import 'package:gestao_yahweh/services/noticia_expired_media_cleanup_service.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -63,6 +65,7 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show isFirebaseNoAppError;
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
+        eventNoticiaDocHasPhotoMedia,
         eventNoticiaDisplayVideoThumbnailUrl,
         eventNoticiaExternalVideoUrl,
         eventNoticiaHostedVideoPlayUrl,
@@ -119,7 +122,7 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/aviso_publish_service.dart';
-import 'package:gestao_yahweh/services/aviso_strict_publish_service.dart';
+import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/evento_strict_publish_service.dart';
@@ -128,7 +131,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Diagnóstico no Console (F12): prefixo pedido para filtrar falhas de Storage/CORS/decode.
 /// Leitura rápida: [SafeNetworkImage] / [StableStorageImage] = cache disco+RAM (CDN Storage).
-/// Envio: WebP ~1024 px antes do upload ([evento_aviso_media_policy.dart]).
+/// Envio: JPEG ~1080 px @ 75 % antes do upload ([evento_aviso_media_policy.dart]).
 void _muralImageLoadError(String url, Object? error) {
   debugPrint('Erro Storage: $error | url=$url');
 }
@@ -571,6 +574,9 @@ class InstagramMuralState extends State<InstagramMural> {
   }
 
   Query<Map<String, dynamic>> _feedBaseQuery({bool filtered = true}) {
+    if (kIsWeb) {
+      return _avisos.limit(_feedPageSize);
+    }
     if (!filtered) {
       return _avisos.orderBy('createdAt', descending: true);
     }
@@ -579,6 +585,11 @@ class InstagramMuralState extends State<InstagramMural> {
         .where('publicado', isEqualTo: true)
         .orderBy('createdAt', descending: true);
   }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterFeedDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) =>
+      ChurchModuleFirestoreListRead.filterPublishedFeedRecords(docs);
 
   Future<void> _startFeedLiveSync() async {
     if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) return;
@@ -604,7 +615,7 @@ class InstagramMuralState extends State<InstagramMural> {
       _feedBaseQuery().limit(_feedPageSize),
     ).listen((snap) {
       if (!mounted) return;
-      final liveDocs = snap.docs;
+      final liveDocs = _filterFeedDocs(snap.docs);
       final liveIds = <String>{for (final d in liveDocs) d.id};
       final merged = <QueryDocumentSnapshot<Map<String, dynamic>>>[
         ...liveDocs,
@@ -693,7 +704,7 @@ class InstagramMuralState extends State<InstagramMural> {
       }
       if (!mounted || requestEpoch != _feedRequestEpoch) return;
 
-      final nextDocs = snap.docs;
+      final nextDocs = kIsWeb ? _filterFeedDocs(snap.docs) : snap.docs;
       if (reset) {
         _feedRawDocs
           ..clear()
@@ -1098,6 +1109,7 @@ class InstagramMuralState extends State<InstagramMural> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const StorageUploadProgressIndicator(compact: true),
             // Header super premium — padding responsivo para Android/iPhone
             LayoutBuilder(
               builder: (context, constraints) {
@@ -1788,10 +1800,12 @@ class _PostCardState extends State<_PostCard>
     final photoCount = muralPhotos.length;
     final videoCount = videoEntries.length;
     final carouselLen = photoCount + videoCount;
+    final hasPhotoMedia =
+        muralPhotos.isNotEmpty || eventNoticiaDocHasPhotoMedia(data);
     final publishState = (data['publishState'] ?? '').toString();
     final isDraft = publishState == MuralFastPublishService.stateDraft;
     final mediaUploading =
-        publishState == MuralFastPublishService.stateUploading;
+        publishState == MuralFastPublishService.stateUploading && !hasPhotoMedia;
     final publishFailed = publishState == MuralFastPublishService.stateFailed;
     final publishError = (data['publishError'] ?? '').toString();
     final mediaChipLabel = carouselLen > 0
@@ -3639,7 +3653,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
 
   Future<({DocumentReference<Map<String, dynamic>> docRef, String igrejaId})>
       _prepareAvisoPublishContext() async {
-    await AvisoPublishService.ensureReady(logLabel: 'aviso_prepare');
     final igrejaId = ChurchPublishContext.churchIdForPublish(_editorTenantId);
     if (mounted) setState(() => _operationalTenantId = igrejaId);
     final docRef = AvisosPublishVerificationService.avisoDocRef(
@@ -4266,11 +4279,9 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           payload['imageStoragePaths'] = paths;
         }
       }
-    }
-    payload['publicSite'] = _publicSite;
-    if (widget.type == 'evento' && !isNewDoc) {
       payload['imageVariants'] = FieldValue.delete();
     }
+    payload['publicSite'] = _publicSite;
     if (isNewDoc) {
       payload['createdAt'] = now;
       payload['createdByUid'] = uid;
@@ -4354,7 +4365,7 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
           'aspect_ratio': aspectRatio.clamp(0.45, 1.9),
           'tipo': 'image',
         };
-        await AvisoStrictPublishService.publish(
+        await YahwehCentralEngineService.executeInstantSaveAviso(
           docRef: docRef,
           tenantId: publishTenantId,
           corePayload: corePayload,
@@ -4435,40 +4446,43 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
       ),
     );
 
-    await AvisoPublishUi.runWithProgress(
-      context,
+    EcofirePublishProgressUi.schedule<void>(
+      context: context,
       uploadLabel: 'A enviar fotos…',
       saveLabel: 'A gravar aviso…',
       distributeLabel: 'A notificar e publicar no site…',
-      action: (reportProgress) => AvisoStrictPublishService.publish(
-        docRef: docRef,
-        tenantId: publishTenantId,
-        corePayload: corePayload,
-        isNewDoc: isNewDoc,
-        existingUrls: existingUrls,
-        startSlotIndex: startSlot,
-        newImagesBytes: pendingPhotos.bytes,
-        newImagePaths: pendingPhotos.paths,
-        publicSite: _publicSite,
-        calendarDate: _validUntil,
-        syncCalendar: _validUntil != null,
-        onUploadProgress: reportProgress,
-      ),
+      successMessage:
+          isNewDoc ? 'Aviso publicado com sucesso.' : 'Aviso atualizado.',
+      closeEditor: () {
+        if (mounted) Navigator.pop(context, true);
+      },
+      action: (reportProgress) async {
+        await YahwehCentralEngineService.executeInstantSaveAviso(
+          docRef: docRef,
+          tenantId: publishTenantId,
+          corePayload: corePayload,
+          isNewDoc: isNewDoc,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlot,
+          newImagesBytes: pendingPhotos.bytes,
+          newImagePaths: pendingPhotos.paths,
+          publicSite: _publicSite,
+          calendarDate: _validUntil,
+          syncCalendar: _validUntil != null,
+          onUploadProgress: reportProgress,
+        );
+        unawaited(
+          AvisosPublishVerificationService.logPublishPhase(
+            phase: 'after',
+            igrejaId: publishTenantId,
+            uid: uid,
+            titulo: titulo,
+            docId: docRef.id,
+          ),
+        );
+        AvisosPublishVerificationService.clearLastError();
+      },
     );
-
-    _clearNewPhotosAfterPublish();
-    _draftStubEnsured = true;
-    unawaited(
-      AvisosPublishVerificationService.logPublishPhase(
-        phase: 'after',
-        igrejaId: publishTenantId,
-        uid: uid,
-        titulo: titulo,
-        docId: docRef.id,
-      ),
-    );
-    AvisosPublishVerificationService.clearLastError();
-    await _showPublishVerifiedSuccess(isNewDoc: isNewDoc);
   }
 
   Future<void> _save() async {
@@ -4482,9 +4496,6 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
     try {
       final isAviso = widget.type == 'aviso';
       final isEvento = widget.type == 'evento';
-      if (!isAviso) {
-        await EcoFireResilientPublish.prepareForPublish(logLabel: 'mural_evento');
-      }
       if (isEvento) {
         ChurchPublishFlowLog.eventoStart();
       }
@@ -4568,35 +4579,47 @@ class _MuralAvisoEditorPageState extends State<MuralAvisoEditorPage> {
         };
         final videoPath =
             _videoStoragePathForMuralEvento(publishTenantId, docRef.id);
-        await EventoStrictPublishService.publish(
-          docRef: docRef,
-          tenantId: publishTenantId,
-          corePayload: corePayload,
-          isNewDoc: isNewDoc,
-          existingUrls: existingUrls,
-          startSlotIndex: startSlot,
-          hasVideo: videoPath != null || _videoUrl.text.trim().isNotEmpty,
-          newImagesBytes: pendingPhotos.bytes,
-          newImagePaths: pendingPhotos.paths,
-          videoStoragePath: videoPath,
-          publicSite: _publicSite,
-          eventStartAt: _eventStartAtForSave(),
-          location: _localSalvo(),
-          syncAgenda: _eventStartAtForSave() != null,
+        EcofirePublishProgressUi.schedule<void>(
+          context: context,
+          uploadLabel: 'A enviar fotos e vídeo…',
+          saveLabel: 'A gravar evento…',
+          distributeLabel: 'A notificar e publicar no site…',
+          successMessage: isNewDoc
+              ? 'Evento publicado com sucesso.'
+              : 'Evento atualizado.',
+          closeEditor: () {
+            if (mounted) Navigator.pop(context, true);
+          },
+          action: (reportProgress) async {
+            await EventoStrictPublishService.publish(
+              docRef: docRef,
+              tenantId: publishTenantId,
+              corePayload: corePayload,
+              isNewDoc: isNewDoc,
+              existingUrls: existingUrls,
+              startSlotIndex: startSlot,
+              hasVideo: videoPath != null || _videoUrl.text.trim().isNotEmpty,
+              newImagesBytes: pendingPhotos.bytes,
+              newImagePaths: pendingPhotos.paths,
+              videoStoragePath: videoPath,
+              publicSite: _publicSite,
+              eventStartAt: _eventStartAtForSave(),
+              location: _localSalvo(),
+              syncAgenda: _eventStartAtForSave() != null,
+              onUploadProgress: reportProgress,
+            );
+            unawaited(
+              EventosPublishVerificationService.logPublishPhase(
+                phase: 'after',
+                igrejaId: publishTenantId,
+                uid: uid,
+                titulo: titulo,
+                eventoId: docRef.id,
+              ),
+            );
+            EventosPublishVerificationService.clearLastError();
+          },
         );
-        unawaited(
-          EventosPublishVerificationService.logPublishPhase(
-            phase: 'after',
-            igrejaId: publishTenantId,
-            uid: uid,
-            titulo: titulo,
-            eventoId: docRef.id,
-          ),
-        );
-        EventosPublishVerificationService.clearLastError();
-        _clearNewPhotosAfterPublish();
-        _draftStubEnsured = true;
-        await _showPublishVerifiedSuccess(isNewDoc: isNewDoc);
         return;
       }
       final payload = _buildCorePayload(

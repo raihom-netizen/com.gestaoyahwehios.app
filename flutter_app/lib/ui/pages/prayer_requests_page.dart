@@ -73,6 +73,7 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
   String? _loadError;
   bool _showingStaleCache = false;
   String _effectiveTenantId = '';
+  Timer? _webLoadCap;
 
   bool _selectionMode = false;
   final Set<String> _selectedIds = {};
@@ -86,6 +87,21 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     if (_filtroStatus == 'Respondidas') return true;
     if (_filtroStatus == 'Não Respondidas') return false;
     return null;
+  }
+
+  void _startWebLoadingCap() {
+    if (!kIsWeb) return;
+    _webLoadCap?.cancel();
+    _webLoadCap = Timer(const Duration(seconds: 105), () {
+      if (!mounted || !_fetching) return;
+      setState(() {
+        _fetching = false;
+        if (_pedidosDocs.isEmpty) {
+          _loadError ??=
+              'Tempo esgotado ao carregar pedidos de oração. Toque em atualizar.';
+        }
+      });
+    });
   }
 
   void _seedPedidosLocal() {
@@ -142,6 +158,8 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
         _fetching = false;
         if (_pedidosDocs.isEmpty) _loadError = '$e';
       });
+    } finally {
+      _webLoadCap?.cancel();
     }
   }
 
@@ -158,7 +176,14 @@ class _PrayerRequestsPageState extends State<PrayerRequestsPage> {
     super.initState();
     _effectiveTenantId = ChurchRepository.churchId(widget.tenantId).trim();
     _seedPedidosLocal();
+    _startWebLoadingCap();
     unawaited(_fetchPedidos());
+  }
+
+  @override
+  void dispose() {
+    _webLoadCap?.cancel();
+    super.dispose();
   }
 
   @override

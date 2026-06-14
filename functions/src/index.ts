@@ -7448,6 +7448,7 @@ export {
   refreshPublicFeedCacheOnAvisoWrite,
   refreshPublicFeedCacheOnNoticiaWrite,
   warmChurchPublicFeedCache,
+  getNoticiaSharePack,
 } from "./churchPerformancePack";
 
 export {

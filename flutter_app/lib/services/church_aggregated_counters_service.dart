@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/yahweh_church_profile_engine.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_statistics_snapshot_service.dart';
@@ -29,6 +30,13 @@ class ChurchAggregatedCounters {
   final String source;
   final DateTime? updatedAt;
 
+  bool get hasAnyCounter =>
+      membersCount > 0 ||
+      activeMembersCount > 0 ||
+      eventsCount > 0 ||
+      avisosCount > 0 ||
+      departmentsCount > 0;
+
   Map<String, dynamic> toJson() => {
         'membersCount': membersCount,
         'activeMembersCount': activeMembersCount,
@@ -57,7 +65,7 @@ abstract final class ChurchAggregatedCountersService {
           .get(const GetOptions(source: Source.cache))
           .timeout(kReadTimeout);
       final fromRoot = _fromChurchRoot(snap.data());
-      if (fromRoot.membersCount > 0) return fromRoot;
+      if (fromRoot.hasAnyCounter) return fromRoot;
     } catch (_) {}
 
     try {
@@ -65,7 +73,7 @@ abstract final class ChurchAggregatedCountersService {
           .get()
           .timeout(kReadTimeout);
       final fromRoot = _fromChurchRoot(snap.data());
-      if (fromRoot.membersCount > 0) return fromRoot;
+      if (fromRoot.hasAnyCounter) return fromRoot;
     } catch (_) {}
 
     try {
@@ -104,25 +112,43 @@ abstract final class ChurchAggregatedCountersService {
     if (raw == null || raw.isEmpty) {
       return const ChurchAggregatedCounters();
     }
-    final ts = raw['countersUpdatedAt'] ?? raw['updatedAt'];
+    final flat = ChurchRootAggregatesParser.flattenRootAggregates(raw);
+    final ts = flat['countersUpdatedAt'] ?? flat['updatedAt'] ?? raw['updatedAt'];
     DateTime? at;
     if (ts is Timestamp) at = ts.toDate();
 
     final members = _n(
-      raw['membersCount'] ?? raw['membersTotalCount'] ?? raw['members'],
+      flat['membersCount'] ??
+          flat['membersTotalCount'] ??
+          flat['members'] ??
+          flat['totalMembros'],
     );
-    if (members <= 0) {
+    final active = _n(
+      flat['activeMembersCount'] ??
+          flat['activeMembers'] ??
+          flat['ativos'] ??
+          members,
+    );
+    final events = _n(flat['eventsCount'] ?? flat['eventos']);
+    final avisos = _n(flat['avisosCount'] ?? flat['avisos']);
+    final departments = _n(
+      flat['departmentsCount'] ?? flat['departamentos'],
+    );
+
+    if (members <= 0 &&
+        active <= 0 &&
+        events <= 0 &&
+        avisos <= 0 &&
+        departments <= 0) {
       return const ChurchAggregatedCounters();
     }
 
     return ChurchAggregatedCounters(
-      membersCount: members,
-      activeMembersCount: _n(
-        raw['activeMembersCount'] ?? raw['activeMembers'] ?? members,
-      ),
-      eventsCount: _n(raw['eventsCount'] ?? raw['eventos']),
-      avisosCount: _n(raw['avisosCount'] ?? raw['avisos']),
-      departmentsCount: _n(raw['departmentsCount'] ?? raw['departamentos']),
+      membersCount: members > 0 ? members : active,
+      activeMembersCount: active > 0 ? active : members,
+      eventsCount: events,
+      avisosCount: avisos,
+      departmentsCount: departments,
       source: 'igrejas_root',
       updatedAt: at,
     );

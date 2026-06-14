@@ -7,6 +7,17 @@ import 'package:gestao_yahweh/core/network_media_quality_policy.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 /// Três tamanhos WebP (feed leve, chat thumb, tela cheia).
+///
+/// **Legado / morto em runtime** — nenhum módulo activo chama estes métodos.
+/// Canónico:
+/// - Avisos/eventos → [EcoFireFeedPublishService] / [ChurchInstantUploadPipeline]
+/// - Chat → [UnifiedUploadService.uploadImage] (module chat)
+/// - Patrimônio → [PatrimonioMediaUpload]
+/// - Membro → [MemberProfilePhotoUpdateService]
+@Deprecated(
+  'Código morto. Use EcoFireFeedPublishService, ChurchInstantUploadPipeline, '
+  'PatrimonioMediaUpload ou UnifiedUploadService.',
+)
 abstract final class MediaImageVariantsService {
   MediaImageVariantsService._();
 

@@ -214,7 +214,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
       final churchName =
           (d.data['nome'] ?? d.data['name'] ?? churchId).toString();
       try {
-        final op = await ChurchOperationalPaths.resolveCached(churchId.trim());
+        final op = ChurchPanelTenantGateway.churchId(churchId.trim());
         final membrosCol =
             ChurchUiCollections.membros(op);
         final publicTotalAgg = await membrosCol

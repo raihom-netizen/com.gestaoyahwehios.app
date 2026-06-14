@@ -34,6 +34,37 @@ abstract final class FirestoreWriteGuard {
     return out;
   }
 
+  /// `set()` sem `{merge:true}` falha com `invalid-argument` se o mapa contiver
+  /// [FieldValue.delete] — Firestore exige merge para sentinela de remoção.
+  static bool mapContainsFieldDelete(Map<String, dynamic> map) {
+    for (final value in map.values) {
+      if (_valueContainsFieldDelete(value)) return true;
+    }
+    return false;
+  }
+
+  static bool _valueContainsFieldDelete(dynamic value) {
+    if (value is FieldValue) {
+      return value == FieldValue.delete();
+    }
+    if (value is Map) {
+      return mapContainsFieldDelete(Map<String, dynamic>.from(value));
+    }
+    if (value is Iterable && value is! String) {
+      for (final item in value) {
+        if (_valueContainsFieldDelete(item)) return true;
+      }
+    }
+    return false;
+  }
+
+  /// Garante merge quando o payload remove campos legados via sentinela.
+  static bool effectiveSetMerge({
+    required bool merge,
+    required Map<String, dynamic> data,
+  }) =>
+      merge || mapContainsFieldDelete(data);
+
   /// Metadados de publicação (avisos/eventos). Em `set`/`add` **sem** merge, não usar
   /// [FieldValue.delete] — Firestore rejeita com `invalid-argument` (ex.: `publishError`).
   static void applyMuralPublishMetaPatch(

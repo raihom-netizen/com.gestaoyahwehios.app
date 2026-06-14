@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
@@ -136,6 +137,7 @@ class _CalendarPageState extends State<CalendarPage>
   Map<String, List<_CalendarEvent>> _legacyEventsByDay = {};
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _agendaDocs = [];
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _agendaSub;
+  Timer? _webLoadCap;
   /// Dias (yyyy-MM-dd) com pelo menos uma escala de ministério — alerta no calendário.
   Set<String> _escalaDayKeys = {};
   bool _loading = false;
@@ -933,12 +935,28 @@ class _CalendarPageState extends State<CalendarPage>
     _seedAgendaDocsFromCache();
     _hydrateAgendaFromRam();
     _fetching = true;
+    _startWebLoadingCap();
     _restartAgendaSubscription();
     unawaited(_bootstrapAndLoadEvents());
     unawaited(PdfSuperPremiumTheme.loadRobotoPdfTheme());
     _pdfBrandingFuture = loadReportPdfBranding(_churchId).then((b) {
       _pdfBrandingReady = b;
       return b;
+    });
+  }
+
+  void _startWebLoadingCap() {
+    if (!kIsWeb) return;
+    _webLoadCap?.cancel();
+    _webLoadCap = Timer(const Duration(seconds: 105), () {
+      if (!mounted || !_loading) return;
+      setState(() {
+        _loading = false;
+        _fetching = false;
+        if (_eventsByDay.isEmpty && _agendaDocs.isEmpty) {
+          _loadError ??= 'Tempo esgotado ao carregar a agenda na Web.';
+        }
+      });
     });
   }
 
@@ -984,6 +1002,7 @@ class _CalendarPageState extends State<CalendarPage>
 
   @override
   void dispose() {
+    _webLoadCap?.cancel();
     _agendaSub?.cancel();
     _slideCtrl.dispose();
     super.dispose();
@@ -1089,6 +1108,8 @@ class _CalendarPageState extends State<CalendarPage>
         _loading = false;
       });
       _rebuildMerged();
+    } else if (mounted && _agendaDocs.isEmpty) {
+      setState(() => _loading = true);
     }
     try {
       if (kIsWeb) {
@@ -1116,9 +1137,12 @@ class _CalendarPageState extends State<CalendarPage>
       if (mounted) {
         setState(() {
           _fetching = false;
+          _loading = false;
           if (_agendaDocs.isEmpty) _loadError ??= e.toString();
         });
       }
+    } finally {
+      _webLoadCap?.cancel();
     }
   }
 
@@ -1129,12 +1153,20 @@ class _CalendarPageState extends State<CalendarPage>
     if (kIsWeb) return;
     final (rangeStart, rangeEnd) = _computeLoadRange();
     _agendaSub = _agenda
-        .where('startTime', isGreaterThanOrEqualTo: Timestamp.fromDate(rangeStart))
-        .where('startTime', isLessThanOrEqualTo: Timestamp.fromDate(rangeEnd))
+        .limit(ChurchAgendaLoadService.plainFallbackLimit)
         .watchSafe()
         .listen((snap) {
       if (!mounted) return;
-      setState(() => _agendaDocs = snap.docs);
+      final filtered = snap.docs.where((d) {
+        if (!ChurchModuleFirestoreListRead.isActiveRecord(d.data())) {
+          return false;
+        }
+        final ts = ChurchAgendaLoadService.docStartTimestamp(d.data());
+        if (ts == null) return false;
+        final dt = ts.toDate();
+        return !dt.isBefore(rangeStart) && !dt.isAfter(rangeEnd);
+      }).toList();
+      setState(() => _agendaDocs = filtered);
       _rebuildMerged();
     });
   }
@@ -1663,6 +1695,7 @@ class _CalendarPageState extends State<CalendarPage>
     final map = <String, List<_CalendarEvent>>{};
     for (final doc in docs) {
       final d = doc.data();
+      if (!ChurchModuleFirestoreListRead.isActiveRecord(d)) continue;
       final ts = ChurchAgendaLoadService.docStartTimestamp(d);
       if (ts == null) continue;
       final dt = ts.toDate();
@@ -1903,6 +1936,7 @@ class _CalendarPageState extends State<CalendarPage>
       _rebuildMerged();
     } else if (_legacyEventsByDay.isEmpty && _agendaDocs.isEmpty) {
       setState(() {
+        _loading = true;
         _fetching = true;
         _loadError = null;
       });
@@ -2180,6 +2214,13 @@ class _CalendarPageState extends State<CalendarPage>
       }
       _rebuildMerged();
     }
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _fetching = false;
+      });
+    }
+    _webLoadCap?.cancel();
   }
 
   String _normalizeType(String raw) {

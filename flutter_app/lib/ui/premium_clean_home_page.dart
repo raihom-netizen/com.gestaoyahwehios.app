@@ -3,8 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// ✅ Landing Premium Clean (fundo branco, logo grande, módulos modernos)
@@ -24,8 +23,9 @@ class _PremiumCleanHomePageState extends State<PremiumCleanHomePage> {
   Map<String, dynamic>? _profile;
 
   String _prettyTenant(String tenantId) {
-    if (tenantId == TenantResolverService.kBpcCanonicalIgrejaDocId ||
-        tenantId == 'brasilparacristo_sistema') {
+    final low = tenantId.toLowerCase();
+    if (low.contains('brasil_para_cristo') ||
+        low == 'brasilparacristo_sistema') {
       return 'Brasil para Cristo (BPC)';
     }
     return tenantId.replaceAll('_', ' ');
@@ -33,8 +33,8 @@ class _PremiumCleanHomePageState extends State<PremiumCleanHomePage> {
 
   Future<Map<String, dynamic>?> _loadTenantPublic(String tenantId) async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-      final snap = await ChurchUiCollections.churchDoc(op).get();
+      final op = ChurchRepository.churchId(tenantId.trim());
+      final snap = await ChurchRepository.churchDoc(op).get();
       if (!snap.exists) return null;
       final data = snap.data() ?? {};
       // Mantém somente o necessário para a landing

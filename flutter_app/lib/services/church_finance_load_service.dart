@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -257,28 +258,30 @@ abstract final class ChurchFinanceLoadService {
         if (hiveHit != null) {
           var docs = hiveHit.docs;
           if (sortDocs != null) docs = sortDocs(docs);
-          _putRam(ramMap, ramKey, docs);
-          if (hiveHit.migratedFromLegacy) {
-            unawaited(_persistHive(churchId, hiveModule, docs));
+          if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
+            _putRam(ramMap, ramKey, docs);
+            if (hiveHit.migratedFromLegacy) {
+              unawaited(_persistHive(churchId, hiveModule, docs));
+            }
+            unawaited(_refreshInBackground(
+              churchId: churchId,
+              hiveModule: hiveModule,
+              ramKey: ramKey,
+              ramMap: ramMap,
+              limit: capped,
+              col: col,
+              orderedQuery: orderedQuery,
+              plainQuery: plainQuery,
+              sortDocs: sortDocs,
+            ));
+            return ChurchFinanceLoadResult(
+              churchId: churchId,
+              docs: docs,
+              readSource: 'hive',
+              collectionPath: firestorePath(churchId),
+              fromCache: true,
+            );
           }
-          unawaited(_refreshInBackground(
-            churchId: churchId,
-            hiveModule: hiveModule,
-            ramKey: ramKey,
-            ramMap: ramMap,
-            limit: capped,
-            col: col,
-            orderedQuery: orderedQuery,
-            plainQuery: plainQuery,
-            sortDocs: sortDocs,
-          ));
-          return ChurchFinanceLoadResult(
-            churchId: churchId,
-            docs: docs,
-            readSource: docs.isEmpty ? 'hive_empty' : 'hive',
-            collectionPath: firestorePath(churchId),
-            fromCache: true,
-          );
         }
       } catch (_) {}
     }
@@ -290,6 +293,7 @@ abstract final class ChurchFinanceLoadService {
         reference: col(churchId),
         cacheKey: ramKey,
         forceServer: forceServer,
+        limit: capped,
         orderedQuery: (c) => orderedQuery(c, capped),
         plainQuery: (c) => plainQuery(c, capped),
         sortDocs: sortDocs,
@@ -312,6 +316,7 @@ abstract final class ChurchFinanceLoadService {
         reference: col(churchId),
         cacheKey: '${ramKey}_retry',
         forceServer: true,
+        limit: capped,
         orderedQuery: (c) => plainQuery(c, capped),
         plainQuery: (c) => plainQuery(c, capped),
         sortDocs: sortDocs,
@@ -466,6 +471,7 @@ abstract final class ChurchFinanceLoadService {
         reference: col(churchId),
         cacheKey: ramKey,
         forceServer: false,
+        limit: limit,
         orderedQuery: (c) => orderedQuery(c, limit),
         plainQuery: (c) => plainQuery(c, limit),
         sortDocs: sortDocs,
@@ -495,6 +501,7 @@ abstract final class ChurchFinanceLoadService {
     required CollectionReference<Map<String, dynamic>> reference,
     required String cacheKey,
     required bool forceServer,
+    required int limit,
     required Query<Map<String, dynamic>> Function(
       CollectionReference<Map<String, dynamic>> col,
     ) orderedQuery,
@@ -505,61 +512,30 @@ abstract final class ChurchFinanceLoadService {
       List<QueryDocumentSnapshot<Map<String, dynamic>>>,
     )? sortDocs,
   }) async {
-    if (kIsWeb) {
-      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-    }
+    final capped = FirebasePerformanceLimits.capListLimit('finance', limit);
+    final docs = await ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: reference,
+      cacheKey: cacheKey,
+      limit: capped,
+      forceServer: forceServer,
+      orderByField: 'createdAt',
+      orderDescending: true,
+      sortDocs: sortDocs,
+    );
+    if (docs.isNotEmpty) return docs;
 
-    if (!forceServer) {
-      try {
-        final cacheSnap = await orderedQuery(reference)
-            .get(const GetOptions(source: Source.cache))
-            .timeout(const Duration(seconds: 5));
-        if (cacheSnap.docs.isNotEmpty) {
-          return sortDocs != null
-              ? sortDocs(cacheSnap.docs)
-              : cacheSnap.docs;
-        }
-      } catch (_) {}
-    }
-
-    Future<QuerySnapshot<Map<String, dynamic>>> readServer() async {
-      if (kIsWeb) {
-        try {
-          final plain = await FirestoreReadResilience.getQuery(
-            plainQuery(reference),
-            cacheKey: '${cacheKey}_plain',
-            maxAttempts: 4,
-            attemptTimeout: ChurchPanelReadTimeouts.attempt,
-          );
-          if (plain.docs.isNotEmpty) return plain;
-        } catch (_) {}
-      }
-      try {
-        return await FirestoreReadResilience.getQuery(
-          orderedQuery(reference),
-          cacheKey: cacheKey,
-          maxAttempts: kIsWeb ? 5 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-      } catch (_) {
-        return FirestoreReadResilience.getQuery(
-          plainQuery(reference),
-          cacheKey: '${cacheKey}_plain',
-          maxAttempts: kIsWeb ? 4 : 3,
-          attemptTimeout: ChurchPanelReadTimeouts.attempt,
-        );
-      }
-    }
-
-    final snap = kIsWeb
-        ? await FirestoreWebGuard.runWithWebRecovery(
-            readServer,
-            maxAttempts: 4,
-          ).timeout(ChurchPanelReadTimeouts.queryCap)
-        : await readServer().timeout(ChurchPanelReadTimeouts.warmCap);
-
-    final docs = snap.docs;
-    return sortDocs != null ? sortDocs(docs) : docs;
+    final legacyRef =
+        ChurchUiCollections.churchDoc(churchId).collection('financeiro');
+    if (legacyRef.path == reference.path) return docs;
+    return ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: legacyRef,
+      cacheKey: '${cacheKey}_legacy_financeiro',
+      limit: capped,
+      forceServer: forceServer,
+      orderByField: 'createdAt',
+      orderDescending: true,
+      sortDocs: sortDocs,
+    );
   }
 
   static Future<void> invalidate(String seedTenantId) async {

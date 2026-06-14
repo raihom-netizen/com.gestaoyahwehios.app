@@ -245,6 +245,7 @@ class MemberProfilePhotoUpdateService {
   }) async {
     YahwehFlowLog.memberPhotoStart();
     ChurchPublishFlowLog.memberPhotoStart();
+    final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
     try {
       final r = await MemberProfilePhotoSaveService.save(
         tenantId: tenantId,
@@ -258,6 +259,17 @@ class MemberProfilePhotoUpdateService {
         memberDocId: memberDocId,
         memberData: memberData,
         result: r,
+      );
+      invalidateDisplayCaches(
+        previousDownloadUrl: previousUrl,
+        newDownloadUrl: sanitizeImageUrl(r.downloadUrl),
+        storagePath: r.storagePath,
+        thumbStoragePath: r.thumbStoragePath,
+        tenantId: tenantId,
+        memberDocId: memberDocId,
+        authUid: (memberData['authUid'] ?? memberData['firebaseUid'] ?? '')
+            .toString()
+            .trim(),
       );
       YahwehFlowLog.memberPhotoSuccess();
       ChurchPublishFlowLog.memberPhotoSuccess();

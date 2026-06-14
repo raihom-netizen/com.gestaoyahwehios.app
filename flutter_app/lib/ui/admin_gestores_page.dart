@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -260,7 +261,7 @@ class _IgrejaGestoresTileState extends State<_IgrejaGestoresTile> {
 
   Future<void> _loadStats() async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
       final snap = await FirestoreWebGuard.runWithWebRecovery(() {
         return ChurchUiCollections.churchDoc(op)
             .collection('users')
@@ -473,7 +474,7 @@ class _CadastrarGestorDialogState extends State<_CadastrarGestorDialog> {
 
   Future<void> _carregar() async {
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
       final doc = await FirestoreWebGuard.runWithWebRecovery(() {
         return ChurchUiCollections.churchDoc(op)
             .get();
@@ -519,7 +520,7 @@ class _CadastrarGestorDialogState extends State<_CadastrarGestorDialog> {
     }
     setState(() => _saving = true);
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
       final ref = ChurchUiCollections.churchDoc(op);
       final update = <String, dynamic>{
         'gestorNome': nome,

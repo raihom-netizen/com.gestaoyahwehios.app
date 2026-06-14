@@ -8,7 +8,8 @@ import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
+import 'package:gestao_yahweh/ui/widgets/fornecedor_recibo_emit_sheet.dart';
 import 'package:gestao_yahweh/pdf/fornecedor_recibo_pdf.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
@@ -186,74 +187,6 @@ Future<QuerySnapshot<Map<String, dynamic>>> _loadFornecedorCompromissosQuery(
     ).timeout(ChurchPanelReadTimeouts.queryCap);
   } catch (_) {
     return const MergedFirestoreQuerySnapshot([]);
-  }
-}
-
-Future<List<({
-  String id,
-  String nome,
-  String cargo,
-  String assinatura,
-})>> _fetchReciboSigners(String tenantId) async {
-  final tid = tenantId.trim();
-  if (tid.isEmpty) return const [];
-  try {
-    final dir = await MembersDirectorySnapshotService.readOnce(tid);
-    if (dir.hasEntries) {
-      final out = <({
-        String id,
-        String nome,
-        String cargo,
-        String assinatura,
-      })>[];
-      for (final e in dir.entries) {
-        final m = e.toMemberDataMap();
-        final nome = (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
-            .toString()
-            .trim();
-        if (nome.isEmpty) continue;
-        out.add((
-          id: e.memberDocId,
-          nome: nome,
-          cargo: (m['CARGO'] ?? m['FUNCAO'] ?? m['cargo'] ?? '')
-              .toString()
-              .trim(),
-          assinatura: (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '')
-              .toString()
-              .trim(),
-        ));
-      }
-      if (out.isNotEmpty) {
-        out.sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
-        return out;
-      }
-    }
-  } catch (_) {}
-  try {
-    final snap =
-        await ChurchTenantResilientReads.membrosRecent(tid, limit: 400);
-    final out = snap.docs
-        .map((d) {
-          final md = d.data();
-          return (
-            id: d.id,
-            nome: (md['NOME_COMPLETO'] ?? md['nome'] ?? md['name'] ?? '')
-                .toString()
-                .trim(),
-            cargo: (md['CARGO'] ?? md['FUNCAO'] ?? md['cargo'] ?? '')
-                .toString()
-                .trim(),
-            assinatura: (md['assinaturaUrl'] ?? md['assinatura_url'] ?? '')
-                .toString()
-                .trim(),
-          );
-        })
-        .where((e) => e.nome.isNotEmpty)
-        .toList()
-      ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
-    return out;
-  } catch (_) {
-    return const [];
   }
 }
 
@@ -1182,6 +1115,15 @@ class _FornecedoresPageState extends State<FornecedoresPage>
         limit: _fornecedoresListLimit,
         forceRefresh: forceFresh,
         forceServer: forceFresh,
+      ).timeout(
+        ChurchPanelReadTimeouts.queryCap,
+        onTimeout: () => ChurchFornecedoresLoadResult(
+          churchId: tid,
+          docs: const [],
+          readSource: 'timeout',
+          collectionPath: 'igrejas/$tid/fornecedores',
+          softError: 'Tempo esgotado ao carregar fornecedores.',
+        ),
       );
       if (!mounted) return;
       if (result.docs.isEmpty && result.hasHardError) {
@@ -1210,6 +1152,10 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           _fornecedoresFetching = false;
         });
       } else {
+        setState(() => _fornecedoresFetching = false);
+      }
+    } finally {
+      if (mounted && _fornecedoresFetching) {
         setState(() => _fornecedoresFetching = false);
       }
     }
@@ -3820,7 +3766,8 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
   Future<void> _emitirRecibo(Map<String, dynamic> m, String financeDocId) async {
     try {
       final brandingFuture = _loadBrandingFastForRecibo(widget.tenantId);
-      final signersFuture = _fetchReciboSigners(widget.tenantId);
+      final signersFuture =
+          ChurchSignatoryLoadService.loadEligible(seedTenantId: widget.tenantId);
       final doc = await _fornecedorRef.get(
         const GetOptions(source: Source.serverAndCache),
       );
@@ -3855,79 +3802,18 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
 
       final signers = await signersFuture;
       if (!mounted) return;
-      String? signerId;
-      var useDigital = true;
-      final cfg = await showDialog<({String? signerId, bool useDigital})>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlg) => AlertDialog(
-          title: const Text('Assinatura do recibo'),
-          content: SizedBox(
-            width: 520,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                DropdownButtonFormField<String>(
-                  value: signerId,
-                  isExpanded: true,
-                  decoration: InputDecoration(
-                    labelText: 'Assinante da igreja',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFC),
-                  ),
-                  items: [
-                    const DropdownMenuItem<String>(
-                      value: null,
-                      child: Text('— Não definido —'),
-                    ),
-                    ...signers.map((s) => DropdownMenuItem<String>(
-                          value: s.id,
-                          child: Text(
-                            s.cargo.isEmpty ? s.nome : '${s.nome} — ${s.cargo}',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        )),
-                  ],
-                  onChanged: (v) => setDlg(() => signerId = v),
-                ),
-                const SizedBox(height: 10),
-                SwitchListTile.adaptive(
-                  value: useDigital,
-                  onChanged: (v) => setDlg(() => useDigital = v),
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Carregar assinatura digital da igreja'),
-                  subtitle: const Text(
-                    'Desative para assinar manualmente no papel.',
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(
-                ctx,
-                (signerId: signerId, useDigital: useDigital),
-              ),
-              child: const Text('Aplicar'),
-            ),
-          ],
-        ),
-      ),
-    );
+
+      final cfg = await showFornecedorReciboEmitSheet(
+        context,
+        tenantId: widget.tenantId,
+        fornecedorNome: nomeForn,
+        valor: v,
+        referente: desc.isEmpty ? 'Pagamento / serviço' : desc,
+        signers: signers,
+      );
       if (cfg == null || !mounted) return;
-      final sel = signers.where((s) => s.id == cfg.signerId);
-      final signer = sel.isNotEmpty ? sel.first : null;
-      final branding = await _loadBrandingFastForRecibo(widget.tenantId);
+      final signer = cfg.signer;
+      final branding = await brandingFuture;
       if (!mounted) return;
 
       PdfDigitalStampInput? churchStamp;
@@ -3938,18 +3824,9 @@ class _FornecedorHubPageState extends State<FornecedorHubPage> with SingleTicker
               (await ChurchRepository.churchDoc(widget.tenantId).get()).data() ??
                   {};
         } catch (_) {}
-        var cpfDigits = '';
-        try {
-          final md = await ChurchUiCollections.membros(widget.tenantId)
-              .doc(signer.id)
-              .get();
-          cpfDigits = (md.data()?['CPF'] ?? md.data()?['cpf'] ?? '')
-              .toString()
-              .replaceAll(RegExp(r'\D'), '');
-        } catch (_) {}
         churchStamp = PdfDigitalStampInput.now(
           signerName: signer.nome,
-          signerCpfDigits: cpfDigits.length == 11 ? cpfDigits : null,
+          signerCpfDigits: signer.cpfDigits,
           churchName: branding.churchName,
           churchData: churchData,
         );

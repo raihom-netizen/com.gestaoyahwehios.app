@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
@@ -15,7 +14,7 @@ import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show dedupeImageRefsByStorageIdentity, isValidImageUrl, sanitizeImageUrl;
+    show dedupeImageRefsByStorageIdentity;
 
 /// Publicação de evento — fluxo Ecofire único:
 /// Firebase OK → fotos/vídeo no Storage → Firestore → agenda → notificar/site.
@@ -122,81 +121,48 @@ abstract final class EventoPublishService {
     String? agendaColorHex,
     void Function(double progress)? onUploadProgress,
   }) async {
-    await EcoFirePublishBootstrap.ensureHard(logLabel: 'evento_publish');
-    ChurchPublishFlowLog.eventoStart();
-
-    final existingPaths = _pathsFromRefs(existingUrls);
     final hasNewPhotos =
         (newImagesBytes?.isNotEmpty ?? false) ||
         (newImagePaths?.isNotEmpty ?? false);
 
+    if (hasNewPhotos) {
+      final payloadWithVideo = Map<String, dynamic>.from(corePayload);
+      final videoPath = (videoStoragePath ?? '').trim();
+      if (hasVideo && videoPath.isNotEmpty) {
+        payloadWithVideo['videoPath'] = videoPath;
+      }
+      return GestaoYahwehWriteFirstPublishService.publishFeedWithPendingMedia(
+        docRef: docRef,
+        churchId: churchId,
+        docId: docId,
+        postType: 'evento',
+        corePayload: payloadWithVideo,
+        isNewDoc: isNewDoc,
+        existingUrls: existingUrls,
+        startSlotIndex: startSlotIndex,
+        hasVideo: hasVideo,
+        newImagesBytes: newImagesBytes,
+        newImagePaths: newImagePaths,
+        onUploadProgress: onUploadProgress,
+      );
+    }
+
+    await EcoFirePublishBootstrap.ensureHard(logLabel: 'evento_publish');
+    ChurchPublishFlowLog.eventoStart();
+
+    final existingPaths = _pathsFromRefs(existingUrls);
+
     var photoUrls =
         await EcoFireFeedPublishService.refsToPlayableUrls(existingUrls);
-    final uploadedPaths = <String>[];
     final alignedThumbPaths = <String>[];
     final alignedThumbUrls = <String>[];
-
-    if (hasNewPhotos) {
-      onUploadProgress?.call(0.05);
-      ChurchPublishFlowLog.uploadStart('evento $docId');
-
-      final newCount = kIsWeb
-          ? (newImagesBytes?.length ?? 0)
-          : (newImagePaths
-                  ?.map((p) => p.trim())
-                  .where((p) => p.isNotEmpty)
-                  .length ??
-              0);
-
-      final slots = await EcoFireFeedPublishService.uploadPendingPhotoSlots(
-        tenantId: churchId,
-        postType: 'evento',
-        postId: docId,
-        startSlotIndex: startSlotIndex,
-        bytesList: newImagesBytes,
-        localPaths: newImagePaths,
-        onProgress: newCount > 0
-            ? (p) => onUploadProgress?.call(0.05 + p * 0.65)
-            : null,
-      );
-
-      for (final slot in slots) {
-        uploadedPaths.add(slot.fullPath);
-        alignedThumbPaths.add(slot.thumbPath);
-        final direct = sanitizeImageUrl(slot.fullUrl);
-        if (isValidImageUrl(direct)) {
-          photoUrls = dedupeImageRefsByStorageIdentity([...photoUrls, direct]);
-        }
-        final thumbDirect = sanitizeImageUrl(slot.thumbUrl);
-        if (isValidImageUrl(thumbDirect)) {
-          alignedThumbUrls.add(thumbDirect);
-        }
-      }
-
-      ChurchPublishFlowLog.uploadOk('evento $docId (${slots.length} fotos)');
-      onUploadProgress?.call(0.72);
-
-      if (uploadedPaths.isEmpty) {
-        throw StateError(
-          'Não foi possível enviar as fotos do evento. Verifique a conexão e tente de novo.',
-        );
-      }
-
-      if (uploadedPaths.isNotEmpty) {
-        await ChurchStorageMetadataVerify.assertAllExist(
-          uploadedPaths,
-          timeout: ChurchStorageMetadataVerify.kDefaultTimeout,
-          maxAttempts: ChurchStorageMetadataVerify.kMaxAttempts,
-        );
-      }
-    }
 
     if (hasVideo && videoStoragePath != null && videoStoragePath.trim().isNotEmpty) {
       onUploadProgress?.call(0.78);
       await ChurchStorageMetadataVerify.assertExists(videoStoragePath.trim());
     }
 
-    final allPaths = <String>[...existingPaths, ...uploadedPaths];
+    final allPaths = <String>[...existingPaths];
     final aspectRatio = _aspectRatioFromPayload(corePayload);
     final videoPath = (videoStoragePath ?? '').trim();
 

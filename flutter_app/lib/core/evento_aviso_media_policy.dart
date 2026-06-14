@@ -47,9 +47,9 @@ Map<String, dynamic> stripVideoFieldsForAvisoPayload(
 
 /// Eventos + avisos — upload e leitura ultrarrápidos.
 ///
-/// Compressão feed avisos/eventos — máx. 1920px, qualidade 75–80% (spec produção).
-const int kEventoAvisoFeedEncodeMaxEdgePx = 1920;
-const int kEventoAvisoFeedWebpQuality = 78;
+/// Compressão feed avisos/eventos — máx. 1080px, qualidade 75% (texto da UI do editor).
+const int kEventoAvisoFeedEncodeMaxEdgePx = 1080;
+const int kEventoAvisoFeedWebpQuality = 75;
 
 /// Teto de decode em RAM no feed (equivalente prático ao `memCacheWidth: 800` do CachedNetworkImage).
 const int kEventoAvisoFeedMemCacheMaxPx = 800;

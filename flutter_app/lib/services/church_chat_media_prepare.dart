@@ -4,7 +4,11 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
-import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart'
+    show
+        kStandardUploadImageMaxEdge,
+        kStandardUploadImageQuality,
+        mediaChatVideoHardMaxBytesEffective;
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/web_image_compress_service.dart';
 
@@ -42,8 +46,9 @@ class PreparedChatVideo {
 abstract final class ChurchChatMediaPrepare {
   ChurchChatMediaPrepare._();
 
-  static const int imageMaxEdge = SafeImageBytes.defaultMaxEdge;
-  static const int imageQuality = SafeImageBytes.defaultQuality;
+  /// Chat — 1024 px / 80 % (rápido em 4G; alinhado ao picker e ao WhatsApp).
+  static const int imageMaxEdge = kStandardUploadImageMaxEdge;
+  static const int imageQuality = kStandardUploadImageQuality;
   static const int thumbEdge = 320;
   static const int thumbQuality = 72;
 

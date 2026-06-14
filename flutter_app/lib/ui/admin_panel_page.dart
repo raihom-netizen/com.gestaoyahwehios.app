@@ -18,6 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -1659,7 +1660,7 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
 
     setState(() => _saving = true);
     try {
-      final op = await ChurchOperationalPaths.resolveCached(slug.trim());
+      final op = ChurchPanelTenantGateway.churchId(slug.trim());
       final ref = ChurchUiCollections.churchDoc(op);
       final exists = (await ref.get()).exists;
       if (exists) {

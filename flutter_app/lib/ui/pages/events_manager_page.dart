@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
+import 'package:gestao_yahweh/ui/widgets/storage_upload_progress_indicator.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
@@ -76,6 +77,7 @@ import 'package:gestao_yahweh/core/noticia_event_feed.dart'
     show noticiaDocEhEventoSpecialFeed, noticiaEventoEhRotinaOuGeradoAutomatico;
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
+        eventNoticiaDocHasPhotoMedia,
         eventNoticiaPhotoUrls,
         eventNoticiaPhotoStoragePathAt,
         eventNoticiaImageStoragePath,
@@ -1340,6 +1342,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       body: SafeArea(
           top: widget.onShellBack == null,
           child: Column(children: [
+        const StorageUploadProgressIndicator(compact: true),
         if (widget.onShellBack != null)
           ChurchEmbeddedModuleBar(
             title: 'Mural de Eventos',
@@ -4753,7 +4756,12 @@ class _EventoPostState extends State<_EventoPost>
     final rsvpCount = NoticiaSocialService.rsvpDisplayCount(data, rsvpUids);
     final title = (data['title'] ?? '').toString();
     final allImages = _eventFeedCardPhotoUrls(data);
-    final hasImages = allImages.isNotEmpty;
+    final hasImages = allImages.isNotEmpty || eventNoticiaDocHasPhotoMedia(data);
+    final publishState = (data['publishState'] ?? '').toString();
+    final mediaUploading =
+        publishState == MuralFastPublishService.stateUploading && !hasImages;
+    final publishFailed = publishState == MuralFastPublishService.stateFailed;
+    final publishError = (data['publishError'] ?? '').toString();
     final location = (data['location'] ?? '').toString();
     final eventVideos = _eventVideosFromData(data);
     final videoUrl = eventVideos.isNotEmpty
@@ -4776,11 +4784,6 @@ class _EventoPostState extends State<_EventoPost>
       }
     }
     final hasVideoRow = useHostedPlayer || externalLaunchUrl.isNotEmpty;
-    final publishState = (data['publishState'] ?? '').toString();
-    final mediaUploading =
-        publishState == MuralFastPublishService.stateUploading;
-    final publishFailed = publishState == MuralFastPublishService.stateFailed;
-    final publishError = (data['publishError'] ?? '').toString();
 
     DateTime? eventDt;
     try {
@@ -6440,29 +6443,103 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final path = storagePath.trim();
       if (path.isEmpty) return;
       final url = sanitizeImageUrl(downloadUrl);
-      final paths = <String>[path];
       await runFirestorePublishWithRecovery<void>(() async {
-        await _eventDocRef.set(
-          {
-            'type': 'evento',
-            'tenantId': _editorTenantId,
-            'churchId': _editorTenantId,
-            'imageStoragePath': path,
-            'imageStoragePaths': paths,
-            if (slotIndex == 0) 'fotoStoragePaths': paths,
-            if (url.isNotEmpty && isValidImageUrl(url)) ...{
-              'imageUrl': url,
-              'defaultImageUrl': url,
-              'imagem_url': url,
-              'imagemUrl': url,
-            },
-            'photoUploadState': 'uploaded',
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
+        final snap = await _eventDocRef.get();
+        final data = snap.data() ?? <String, dynamic>{};
+
+        final paths = _mergeFeedPhotoRefsBySlot(
+          current: _stringListFromFirestore(data['imageStoragePaths']),
+          path: path,
+          slotIndex: slotIndex,
         );
+        final urls = _mergeFeedPhotoRefsBySlot(
+          current: _photoUrlsFromFirestoreDoc(data),
+          path: url,
+          slotIndex: slotIndex,
+          skipInvalidUrls: true,
+        );
+
+        final patch = <String, dynamic>{
+          'type': 'evento',
+          'tenantId': _editorTenantId,
+          'churchId': _editorTenantId,
+          'imageStoragePaths': paths,
+          'fotoStoragePaths': paths,
+          if (paths.isNotEmpty) ...{
+            'imageStoragePath': paths.first,
+            'fotoPath': paths.first,
+          },
+          'photoUploadState': 'uploaded',
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+        if (urls.isNotEmpty) {
+          patch['fotos'] = urls;
+          patch['imageUrls'] = urls;
+          patch['imageUrl'] = urls.first;
+          patch['defaultImageUrl'] = urls.first;
+          patch['imagem_url'] = urls.first;
+          patch['imagemUrl'] = urls.first;
+        }
+        final ps = (data['publishState'] ?? '').toString();
+        if (ps == MuralFastPublishService.stateUploading && paths.isNotEmpty) {
+          patch['publishState'] = MuralFastPublishService.stateDraft;
+          patch['publishError'] = FieldValue.delete();
+        }
+        await _eventDocRef.set(patch, SetOptions(merge: true));
       });
     } catch (_) {}
+  }
+
+  List<String> _stringListFromFirestore(dynamic raw) {
+    if (raw is! List) return const [];
+    return raw
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+  }
+
+  List<String> _photoUrlsFromFirestoreDoc(Map<String, dynamic> data) {
+    final out = <String>[];
+    for (final key in ['fotos', 'imageUrls', 'imagem_url', 'imageUrl']) {
+      final raw = data[key];
+      if (raw is List) {
+        for (final e in raw) {
+          final u = sanitizeImageUrl(e.toString());
+          if (u.isNotEmpty && isValidImageUrl(u) && !out.contains(u)) {
+            out.add(u);
+          }
+        }
+      } else if (raw != null) {
+        final u = sanitizeImageUrl(raw.toString());
+        if (u.isNotEmpty && isValidImageUrl(u) && !out.contains(u)) {
+          out.add(u);
+        }
+      }
+    }
+    return out;
+  }
+
+  /// Mantém ordem por slot (banner = 0, galeria_01 = 1…) sem apagar fotos anteriores.
+  List<String> _mergeFeedPhotoRefsBySlot({
+    required List<String> current,
+    required String path,
+    required int slotIndex,
+    bool skipInvalidUrls = false,
+  }) {
+    final value = path.trim();
+    if (value.isEmpty) return List<String>.from(current);
+    if (skipInvalidUrls && !isValidImageUrl(value)) {
+      return List<String>.from(current);
+    }
+    final out = List<String>.from(current);
+    while (out.length <= slotIndex) {
+      out.add('');
+    }
+    out[slotIndex] = value;
+    while (out.isNotEmpty && out.last.trim().isEmpty) {
+      out.removeLast();
+    }
+    return out;
   }
 
   Future<void> _uploadAttachedEventPhotoInBackground({
@@ -7646,7 +7723,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Fotos: recorte + WebP (1080 px · 75%). Vídeo: até $_maxVideoSeconds s, máx. 15 MB no celular.',
+                    'Fotos: recorte + JPEG (1080 px · 75%). Vídeo: até $_maxVideoSeconds s, máx. 15 MB no celular.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12.5,
@@ -7908,12 +7985,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   /// Reconexão após INTERNAL ASSERTION — mesmo pipeline linear (upload → Firestore).
   Future<void> _retryEventPublishFirestoreFirst() async {
     await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
-    await _waitForVideoUploadComplete();
     final ctx = await _prepareEventoPublishContext();
     final docRef = ctx.docRef;
     final publishTenantId = ctx.igrejaId;
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
-    await _waitForInFlightPhotoUploads();
     final pending = _pendingEventPhotosForPublish();
     final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
     double? aspectRatio;
@@ -8069,16 +8144,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final titulo = _title.text.trim();
     try {
-      await EventoCreatePublishService.ensureReady(logLabel: 'evento_save_start');
       final ctx = await _prepareEventoPublishContext();
       final docRef = ctx.docRef;
       final publishTenantId = ctx.igrejaId;
       final postId = docRef.id;
 
-      await _waitForInFlightPhotoUploads();
-      if (_uploadingVideo) {
-        await _waitForVideoUploadComplete();
-      }
       final pending = _pendingEventPhotosForPublish();
 
       unawaited(
@@ -8115,44 +8185,56 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       payload.remove('videoUrl');
 
-      await EcofirePublishProgressUi.runWithProgress(
-        context,
+      EcofirePublishProgressUi.schedule<void>(
+        context: context,
         uploadLabel: 'A enviar fotos e vídeo…',
         saveLabel: 'A gravar evento…',
         distributeLabel: 'A notificar e publicar no site…',
-        action: (reportProgress) => EventoCreatePublishService.publish(
-          docRef: docRef,
-          tenantId: publishTenantId,
-          corePayload: payload,
-          isNewDoc: isNewDoc,
-          existingUrls: existingUrls,
-          startSlotIndex: existingUrls.length,
-          hasVideo: hasVideo,
-          newImagesBytes: pending.bytes,
-          newImagePaths: pending.paths,
-          videoStoragePath: videoPathForPublish,
-          publicSite: _publicSite,
-          eventStartAt: eventStart,
-          location: _localSalvo(),
-          agendaCategory: _agendaCategoryKeyFromEvent(),
-          agendaColorHex: _agendaColorHexForCategory(),
-          onUploadProgress: reportProgress,
-        ),
+        successMessage: isNewDoc
+            ? 'Evento publicado com sucesso.'
+            : 'Evento atualizado.',
+        closeEditor: () {
+          _clearPendingEventPhotosAfterPublish();
+          if (mounted) Navigator.pop(context, true);
+        },
+        action: (reportProgress) async {
+          await EventoCreatePublishService.ensureReady(
+            logLabel: 'evento_save_start',
+          );
+          await EventoCreatePublishService.publish(
+            docRef: docRef,
+            tenantId: publishTenantId,
+            corePayload: payload,
+            isNewDoc: isNewDoc,
+            existingUrls: existingUrls,
+            startSlotIndex: existingUrls.length,
+            hasVideo: hasVideo,
+            newImagesBytes: pending.bytes,
+            newImagePaths: pending.paths,
+            videoStoragePath: videoPathForPublish,
+            publicSite: _publicSite,
+            eventStartAt: eventStart,
+            location: _localSalvo(),
+            agendaCategory: _agendaCategoryKeyFromEvent(),
+            agendaColorHex: _agendaColorHexForCategory(),
+            onUploadProgress: reportProgress,
+          );
+          unawaited(
+            EventosPublishVerificationService.logPublishPhase(
+              phase: 'after',
+              igrejaId: publishTenantId,
+              uid: uid,
+              titulo: titulo,
+              eventoId: postId,
+            ),
+          );
+          EventosPublishVerificationService.clearLastError();
+        },
       );
-
-      _clearPendingEventPhotosAfterPublish();
 
       unawaited(
-        EventosPublishVerificationService.logPublishPhase(
-          phase: 'after',
-          igrejaId: publishTenantId,
-          uid: uid,
-          titulo: titulo,
-          eventoId: postId,
-        ),
+        IosPublishMemory.releaseAfterHeavyWork(),
       );
-      EventosPublishVerificationService.clearLastError();
-      await _showEventoPublishVerifiedSuccess(isNewDoc: isNewDoc);
     } catch (e, st) {
       if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
         _clearPendingEventPhotosAfterPublish();

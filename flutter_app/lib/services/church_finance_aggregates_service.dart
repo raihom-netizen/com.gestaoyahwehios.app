@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:gestao_yahweh/core/yahweh_church_profile_engine.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/panel_finance_snapshot_service.dart';
 
@@ -115,10 +116,26 @@ abstract final class ChurchFinanceAggregatesService {
   }
 
   static Future<Map<String, dynamic>?> _rawSummaryMap(String tenantId) async {
-    final doc = await ChurchOperationalPaths.churchDoc(tenantId)
-        .collection('_panel_cache')
-        .doc('finance_summary')
-        .get();
-    return doc.data();
+    try {
+      final doc = await ChurchOperationalPaths.churchDoc(tenantId)
+          .collection('_panel_cache')
+          .doc('finance_summary')
+          .get();
+      final panel = doc.data();
+      if (panel != null && panel.isNotEmpty) return panel;
+    } catch (_) {}
+
+    try {
+      final root = await ChurchOperationalPaths.churchDoc(tenantId).get();
+      final rootData = root.data();
+      if (rootData == null || rootData.isEmpty) return null;
+      final fin = rootData['financeAggregates'];
+      if (fin is Map && fin.isNotEmpty) {
+        return Map<String, dynamic>.from(fin);
+      }
+      return ChurchRootAggregatesParser.flattenRootAggregates(rootData);
+    } catch (_) {
+      return null;
+    }
   }
 }

@@ -31,15 +31,28 @@ abstract final class FinanceComprovanteAttachService {
   static const int maxBytes = 5 * 1024 * 1024;
   static const List<String> allowedExtensions = ['jpg', 'jpeg', 'png', 'pdf'];
 
-  static bool hasComprovanteInDoc(Map<String, dynamic> data) {
-    if (data['hasComprovante'] == true) return true;
-    final url = (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
+  static bool hasComprovanteInDoc(Map<String, dynamic> data) =>
+      hasComprovanteReady(data);
+
+  /// Comprovante disponível para visualizar (URL ou path Storage confirmados).
+  static bool hasComprovanteReady(Map<String, dynamic> data) {
+    if (data['hasComprovante'] == true) {
+      final url = (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
+          .toString()
+          .trim();
+      final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
+      if (url.isNotEmpty || path.isNotEmpty) return true;
+    }
+    final urlOnly = (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
         .toString()
         .trim();
-    final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
-    if (url.isNotEmpty || path.isNotEmpty) return true;
-    final state = (data['comprovanteUploadState'] ?? '').toString();
-    return state == EntityPublishStatus.published;
+    final pathOnly = (data['comprovanteStoragePath'] ?? '').toString().trim();
+    return urlOnly.isNotEmpty || pathOnly.isNotEmpty;
+  }
+
+  static bool isComprovanteUploading(Map<String, dynamic> data) {
+    final state = (data['comprovanteUploadState'] ?? '').toString().trim();
+    return state == EntityPublishStatus.uploading;
   }
 
   static String displayNameFromDoc(Map<String, dynamic> data) {

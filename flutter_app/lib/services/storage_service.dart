@@ -5,9 +5,10 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/web_safe_media.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
+import 'package:gestao_yahweh/services/church_storage_service.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
-import 'package:gestao_yahweh/services/church_storage_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:video_compress/video_compress.dart';
 
@@ -133,6 +134,26 @@ abstract final class StorageService {
   }
 
   static Future<void> warmAuthToken() => FeedPostMediaUpload.warmAuthToken();
+
+  /// Avisos / eventos — JPEG 1080 px → `capa_aviso.jpg` / `banner_evento.jpg`.
+  static Future<FeedPhotoSlotResult> uploadFeedPhotoSlot({
+    required String tenantId,
+    required String postType,
+    required String postId,
+    required int slotIndex,
+    Uint8List? bytes,
+    String? localPath,
+    void Function(double progress)? onProgress,
+  }) =>
+      ChurchInstantUploadPipeline.uploadFeedPhotoSlot(
+        tenantId: tenantId,
+        postType: postType,
+        postId: postId,
+        slotIndex: slotIndex,
+        bytes: bytes,
+        localPath: localPath,
+        onProgress: onProgress,
+      );
 
   /// Upload canónico — grava só [storagePath] em `igrejas/{churchId}/…`.
   static Future<String> uploadToChurchPath({

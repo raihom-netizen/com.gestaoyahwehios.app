@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -743,7 +744,7 @@ class _PastoralLeituraRowState extends State<_PastoralLeituraRow> {
       // Regras podem bloquear leitura de outros users — tenta ficha do membro.
     }
     try {
-      final op = await ChurchOperationalPaths.resolveCached(widget.tenantId.trim());
+      final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
       final q = await           ChurchUiCollections.membros(op)
           .where('authUid', isEqualTo: widget.uid)
           .limit(1)

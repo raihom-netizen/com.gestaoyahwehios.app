@@ -179,6 +179,13 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   @override
   void initState() {
     super.initState();
+    final slugPeek = (widget.slug ?? '').trim();
+    if (slugPeek.isNotEmpty) {
+      final instant = PublicChurchSlugResolver.peek(slugPeek);
+      if (instant != null) {
+        _applyTenantFromChurchDataSync(instant.churchId, instant.profile);
+      }
+    }
     if (_tryApplySessionChurchInstant()) {
       unawaited(_bootstrap(backgroundOnly: true));
     } else {

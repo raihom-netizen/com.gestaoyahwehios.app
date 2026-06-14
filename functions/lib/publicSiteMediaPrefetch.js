@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.warmPublicSiteFeedCache = void 0;
+exports.enrichPostMedia = enrichPostMedia;
 exports.recomputePublicSiteMediaPrefetch = recomputePublicSiteMediaPrefetch;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions/v1"));
